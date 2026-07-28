@@ -160,16 +160,24 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                 "optimizer_state_dict": {},
                 "obs_norm_state_dict": {},
                 "frontres_segment_sampler_state_dict": {},
-                "frontres_segment_k_curriculum": ((8, 1, 1, 1), (16, 1, 1, 0)),
+                "frontres_segment_k_curriculum": (
+                    (8, 2, 200, 500, 1300),
+                    (16, 3, 300, 300, 900),
+                    (32, 4, 400, 300, 625),
+                ),
                 "frontres_v015_checkpoint_identity": {
-                    "format": "frontres-v015-checkpoint-v5",
+                    "format": "frontres-v015-checkpoint-v6",
                     "method_contract_id": "FRS-METHOD-v016",
                     "gain_contract_id": "FRS-GAIN-v006",
                     "optimization_contract_id": "FRS-PPO-v004",
-                    "training_contract_id": "FRS-TRAIN-v010",
+                    "training_contract_id": "FRS-TRAIN-v011",
                     "constraint_solver": {"persistent_dual_state": False},
                     "curriculum": {
-                        "schedule": ((8, 1, 1, 1), (16, 1, 1, 0)),
+                        "schedule": (
+                            (8, 2, 200, 500, 1300),
+                            (16, 3, 300, 300, 900),
+                            (32, 4, 400, 300, 625),
+                        ),
                         "schedule_fingerprint": "f" * 64,
                         "k_stage_index": 1,
                         "active_k": 16,
@@ -230,13 +238,13 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
         line = next(line for line in output.splitlines() if line.startswith(f"[{label}]"))
         assert "missing" not in line, line
     assert "gmt_trainable=0 gmt_in_optimizer=0" in output
-    assert "curriculum=((8, 1, 1, 1), (16, 1, 1, 0))" in output
+    assert "curriculum=((8, 2, 200, 500, 1300), (16, 3, 300, 300, 900), (32, 4, 400, 300, 625))" in output
     assert "active_k=16" in output
 
 
-def test_checkpoint_audit_rejects_missing_or_mixed_v010_curriculum() -> None:
+def test_checkpoint_audit_rejects_missing_or_mixed_v011_curriculum() -> None:
     runner = _runner()
-    schedule = ((8, 1, 1, 1), (16, 1, 1, 0))
+    schedule = ((8, 2, 200, 500, 1300), (16, 3, 300, 300, 900), (32, 4, 400, 300, 625))
     base = {
         "iter": 4,
         "model_state_dict": {},
@@ -245,11 +253,11 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v010_curriculum() -> None:
         "frontres_segment_sampler_state_dict": {},
         "frontres_segment_k_curriculum": schedule,
         "frontres_v015_checkpoint_identity": {
-            "format": "frontres-v015-checkpoint-v5",
+            "format": "frontres-v015-checkpoint-v6",
             "method_contract_id": "FRS-METHOD-v016",
             "gain_contract_id": "FRS-GAIN-v006",
             "optimization_contract_id": "FRS-PPO-v004",
-            "training_contract_id": "FRS-TRAIN-v010",
+            "training_contract_id": "FRS-TRAIN-v011",
             "constraint_solver": {"persistent_dual_state": False},
             "curriculum": {"schedule": schedule, "active_k": 16},
         },
@@ -257,7 +265,7 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v010_curriculum() -> None:
     for mutate in (
         lambda payload: payload.pop("frontres_segment_k_curriculum"),
         lambda payload: payload["frontres_v015_checkpoint_identity"]["curriculum"].update(
-            schedule=((8, 1, 1, 1), (32, 1, 1, 0))
+            schedule=((8, 2, 200, 500, 1300), (16, 3, 300, 300, 900), (32, 3, 400, 300, 625))
         ),
     ):
         payload = {
@@ -273,7 +281,7 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v010_curriculum() -> None:
         except AssertionError:
             pass
         else:
-            raise AssertionError("formal audit accepted missing or mixed v010 curriculum")
+            raise AssertionError("formal audit accepted missing or mixed v011 curriculum")
 
 
 def test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners() -> None:
@@ -516,10 +524,11 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
     assert modules["AUDIT-PPO-01"]["gap"].startswith("runtime-observed:")
     assert "valid=13/14/16/16" in modules["AUDIT-PPO-01"]["gap"]
     assert "E70" in modules["AUDIT-PPO-01"]["gap"]
-    assert "model_701" in modules["AUDIT-PERSIST-01"]["gap"]
+    assert "E-FI-89" in modules["AUDIT-PERSIST-01"]["gap"]
+    assert "checkpoint-v6" in modules["AUDIT-PERSIST-01"]["gap"]
     assert "accepted trust" in modules["AUDIT-PPO-01"]["gap"]
     assert "frozen GMT" in modules["AUDIT-PPO-01"]["gap"]
-    assert modules["AUDIT-PERSIST-01"]["gap"].startswith("runtime-observed:")
+    assert "M3/M4 persistence remains pending" in modules["AUDIT-PERSIST-01"]["gap"]
     assert len(why_here_texts) == 66
     assert len(set(why_here_texts)) == 66, "whyHere must not be a shared template across probe boundaries"
 
@@ -543,7 +552,7 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
 if __name__ == "__main__":
     test_return_audit_uses_policy_gain_rows_only()
     test_structured_phase_b_snapshots_cover_all_formal_boundaries()
-    test_checkpoint_audit_rejects_missing_or_mixed_v010_curriculum()
+    test_checkpoint_audit_rejects_missing_or_mixed_v011_curriculum()
     test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners()
     test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow()
     test_reset_lifecycle_audit_is_role_aware_and_separates_timeout_from_termination()

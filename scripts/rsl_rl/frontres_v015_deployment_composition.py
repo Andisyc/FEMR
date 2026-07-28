@@ -16,6 +16,8 @@ from pathlib import Path
 import sys
 from typing import Any, Mapping
 
+import numpy as np
+
 
 _V015_TASK = "FrontRES-Unified-Tracking-Flat-G1-v0"
 _V015_LAYOUT_VERSION = "frontres-v015-future-intent-q29-v1"
@@ -29,6 +31,7 @@ class FrontRESV015DeploymentCLIContract:
     task: str
     frontres_checkpoint: str
     gmt_checkpoint: str
+    source_reference_npz: str
     reference_npz: str
     report_path: str
     future_offsets: tuple[int, ...]
@@ -48,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--task", default=_V015_TASK)
     parser.add_argument("--frontres_checkpoint", required=True)
     parser.add_argument("--gmt_checkpoint", required=True)
+    parser.add_argument("--source_reference_npz", required=True)
     parser.add_argument("--reference_npz", required=True)
     parser.add_argument("--report_path", required=True)
     parser.add_argument("--future_offsets", default="1,2")
@@ -157,6 +161,9 @@ def validate_frontres_v015_deployment_cli_args(
             args.frontres_checkpoint, suffix=".pt", name="frontres_checkpoint"
         ),
         gmt_checkpoint=_absolute_input_file(args.gmt_checkpoint, suffix=".pt", name="gmt_checkpoint"),
+        source_reference_npz=_absolute_input_file(
+            args.source_reference_npz, suffix=".npz", name="source_reference_npz"
+        ),
         reference_npz=_absolute_input_file(args.reference_npz, suffix=".npz", name="reference_npz"),
         report_path=_absolute_new_report(args.report_path),
         future_offsets=_parse_future_offsets(args.future_offsets),
@@ -242,6 +249,7 @@ def build_frontres_v015_deployment_run_config(
     config = sequence_module.FrontRESV015DeploymentCompositionRunConfig(
         request_config=sequence_module.FrontRESV015DeploymentCompositionConfig(
             enabled=True,
+            source_reference_path=contract.source_reference_npz,
             reference_path=contract.reference_npz,
             future_offsets=contract.future_offsets,
             corruption_protocol=protocol,
@@ -296,6 +304,7 @@ def format_frontres_v015_deployment_sentinel(
     )
     return (
         "[FrontRES v015 Deployment Composition S4] "
+        f"frontres_checkpoint={contract.frontres_checkpoint} "
         f"reference_hash={report.request.reference_file_hash} "
         f"protocol_hash={report.request.corruption_protocol.protocol_hash} "
         f"reference_frames={report.reference_frame_count} "
@@ -303,6 +312,12 @@ def format_frontres_v015_deployment_sentinel(
         f"future_offsets={contract.future_offsets} "
         f"femr_actions={report.femr_action_count} "
         f"failures={report.accumulated_failure_count} "
+        f"intent_q29_mean={report.mean_intent_q29_error:.6g} "
+        f"contact_preservation={report.contact_preservation_fraction:.6g} "
+        f"zmp_violations={report.phase_zmp_violation_count} "
+        f"survival={report.survival_fraction:.6g} "
+        f"max_cum_roll={report.max_abs_cumulative_lateral_roll_rad:.6g} "
+        f"unplanned_contact_events={report.unplanned_contact_event_count} "
         f"optimizer_step_delta={int(optimizer_step_delta)} "
         f"no_feedback={no_feedback} "
         f"report={contract.report_path}"
@@ -338,11 +353,21 @@ def _run_with_hydra(contract: FrontRESV015DeploymentCLIContract, args_cli: Any) 
         env_cfg.scene.num_envs = contract.num_envs
         env_cfg.sim.device = contract.device
         motion_cfg = env_cfg.commands.motion
-        motion_cfg.motion = contract.reference_npz
+        # The simulator starts from the Clean physical state. The sealed command
+        # carrier installed by the evaluator remains the only Noisy reference.
+        motion_cfg.motion = contract.source_reference_npz
         if hasattr(motion_cfg, "motion_file"):
-            motion_cfg.motion_file = contract.reference_npz
+            motion_cfg.motion_file = contract.source_reference_npz
         _set_existing(motion_cfg, "motion_horizon", 1)
         _set_existing(motion_cfg, "command_velocity", True)
+        _set_existing(motion_cfg, "start_from_beginning", True)
+        _set_existing(motion_cfg, "start_frame", 0)
+        with np.load(contract.source_reference_npz, allow_pickle=False) as source_data:
+            source_frames = int(np.asarray(source_data["joint_pos"]).shape[0])
+            source_fps = float(np.asarray(source_data["fps"]).reshape(()))
+        if source_frames <= 0 or not source_fps > 0.0:
+            raise ValueError("v015 deployment source requires positive frames/fps")
+        env_cfg.episode_length_s = max(float(env_cfg.episode_length_s), source_frames / source_fps + 1.0)
         _zero_motion_randomization(env_cfg)
         if hasattr(env_cfg, "events"):
             env_cfg.events = None

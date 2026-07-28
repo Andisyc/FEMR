@@ -14,6 +14,7 @@ import io
 import json
 import math
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass, is_dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -136,6 +137,7 @@ class FrontRESV015DeploymentCompositionConfig:
     """Fail-closed identity config used to build the formal v015 request."""
 
     enabled: bool
+    source_reference_path: str
     reference_path: str
     future_offsets: tuple[int, ...]
     corruption_protocol: FrontRESV015PersistentCorruptionProtocol
@@ -144,6 +146,8 @@ class FrontRESV015DeploymentCompositionConfig:
     def validate(self) -> None:
         if self.enabled is not True:
             raise ValueError("v015 deployment composition config must be explicitly enabled")
+        if not self.source_reference_path or Path(self.source_reference_path).suffix.lower() != ".npz":
+            raise ValueError("v015 deployment composition source_reference_path must name one explicit .npz file")
         if not self.reference_path or Path(self.reference_path).suffix.lower() != ".npz":
             raise ValueError("v015 deployment composition reference_path must name one explicit .npz file")
         if (
@@ -166,6 +170,8 @@ class FrontRESV015DeploymentCompositionConfig:
 class FrontRESV015DeploymentCompositionRequest(_FrontRESV015NoTrainingFeedback):
     """Validated identity of one structured deployment reference and protocol."""
 
+    source_reference_path: str
+    source_reference_file_hash: str
     reference_path: str
     reference_stream_id: str
     reference_file_hash: str
@@ -179,6 +185,12 @@ class FrontRESV015DeploymentCompositionRequest(_FrontRESV015NoTrainingFeedback):
     evaluation_kind: str = _V015_DEPLOYMENT_COMPOSITION_KIND
 
     def validate(self) -> None:
+        if Path(self.source_reference_path).suffix.lower() != ".npz":
+            raise ValueError("v015 deployment request must retain an explicit source .npz path")
+        if len(self.source_reference_file_hash) != 64 or any(
+            ch not in "0123456789abcdef" for ch in self.source_reference_file_hash
+        ):
+            raise ValueError("v015 deployment source_reference_file_hash must be lowercase sha256")
         if Path(self.reference_path).suffix.lower() != ".npz":
             raise ValueError("v015 deployment request must retain an explicit .npz path")
         if self.reference_stream_id != f"deployment-npz:{self.reference_file_hash}":
@@ -324,8 +336,19 @@ class FrontRESV015DeploymentCompositionReport(_FrontRESV015NoTrainingFeedback):
     per_frame_intent_q29_error: tuple[float, ...]
     per_frame_physics_success: tuple[bool, ...]
     per_frame_fall: tuple[bool, ...]
-    per_frame_zmp_margin: tuple[float, ...]
+    per_frame_zmp_margin: tuple[float | None, ...]
     per_frame_contact_consistency: tuple[float, ...]
+    per_frame_policy_actions: tuple[tuple[tuple[float, ...], ...], ...]
+    expected_contact_steps: tuple[tuple[tuple[bool, bool], ...], ...]
+    actual_contact_steps: tuple[tuple[tuple[bool, bool], ...], ...]
+    contact_mismatch_steps: tuple[tuple[tuple[bool, bool], ...], ...]
+    phase_zmp_applicable_steps: tuple[tuple[bool, ...], ...]
+    phase_zmp_violation_steps: tuple[tuple[float | None, ...], ...]
+    phase_zmp_recovery_steps: tuple[tuple[bool, ...], ...]
+    survival_steps: tuple[tuple[bool, ...], ...]
+    lateral_roll_rad_steps: tuple[tuple[float, ...], ...]
+    lateral_roll_cumulative_mean_rad_steps: tuple[tuple[float, ...], ...]
+    unplanned_contact_steps: tuple[tuple[bool, ...], ...]
     evaluation_kind: str = _V015_DEPLOYMENT_COMPOSITION_KIND
 
     @property
@@ -344,6 +367,40 @@ class FrontRESV015DeploymentCompositionReport(_FrontRESV015NoTrainingFeedback):
     def accumulated_failure_count(self) -> int:
         return sum(not bool(value) for value in self.per_frame_physics_success)
 
+    @property
+    def mean_intent_q29_error(self) -> float:
+        return sum(self.per_frame_intent_q29_error) / max(self.frame_count, 1)
+
+    @property
+    def contact_preservation_fraction(self) -> float:
+        total = self.frame_count * len(self.contact_mismatch_steps[0])
+        return 1.0 - sum(any(foot) for frame in self.contact_mismatch_steps for foot in frame) / max(total, 1)
+
+    @property
+    def phase_zmp_applicable_count(self) -> int:
+        return sum(bool(value) for frame in self.phase_zmp_applicable_steps for value in frame)
+
+    @property
+    def phase_zmp_violation_count(self) -> int:
+        return sum(
+            value is not None and float(value) > 0.0
+            for frame in self.phase_zmp_violation_steps
+            for value in frame
+        )
+
+    @property
+    def survival_fraction(self) -> float:
+        total = self.frame_count * len(self.survival_steps[0])
+        return sum(bool(value) for frame in self.survival_steps for value in frame) / max(total, 1)
+
+    @property
+    def max_abs_cumulative_lateral_roll_rad(self) -> float:
+        return max(abs(float(value)) for frame in self.lateral_roll_cumulative_mean_rad_steps for value in frame)
+
+    @property
+    def unplanned_contact_event_count(self) -> int:
+        return sum(bool(value) for frame in self.unplanned_contact_steps for value in frame)
+
     def validate(self) -> None:
         self.request.validate()
         if self.evaluation_kind != _V015_DEPLOYMENT_COMPOSITION_KIND:
@@ -358,23 +415,93 @@ class FrontRESV015DeploymentCompositionReport(_FrontRESV015NoTrainingFeedback):
         )
         if any(not isinstance(values, tuple) or len(values) != self.frame_count for values in rows):
             raise ValueError("v015 deployment report per-frame length must equal its unclamped evaluated frame count")
+        rich_rows = (
+            self.per_frame_policy_actions,
+            self.expected_contact_steps,
+            self.actual_contact_steps,
+            self.contact_mismatch_steps,
+            self.phase_zmp_applicable_steps,
+            self.phase_zmp_violation_steps,
+            self.phase_zmp_recovery_steps,
+            self.survival_steps,
+            self.lateral_roll_rad_steps,
+            self.lateral_roll_cumulative_mean_rad_steps,
+            self.unplanned_contact_steps,
+        )
+        if any(not isinstance(values, tuple) or len(values) != self.frame_count for values in rich_rows):
+            raise ValueError("v015 deployment quality trajectories must align with every evaluated frame")
+        batch_sizes = {len(values[0]) for values in rich_rows if values}
+        if len(batch_sizes) != 1 or next(iter(batch_sizes), 0) <= 0:
+            raise ValueError("v015 deployment quality trajectories must share one positive row count")
+        batch_size = next(iter(batch_sizes))
+        if any(len(frame) != batch_size for values in rich_rows for frame in values):
+            raise ValueError("v015 deployment quality trajectories lost row alignment")
+        if any(len(action) != 6 for frame in self.per_frame_policy_actions for action in frame):
+            raise ValueError("v015 deployment policy actions must be [T,B,6]")
+        contact_rows = (self.expected_contact_steps, self.actual_contact_steps, self.contact_mismatch_steps)
+        if any(len(contact) != 2 for values in contact_rows for frame in values for contact in frame):
+            raise ValueError("v015 deployment Contact trajectories must be [T,B,2]")
+        boolean_rows = (
+            self.expected_contact_steps,
+            self.actual_contact_steps,
+            self.contact_mismatch_steps,
+            self.phase_zmp_applicable_steps,
+            self.phase_zmp_recovery_steps,
+            self.survival_steps,
+            self.unplanned_contact_steps,
+        )
+        if any(
+            type(value) is not bool
+            for rows_ in boolean_rows
+            for frame in rows_
+            for row in frame
+            for value in (row if isinstance(row, tuple) else (row,))
+        ):
+            raise ValueError("v015 deployment Contact/ZMP/survival trajectories must contain bool values")
         if any(type(value) is not bool for value in self.per_frame_femr_action_used):
             raise ValueError("v015 per-frame FEMR action flags must be bool")
         if any(type(value) is not bool for value in self.per_frame_physics_success + self.per_frame_fall):
             raise ValueError("v015 per-frame physics success/fall flags must be bool")
         if any(success and fall for success, fall in zip(self.per_frame_physics_success, self.per_frame_fall, strict=True)):
             raise ValueError("v015 composition frame cannot report physics success and fall together")
-        numeric_rows = (
-            self.per_frame_intent_q29_error,
-            self.per_frame_zmp_margin,
-            self.per_frame_contact_consistency,
-        )
+        numeric_rows = (self.per_frame_intent_q29_error, self.per_frame_contact_consistency)
         if any(not math.isfinite(float(value)) for values in numeric_rows for value in values):
             raise ValueError("v015 deployment report metrics must be finite")
+        if any(value is not None and not math.isfinite(float(value)) for value in self.per_frame_zmp_margin):
+            raise ValueError("v015 deployment ZMP margins must be finite or explicit N/A")
         if any(float(value) < 0.0 for value in self.per_frame_intent_q29_error):
             raise ValueError("v015 per-frame q29 intent error must be nonnegative")
         if any(not 0.0 <= float(value) <= 1.0 for value in self.per_frame_contact_consistency):
             raise ValueError("v015 per-frame contact consistency must be in [0,1]")
+        finite_values = (
+            value
+            for rows_ in (
+                self.per_frame_policy_actions,
+                self.lateral_roll_rad_steps,
+                self.lateral_roll_cumulative_mean_rad_steps,
+            )
+            for frame in rows_
+            for row in frame
+            for value in (row if isinstance(row, tuple) else (row,))
+        )
+        if any(not math.isfinite(float(value)) for value in finite_values):
+            raise ValueError("v015 deployment action/lean trajectories must be finite")
+        if any(
+            value is not None and (not math.isfinite(float(value)) or float(value) < 0.0)
+            for frame in self.phase_zmp_violation_steps
+            for value in frame
+        ):
+            raise ValueError("v015 phase-ZMP violation must be nonnegative or explicit N/A")
+        if any(
+            bool(applicable) != (value is not None)
+            for app_frame, value_frame in zip(
+                self.phase_zmp_applicable_steps,
+                self.phase_zmp_violation_steps,
+                strict=True,
+            )
+            for applicable, value in zip(app_frame, value_frame, strict=True)
+        ):
+            raise ValueError("v015 phase-ZMP violation N/A must exactly match applicability")
 
 
 @dataclass(frozen=True)
@@ -411,11 +538,19 @@ def load_frontres_v015_deployment_composition_request(
     if not isinstance(config, FrontRESV015DeploymentCompositionConfig):
         raise TypeError("v015 deployment composition request requires its dedicated config")
     config.validate()
+    source_path = Path(config.source_reference_path).expanduser().resolve(strict=True)
     reference_path = Path(config.reference_path).expanduser().resolve(strict=True)
+    if not source_path.is_file():
+        raise ValueError(f"v015 deployment source reference is not a file: {source_path}")
     if not reference_path.is_file():
         raise ValueError(f"v015 deployment reference is not a file: {reference_path}")
 
     try:
+        with np.load(source_path, allow_pickle=False) as data:
+            missing = tuple(name for name in _V015_REQUIRED_NPZ_ARRAYS if name not in data.files)
+            if missing:
+                raise ValueError(f"v015 deployment source .npz is missing required arrays: {missing}")
+            source_arrays = {name: np.asarray(data[name]) for name in _V015_REQUIRED_NPZ_ARRAYS}
         with np.load(reference_path, allow_pickle=False) as data:
             missing = tuple(name for name in _V015_REQUIRED_NPZ_ARRAYS if name not in data.files)
             if missing:
@@ -424,9 +559,19 @@ def load_frontres_v015_deployment_composition_request(
     except (OSError, TypeError) as exc:
         raise ValueError(f"v015 deployment reference cannot be read as a safe .npz: {reference_path}") from exc
 
+    source_shape = _validate_v015_deployment_npz_arrays(source_arrays)
     frame_count, joint_dof, body_count, fps = _validate_v015_deployment_npz_arrays(arrays)
+    if source_shape != (frame_count, joint_dof, body_count, fps):
+        raise ValueError("v015 deployment source/carrier shape and fps identity must match")
+    if not np.array_equal(source_arrays["joint_pos"], arrays["joint_pos"]) or not np.array_equal(
+        source_arrays["joint_vel"], arrays["joint_vel"]
+    ):
+        raise ValueError("v015 deployment source/carrier q29 intent identity must match exactly")
+    source_file_hash = _sha256_file(source_path)
     file_hash = _sha256_file(reference_path)
     request = FrontRESV015DeploymentCompositionRequest(
+        source_reference_path=str(source_path),
+        source_reference_file_hash=source_file_hash,
         reference_path=str(reference_path),
         reference_stream_id=f"deployment-npz:{file_hash}",
         reference_file_hash=file_hash,
@@ -794,12 +939,22 @@ def run_frontres_v015_deployment_composition_eval(
     intent_error: list[float] = []
     physics_success: list[bool] = []
     fall: list[bool] = []
-    zmp_margin: list[float] = []
-    contact_consistency: list[float] = []
+    policy_actions: list[torch.Tensor] = []
+    actual_contacts: list[torch.Tensor] = []
+    zmp_margins: list[torch.Tensor] = []
+    survival_rows: list[torch.Tensor] = []
+    lateral_roll_rows: list[torch.Tensor] = []
     evaluated_frames = request.frame_count - max(request.future_offsets)
+    expected_sequence, envelope_sequence = _frontres_v015_deployment_expected_physics(request, command, runner)
+    metric_provider = getattr(runner, "_frontres_v015_deployment_metric_provider", None)
+    if not callable(metric_provider):
+        from rsl_rl.runners.frontres_segment_live_probe import _prepare_frontres_raw_contact_views
+
+        _prepare_frontres_raw_contact_views(runner)
+    alive = torch.ones(int(getattr(command, "num_envs", 0)), device=runner.device, dtype=torch.bool)
     set_sequence(request)
     try:
-        with torch.inference_mode():
+        with _frontres_v015_deployment_inference_mode(runner), torch.inference_mode():
             for frame_index in range(evaluated_frames):
                 snapshot = read_context()
                 cursors = snapshot["frame_indices"]
@@ -843,6 +998,10 @@ def run_frontres_v015_deployment_composition_eval(
                     frame_index=frame_index,
                     dones=dones,
                     infos=infos,
+                    expected_support=expected_sequence[frame_index].unsqueeze(0).expand(int(dones.numel()), -1),
+                    expected_support_envelope=envelope_sequence[frame_index].unsqueeze(0).expand(
+                        int(dones.numel()), -1
+                    ),
                 )
                 executed_q29 = getattr(getattr(command, "robot", None), "data", None)
                 executed_q29 = getattr(executed_q29, "joint_pos", None)
@@ -854,10 +1013,13 @@ def run_frontres_v015_deployment_composition_eval(
 
                 femr_used.append(True)
                 intent_error.append(float(q29_error.item()))
-                physics_success.append(bool(frame_metrics["physics_success"].all().item()))
                 fall.append(bool(frame_metrics["fall"].any().item()))
-                zmp_margin.append(float(frame_metrics["zmp_margin"].mean().item()))
-                contact_consistency.append(float(frame_metrics["contact_consistency"].mean().item()))
+                policy_actions.append(correction.detach().clone())
+                actual_contacts.append(frame_metrics["actual_contact"].detach().clone())
+                zmp_margins.append(frame_metrics["zmp_margin"].detach().clone())
+                alive = alive & ~frame_metrics["fall"]
+                survival_rows.append(alive.detach().clone())
+                lateral_roll_rows.append(frame_metrics["lateral_roll_rad"].detach().clone())
                 if frame_index + 1 < evaluated_frames:
                     advance_sequence()
     finally:
@@ -867,6 +1029,52 @@ def run_frontres_v015_deployment_composition_eval(
     if training_after != training_before:
         changed = tuple(name for name in training_before if training_before[name] != training_after.get(name))
         raise RuntimeError(f"v015 composition mutated forbidden training state: {changed}")
+    expected_steps = expected_sequence[:evaluated_frames].unsqueeze(1).expand(-1, int(command.num_envs), -1)
+    actual_steps = torch.stack(actual_contacts, dim=0)
+    margin_steps = torch.stack(zmp_margins, dim=0)
+    valid_steps = torch.ones_like(margin_steps, dtype=torch.bool)
+    phase_provider = getattr(runner, "_frontres_v015_deployment_phase_provider", None)
+    if not callable(phase_provider):
+        from rsl_rl.frontres.frontres_gain import evaluate_phase_conditioned_physics as phase_provider
+    phase = phase_provider(
+        expected_steps,
+        actual_steps,
+        margin_steps,
+        valid_steps,
+        timing_tolerance=int(getattr(runner, "cfg", {}).get("frontres_physics_contact_timing_tolerance", 1)),
+        recovery_window=int(getattr(runner, "cfg", {}).get("frontres_physics_zmp_recovery_window", 1)),
+        zmp_violation_scale=float(getattr(runner, "cfg", {}).get("frontres_physics_zmp_violation_scale", 0.05)),
+        dt=1.0 / float(request.fps),
+    )
+    mismatch = phase["contact_mismatch_steps"].bool()
+    applicable = phase["zmp_applicable_steps"].bool()
+    violation = phase["zmp_step_violation"].float()
+    survival = torch.stack(survival_rows, dim=0)
+    roll = torch.stack(lateral_roll_rows, dim=0)
+    roll_cumulative = roll.cumsum(dim=0) / torch.arange(
+        1, evaluated_frames + 1, device=roll.device, dtype=roll.dtype
+    ).unsqueeze(1)
+    recovery = expected_steps.any(dim=-1) & actual_steps.any(dim=-1) & ~applicable
+    unplanned = _frontres_v015_unplanned_contact_steps(
+        expected_steps,
+        actual_steps,
+        timing_tolerance=int(getattr(runner, "cfg", {}).get("frontres_physics_contact_timing_tolerance", 1)),
+    )
+    row_success = survival & ~mismatch.any(dim=-1) & ~(applicable & (violation > 0.0))
+    physics_success.extend(bool(value) for value in row_success.all(dim=1).detach().cpu().tolist())
+    contact_consistency = (1.0 - mismatch.float().mean(dim=(1, 2))).detach().cpu().tolist()
+    zmp_margin: list[float | None] = []
+    for frame_margin, frame_applicable in zip(margin_steps, applicable, strict=True):
+        values = frame_margin[frame_applicable]
+        zmp_margin.append(None if int(values.numel()) == 0 else float(values.mean().item()))
+
+    def nested(value: torch.Tensor) -> tuple:
+        return tuple(_frontres_v015_tuple_tree(item) for item in value.detach().cpu().tolist())
+
+    zmp_violation_steps = tuple(
+        tuple(float(violation[t, b].item()) if bool(applicable[t, b]) else None for b in range(int(applicable.shape[1])))
+        for t in range(evaluated_frames)
+    )
     report = FrontRESV015DeploymentCompositionReport(
         request=request,
         per_frame_femr_action_used=tuple(femr_used),
@@ -875,6 +1083,17 @@ def run_frontres_v015_deployment_composition_eval(
         per_frame_fall=tuple(fall),
         per_frame_zmp_margin=tuple(zmp_margin),
         per_frame_contact_consistency=tuple(contact_consistency),
+        per_frame_policy_actions=nested(torch.stack(policy_actions, dim=0)),
+        expected_contact_steps=nested(expected_steps.bool()),
+        actual_contact_steps=nested(actual_steps.bool()),
+        contact_mismatch_steps=nested(mismatch),
+        phase_zmp_applicable_steps=nested(applicable),
+        phase_zmp_violation_steps=zmp_violation_steps,
+        phase_zmp_recovery_steps=nested(recovery),
+        survival_steps=nested(survival),
+        lateral_roll_rad_steps=nested(roll),
+        lateral_roll_cumulative_mean_rad_steps=nested(roll_cumulative),
+        unplanned_contact_steps=nested(unplanned),
     )
     report.validate()
     _write_frontres_v015_deployment_composition_report(report, Path(config.report_path))
@@ -916,6 +1135,141 @@ def _frontres_v015_normalize_observation(runner: Any, obs: torch.Tensor) -> torc
     return normalized
 
 
+def _frontres_v015_deployment_expected_physics(
+    request: FrontRESV015DeploymentCompositionRequest,
+    command: Any,
+    runner: Any,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return Clean, evaluator-only Contact phase and support envelopes."""
+
+    provider = getattr(runner, "_frontres_v015_deployment_expected_physics_provider", None)
+    if callable(provider):
+        support, envelope = provider(request=request, command=command)
+        support = torch.as_tensor(support, device=runner.device, dtype=torch.bool)
+        envelope = torch.as_tensor(envelope, device=runner.device, dtype=torch.float32)
+        if tuple(support.shape) != (request.frame_count, 2) or tuple(envelope.shape) != (
+            request.frame_count,
+            6,
+        ):
+            raise RuntimeError("v015 deployment expected-Physics provider returned an invalid trajectory shape")
+        return support.detach().clone(), envelope.detach().clone()
+
+    arrays = _frontres_v015_load_npz_arrays(Path(request.source_reference_path))
+    body_pos = torch.as_tensor(arrays["body_pos_w"], device=runner.device, dtype=torch.float32)
+    body_quat = torch.as_tensor(arrays["body_quat_w"], device=runner.device, dtype=torch.float32)
+    left = int(getattr(command, "left_foot_idx", -1))
+    right = int(getattr(command, "right_foot_idx", -1))
+    if left < 0 or right < 0 or left == right or max(left, right) >= int(body_pos.shape[1]):
+        raise RuntimeError("v015 deployment Physics requires two valid command-owned Clean foot indices")
+    from rsl_rl.frontres.frontres_balance import expected_support_and_envelope_from_foot_pose
+
+    return expected_support_and_envelope_from_foot_pose(
+        body_pos[:, (left, right)],
+        body_quat[:, (left, right)],
+        contact_height=float(getattr(getattr(command, "cfg", None), "frontres_expected_contact_height", 0.08)),
+        foot_half_length=float(
+            getattr(getattr(command, "cfg", None), "frontres_expected_foot_half_length", 0.10)
+        ),
+        foot_half_width=float(
+            getattr(getattr(command, "cfg", None), "frontres_expected_foot_half_width", 0.05)
+        ),
+    )
+
+
+def _frontres_v015_deployment_contact_wrench_frame(
+    runner: Any,
+    *,
+    expected_support: torch.Tensor,
+    expected_support_envelope: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Capture sensor-authoritative Contact and contact-wrench ZMP for one frame."""
+
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    scene = getattr(env, "scene", None)
+    if scene is None:
+        raise RuntimeError("v015 deployment Physics requires the formal IsaacLab scene")
+    from rsl_rl.runners.frontres_segment_live_probe import _pad_raw_contact_slots, _raw_filtered_contact_rows
+    from rsl_rl.frontres.frontres_balance import contact_wrench_zmp_xy, expected_support_envelope_margin
+
+    sensors = []
+    actual = []
+    for name in ("frontres_left_foot_contacts", "frontres_right_foot_contacts"):
+        try:
+            sensor = scene[name]
+        except (KeyError, TypeError) as exc:
+            raise RuntimeError(f"v015 deployment Physics is missing {name}") from exc
+        force_matrix = getattr(getattr(sensor, "data", None), "force_matrix_w", None)
+        threshold = getattr(getattr(sensor, "cfg", None), "force_threshold", None)
+        if not isinstance(force_matrix, torch.Tensor) or not isinstance(threshold, (int, float)):
+            raise RuntimeError(f"v015 deployment Physics requires filtered force_matrix_w for {name}")
+        force_matrix = force_matrix.to(device=runner.device, dtype=torch.float32)
+        if force_matrix.ndim != 4 or tuple(force_matrix.shape[:2]) != (int(expected_support.shape[0]), 1):
+            raise RuntimeError(f"{name} filtered force matrix must be [B,1,F,3]")
+        if not bool(torch.isfinite(force_matrix).all()) or not math.isfinite(float(threshold)) or float(threshold) <= 0.0:
+            raise RuntimeError(f"{name} filtered contact forces/threshold must be finite with positive threshold")
+        actual.append(force_matrix[..., 2].sum(dim=(1, 2)).abs() >= float(threshold))
+        sensors.append(sensor)
+    actual_contact = torch.stack(actual, dim=-1)
+    raw = [
+        _raw_filtered_contact_rows(sensor, num_envs=int(expected_support.shape[0]), device=runner.device)
+        for sensor in sensors
+    ]
+    contact_slots = max(int(value[0].shape[2]) for value in raw)
+    raw = [_pad_raw_contact_slots(value, contact_slots=contact_slots) for value in raw]
+    points = torch.cat(tuple(value[0] for value in raw), dim=1)
+    forces = torch.cat(tuple(value[1] for value in raw), dim=1)
+    normals = torch.cat(tuple(value[2] for value in raw), dim=1)
+    valid = torch.cat(tuple(value[3] for value in raw), dim=1)
+    zmp_xy, zmp_valid = contact_wrench_zmp_xy(points, forces, normals, valid)
+    origins = getattr(scene, "env_origins", None)
+    if not isinstance(origins, torch.Tensor) or tuple(origins.shape[:1]) != (int(expected_support.shape[0]),):
+        raise RuntimeError("v015 deployment Physics requires row-aligned scene.env_origins")
+    margin = expected_support_envelope_margin(
+        zmp_xy,
+        expected_support_envelope,
+        expected_support,
+        env_origins_xy=origins[:, :2].to(device=runner.device, dtype=torch.float32),
+    )
+    required = expected_support.bool().any(dim=-1) & actual_contact.any(dim=-1)
+    if bool((required & ~zmp_valid).any()):
+        raise RuntimeError("v015 deployment loaded support is missing a finite raw contact-wrench resultant")
+    margin = torch.where(required, margin, torch.full_like(margin, float("nan")))
+    return actual_contact.detach().clone(), margin.detach().clone()
+
+
+def _frontres_v015_robot_lateral_roll(command: Any) -> torch.Tensor:
+    quat = getattr(command, "robot_anchor_quat_w", None)
+    if not isinstance(quat, torch.Tensor) or quat.ndim != 2 or int(quat.shape[1]) != 4:
+        raise RuntimeError("v015 deployment sustained-lean evidence requires robot root quaternion [B,4]")
+    w, x, y, z = quat.unbind(dim=-1)
+    return torch.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x.square() + y.square())).detach().clone()
+
+
+def _frontres_v015_unplanned_contact_steps(
+    expected: torch.Tensor,
+    actual: torch.Tensor,
+    *,
+    timing_tolerance: int,
+) -> torch.Tensor:
+    expected_transition = torch.zeros(expected.shape[:2], device=expected.device, dtype=torch.bool)
+    actual_transition = torch.zeros_like(expected_transition)
+    if int(expected.shape[0]) > 1:
+        expected_transition[1:] = (expected[1:] != expected[:-1]).any(dim=-1)
+        actual_transition[1:] = (actual[1:] != actual[:-1]).any(dim=-1)
+    planned = torch.zeros_like(expected_transition)
+    for delta in range(-int(timing_tolerance), int(timing_tolerance) + 1):
+        source = torch.arange(int(expected.shape[0]), device=expected.device) + delta
+        inside = (source >= 0) & (source < int(expected.shape[0]))
+        planned |= expected_transition.index_select(0, source.clamp(0, int(expected.shape[0]) - 1)) & inside.unsqueeze(1)
+    return actual_transition & ~planned
+
+
+def _frontres_v015_tuple_tree(value: Any) -> Any:
+    if isinstance(value, list):
+        return tuple(_frontres_v015_tuple_tree(item) for item in value)
+    return value
+
+
 def _frontres_v015_deployment_frame_metrics(
     runner: Any,
     command: Any,
@@ -923,13 +1277,20 @@ def _frontres_v015_deployment_frame_metrics(
     frame_index: int,
     dones: torch.Tensor,
     infos: Any,
+    expected_support: torch.Tensor,
+    expected_support_envelope: torch.Tensor,
 ) -> dict[str, torch.Tensor]:
     provider = getattr(runner, "_frontres_v015_deployment_metric_provider", None)
     if callable(provider):
-        values = provider(frame_index=frame_index, dones=dones, infos=infos, command=command)
+        values = provider(
+            frame_index=frame_index,
+            dones=dones,
+            infos=infos,
+            command=command,
+            expected_support=expected_support,
+            expected_support_envelope=expected_support_envelope,
+        )
     else:
-        from rsl_rl.frontres.frontres_balance import _frontres_branch_balance_margin
-
         time_outs = infos.get("time_outs") if isinstance(infos, Mapping) else None
         time_outs = (
             torch.as_tensor(time_outs, device=dones.device, dtype=torch.bool)
@@ -937,33 +1298,38 @@ def _frontres_v015_deployment_frame_metrics(
             else torch.zeros_like(dones)
         )
         fall = dones & ~time_outs
+        actual_contact, zmp_margin = _frontres_v015_deployment_contact_wrench_frame(
+            runner,
+            expected_support=expected_support,
+            expected_support_envelope=expected_support_envelope,
+        )
         values = {
-            "physics_success": ~fall,
             "fall": fall,
-            "zmp_margin": _frontres_branch_balance_margin(
-                runner, command, start=0, count=int(dones.numel()), device=runner.device
-            ),
-            "contact_consistency": _frontres_v015_contact_consistency(runner, command),
+            "zmp_margin": zmp_margin,
+            "actual_contact": actual_contact,
+            "lateral_roll_rad": _frontres_v015_robot_lateral_roll(command),
         }
-    required = {"physics_success", "fall", "zmp_margin", "contact_consistency"}
+    required = {"fall", "zmp_margin", "actual_contact", "lateral_roll_rad"}
     if not isinstance(values, Mapping) or set(values) != required:
         raise RuntimeError("v015 composition metric provider returned an invalid schema")
     output: dict[str, torch.Tensor] = {}
     for name in required:
-        value = torch.as_tensor(values[name], device=runner.device).flatten()
+        value = torch.as_tensor(values[name], device=runner.device)
+        if name == "actual_contact":
+            if tuple(value.shape) != (int(dones.numel()), 2):
+                raise RuntimeError("v015 composition actual Contact must be row-aligned [B,2]")
+            output[name] = value.bool().detach().clone()
+            continue
+        value = value.flatten()
         if int(value.numel()) != int(dones.numel()):
             raise RuntimeError(f"v015 composition metric {name} must be row-aligned [B]")
-        if name in {"physics_success", "fall"}:
+        if name == "fall":
             value = value.bool()
         else:
             value = value.float()
-            if not bool(torch.isfinite(value).all().item()):
+            if name != "zmp_margin" and not bool(torch.isfinite(value).all().item()):
                 raise RuntimeError(f"v015 composition metric {name} must be finite")
         output[name] = value.detach().clone()
-    if bool((output["physics_success"] & output["fall"]).any()):
-        raise RuntimeError("v015 composition cannot report success and fall for the same row")
-    if bool(((output["contact_consistency"] < 0.0) | (output["contact_consistency"] > 1.0)).any()):
-        raise RuntimeError("v015 composition contact consistency must remain in [0,1]")
     return output
 
 
@@ -1000,8 +1366,38 @@ def _frontres_v015_training_state_fingerprint(runner: Any) -> dict[str, str]:
         "sampler": getattr(runner, "_frontres_segment_sampler", None),
         "storage": getattr(runner, "storage", None),
         "transition": getattr(alg, "transition", None),
+        "prefix_normalizer": getattr(runner, "_frontres_extra_normalizer", None),
+        "gmt_normalizer": getattr(runner, "obs_normalizer", None),
+        "privileged_normalizer": getattr(runner, "privileged_obs_normalizer", None),
+        "teacher_normalizer": getattr(runner, "teacher_obs_normalizer", None),
     }
     return {name: _frontres_v015_object_state_hash(value) for name, value in objects.items()}
+
+
+@contextmanager
+def _frontres_v015_deployment_inference_mode(runner: Any):
+    """Freeze inference owners without losing their original mixed modes."""
+
+    roots = (
+        getattr(getattr(runner, "alg", None), "policy", None),
+        getattr(runner, "_frontres_extra_normalizer", None),
+        getattr(runner, "obs_normalizer", None),
+        getattr(runner, "privileged_obs_normalizer", None),
+        getattr(runner, "teacher_obs_normalizer", None),
+    )
+    module_modes: dict[torch.nn.Module, bool] = {}
+    for root in roots:
+        if not isinstance(root, torch.nn.Module):
+            continue
+        for module in root.modules():
+            module_modes.setdefault(module, bool(module.training))
+    for module in module_modes:
+        module.training = False
+    try:
+        yield
+    finally:
+        for module, was_training in module_modes.items():
+            module.training = was_training
 
 
 def _frontres_v015_object_state_hash(value: Any) -> str:
@@ -1043,6 +1439,8 @@ def _write_frontres_v015_deployment_composition_report(
     report.validate()
     payload = {
         "evaluation_kind": report.evaluation_kind,
+        "source_reference_path": report.request.source_reference_path,
+        "source_reference_file_hash": report.request.source_reference_file_hash,
         "reference_path": report.request.reference_path,
         "reference_stream_id": report.request.reference_stream_id,
         "reference_file_hash": report.request.reference_file_hash,
@@ -1064,6 +1462,28 @@ def _write_frontres_v015_deployment_composition_report(
         "per_frame_fall": list(report.per_frame_fall),
         "per_frame_zmp_margin": list(report.per_frame_zmp_margin),
         "per_frame_contact_consistency": list(report.per_frame_contact_consistency),
+        "per_frame_policy_actions": report.per_frame_policy_actions,
+        "expected_contact_steps": report.expected_contact_steps,
+        "actual_contact_steps": report.actual_contact_steps,
+        "contact_mismatch_steps": report.contact_mismatch_steps,
+        "phase_zmp_applicable_steps": report.phase_zmp_applicable_steps,
+        "phase_zmp_violation_steps": report.phase_zmp_violation_steps,
+        "phase_zmp_recovery_steps": report.phase_zmp_recovery_steps,
+        "survival_steps": report.survival_steps,
+        "evaluation_only_sustained_lean": {
+            "lateral_roll_rad": report.lateral_roll_rad_steps,
+            "cumulative_mean_rad": report.lateral_roll_cumulative_mean_rad_steps,
+        },
+        "unplanned_contact_steps": report.unplanned_contact_steps,
+        "summary": {
+            "mean_intent_q29_error": report.mean_intent_q29_error,
+            "contact_preservation_fraction": report.contact_preservation_fraction,
+            "phase_zmp_applicable_count": report.phase_zmp_applicable_count,
+            "phase_zmp_violation_count": report.phase_zmp_violation_count,
+            "survival_fraction": report.survival_fraction,
+            "max_abs_cumulative_lateral_roll_rad": report.max_abs_cumulative_lateral_roll_rad,
+            "unplanned_contact_event_count": report.unplanned_contact_event_count,
+        },
         "return_feedback": False,
         "priority_feedback": False,
         "ppo_feedback": False,

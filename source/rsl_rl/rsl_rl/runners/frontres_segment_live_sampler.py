@@ -43,6 +43,8 @@ _K_STAGE_MODULE = importlib.util.module_from_spec(_K_STAGE_SPEC)
 sys.modules[_K_STAGE_SPEC.name] = _K_STAGE_MODULE
 _K_STAGE_SPEC.loader.exec_module(_K_STAGE_MODULE)
 resolve_frontres_k_stage_identity = _K_STAGE_MODULE.resolve_frontres_k_stage_identity
+require_frontres_v011_campaign_schedule = _K_STAGE_MODULE.require_frontres_v011_campaign_schedule
+FRONTRES_V011_SELECTED_SEGMENT_COUNT = _K_STAGE_MODULE.FRONTRES_V011_SELECTED_SEGMENT_COUNT
 
 _DATASET_PATH = Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_dataset.py"
 _DATASET_SPEC = importlib.util.spec_from_file_location(
@@ -250,6 +252,17 @@ class FrontRESV015FormalTransactionPlan:
     def policy_snapshot_id(self) -> str:
         return self.snapshot.policy_snapshot_id
 
+    @property
+    def selected_segment_count(self) -> int:
+        return int(torch.unique(self.source_index).numel())
+
+    @property
+    def active_m(self) -> int:
+        counts = torch.bincount(self.source_index, minlength=self.selected_segment_count)
+        if counts.numel() == 0 or int(torch.unique(counts).numel()) != 1:
+            raise ValueError("FRS-TRAIN-v011 formal transaction requires one exact M across both Segments")
+        return int(counts[0].item())
+
     def _row_identity(self, row: int) -> tuple[str, int, int, int, str, str, str]:
         return (
             self.motion_ids[row],
@@ -309,11 +322,12 @@ class FrontRESV015FormalTransactionPlan:
                 raise ValueError("v015 formal transaction plan has duplicate source/trial attempts")
             seen_attempts.add(key)
             source_rows.setdefault(source, []).append(row)
-        if len(source_rows) < 2:
-            raise ValueError("v015 formal transaction plan requires at least two selected Segment sources")
+        if len(source_rows) != FRONTRES_V011_SELECTED_SEGMENT_COUNT or sorted(source_rows) != [0, 1]:
+            raise ValueError("FRS-TRAIN-v011 formal transaction plan requires source_index exactly {0,1}")
+        attempt_counts = {len(rows) for rows in source_rows.values()}
+        if len(attempt_counts) != 1 or next(iter(attempt_counts)) < 2:
+            raise ValueError("FRS-TRAIN-v011 formal transaction plan requires one exact M>=2 across both Segments")
         for source, rows in source_rows.items():
-            if len(rows) < 2:
-                raise ValueError(f"v015 source_index={source} requires at least two policy attempts")
             expected_trials = list(range(len(rows)))
             observed_trials = sorted(int(self.trial_index[row].item()) for row in rows)
             if observed_trials != expected_trials:
@@ -1753,29 +1767,25 @@ def _build_current_segment_batch(
 def _sample_frontres_v015_transaction_sources(
     sampler: Any,
     *,
-    repair_rows: int,
+    selected_segment_count: int,
     max_horizon_k: int,
     candidate_is_eligible: Callable[[int], bool] | None = None,
 ) -> FrontRESSegmentSample:
-    """Select distinct sources whose unchanged M budgets exactly fill Repair rows."""
+    """Select exactly S distinct sources; TRAIN-v011 owns M, not sampler state."""
 
-    if repair_rows < 4 or repair_rows % 2 != 0:
-        raise RuntimeError("v015 formal transaction requires an even Repair-row budget of at least four")
-    max_draws = max(64, repair_rows * 4)
+    if int(selected_segment_count) != FRONTRES_V011_SELECTED_SEGMENT_COUNT:
+        raise RuntimeError("FRS-TRAIN-v011 requires exactly two selected Segment sources")
+    max_draws = 64
     num_segments = int(getattr(sampler, "num_segments", 0) or 0)
-    if 0 < num_segments < 2:
-        raise RuntimeError("v015 formal transaction requires at least two valid Segment sources")
+    if 0 < num_segments < selected_segment_count:
+        raise RuntimeError("FRS-TRAIN-v011 requires at least two valid Segment sources")
 
     candidates: list[FrontRESSegmentSample] = []
     candidate_ids: set[int] = set()
-    reachable = [False] * (repair_rows + 1)
-    previous_sum = [-1] * (repair_rows + 1)
-    previous_candidate = [-1] * (repair_rows + 1)
-    reachable[0] = True
 
     drawn = 0
-    draw_batch_size = max(8, repair_rows * 2)
-    while drawn < max_draws and not reachable[repair_rows]:
+    draw_batch_size = 8
+    while drawn < max_draws and len(candidates) < selected_segment_count:
         requested = min(draw_batch_size, max_draws - drawn)
         sampled = sampler.sample(requested, max_horizon_k=max_horizon_k)
         sampled_count = int(sampled.segment_ids.numel())
@@ -1787,9 +1797,6 @@ def _sample_frontres_v015_transaction_sources(
             if segment_id in candidate_ids:
                 continue
             if candidate_is_eligible is not None and not bool(candidate_is_eligible(segment_id)):
-                continue
-            attempts = max(2, int(sampled.rollout_trial_count[row].item()))
-            if attempts > repair_rows:
                 continue
             candidate_ids.add(segment_id)
             candidate = FrontRESSegmentSample(
@@ -1810,35 +1817,16 @@ def _sample_frontres_v015_transaction_sources(
                 source_index=torch.zeros(1, dtype=torch.long, device=sampled.segment_ids.device),
                 trial_index=torch.zeros(1, dtype=torch.long, device=sampled.segment_ids.device),
             )
-            candidate_index = len(candidates)
             candidates.append(candidate)
-            for current in range(repair_rows - attempts, -1, -1):
-                target = current + attempts
-                if reachable[current] and not reachable[target]:
-                    reachable[target] = True
-                    previous_sum[target] = current
-                    previous_candidate[target] = candidate_index
-            if reachable[repair_rows]:
+            if len(candidates) == selected_segment_count:
                 break
 
-    if not reachable[repair_rows]:
+    if len(candidates) != selected_segment_count:
         raise RuntimeError(
-            "v015 formal transaction could not select a complete multi-Segment x M layout "
-            f"for repair_rows={repair_rows} after {len(candidates)} distinct candidates"
+            "FRS-TRAIN-v011 could not select exactly two eligible Segment sources "
+            f"after {len(candidates)} distinct candidates"
         )
-
-    selected_indices: list[int] = []
-    cursor = repair_rows
-    while cursor > 0:
-        candidate_index = previous_candidate[cursor]
-        if candidate_index < 0:
-            raise RuntimeError("v015 transaction source selection lost its exact-row predecessor")
-        selected_indices.append(candidate_index)
-        cursor = previous_sum[cursor]
-    selected_indices.reverse()
-    selected = [candidates[index] for index in selected_indices]
-    if len(selected) < 2:
-        raise RuntimeError("v015 formal transaction requires at least two selected Segment sources")
+    selected = candidates
 
     device = selected[0].segment_ids.device
     segment_ids = torch.cat([sample.segment_ids for sample in selected], dim=0)
@@ -1890,11 +1878,8 @@ def _prepare_frontres_v015_local_transaction_batch(
     if route == "training" and (sentinel_only or not live_train_enabled):
         raise RuntimeError("v015 formal training batch requires ordinary live training and rejects sentinel mode")
     env_count = int(getattr(getattr(runner, "env", None), "num_envs", 0) or 0)
-    if env_count <= 0 or env_count % 4 != 0:
-        raise RuntimeError("v015 local transaction requires num_envs divisible by four for complete Repair/Noisy attempts")
-    repair_rows = env_count // 2
-    if repair_rows < 4:
-        raise RuntimeError("v015 local transaction requires at least four Repair rows for 2 Segments x 2 attempts")
+    if env_count <= 0:
+        raise RuntimeError("FRS-TRAIN-v011 local transaction requires a positive environment count")
     max_horizon = max(1, int(getattr(alg, "frontres_segment_max_horizon_k", 1) or 1))
     iteration = int(getattr(runner, "current_learning_iteration", 0) or 0)
     curriculum = resolve_frontres_k_stage_identity(
@@ -1902,9 +1887,18 @@ def _prepare_frontres_v015_local_transaction_batch(
         committed_update_iteration=iteration,
         max_horizon_k=max_horizon,
     )
+    require_frontres_v011_campaign_schedule(tuple(getattr(alg, "frontres_segment_k_curriculum", ()) or ()))
+    expected_repair_rows = FRONTRES_V011_SELECTED_SEGMENT_COUNT * int(curriculum.active_m)
+    required_env_count = 2 * expected_repair_rows
+    if env_count != required_env_count:
+        raise RuntimeError(
+            "FRS-TRAIN-v011 environment width must equal 4*M for two Repair/Noisy Segment groups: "
+            f"active_m={curriculum.active_m} required={required_env_count} observed={env_count}"
+        )
+    repair_rows = env_count // 2
     configured_fingerprint = str(getattr(alg, "frontres_segment_k_curriculum_fingerprint", "") or "")
     if configured_fingerprint and configured_fingerprint != curriculum.schedule_fingerprint:
-        raise RuntimeError("FRS-TRAIN-v010 sampler curriculum fingerprint drifted after config resolution")
+        raise RuntimeError("FRS-TRAIN-v011 sampler curriculum fingerprint drifted after config resolution")
     sequence_attr = f"_frontres_v015_local_{route}_sequence"
     sequence = int(getattr(runner, sequence_attr, 0) or 0) + 1
     setattr(runner, sequence_attr, sequence)
@@ -1917,13 +1911,15 @@ def _prepare_frontres_v015_local_transaction_batch(
     )
     base_sample = _sample_frontres_v015_transaction_sources(
         sampler,
-        repair_rows=repair_rows,
+        selected_segment_count=FRONTRES_V011_SELECTED_SEGMENT_COUNT,
         max_horizon_k=max_horizon,
         candidate_is_eligible=candidate_is_eligible,
     )
     base_ids = base_sample.segment_ids.detach().to(dtype=torch.long).clone()
-    if int(base_ids.numel()) < 2 or int(torch.unique(base_ids).numel()) != int(base_ids.numel()):
-        raise RuntimeError("v015 local transaction requires distinct selected Segment sources")
+    if int(base_ids.numel()) != FRONTRES_V011_SELECTED_SEGMENT_COUNT or int(
+        torch.unique(base_ids).numel()
+    ) != FRONTRES_V011_SELECTED_SEGMENT_COUNT:
+        raise RuntimeError("FRS-TRAIN-v011 local transaction requires exactly two distinct Segment sources")
     snapshot = capture_frontres_frozen_policy_snapshot(runner, transaction_id=transaction_id)
     frozen_plan = sampler.plan_frozen_policy_transaction(
         base_ids,
@@ -1931,10 +1927,13 @@ def _prepare_frontres_v015_local_transaction_batch(
         policy_snapshot_id=snapshot.policy_snapshot_id,
         max_horizon_k=max_horizon,
         minimum_policy_attempts=2,
+        exact_policy_attempts=curriculum.active_m,
         active_horizon_k=curriculum.active_k,
     )
     if not bool((frozen_plan.horizon_k == curriculum.active_k).all().item()):
-        raise RuntimeError("FRS-TRAIN-v010 sampler failed to produce a homogeneous-K transaction")
+        raise RuntimeError("FRS-TRAIN-v011 sampler failed to produce a homogeneous-K transaction")
+    if not bool((frozen_plan.base_trial_count == curriculum.active_m).all().item()):
+        raise RuntimeError("FRS-TRAIN-v011 sampler failed to produce exact-M attempts per Segment")
     if int(frozen_plan.segment_ids.numel()) != repair_rows:
         raise RuntimeError(
             "v015 local transaction requires environment Repair rows to equal its complete selected transaction: "

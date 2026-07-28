@@ -36,7 +36,7 @@
     {
       "id": "SR-01",
       "title": "Segment Replay",
-      "summary": "同一局部情境 M 次 on-policy 尝试",
+      "summary": "同一局部情境按全局阶段执行固定 M 次 on-policy 尝试",
       "concept": "C-DATA",
       "x": 600,
       "y": 150,
@@ -56,7 +56,7 @@
     {
       "id": "M-06",
       "title": "K-step Curriculum",
-      "summary": "全局递增 K, 扩展首帧修复的后果证据",
+      "summary": "全局协调递增 K 与 M, 扩展后果证据和尝试覆盖",
       "concept": "C-CURRICULUM",
       "x": 40,
       "y": 330,
@@ -117,7 +117,7 @@
     {
       "id": "M-05",
       "title": "Actor & Critic Warmup",
-      "summary": "每次换 K 先校准 Critic, 再释放 Actor",
+      "summary": "每次换 K x M stage 先校准 Critic, 再释放 Actor",
       "concept": "C-TRAIN",
       "x": 855,
       "y": 470,

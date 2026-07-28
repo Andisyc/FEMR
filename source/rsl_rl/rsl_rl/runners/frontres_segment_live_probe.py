@@ -59,6 +59,7 @@ from rsl_rl.frontres.frontres_segment_reset import (
 try:
     from rsl_rl.frontres.frontres_segment_warmup import (
         frontres_segment_warmup_phase,
+        require_frontres_v011_campaign_schedule,
         resolve_frontres_k_stage_identity,
     )
 except (ModuleNotFoundError, ImportError):
@@ -70,6 +71,7 @@ except (ModuleNotFoundError, ImportError):
     sys.modules[_WARMUP_SPEC.name] = _WARMUP_MODULE
     _WARMUP_SPEC.loader.exec_module(_WARMUP_MODULE)
     frontres_segment_warmup_phase = _WARMUP_MODULE.frontres_segment_warmup_phase
+    require_frontres_v011_campaign_schedule = _WARMUP_MODULE.require_frontres_v011_campaign_schedule
     resolve_frontres_k_stage_identity = _WARMUP_MODULE.resolve_frontres_k_stage_identity
 from rsl_rl.frontres.training_schedule import resolve_frontres_mode_state
 from rsl_rl.modules import FrontRESActorCritic
@@ -308,6 +310,7 @@ class FrontRESV015FormalTransactionRequest:
     curriculum_fingerprint: str
     k_stage_index: int
     active_k: int
+    active_m: int
     k_stage_iteration: int
     training_iteration: int
     warmup_phase_name: str
@@ -351,6 +354,10 @@ class FrontRESV015FormalTransactionRequest:
             raise ValueError("v015 formal transaction K-stage indexes must be nonnegative integers")
         if isinstance(self.active_k, bool) or int(self.active_k) <= 0:
             raise ValueError("v015 formal transaction active_k must be positive")
+        if isinstance(self.active_m, bool) or int(self.active_m) < 2:
+            raise ValueError("FRS-TRAIN-v011 formal transaction active_m must be at least two")
+        if self.plan.active_m != int(self.active_m) or self.plan.selected_segment_count != 2:
+            raise ValueError("FRS-TRAIN-v011 formal transaction plan does not match exact two-Segment x M identity")
         if self.warmup_phase_name not in {"critic_only", "actor_warmup", "joint"}:
             raise ValueError("v015 formal transaction has an invalid warmup phase")
         if not 0.0 <= float(self.warmup_actor_loss_weight) <= 1.0:
@@ -456,7 +463,7 @@ def _commit_frontres_v015_checkpoint_transaction(
         "method_contract_id": "FRS-METHOD-v016",
         "gain_contract_id": "FRS-GAIN-v006",
         "optimization_contract_id": "FRS-PPO-v004",
-        "training_contract_id": "FRS-TRAIN-v010",
+        "training_contract_id": "FRS-TRAIN-v011",
         "scalar_target_id": "paired-intent-minus-repair-v1",
         "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
         "projection_schema_id": "grouped-first-order-constraint-projection-v1",
@@ -473,6 +480,10 @@ def _commit_frontres_v015_checkpoint_transaction(
         "curriculum_fingerprint": str(curriculum.schedule_fingerprint),
         "k_stage_index": int(curriculum.stage_index),
         "active_k": int(curriculum.active_k),
+        "active_m": int(curriculum.active_m),
+        "selected_segment_count": int(plan.selected_segment_count),
+        "policy_row_count": int(plan.batch_size),
+        "role_row_count": int(2 * plan.batch_size),
         "k_stage_iteration": int(curriculum.stage_iteration),
         "training_iteration": int(curriculum.absolute_iteration),
     }
@@ -3751,7 +3762,8 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
         raise RuntimeError("v015 formal transaction route rejects implicit HSL initialization or rollout labels")
     schedule = tuple(getattr(alg, "frontres_segment_k_curriculum", ()) or ())
     if not schedule:
-        raise RuntimeError("FRS-TRAIN-v010 formal transaction requires an explicit K-stage curriculum")
+        raise RuntimeError("FRS-TRAIN-v011 formal transaction requires an explicit K x M curriculum")
+    require_frontres_v011_campaign_schedule(schedule)
     if any(
         bool(getattr(alg, name, False))
         for name in (
@@ -3773,7 +3785,7 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
         "frontres_method_contract_id": "FRS-METHOD-v016",
         "frontres_gain_contract_id": "FRS-GAIN-v006",
         "frontres_optimization_contract_id": "FRS-PPO-v004",
-        "frontres_training_contract_id": "FRS-TRAIN-v010",
+        "frontres_training_contract_id": "FRS-TRAIN-v011",
         "frontres_scalar_target_id": "paired-intent-minus-repair-v1",
         "frontres_constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
         "frontres_projection_schema_id": "grouped-first-order-constraint-projection-v1",
@@ -3795,7 +3807,7 @@ def _v015_resolve_curriculum_identity(runner: Any, alg: Any | None = None) -> An
     )
     configured_fingerprint = str(getattr(alg, "frontres_segment_k_curriculum_fingerprint", "") or "")
     if configured_fingerprint and configured_fingerprint != identity.schedule_fingerprint:
-        raise RuntimeError("FRS-TRAIN-v010 runtime curriculum fingerprint drifted after config resolution")
+        raise RuntimeError("FRS-TRAIN-v011 runtime curriculum fingerprint drifted after config resolution")
     return identity
 
 
@@ -3879,13 +3891,16 @@ def run_frontres_v015_formal_transaction_update(
         or request.curriculum_fingerprint != curriculum.schedule_fingerprint
         or request.k_stage_index != curriculum.stage_index
         or request.active_k != curriculum.active_k
+        or request.active_m != curriculum.active_m
         or request.k_stage_iteration != curriculum.stage_iteration
         or request.warmup_phase_name != warmup_phase.name
         or not math.isclose(float(request.warmup_actor_loss_weight), warmup_phase.actor_loss_weight, abs_tol=1e-12)
     ):
-        raise RuntimeError("v015 transaction crossed or changed its sealed FRS-TRAIN-v010 K-stage identity")
+        raise RuntimeError("v015 transaction crossed or changed its sealed FRS-TRAIN-v011 K x M stage identity")
     if not bool((request.plan.horizon_k.detach().to(dtype=torch.long) == curriculum.active_k).all().item()):
-        raise RuntimeError("FRS-TRAIN-v010 formal update rejects mixed-K transaction rows")
+        raise RuntimeError("FRS-TRAIN-v011 formal update rejects mixed-K transaction rows")
+    if request.plan.active_m != curriculum.active_m or request.plan.selected_segment_count != 2:
+        raise RuntimeError("FRS-TRAIN-v011 formal update rejects mixed-M or non-two-Segment transactions")
     request.plan.verify_policy(policy)
     accumulator = FrontRESV015FormalTransactionAccumulator(
         request.plan,
@@ -3963,7 +3978,7 @@ def run_frontres_v015_formal_transaction_update(
     critic_delta = _parameter_delta_stats(critic_params, parameter_snapshots)
     noncritic_delta = _parameter_delta_stats(noncritic_params, parameter_snapshots)
     if warmup_phase.name == "critic_only" and noncritic_delta["param_delta_max_abs"] != 0.0:
-        raise RuntimeError("FRS-TRAIN-v010 critic-only update mutated actor or distribution parameters")
+        raise RuntimeError("FRS-TRAIN-v011 critic-only update mutated actor or distribution parameters")
     optimizer_step_after = _v015_formal_optimizer_step_count(optimizer)
     optimizer_step_delta = optimizer_step_after - optimizer_step_before
     if optimizer_step_delta != 1:
@@ -4026,7 +4041,7 @@ def run_frontres_v015_formal_transaction_update(
         "gradient_nonzero_parameter_count": gradient_nonzero_parameter_count,
         "optimizer_step_delta": int(optimizer_step_delta),
         "method_contract_id": "FRS-METHOD-v016",
-        "training_contract_id": "FRS-TRAIN-v010",
+        "training_contract_id": "FRS-TRAIN-v011",
         "gain_contract_id": "FRS-GAIN-v006",
         "optimization_contract_id": "FRS-PPO-v004",
         "scalar_target_id": "paired-intent-minus-repair-v1",
@@ -4052,6 +4067,10 @@ def run_frontres_v015_formal_transaction_update(
         "curriculum_fingerprint": curriculum.schedule_fingerprint,
         "k_stage_index": curriculum.stage_index,
         "active_k": curriculum.active_k,
+        "active_m": curriculum.active_m,
+        "selected_segment_count": request.plan.selected_segment_count,
+        "policy_row_count": request.plan.batch_size,
+        "role_row_count": 2 * request.plan.batch_size,
         "k_stage_iteration": curriculum.stage_iteration,
         "warmup_phase": warmup_phase.name,
         "warmup_phase_iteration": warmup_phase.phase_iteration,
@@ -4213,6 +4232,7 @@ def _build_frontres_v015_local_transaction_request(
             curriculum_fingerprint=sealed_curriculum.schedule_fingerprint,
             k_stage_index=sealed_curriculum.stage_index,
             active_k=sealed_curriculum.active_k,
+            active_m=sealed_curriculum.active_m,
             k_stage_iteration=sealed_curriculum.stage_iteration,
             training_iteration=sealed_iteration,
             warmup_phase_name=sealed_curriculum.phase.name,

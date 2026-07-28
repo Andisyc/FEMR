@@ -28,6 +28,7 @@ WARMUP_SPEC.loader.exec_module(WARMUP_MODULE)
 frontres_segment_warmup_phase = WARMUP_MODULE.frontres_segment_warmup_phase
 parse_frontres_k_stage_schedule = WARMUP_MODULE.parse_frontres_k_stage_schedule
 resolve_frontres_k_stage_identity = WARMUP_MODULE.resolve_frontres_k_stage_identity
+require_frontres_v011_campaign_schedule = WARMUP_MODULE.require_frontres_v011_campaign_schedule
 
 
 class _ToyPolicy(torch.nn.Module):
@@ -141,14 +142,15 @@ def test_actor_warmup_releases_actor_gradient() -> None:
     assert _grad_norm(policy.critic.weight) > 0.0
 
 
-def test_v009_k_stage_boundaries_and_repeated_critic_only() -> None:
-    schedule = parse_frontres_k_stage_schedule("8:2:2:2,16:3:2:1,32:1:1:0", max_horizon_k=32)
+def test_v011_k_m_stage_boundaries_and_repeated_critic_only() -> None:
+    schedule = parse_frontres_k_stage_schedule("8:2:2:2:2,16:3:3:2:1,32:4:1:1:0", max_horizon_k=32)
     identities = [
         resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=iteration)
         for iteration in range(14)
     ]
-    assert [(value.stage_index, value.active_k, value.stage_iteration) for value in identities[:7]] == [
-        (0, 8, 0), (0, 8, 1), (0, 8, 2), (0, 8, 3), (0, 8, 4), (0, 8, 5), (1, 16, 0)
+    assert [(value.stage_index, value.active_k, value.active_m, value.stage_iteration) for value in identities[:7]] == [
+        (0, 8, 2, 0), (0, 8, 2, 1), (0, 8, 2, 2), (0, 8, 2, 3),
+        (0, 8, 2, 4), (0, 8, 2, 5), (1, 16, 3, 0)
     ]
     assert identities[0].phase.name == "critic_only"
     assert identities[6].phase.name == "critic_only"
@@ -157,25 +159,28 @@ def test_v009_k_stage_boundaries_and_repeated_critic_only() -> None:
     assert identities[11].phase.name == "joint"
     assert identities[12].stage_index == 2
     assert identities[12].active_k == 32
+    assert identities[12].active_m == 4
     assert identities[12].phase.name == "critic_only"
     assert identities[13].phase.name == "actor_warmup"
     assert len({value.schedule_fingerprint for value in identities}) == 1
 
 
-def test_v009_schedule_is_deterministic_and_fail_closed() -> None:
-    first = parse_frontres_k_stage_schedule("8:2:3:4,16:5:6:0")
-    second = parse_frontres_k_stage_schedule("8:2:3:4,16:5:6:0")
+def test_v011_schedule_is_deterministic_and_fail_closed() -> None:
+    first = parse_frontres_k_stage_schedule("8:2:2:3:4,16:3:5:6:0")
+    second = parse_frontres_k_stage_schedule("8:2:2:3:4,16:3:5:6:0")
     assert first == second
     assert resolve_frontres_k_stage_identity(schedule=first, committed_update_iteration=4).schedule_fingerprint == (
         resolve_frontres_k_stage_identity(schedule=second, committed_update_iteration=4).schedule_fingerprint
     )
     invalid = (
         "",
-        "8:2:3",
-        "8:0:3:4",
-        "8:2:0:4",
-        "8:2:3:0,16:2:3:0",
-        "16:2:3:4,8:2:3:0",
+        "8:2:3:4",
+        "8:1:2:3:4",
+        "8:2:0:3:4",
+        "8:2:2:0:4",
+        "8:2:2:3:0,16:3:2:3:0",
+        "16:2:2:3:4,8:3:2:3:0",
+        "8:3:2:3:4,16:2:2:3:0",
     )
     for value in invalid:
         try:
@@ -183,28 +188,49 @@ def test_v009_schedule_is_deterministic_and_fail_closed() -> None:
         except ValueError:
             pass
         else:
-            raise AssertionError(f"expected invalid v009 schedule to reject: {value!r}")
-    for schedule in (((8.5, 2, 3, 0),), ((8, True, 3, 0),)):
+            raise AssertionError(f"expected invalid v011 schedule to reject: {value!r}")
+    for schedule in (((8.5, 2, 2, 3, 0),), ((8, True, 2, 3, 0),)):
         try:
             WARMUP_MODULE.normalize_frontres_k_stage_schedule(schedule)
         except ValueError:
             pass
         else:
-            raise AssertionError("expected non-integer/bool v009 schedule field to reject")
+            raise AssertionError("expected non-integer/bool v011 schedule field to reject")
     try:
-        parse_frontres_k_stage_schedule("8:2:3:4,64:2:3:0", max_horizon_k=32)
+        parse_frontres_k_stage_schedule("8:2:2:3:4,64:3:2:3:0", max_horizon_k=32)
     except ValueError:
         pass
     else:
         raise AssertionError("expected schedule horizon beyond max_horizon_k to reject")
 
 
+def test_v011_campaign_schedule_is_exact_and_checkpoint_bounded() -> None:
+    schedule = parse_frontres_k_stage_schedule(
+        "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625"
+    )
+    assert require_frontres_v011_campaign_schedule(schedule) == schedule
+    assert WARMUP_MODULE.FRONTRES_V011_SELECTED_SEGMENT_COUNT == 2
+    assert WARMUP_MODULE.FRONTRES_V011_MAX_ABSOLUTE_ITERATION == 8000
+    assert WARMUP_MODULE.FRONTRES_V011_REVIEW_BOUNDARIES == (2000, 3500, 4825, 6500, 8000)
+    for bad in (
+        "8:2:200:500:1300,16:2:300:300:900,32:4:400:300:625",
+        "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:624",
+    ):
+        try:
+            require_frontres_v011_campaign_schedule(parse_frontres_k_stage_schedule(bad))
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("TRAIN-v011 formal campaign drift must reject")
+
+
 def main() -> None:
     test_phase_boundaries_are_monotonic()
     test_critic_only_blocks_actor_and_std_gradients()
     test_actor_warmup_releases_actor_gradient()
-    test_v009_k_stage_boundaries_and_repeated_critic_only()
-    test_v009_schedule_is_deterministic_and_fail_closed()
+    test_v011_k_m_stage_boundaries_and_repeated_critic_only()
+    test_v011_schedule_is_deterministic_and_fail_closed()
+    test_v011_campaign_schedule_is_exact_and_checkpoint_bounded()
     print("frontres_segment_warmup_contract: ok")
 
 

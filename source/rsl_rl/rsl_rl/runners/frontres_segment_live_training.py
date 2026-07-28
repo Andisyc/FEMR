@@ -12,6 +12,16 @@ from typing import Any
 
 import torch
 
+_WARMUP_SPEC = importlib.util.spec_from_file_location(
+    "frontres_segment_warmup_training",
+    Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_warmup.py",
+)
+assert _WARMUP_SPEC is not None and _WARMUP_SPEC.loader is not None
+_WARMUP_MODULE = importlib.util.module_from_spec(_WARMUP_SPEC)
+sys.modules[_WARMUP_SPEC.name] = _WARMUP_MODULE
+_WARMUP_SPEC.loader.exec_module(_WARMUP_MODULE)
+FRONTRES_V011_MAX_ABSOLUTE_ITERATION = _WARMUP_MODULE.FRONTRES_V011_MAX_ABSOLUTE_ITERATION
+
 _FORMAL_AUDIT_SPEC = importlib.util.spec_from_file_location(
     "frontres_formal_runtime_audit_training", Path(__file__).resolve().with_name("frontres_formal_runtime_audit.py")
 )
@@ -1890,6 +1900,10 @@ def _v015_formal_update_summary(result: Any) -> dict[str, Any]:
         "curriculum_fingerprint": str(diagnostics.get("curriculum_fingerprint", "")),
         "k_stage_index": int(diagnostics.get("k_stage_index", -1)),
         "active_k": int(diagnostics.get("active_k", -1)),
+        "active_m": int(diagnostics.get("active_m", -1)),
+        "selected_segment_count": int(diagnostics.get("selected_segment_count", -1)),
+        "policy_row_count": int(diagnostics.get("policy_row_count", -1)),
+        "role_row_count": int(diagnostics.get("role_row_count", -1)),
         "k_stage_iteration": int(diagnostics.get("k_stage_iteration", -1)),
         "warmup_phase": str(diagnostics.get("warmup_phase", "")),
         "warmup_phase_iteration": int(diagnostics.get("warmup_phase_iteration", -1)),
@@ -1998,7 +2012,7 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
     constraint_kkt_max_violation = required_finite("constraint_kkt_max_violation")
     if not 0.0 <= constraint_kkt_max_violation <= _V015_PROJECTION_TOLERANCE:
         raise RuntimeError(
-            "v015 formal result exceeds the checkpoint-v5 constraint projection tolerance: "
+            "v015 formal result exceeds the checkpoint-v6 constraint projection tolerance: "
             f"kkt={constraint_kkt_max_violation:.9g} tolerance={_V015_PROJECTION_TOLERANCE:.9g}"
         )
     observed_kkt = max((max(0.0, value) for value in constraint_directional_derivatives.values()), default=0.0)
@@ -2223,6 +2237,23 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
             "v015 live telemetry row count disagrees with the sealed transaction: "
             f"reports={policy_row_count} expected={expected_rows}"
         )
+    active_m = int(diagnostics.get("active_m", -1))
+    selected_segment_count = int(diagnostics.get("selected_segment_count", -1))
+    diagnostic_policy_rows = int(diagnostics.get("policy_row_count", -1))
+    role_row_count = int(diagnostics.get("role_row_count", -1))
+    if (
+        active_m < 2
+        or selected_segment_count != 2
+        or diagnostic_policy_rows != policy_row_count
+        or policy_row_count != selected_segment_count * active_m
+        or role_row_count != 4 * active_m
+    ):
+        raise RuntimeError(
+            "FRS-TRAIN-v011 live telemetry requires two Segments, exact M policy rows per Segment, "
+            "and 4*M role rows: "
+            f"segments={selected_segment_count} M={active_m} policy_rows={policy_row_count} "
+            f"diagnostic_policy_rows={diagnostic_policy_rows} role_rows={role_row_count}"
+        )
     prepared_advantages = tuple(float(value) for value in getattr(ppo, "prepared_advantages", ()))
     valid_row_count = sum(bool(value) for value in fields["valid_policy_row_mask"])
     if len(prepared_advantages) != valid_row_count:
@@ -2260,7 +2291,10 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         "intent_q29_provenance": intent_provenance,
         "intent_q29_source": intent_source,
         **{name: tuple(values) for name, values in fields.items()},
+        "active_m": active_m,
+        "selected_segment_count": selected_segment_count,
         "policy_row_count": policy_row_count,
+        "role_row_count": role_row_count,
         "valid_policy_row_count": len(valid_gain_total),
         "positive_gain_fraction": float(positive_fraction),
         "negative_gain_fraction": float(negative_fraction),
@@ -2353,14 +2387,18 @@ def _require_v015_committed_result(runner: Any, result: Any) -> dict[str, Any]:
     telemetry = summary.get("v015_transaction_telemetry")
     if (
         not isinstance(telemetry, Mapping)
-        or telemetry.get("training_contract_id") != "FRS-TRAIN-v010"
+        or telemetry.get("training_contract_id") != "FRS-TRAIN-v011"
         or telemetry.get("gain_contract_id") != "FRS-GAIN-v006"
     ):
-        raise RuntimeError("v015 formal training requires exact v010/v006 telemetry identity")
+        raise RuntimeError("v015 formal training requires exact v011/v006 telemetry identity")
     for name in (
         "curriculum_fingerprint",
         "k_stage_index",
         "active_k",
+        "active_m",
+        "selected_segment_count",
+        "policy_row_count",
+        "role_row_count",
         "k_stage_iteration",
         "training_iteration",
     ):
@@ -2375,7 +2413,7 @@ def _require_v015_committed_result(runner: Any, result: Any) -> dict[str, Any]:
             or float(actor_delta.get("param_delta_max_abs", float("nan"))) != 0.0
             or not float(critic_delta.get("param_delta_max_abs", 0.0)) > 0.0
         ):
-            raise RuntimeError("FRS-TRAIN-v010 critic-only commit requires zero actor/std and nonzero Critic delta")
+            raise RuntimeError("FRS-TRAIN-v011 critic-only commit requires zero actor/std and nonzero Critic delta")
     return summary
 
 
@@ -2488,7 +2526,7 @@ def _save_live_checkpoint(
 
 
 def finalize_frontres_v015_local_sentinel_checkpoint(runner: Any, result: Any) -> str:
-    """Persist and verify the checkpoint-v5 produced by one local sentinel update."""
+    """Persist and verify the checkpoint-v6 produced by one local sentinel update."""
 
     summary = _require_v015_committed_result(runner, result)
     telemetry = summary.get("v015_transaction_telemetry")
@@ -2524,11 +2562,11 @@ def finalize_frontres_v015_local_sentinel_checkpoint(runner: Any, result: Any) -
             payload = torch.load(checkpoint_path, map_location="cpu")
         identity = payload.get("frontres_v015_checkpoint_identity") if isinstance(payload, Mapping) else None
         if not isinstance(identity, Mapping):
-            raise RuntimeError("v015 local sentinel checkpoint has no checkpoint-v5 identity")
+            raise RuntimeError("v015 local sentinel checkpoint has no checkpoint-v6 identity")
         required_identity = {
-            "format": "frontres-v015-checkpoint-v5",
+            "format": "frontres-v015-checkpoint-v6",
             "method_contract_id": "FRS-METHOD-v016",
-            "training_contract_id": "FRS-TRAIN-v010",
+            "training_contract_id": "FRS-TRAIN-v011",
             "gain_contract_id": "FRS-GAIN-v006",
             "optimization_contract_id": "FRS-PPO-v004",
             "scalar_target_id": "paired-intent-minus-repair-v1",
@@ -2572,7 +2610,7 @@ def finalize_frontres_v015_local_sentinel_checkpoint(runner: Any, result: Any) -
         "optimizer_step_delta": 1,
     }
     updated = dict(existing)
-    updated["checkpoint_v5"] = checkpoint_evidence
+    updated["checkpoint_v6"] = checkpoint_evidence
     runner._frontres_v015_local_sentinel_telemetry = updated
     print(
         "[FrontRES v015 Checkpoint Sentinel] "
@@ -2627,6 +2665,12 @@ def run_frontres_segment_live_training_loop(
 
     # B2: 冻结 live update loop 将消费的正式 iteration budget.
     num_learning_iterations = max(0, int(num_learning_iterations))
+    absolute_start = int(getattr(runner, "current_learning_iteration", 0))
+    if formal_v015 and absolute_start + num_learning_iterations > FRONTRES_V011_MAX_ABSOLUTE_ITERATION:
+        raise RuntimeError(
+            "FRS-TRAIN-v011 run would cross maximum_absolute_iteration=8000: "
+            f"start={absolute_start} requested={num_learning_iterations}"
+        )
     # B3: 首次正式 update iteration 前截获 route identity.
     # AUDIT-ROUTE-01: 检查正式 Stage 3 路由, 位于 train dispatch -> live iteration loop.
     # Result: E70 LIVE PASS. 正式路径从 model_200 进入 absolute iter 700 joint

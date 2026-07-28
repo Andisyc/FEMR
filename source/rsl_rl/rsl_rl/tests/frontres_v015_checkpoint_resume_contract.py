@@ -146,7 +146,7 @@ def _policy(policy_cls, *, actor_dim: int, prefix_dim: int):
     return _Policy()
 
 
-_V009_SCHEDULE = ((3, 1, 1, 2), (4, 1, 1, 0))
+_V009_SCHEDULE = ((8, 2, 200, 500, 1300), (16, 3, 300, 300, 900), (32, 4, 400, 300, 625))
 
 
 def _v009_schedule_fingerprint() -> str:
@@ -173,7 +173,7 @@ def _runner(layout_module, policy_cls, *, offsets=(1, 2), iteration: int = 3):
         frontres_segment_actor_warmup_iterations=3,
         frontres_segment_k_curriculum=_V009_SCHEDULE,
         frontres_segment_k_curriculum_fingerprint=_v009_schedule_fingerprint(),
-        frontres_segment_max_horizon_k=4,
+        frontres_segment_max_horizon_k=32,
         frontres_future_offsets=(1, 2),
         frontres_future_intent_layout_version=layout.version,
         frontres_hsl_init_enabled=False,
@@ -192,7 +192,7 @@ def _runner(layout_module, policy_cls, *, offsets=(1, 2), iteration: int = 3):
         frontres_method_contract_id="FRS-METHOD-v016",
         frontres_gain_contract_id="FRS-GAIN-v006",
         frontres_optimization_contract_id="FRS-PPO-v004",
-        frontres_training_contract_id="FRS-TRAIN-v010",
+        frontres_training_contract_id="FRS-TRAIN-v011",
         frontres_scalar_target_id="paired-intent-minus-repair-v1",
         frontres_constraint_schema_id="contact-loaded-phase_zmp-survival-physical-v2",
         frontres_projection_schema_id="grouped-first-order-constraint-projection-v1",
@@ -331,7 +331,7 @@ def _committed_state() -> dict[str, object]:
             "method_contract_id": "FRS-METHOD-v016",
             "gain_contract_id": "FRS-GAIN-v006",
             "optimization_contract_id": "FRS-PPO-v004",
-            "training_contract_id": "FRS-TRAIN-v010",
+            "training_contract_id": "FRS-TRAIN-v011",
             "scalar_target_id": "paired-intent-minus-repair-v1",
             "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
             "projection_schema_id": "grouped-first-order-constraint-projection-v1",
@@ -347,7 +347,11 @@ def _committed_state() -> dict[str, object]:
             "optimizer_step_delta": 1,
             "curriculum_fingerprint": _v009_schedule_fingerprint(),
             "k_stage_index": 0,
-            "active_k": 3,
+            "active_k": 8,
+            "active_m": 2,
+            "selected_segment_count": 2,
+            "policy_row_count": 4,
+            "role_row_count": 8,
             "k_stage_iteration": 2,
             "training_iteration": 2,
         },
@@ -382,8 +386,8 @@ def test_t_checkpoint_layout_and_committed_receipt(layout_module, checkpointing,
         checkpointing.save_runner(source, str(path))
         payload = _saved_payload(path)
         identity = payload["frontres_v015_checkpoint_identity"]
-        assert identity["format"] == "frontres-v015-checkpoint-v5"
-        assert identity["training_contract_id"] == "FRS-TRAIN-v010"
+        assert identity["format"] == "frontres-v015-checkpoint-v6"
+        assert identity["training_contract_id"] == "FRS-TRAIN-v011"
         assert identity["gain_contract_id"] == "FRS-GAIN-v006"
         assert identity["optimization_contract_id"] == "FRS-PPO-v004"
         assert identity["method_contract_id"] == "FRS-METHOD-v016"
@@ -397,12 +401,18 @@ def test_t_checkpoint_layout_and_committed_receipt(layout_module, checkpointing,
             "schedule": _V009_SCHEDULE,
             "schedule_fingerprint": _v009_schedule_fingerprint(),
             "k_stage_index": 0,
-            "active_k": 3,
+            "active_k": 8,
+            "active_m": 2,
+            "selected_segment_count": 2,
+            "policy_row_count": 4,
+            "role_row_count": 8,
+            "maximum_absolute_iteration": 8000,
+            "checkpoint_review_boundaries": (2000, 3500, 4825, 6500, 8000),
             "stage_iteration": 3,
             "absolute_iteration": 3,
-            "phase": "joint",
-            "phase_iteration": 1,
-            "actor_loss_weight": 1.0,
+            "phase": "critic_only",
+            "phase_iteration": 3,
+            "actor_loss_weight": 0.0,
         }
         assert identity["future_intent_layout"]["future_offsets"] == (1, 2)
         assert identity["future_intent_layout"]["actor_tail_dim"] == 58
@@ -627,47 +637,63 @@ def test_t_atomicity_rejects_partial_save_and_resume(layout_module, checkpointin
         print("[T-atomicity] collecting save and sealed resume both fail closed without a later update path", flush=True)
 
 
-def test_t_v010_transition_identity_and_schedule_reject(layout_module, checkpointing, policy_cls) -> None:
+def test_t_v011_transition_identity_and_schedule_reject(layout_module, checkpointing, policy_cls) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "v009_transition.pt"
-        source = _runner(layout_module, policy_cls, iteration=4)
+        source = _runner(layout_module, policy_cls, iteration=2000)
         committed = _committed_state()
         committed["receipt"].update(
             {
-                "k_stage_iteration": 3,
-                "training_iteration": 3,
+                "k_stage_iteration": 1999,
+                "training_iteration": 1999,
             }
         )
         source._frontres_v015_checkpoint_transaction_state = committed
         checkpointing.save_runner(source, str(path))
         payload = _saved_payload(path)
         identity = payload["frontres_v015_checkpoint_identity"]
-        assert identity["format"] == "frontres-v015-checkpoint-v5"
+        assert identity["format"] == "frontres-v015-checkpoint-v6"
         assert identity["curriculum"]["k_stage_index"] == 1
-        assert identity["curriculum"]["active_k"] == 4
+        assert identity["curriculum"]["active_k"] == 16
+        assert identity["curriculum"]["active_m"] == 3
+        assert identity["curriculum"]["policy_row_count"] == 6
+        assert identity["curriculum"]["role_row_count"] == 12
         assert identity["curriculum"]["stage_iteration"] == 0
         assert identity["curriculum"]["phase"] == "critic_only"
         assert identity["curriculum"]["actor_loss_weight"] == 0.0
 
         resumed = _runner(layout_module, policy_cls, iteration=0)
         checkpointing.load_runner(resumed, str(path), load_optimizer=True)
-        assert resumed.current_learning_iteration == 4
+        assert resumed.current_learning_iteration == 2000
         assert resumed.alg.optimizer.param_groups[0]["lr"] == source.alg.optimizer.param_groups[0]["lr"]
 
         mismatched = _runner(layout_module, policy_cls, iteration=0)
-        mismatched_schedule = ((3, 1, 1, 3), (4, 1, 1, 0))
+        mismatched_schedule = ((8, 2, 200, 500, 1299), (16, 3, 300, 300, 900), (32, 4, 400, 300, 625))
         mismatched.alg.frontres_segment_k_curriculum = mismatched_schedule
         mismatched.alg.frontres_segment_k_curriculum_fingerprint = checkpointing.resolve_frontres_k_stage_identity(
             schedule=mismatched_schedule,
             committed_update_iteration=0,
-            max_horizon_k=4,
+            max_horizon_k=32,
         ).schedule_fingerprint
         actor_before = mismatched.alg.policy.residual_actor.weight.detach().clone()
         _expect_error(
             lambda: checkpointing.load_runner(mismatched, str(path), load_optimizer=False),
-            "schedule differs",
+            "frozen K8/M2",
         )
         _assert_unmutated(mismatched, actor_before)
+
+        old_v5 = copy.deepcopy(payload)
+        old_v5["frontres_v015_checkpoint_identity"]["format"] = "frontres-v015-checkpoint-v5"
+        old_v5["frontres_v015_checkpoint_identity"]["training_contract_id"] = "FRS-TRAIN-v010"
+        old_v5_path = Path(tmp) / "old_v5.pt"
+        torch.save(old_v5, old_v5_path)
+        rejected = _runner(layout_module, policy_cls, iteration=0)
+        actor_before = rejected.alg.policy.residual_actor.weight.detach().clone()
+        _expect_error(
+            lambda: checkpointing.load_runner(rejected, str(old_v5_path), load_optimizer=False),
+            "incompatible contract or format identity",
+        )
+        _assert_unmutated(rejected, actor_before)
 
         old_v3 = copy.deepcopy(payload)
         old_v3["frontres_v015_checkpoint_identity"]["format"] = "frontres-v015-checkpoint-v3"
@@ -696,7 +722,7 @@ def test_t_committed_save_to_fresh_inference_equality(
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "v015_g3_s2_committed.pt"
         torch.manual_seed(17)
-        source = _runner(layout_module, policy_cls, iteration=2)
+        source = _runner(layout_module, policy_cls, iteration=202)
         intent = torch.arange(2 * 3 * 29, dtype=torch.float32).reshape(2, 3, 29) / 100.0
         source_snapshot = _wire_inference_carrier(source, intent)
         raw_obs = torch.arange(2 * 870, dtype=torch.float32).reshape(2, 870) / 1000.0
@@ -770,7 +796,7 @@ def main() -> None:
     test_t_resume_rejects_layout_legacy_and_normalizer_before_mutation(layout_module, checkpointing, policy_cls)
     test_t_zero_and_full_observation_prefix_reject_before_save(layout_module, checkpointing, policy_cls)
     test_t_atomicity_rejects_partial_save_and_resume(layout_module, checkpointing, policy_cls)
-    test_t_v010_transition_identity_and_schedule_reject(layout_module, checkpointing, policy_cls)
+    test_t_v011_transition_identity_and_schedule_reject(layout_module, checkpointing, policy_cls)
     test_t_committed_save_to_fresh_inference_equality(
         layout_module,
         checkpointing,

@@ -23,7 +23,7 @@ def _run_preflight(
     mode: str,
     env_overrides: dict[str, str] | None = None,
     extra_args: list[str] | None = None,
-    bounds: tuple[str, str, str] = ("1", "2", "3"),
+    bounds: tuple[str, str, str] = ("8", "2", "3"),
 ) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -35,7 +35,7 @@ def _run_preflight(
         env["FRONTRES_STAGE_PREFLIGHT_ONLY"] = "1"
         env["FRONTRES_STAGE3_RUN_CONTRACTS"] = "0"
         env["FRONTRES_SPECIALIST_MODE"] = "rp"
-        env["FRONTRES_V015_K_CURRICULUM"] = "8:2:3:4,16:2:3:0"
+        env["FRONTRES_V015_K_CURRICULUM"] = "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625"
         if env_overrides:
             env.update(env_overrides)
         cmd = [
@@ -93,7 +93,7 @@ def test_stage3_train_launch_preflight_builds_femr_command() -> None:
     assert "--frontres_stage stage3_segment_hrl" in command
     assert "--frontres_v015_hsl_initializer_checkpoint" in command
     assert "--frontres_v015_future_offsets 1\\,2" in command
-    assert "--frontres_segment_k_curriculum 8:2:3:4\\,16:2:3:0" in command
+    assert "--frontres_segment_k_curriculum 8:2:200:500:1300\\,16:3:300:300:900\\,32:4:400:300:625" in command
     assert "--resume_student_checkpoint" not in command
     assert "--is_full_resume" not in command
     assert "--resume " not in command
@@ -154,13 +154,13 @@ def test_g5_s4_launch_rejects_resume_periodic_and_wrong_bounds() -> None:
         bounds=("4", "1", "1"),
     )
     assert wrong.returncode != 0
-    assert "8 envs, 1 iteration, and 1 update" in wrong.stderr
+    assert "fresh K8/M2 campaign requires NUM_ENVS=8" in wrong.stderr
 
 
-def test_p4_s1_strict_v5_resume_replaces_hsl_initializer() -> None:
+def test_p5_b_strict_v6_resume_replaces_hsl_initializer() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         resume_path = Path(tmp) / "model_1.pt"
-        resume_path.write_text("semantic checkpoint-v5 fixture\n")
+        resume_path.write_text("semantic checkpoint-v6 fixture\n")
         result = _run_preflight(
             "train",
             {"FRONTRES_V015_RESUME_CHECKPOINT": str(resume_path)},
@@ -176,14 +176,14 @@ def test_p4_s1_strict_v5_resume_replaces_hsl_initializer() -> None:
     assert "--max_iterations 199" in command
 
 
-def test_p4_s1_strict_v5_resume_rejects_missing_checkpoint() -> None:
+def test_p5_b_strict_v6_resume_rejects_missing_checkpoint() -> None:
     result = _run_preflight(
         "train",
         {"FRONTRES_V015_RESUME_CHECKPOINT": "/definitely/missing/model_1.pt"},
         bounds=("8", "199", "1"),
     )
     assert result.returncode != 0
-    assert "checkpoint-v5 resume checkpoint not found" in result.stderr
+    assert "checkpoint-v6 resume checkpoint not found" in result.stderr
 
 
 def test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel() -> None:
@@ -253,8 +253,8 @@ if __name__ == "__main__":
     test_g5_s4_bounded_launch_freezes_8_1_1_and_audit()
     test_stage3_train_launch_accepts_explicit_checkpoint_interval()
     test_g5_s4_launch_rejects_resume_periodic_and_wrong_bounds()
-    test_p4_s1_strict_v5_resume_replaces_hsl_initializer()
-    test_p4_s1_strict_v5_resume_rejects_missing_checkpoint()
+    test_p5_b_strict_v6_resume_replaces_hsl_initializer()
+    test_p5_b_strict_v6_resume_rejects_missing_checkpoint()
     test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel()
     test_stage3_sequence_eval_launch_honors_smoke_eval_env_overrides()
     test_stage3_launch_passes_explicit_segment_ppo_schedule_and_lr_args()

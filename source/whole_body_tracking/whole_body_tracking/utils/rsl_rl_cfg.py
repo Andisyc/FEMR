@@ -317,8 +317,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Stage 3 iterations that update only the Segment critic while holding actor/std fixed."""
     frontres_segment_actor_warmup_iterations: int = 0
     """Stage 3 iterations that linearly ramp the Segment PPO actor/entropy loss to full weight."""
-    frontres_segment_k_curriculum: tuple[tuple[int, int, int, int], ...] = ()
-    """Explicit FRS-TRAIN-v009 rows `(K, critic-only, actor-ramp, joint)`."""
+    frontres_segment_k_curriculum: tuple[tuple[int, int, int, int, int], ...] = ()
+    """Explicit FRS-TRAIN-v011 rows `(K, M, critic-only, actor-ramp, joint)`."""
     frontres_formal_runtime_audit: bool = False
     """Emit structured AUDIT-* snapshots on the official Stage 3 training route."""
     frontres_segment_periodic_eval_enabled: bool = False

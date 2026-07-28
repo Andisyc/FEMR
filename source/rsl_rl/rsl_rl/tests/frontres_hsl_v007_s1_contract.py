@@ -1000,14 +1000,14 @@ def test_t_hsl_loss_reject() -> None:
         lambda: unified.validate_frontres_v015_stage3_supervision_config(
             future_offsets=(1, 3), lambda_supervised=1.0, lambda_supervised_min=0.0
         ),
-        "FRS-TRAIN-v010",
+        "FRS-TRAIN-v011",
     )
     _expect_error(
         ValueError,
         lambda: unified.validate_frontres_v015_stage3_supervision_config(
             future_offsets=(1, 3), lambda_supervised=0.0, lambda_supervised_min=0.2
         ),
-        "FRS-TRAIN-v010",
+        "FRS-TRAIN-v011",
     )
     unified.validate_frontres_v015_stage3_supervision_config(
         future_offsets=(1, 3), lambda_supervised=0.0, lambda_supervised_min=0.0
@@ -1146,7 +1146,7 @@ def test_t_hsl_direct_write_reject() -> None:
             is_task_space_mode=True,
             n_train=1,
         ),
-        "FRS-TRAIN-v010",
+        "FRS-TRAIN-v011",
     )
     runner.alg.lambda_supervised = 0.0
     rollout_step._write_supervised_target_before_step(

@@ -1,26 +1,26 @@
 # FRS-v015 Physics-Constrained Intent Task Canvas
 
-Status: active volatile control surface. Updated: 2026-07-27.
+Status: active volatile control surface. Updated: 2026-07-28.
 
 ## Objective
 
-Keep the Noisy zero-action counterfactual, one full-6D actor, one scalar Critic,
-one-action-K and exact-one grouped transaction, while moving Contact, phase-ZMP
-and survival out of scalar Gain and into explicit actor-update constraints.
+Keep the accepted Physics-constrained Intent method unchanged while replacing
+the K8/M2 pilot training identity with one immutable coordinated K x exact-M
+checkpointed curriculum.
 
 ## Method Authority
 
 - Concept Figure: `Q-PAIR Paired Rollouts` -> `Q-01 Repair Gain`
-- Active contracts: METHOD-v016 / GAIN-v006 / PPO-v004 / TRAIN-v010
-- Active source route: METHOD-v016 / GAIN-v006 / PPO-v004 / TRAIN-v010,
-  runtime-confirmed through one bounded transaction at E-FI-75
+- Active contracts: METHOD-v016 / GAIN-v006 / PPO-v004 / TRAIN-v011
+- Current source route: METHOD-v016 / GAIN-v006 / PPO-v004 / TRAIN-v011,
+  exact coordinated K x M and strict checkpoint-v6 at E-FI-89
 - P0 decision record:
   `FRS-GAIN-v005-vector-physics-constrained-intent-proposal.md`
-- Implementation plan: four main steps P1-P4 plus completed preparatory P0
+- Implementation plan: completed P0-P4 history plus P5-A/P5-B/P5-C follow-on
 
 ## Current Cursor
 
-`P4 ZMP applicability carrier closure completed offline at E-FI-85; E-FI-84 remains the sensor-authority live evidence`
+`P5-B E-FI-89 exact-M/checkpoint-v6 offline engineering closure complete; P5-C awaits user-controlled material runtime authority`
 
 ## Confirmed
 
@@ -34,6 +34,9 @@ and survival out of scalar Gain and into explicit actor-update constraints.
   optimization boundary.
 - no rho, second actor, second Critic, contact predictor, new actor input, HSL
   change, Noisy prefix, or deployment Noisy rollout is introduced.
+- the complete v011 schedule is K8/M2 -> K16/M3 -> K32/M4 with two Segment
+  sources, max absolute iteration 8000 and fixed review boundaries;
+- `model_2000.pt` remains the K8/M2 checkpoint-v5 pilot and cannot resume v011.
 
 ## Contradicted V004 Assumption
 
@@ -59,33 +62,46 @@ P0 document/owner rebase [complete]
 -> P4 loaded-support applicability [offline S1/S2/S3 complete]
 -> P4 bounded official sensor-authority sentinel [complete at E-FI-84]
 -> P4 Repair/Noisy applicability carrier closure [offline complete at E-FI-85]
--> P4 policy-quality/checkpoint-lineage decision [open]
+-> P4 raw-contact capacity and formal K8 continuation [live complete at E-FI-86]
+-> P4 policy-only deployment final consumer [offline complete at E-FI-87]
+-> P4 single deployment quality run [ready]
+-> P5-A coordinated K x M contract activation [complete at E-FI-88]
+-> P5-B one-shot exact-M/checkpoint-v6 engineering closure [complete at E-FI-89]
+-> P5-C checkpointed official campaign [ready; runtime authority required]
 ```
 
 ## Active Blockers
 
 - pre-fix `model_2000.pt` contains four accepted updates whose post-rescale
   recovery direction violated one active first-order Physics halfspace;
-- E-FI-80 repairs the owner and formal consumer offline, but no post-fix live
-  transaction or new checkpoint lineage exists;
+- E-FI-80 repairs the owner and formal consumer offline; E-FI-84 later
+  live-confirms one strict v006 sensor-authority transaction/checkpoint;
 - E-FI-81 replaces formal root/capture-point ZMP evidence with contact-wrench
-  ZMP and sealed Clean-foot envelopes offline, but the server IsaacLab raw
-  contact API and finite supported-phase values are not live-confirmed;
+  ZMP and sealed Clean-foot envelopes; E-FI-84 confirms the server raw-contact
+  API and finite supported-phase values;
 - E-FI-82 defines valid physical no-load as Contact failure plus role-specific
   ZMP N/A; E-FI-85 now retains explicit Repair/Noisy aggregate applicability
   through GainResult, ReturnEvidence and both formal serializers;
-- aggregate training telemetry shows improved Critic calibration but no clear
-  Intent/Gain improvement, and contains no sustained-lean evaluation field.
+- E-FI-86 increases raw-contact capacity to 256 per foot/env while retaining
+  saturation fail-closed, and live-confirms 1999 committed transactions through
+  absolute iteration 2000 with KKT max zero and a formal `model_2000.pt` save;
+- E-FI-87 closes the policy-only JSON/CLI for Intent, real Contact,
+  phase-ZMP, survival, sustained lean and unplanned Contact events; real values
+  remain unavailable until the single deployment script is run.
+- E-FI-89 installs the exact-M formal owner, isolates sampler trial state,
+  enforces role width `4*M`, serializes active-M/count telemetry and persists
+  strict checkpoint-v6; no material runtime evidence exists yet for M3/M4.
 
 ## Non-Scope
 
-Long training, multi-seed, deployment composition, paper experiments, HSL,
-actor observation/output changes, GMT changes, multiple Critics/optimizers,
-Noisy physical prefix, or scalar reward-weight tuning.
+Simulator/training/live execution, multi-seed, matched-route evaluation, paper
+experiments, HSL, actor observation/output changes, GMT changes, multiple
+Critics/optimizers, Noisy physical prefix, or scalar reward-weight tuning.
 
 ## Next Action
 
-Choose checkpoint lineage after E-FI-80: retain pre-fix `model_2000.pt` only as
-a warm-start and continue with repaired projection, or require a strictly clean
-lineage from the last checkpoint before the first recorded violation. No
-further training is implied by this document update.
+P5-C is the next boundary: start a fresh strict HSL-v1 v011 campaign and use
+the existing checkpoint boundaries and telemetry to review the first real
+K16/M3 and K32/M4 transactions. This requires separate user authorization
+because it starts simulator/training. P4 policy-only deployment remains an
+independent open quality readout.

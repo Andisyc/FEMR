@@ -1,6 +1,6 @@
 # FRS-v015 Physics-Constrained Intent Migration Checklist
 
-Status: active, volatile acceptance surface. Updated: 2026-07-27.
+Status: active, volatile acceptance surface. Updated: 2026-07-28.
 
 | Step | Owner / tier | Acceptance assertion | Status | Evidence / stop |
 | --- | --- | --- | --- | --- |
@@ -37,7 +37,15 @@ Status: active, volatile acceptance surface. Updated: 2026-07-27.
 | P4-ZMP-v006 | final consumer | sentinel final JSON preserves sealed Repair/Noisy Contact and role-specific phase-ZMP applicability/N/A; adjacent exact-one checkpoint-v5 is strict and fail-closed | completed offline | E-FI-83; final serializer and temporary persistence contracts pass |
 | P4-ZMP | S4 sensor authority | official IsaacLab emits finite raw filtered contacts and supported-phase ZMP with correct role/hash identity | completed live | E-FI-84; final snapshot, exact-one update and strict model_1.pt checkpoint sentinel pass |
 | P4-ZMP-v006 | applicability carrier closure | all four Repair/Noisy applicability combinations preserve explicit masks; paired ZMP gain is finite iff both are applicable; PPO consumes Repair only; final serializers retain both | completed offline | E-FI-85; S1/S2/S3 focused regressions and final-consumer evidence pass |
-| P4 | quality | target distinguishes v004 plateau cases and actor update improves or preserves Physics without sustained lean/unplanned stepping | blocked on lineage/efficacy decision | E-FI-79 shows Critic calibration improvement but no clear Intent/Gain trend; training log has no sustained-lean field |
+| P4-ZMP-v006 | raw-contact capacity continuation | 8-env raw filtered views provision 2048 contacts per foot sensor, retain exact-saturation fail-closed, and complete the official continuation without capacity loss or semantic drift | completed live | E-FI-86; 1999/1999 committed transactions reach absolute iteration 2000, KKT max 0, no capacity/applicability error, formal model_2000.pt save emitted |
+| P4-EVAL | S1/S2 final consumer | policy-only deployment report preserves post-fix checkpoint, Clean-reset/Noisy-carrier separation, real ContactSensor/phase-ZMP, Intent, survival, lean and unplanned-step trajectories with zero training feedback | completed offline, live pending | E-FI-87; five focused contracts plus 63/63 aggregate suite; dedicated shell driver ready |
+| P4 | quality | post-fix model_2000 directly preserves Intent, Contact, phase-ZMP and survival without sustained lean/unplanned stepping | pending one deployment run | E-FI-87 closes the report/CLI offline; actual JSON/log remains S4 unconfirmed |
+| P5-A | contract/governance | TRAIN-v011 freezes K8/M2 -> K16/M3 -> K32/M4, two Segment sources, review boundaries 2000/3500/4825/6500/8000, max 8000 and checkpoint-v6 without changing METHOD/GAIN/PPO/HSL | completed document-only | E-FI-88; registry, Concept Figure, plan/canvas and Architecture synchronized |
+| P5-B | S1 schedule/layout | parser resolves active K/M/phase and exact two-Segment x M rows for M=2/3/4; env width is exactly 4M and sampler state cannot change formal M | completed offline | E-FI-89; exact schedule/parser, M2/M3/M4 sampler and launcher/config contracts |
+| P5-B | S2 formal connectivity | sealed exact-M transaction reaches grouped equal-mass PPO-v004, final telemetry and exactly one committed update with no formula change | completed offline | E-FI-89; transaction/unmocked/local-sentinel contracts and 63/63 suite |
+| P5-B | S3 persistence | checkpoint-v6 binds full K x M schedule, max/review boundaries, stage/rows, optimizer/sampler/normalizers and receipt; checkpoint-v5 rejects pre-mutation | completed offline | E-FI-89; strict round-trip/tamper/v5 pre-mutation rejection and fresh reload |
+| P5-C | first-live stage evidence | first K16/M3 and K32/M4 formal transactions prove active stage, required env width, actor freeze, same-Critic delta, KKT, exact-one and unchanged fingerprint inside the real block | ready; runtime authority required | no separate sentinel when existing telemetry is complete |
+| P5-C | checkpointed quality | boundaries 2000/3500/4825/6500/8000 receive committed save plus rolling Intent/repair/Contact/ZMP/survival/lean/step/action/value review and CONTINUE/PAUSE-REPAIR/STOP-DESIGN | ready; runtime authority required | systematic no-op/lean/unplanned support/Physics regression stops design; one bad transaction does not |
 
 ## Pass Rule
 
@@ -50,5 +58,6 @@ using it as the Physics threshold is forbidden.
 
 Stop on a single scalar Physics utility, severe-state saturation, adverse-row
 masking, Clean/Contact/ZMP leakage to actor input, second actor/Critic/optimizer,
-mixed scenario/K identity, v004/v003 fallback, partial transaction update, or
+mixed scenario/K/M identity, state-driven formal M, schedule mutation,
+checkpoint-v5 migration into v011, v004/v003 fallback, partial transaction update, or
 any live optimizer count other than one.

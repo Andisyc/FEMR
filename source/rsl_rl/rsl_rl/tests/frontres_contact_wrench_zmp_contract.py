@@ -98,6 +98,44 @@ def test_expected_envelope_and_physical_no_load_is_na() -> None:
         raise AssertionError("non-finite valid raw contact payload did not fail closed")
 
 
+def test_expected_support_envelope_is_derived_from_clean_foot_pose() -> None:
+    owner = _owner()
+    foot_pos = torch.tensor(
+        [
+            [[-0.10, 0.10, 0.02], [0.10, -0.10, 0.03]],
+            [[-0.10, 0.10, 0.20], [0.20, -0.10, 0.02]],
+            [[-0.10, 0.10, 0.20], [0.20, -0.10, 0.22]],
+        ]
+    )
+    foot_quat = torch.zeros(3, 2, 4)
+    foot_quat[..., 0] = 1.0
+    support, envelope = owner.expected_support_and_envelope_from_foot_pose(
+        foot_pos,
+        foot_quat,
+        contact_height=0.08,
+        foot_half_length=0.10,
+        foot_half_width=0.05,
+    )
+    assert support.tolist() == [[True, True], [False, True], [False, False]]
+    assert tuple(envelope.shape) == (3, 6)
+    torch.testing.assert_close(envelope[0, :4], torch.tensor([0.0, 0.0, 1.0, 0.0]))
+    torch.testing.assert_close(envelope[1, :4], torch.tensor([0.20, -0.10, 1.0, 0.0]))
+    assert bool(torch.isfinite(envelope).all())
+    assert bool((envelope[:, 4:] > 0.0).all())
+    try:
+        owner.expected_support_and_envelope_from_foot_pose(
+            foot_pos,
+            foot_quat,
+            contact_height=float("inf"),
+            foot_half_length=0.10,
+            foot_half_width=0.05,
+        )
+    except ValueError as exc:
+        assert "thresholds/extents" in str(exc)
+    else:
+        raise AssertionError("non-finite expected-support threshold did not fail closed")
+
+
 def test_formal_owner_isolation() -> None:
     probe = LIVE_PROBE.read_text(encoding="utf-8")
     capture = probe[probe.index("def _capture_physics_frame"):probe.index("def _capture_v015_quality_lateral_lean_frame")]
@@ -431,6 +469,7 @@ def test_asymmetric_foot_contact_slots_pad_without_changing_evidence() -> None:
 if __name__ == "__main__":
     test_contact_wrench_golden_and_permutation()
     test_expected_envelope_and_physical_no_load_is_na()
+    test_expected_support_envelope_is_derived_from_clean_foot_pose()
     test_formal_owner_isolation()
     test_raw_contact_owner_unpacking()
     test_raw_contact_capacity_saturation_remains_fail_closed()

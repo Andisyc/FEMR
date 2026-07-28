@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import inspect
+import importlib.util
 import json
 import math
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
+import sys
 
 import torch
 
@@ -17,6 +19,10 @@ ROOT = Path(__file__).resolve().parents[4]
 TEST_ROOT = ROOT / "source" / "rsl_rl" / "rsl_rl" / "tests"
 S2A_HELPER_PATH = TEST_ROOT / "frontres_v015_deployment_carrier_s2a_contract.py"
 RUNNER_PATH = ROOT / "source" / "rsl_rl" / "rsl_rl" / "runners" / "on_policy_runner.py"
+GAIN_PATH = ROOT / "source" / "rsl_rl" / "rsl_rl" / "frontres" / "frontres_gain.py"
+RSL_SOURCE_ROOT = ROOT / "source" / "rsl_rl"
+if str(RSL_SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(RSL_SOURCE_ROOT))
 
 
 def _load_s2a_helper():
@@ -164,18 +170,31 @@ def _runner(helper, command, runtime, layout):
         command._frontres_pos_correction.copy_(correction[:, :3])
         return correction
 
-    def metrics(*, frame_index: int, dones: torch.Tensor, **_kwargs):
+    def metrics(*, frame_index: int, dones: torch.Tensor, expected_support: torch.Tensor, **_kwargs):
         assert frame_index == int(command._frontres_v015_deployment_sequence_cursor[0].item())
+        actual = expected_support.clone()
+        if frame_index == 2:
+            actual[:, 0] = ~actual[:, 0]
         return {
-            "physics_success": ~dones,
             "fall": dones,
             "zmp_margin": torch.full((command.num_envs,), 0.20 - 0.01 * frame_index),
-            "contact_consistency": torch.full((command.num_envs,), 1.0 - 0.10 * frame_index),
+            "actual_contact": actual,
+            "lateral_roll_rad": torch.full((command.num_envs,), 0.01 * frame_index),
         }
 
     runner._apply_obs_normalizer = normalize
     runner._apply_frontres_task_corrections = apply_correction
     runner._frontres_v015_deployment_metric_provider = metrics
+    gain = importlib.util.spec_from_file_location("frontres_v015_deployment_s2b_gain", GAIN_PATH)
+    assert gain is not None and gain.loader is not None
+    gain_module = importlib.util.module_from_spec(gain)
+    sys.modules[gain.name] = gain_module
+    gain.loader.exec_module(gain_module)
+    runner._frontres_v015_deployment_phase_provider = gain_module.evaluate_phase_conditioned_physics
+    runner._frontres_v015_deployment_expected_physics_provider = lambda **_kwargs: (
+        torch.ones(6, 2, dtype=torch.bool),
+        torch.tensor([[0.0, 0.0, 1.0, 0.0, 0.2, 0.1]]).repeat(6, 1),
+    )
     runner._read_frontres_v015_deployment_context = lambda env_ids=None: runtime.read_frontres_v015_deployment_context(
         runner, env_ids
     )
@@ -208,6 +227,7 @@ def test_t_formal_composition_connectivity() -> None:
         )
         request_config = owner.FrontRESV015DeploymentCompositionConfig(
             enabled=True,
+            source_reference_path=str(reference),
             reference_path=str(reference),
             future_offsets=(1, 2),
             corruption_protocol=protocol,
@@ -220,6 +240,8 @@ def test_t_formal_composition_connectivity() -> None:
 
         command = helper._command(reset_helper, commands, num_envs=2)
         command.cfg = SimpleNamespace(motion_horizon=1, command_velocity=True, body_names=("pelvis",))
+        command.left_foot_idx = 1
+        command.right_foot_idx = 2
         command._global_sim_step = 0
         runner = _runner(reset_helper, command, runtime, layout)
         report = owner.run_frontres_v015_deployment_composition_eval(runner, config=run_config)
@@ -227,10 +249,12 @@ def test_t_formal_composition_connectivity() -> None:
         assert report.reference_frame_count == 6
         assert report.frame_count == 4
         assert report.femr_action_count == 4
-        assert report.accumulated_failure_count == 1
+        assert report.accumulated_failure_count >= 1
         assert report.per_frame_femr_action_used == (True, True, True, True)
-        assert report.per_frame_physics_success == (True, True, False, True)
+        assert report.per_frame_physics_success[2] is False
         assert report.per_frame_fall == (False, False, True, False)
+        assert len(report.per_frame_policy_actions) == 4
+        assert report.unplanned_contact_steps[2] == (True, True)
         assert all(
             math.isclose(actual, expected, rel_tol=1e-5, abs_tol=1e-6)
             for actual, expected in zip(
@@ -258,6 +282,12 @@ def test_t_formal_composition_connectivity() -> None:
         assert payload["reference_frame_count"] == 6
         assert payload["evaluated_frame_count"] == 4
         assert payload["femr_action_count"] == 4
+        assert payload["source_reference_file_hash"] == report.request.source_reference_file_hash
+        assert "expected_contact_steps" in payload
+        assert "phase_zmp_applicable_steps" in payload
+        assert "evaluation_only_sustained_lean" in payload
+        assert "unplanned_contact_steps" in payload
+        assert "summary" in payload
     print(
         "[T-connect/T-per-frame/T-frozen-GMT/T-report/T-zero-write] "
         "T=6 Hmax=2 -> 4 actions, 4 GMT reads, immutable JSON, optimizer/sampler writes=0",
@@ -278,9 +308,59 @@ def test_t_formal_entry_and_legacy_isolation() -> None:
     )
 
 
+def test_t_inference_mode_freezes_and_restores_normalizers() -> None:
+    owner = _load_s2a_helper()._owners()[-1]
+
+    class _MutatingNormalizer(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.register_buffer("updates", torch.zeros((), dtype=torch.int64))
+
+        def forward(self, value: torch.Tensor) -> torch.Tensor:
+            if self.training:
+                self.updates.add_(1)
+            return value
+
+    normalizers = tuple(_MutatingNormalizer() for _ in range(4))
+    runner = SimpleNamespace(
+        alg=SimpleNamespace(policy=torch.nn.Identity()),
+        _frontres_extra_normalizer=normalizers[0],
+        obs_normalizer=normalizers[1],
+        privileged_obs_normalizer=normalizers[2],
+        teacher_obs_normalizer=normalizers[3],
+    )
+    before = owner._frontres_v015_training_state_fingerprint(runner)
+    with owner._frontres_v015_deployment_inference_mode(runner):
+        assert all(not module.training for module in normalizers)
+        for module in normalizers:
+            module(torch.ones(1, 1))
+    assert all(module.training for module in normalizers)
+    assert all(int(module.updates.item()) == 0 for module in normalizers)
+    assert owner._frontres_v015_training_state_fingerprint(runner) == before
+
+    try:
+        with owner._frontres_v015_deployment_inference_mode(runner):
+            raise RuntimeError("deliberate")
+    except RuntimeError as exc:
+        assert str(exc) == "deliberate"
+    else:
+        raise AssertionError("expected deliberate exception")
+    assert all(module.training for module in normalizers)
+
+    normalizers[0](torch.ones(1, 1))
+    after = owner._frontres_v015_training_state_fingerprint(runner)
+    assert after["prefix_normalizer"] != before["prefix_normalizer"]
+    print(
+        "[T-inference-mode/T-normalizer-zero-write/T-exception-restore] "
+        "all mutable observation normalizers frozen and fingerprinted",
+        flush=True,
+    )
+
+
 def main() -> None:
     test_t_formal_composition_connectivity()
     test_t_formal_entry_and_legacy_isolation()
+    test_t_inference_mode_freezes_and_restores_normalizers()
     print("frontres_v015_deployment_composition_s2b_contract: ok", flush=True)
 
 

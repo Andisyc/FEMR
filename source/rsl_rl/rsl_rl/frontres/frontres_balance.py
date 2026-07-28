@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import torch
@@ -14,6 +15,70 @@ import torch
 
 FRONTRES_ZMP_ESTIMATOR_ID = "contact-wrench-zmp-v1"
 FRONTRES_SUPPORT_ENVELOPE_ID = "clean-foot-pose-oriented-box-v1"
+
+
+def expected_support_and_envelope_from_foot_pose(
+    foot_pos_w: torch.Tensor,
+    foot_quat_w: torch.Tensor,
+    *,
+    contact_height: float,
+    foot_half_length: float,
+    foot_half_width: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Derive expected Contact phase and oriented support boxes from Clean feet."""
+
+    if (
+        foot_pos_w.ndim != 3
+        or tuple(foot_pos_w.shape[1:]) != (2, 3)
+        or tuple(foot_quat_w.shape) != (int(foot_pos_w.shape[0]), 2, 4)
+        or not bool(torch.isfinite(foot_pos_w).all())
+        or not bool(torch.isfinite(foot_quat_w).all())
+    ):
+        raise ValueError("expected support requires finite foot pose [T,2,3]/[T,2,4]")
+    scalars = (float(contact_height), float(foot_half_length), float(foot_half_width))
+    if (
+        not all(math.isfinite(value) for value in scalars)
+        or scalars[0] < 0.0
+        or scalars[1] <= 0.0
+        or scalars[2] <= 0.0
+    ):
+        raise ValueError("expected support thresholds/extents must be nonnegative/positive")
+    support = foot_pos_w[..., 2] <= float(contact_height)
+    w, x, y, z = foot_quat_w.unbind(dim=-1)
+    yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y.square() + z.square()))
+    rows: list[torch.Tensor] = []
+    for frame_index in range(int(foot_pos_w.shape[0])):
+        active = support[frame_index]
+        if not bool(active.any()):
+            active = torch.ones_like(active)
+        mean_cos = torch.cos(yaw[frame_index, active]).mean()
+        mean_sin = torch.sin(yaw[frame_index, active]).mean()
+        norm = torch.sqrt(mean_cos.square() + mean_sin.square()).clamp_min(1.0e-8)
+        cos_ref, sin_ref = mean_cos / norm, mean_sin / norm
+        centers = foot_pos_w[frame_index, active, :2]
+        center_x = cos_ref * centers[:, 0] + sin_ref * centers[:, 1]
+        center_y = -sin_ref * centers[:, 0] + cos_ref * centers[:, 1]
+        delta_yaw = yaw[frame_index, active] - torch.atan2(sin_ref, cos_ref)
+        half_x = torch.cos(delta_yaw).abs() * float(foot_half_length) + torch.sin(delta_yaw).abs() * float(
+            foot_half_width
+        )
+        half_y = torch.sin(delta_yaw).abs() * float(foot_half_length) + torch.cos(delta_yaw).abs() * float(
+            foot_half_width
+        )
+        lower_x, upper_x = (center_x - half_x).min(), (center_x + half_x).max()
+        lower_y, upper_y = (center_y - half_y).min(), (center_y + half_y).max()
+        box_x, box_y = 0.5 * (lower_x + upper_x), 0.5 * (lower_y + upper_y)
+        world_center = torch.stack((cos_ref * box_x - sin_ref * box_y, sin_ref * box_x + cos_ref * box_y))
+        rows.append(
+            torch.cat(
+                (
+                    world_center,
+                    torch.stack((cos_ref, sin_ref)),
+                    torch.stack((0.5 * (upper_x - lower_x), 0.5 * (upper_y - lower_y))),
+                )
+            )
+        )
+    return support.detach().clone(), torch.stack(rows, dim=0).detach().clone()
 
 
 def contact_wrench_zmp_xy(

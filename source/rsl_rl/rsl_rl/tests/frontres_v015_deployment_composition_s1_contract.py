@@ -93,6 +93,7 @@ def test_t_npz_schema_identity_and_corruption_protocol(owner) -> None:
         _write_npz(reference)
         config = owner.FrontRESV015DeploymentCompositionConfig(
             enabled=True,
+            source_reference_path=str(reference),
             reference_path=str(reference),
             future_offsets=(1, 2),
             corruption_protocol=protocol_a,
@@ -102,6 +103,8 @@ def test_t_npz_schema_identity_and_corruption_protocol(owner) -> None:
         request_a.validate()
         assert request_a == request_b
         assert request_a.reference_path == str(reference.resolve())
+        assert request_a.source_reference_path == str(reference.resolve())
+        assert request_a.source_reference_file_hash == request_a.reference_file_hash
         assert request_a.reference_stream_id.startswith("deployment-npz:")
         assert len(request_a.reference_file_hash) == 64
         assert request_a.reference_provenance == "deployment_reference_stream"
@@ -141,6 +144,7 @@ def test_t_report_and_no_feedback(owner) -> None:
         request = owner.load_frontres_v015_deployment_composition_request(
             owner.FrontRESV015DeploymentCompositionConfig(
                 enabled=True,
+                source_reference_path=str(reference),
                 reference_path=str(reference),
                 future_offsets=(1, 2),
                 corruption_protocol=protocol,
@@ -154,12 +158,27 @@ def test_t_report_and_no_feedback(owner) -> None:
             per_frame_fall=(False, True),
             per_frame_zmp_margin=(0.1, -0.03),
             per_frame_contact_consistency=(1.0, 0.2),
+            per_frame_policy_actions=(((0.0,) * 6,), ((0.1,) * 6,)),
+            expected_contact_steps=(((True, True),), ((True, False),)),
+            actual_contact_steps=(((True, True),), ((False, False),)),
+            contact_mismatch_steps=(((False, False),), ((True, False),)),
+            phase_zmp_applicable_steps=((True,), (False,)),
+            phase_zmp_violation_steps=((0.0,), (None,)),
+            phase_zmp_recovery_steps=((False,), (True,)),
+            survival_steps=((True,), (False,)),
+            lateral_roll_rad_steps=((0.01,), (0.03,)),
+            lateral_roll_cumulative_mean_rad_steps=((0.01,), (0.02,)),
+            unplanned_contact_steps=((False,), (True,)),
         )
         report.validate()
         assert report.reference_frame_count == 4
         assert report.frame_count == 2
         assert report.femr_action_count == 2
         assert report.accumulated_failure_count == 1
+        assert report.unplanned_contact_event_count == 1
+        assert report.phase_zmp_violation_count == 0
+        assert report.survival_fraction == 0.5
+        assert report.max_abs_cumulative_lateral_roll_rad == 0.02
         assert report.return_feedback is False
         assert report.priority_feedback is False
         assert report.ppo_feedback is False
@@ -200,6 +219,18 @@ def test_t_report_and_no_feedback(owner) -> None:
                 per_frame_physics_success=(True, True),
             ).validate()
         )
+        assert "applicability" in _expect_value_error(
+            lambda: replace(
+                report,
+                phase_zmp_violation_steps=((None,), (None,)),
+            ).validate()
+        )
+        assert "bool" in _expect_value_error(
+            lambda: replace(
+                report,
+                unplanned_contact_steps=((0,), (True,)),
+            ).validate()
+        )
     print(
         "[T-report/T-no-feedback] per-frame deployment metrics expose no local return or training-state carrier",
         flush=True,
@@ -215,6 +246,7 @@ def test_t_config_fail_closed_and_legacy_reject(owner) -> None:
     )
     base = owner.FrontRESV015DeploymentCompositionConfig(
         enabled=True,
+        source_reference_path="ordinary_motion.npz",
         reference_path="deployment_motion.npz",
         future_offsets=(1, 2),
         corruption_protocol=protocol,

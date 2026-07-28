@@ -49,10 +49,10 @@
         {
           "id": "DP-SEGMENT",
           "title": "Segment Replay",
-          "summary": "固定局部情境下重复 on-policy 尝试并优先重放；M 次 Repair 共享 x_t、首帧 artifact、future intent 与 Clean continuation",
-          "owns": "global/replay/review sampling, priority, S1a trial planning, legacy S1b carrier, v015 immutable expected-row plan/accumulator, Clean x_t reset 与 local-scenario provenance",
-          "mustNot": "不读取 post-update KL 或 logger state 计算 priority, 不在 M 次尝试完成前更新 PPO",
-          "objects": ["SR-01", "motion_id", "segment_id", "transaction_id", "policy_snapshot_id", "priority", "trial roles"],
+          "summary": "固定局部情境下重复 on-policy 尝试；FRS-TRAIN-v011 要求每个全局 stage 对两个 Segment 使用 exact M",
+          "owns": "当前代码拥有 global/replay/review selection 与 state-driven trial planning；已激活的 v011 合同要求 formal transaction 另行拥有 exact M=2/3/4、immutable row plan、Clean x_t reset 与 local-scenario provenance",
+          "mustNot": "不在 M 次尝试完成前更新 PPO, 不允许 sampler state 改写 v011 stage M, 不得用增加 env 数代替 exact-M identity",
+          "objects": ["SR-01", "FRS-TRAIN-v011", "motion_id", "segment_id", "transaction_id", "policy_snapshot_id", "active_m", "priority", "trial roles"],
           "files": [
             {"id": "M2C-S01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "Segment sampler owner", "functions": ["sample_rollout_rows()","expand_rollout_trials()","FrontRESSegmentSampler.update_with_probe()"], "sourceLine": 241, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=241"},
             {"id": "M2C-S02", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py", "role": "replayable dynamic state dataset", "functions": [], "sourceLine": 25, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_dataset.py&line=25"},
@@ -61,14 +61,14 @@
             {"id": "M2C-S05", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "v015 S3 v2 identity for exact 928/158/770 layout, prefix fingerprint, and partial-transaction rejection", "functions": ["save_runner()", "load_runner()"], "sourceLine": 85, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=85"}
           ],
           "mainRoute": [
-            "B1 frontres_segment_sampler.py::sample_rollout_rows(): priority/source -> selected Segment groups",
-            "B2 v015 protected transaction: collecting barrier + frozen snapshot/expected source-trial plan -> sealed accumulator -> grouped v003 loss -> one explicit step -> committed receipt only",
-            "B3 FrontRESSegmentSampler.update_with_probe(): completed rollout evidence -> updated priority"
+            "B1 current source: priority/source + state-driven trial count -> selected Segment groups",
+            "B2 v011 planned owner: active K x M stage -> exactly two Segment sources x exact M rows -> sealed accumulator -> grouped PPO-v004 -> one explicit step",
+            "B3 committed receipt -> stage identity; replay priority may change selection only, never exact M"
           ],
           "mainRouteTitles": ["选择 Segment Group", "冻结情境收集 M Attempts", "更新 Replay Priority"],
           "review": ["检查 motion/segment/trial/snapshot 行域", "检查同一 x_t 与 Noisy hash", "检查 PPO 在 transaction 后才更新"],
           "tests": ["S1 double transaction contract", "S2 v015 transaction route contract", "S3 v015 checkpoint/resume contract", "S4 v013 identity sentinel", "S2 v015 unmocked observation connectivity contract"],
-          "gap": "E-FI-27 closes the bounded SUST_Main_2 identity/update route. E-FI-44 closes ordinary whole-M provider -> grouped exact-one -> committed save-trigger connectivity while isolating legacy immediate update. E-FI-45 closes actual v015 save -> strict fresh-inference equality offline. Long training, policy quality, simulator timing, physical metrics, and bounded live deployment composition remain open."
+          "gap": "CONTRACT-MISMATCH at E-FI-88: E-FI-86 proves K8/M2 exact-one runtime, but current formal source hard-codes minimum M=2 and does not own the activated exact M=2/3/4 schedule. The next one-shot engineering closure must isolate state-driven legacy M and implement the v011 exact-M/checkpoint-v6 route before training."
         },
         {
           "id": "DP-FUTURE",
@@ -99,24 +99,24 @@
         {
           "id": "DP-KSTEP",
           "title": "K-step Curriculum",
-          "summary": "全局递增 K-stage 延长首帧唯一 repair 的 Clean-continuation GMT 后果证据",
-          "owns": "one active K per committed training stage, homogeneous-K sealed transactions, one-action then frozen-FEMR lifecycle, Clean-continuation execution, K-evidence aggregation, and one policy-row return",
-          "mustNot": "不按 Segment 难度混合 K, 不把 K 输入 actor 或混同 H, 不在 K 内继续 FEMR 或注入后续 root noise",
-          "objects": ["M-06", "FRS-TRAIN-v009", "global k_stage_index", "active_k", "one policy row per attempt", "evidence_valid_step_count", "returns", "H != K"],
+          "summary": "全局协调 K x M stage 延长首帧 repair 的后果证据并增加同情境尝试覆盖",
+          "owns": "FRS-TRAIN-v011 defines one active K and exact M per committed stage, homogeneous K/M transactions, one-action then frozen-FEMR lifecycle, one policy row per attempt and checkpointed review boundaries",
+          "mustNot": "不按 Segment 难度混合 K/M, 不把 K/M 输入 actor 或混同 H, 不在 K 内继续 FEMR, 不在 resume 时追加 schedule",
+          "objects": ["M-06", "FRS-TRAIN-v011", "global km_stage_index", "active_k", "active_m", "one policy row per attempt", "evidence_valid_step_count", "returns", "H != K"],
           "files": [
-            {"id": "M2C-K01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "legacy per-Segment budget remains available, while plan_frozen_policy_transaction(active_horizon_k) overrides it with the v009 global K on the formal route", "functions": ["plan_rollout_budget()","plan_frozen_policy_transaction()"], "sourceLine": 495, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=495"},
+            {"id": "M2C-K01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "current v010 source overrides per-Segment K but still derives M from sampler state; v011 exact-M owner is missing", "functions": ["plan_rollout_budget()","plan_frozen_policy_transaction()"], "sourceLine": 495, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=495"},
             {"id": "M2C-K02", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "role": "one-row/K-evidence carrier with M-attempt-per-scenario Repair/Noisy pairing plus immutable v015 grouped metadata; legacy adapter is isolated", "functions": ["FrontRESV015OneActionKEvidence.validate()", "FrontRESV015GroupedCandidateMetadata", "build_frontres_v015_grouped_candidate_storage()"], "sourceLine": 57, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=57"},
             {"id": "M2C-K03", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "one-action/frozen-GMT K capture with post-command-advance fresh GMT observation; legacy repeated actor collector rejects v015", "functions": ["collect_frontres_v015_one_action_k_evidence()", "_run_live_rollout_capture()"], "sourceLine": 3201, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3201"}
           ],
           "mainRoute": [
-            "B1 v009 schedule resolver + formal sampler override: committed global stage -> one active K shared by every Segment x M row",
+            "B1 planned v011 resolver: committed global stage -> one active K and exact M shared by two Segment sources",
             "B2 collect_frontres_v015_one_action_k_evidence(): one action at t -> frozen FEMR + command-owned Clean-C K evidence",
             "B3 return evidence -> sealed metadata: one Repair PPO row + K/evidence count; only grouped candidate adapter may carry it"
           ],
           "mainRouteTitles": ["解析 Global K Stage", "执行 Evidence Horizon", "构造单行 K-step Return"],
           "review": ["拒绝 transaction 内 mixed-K", "检查 done 后的 evidence-step mask", "检查 K 不增加 PPO row 或 group mass"],
           "tests": ["S1/S2 v015 one-action K collector contract", "S1 v015 grouped candidate adapter contract", "S1 v003 grouped-PPO contract", "S2 formal storage route", "S4 AUDIT-SAMPLER-01", "S2 v015 unmocked observation connectivity contract"],
-          "gap": "E-FI-71 live-confirms the K8 critic-only -> actor-warmup -> joint -> K16 critic-only transition, formal homogeneous-K transactions, exact-one updates and v4/v009 persistence. The retained per-Segment planner remains legacy/ablation-only; policy quality, not K connectivity, is now the blocker."
+          "gap": "CONTRACT-MISMATCH at E-FI-88: current parser/checkpoint owner supports K-only v010/v5. Coordinated exact M, checkpoint-v6, stage-specific 8/12/16 env widths and immutable 8000-iteration campaign boundaries are activated but not implemented."
         }
       ]
     },
@@ -156,26 +156,26 @@
         {
           "id": "DP-WARMUP",
           "title": "Actor & Critic Warmup",
-          "summary": "每次全局 K 增长后先重校准同一 Critic, 再线性释放 actor, 最后 joint PPO",
-          "owns": "FRS-TRAIN-v010 owns fresh Intent-Critic entry, per-global-K critic_only recalibration, actor ramp, joint phase, one scalar Critic continuity, exact-one grouped transaction boundary and checkpoint-v5 identity; E-FI-74 confirms the source route offline",
-          "mustNot": "不恢复 rho、Multi-Critic、第二 optimizer、K-conditioned actor、HSL Stage-3 target、legacy update route 或 v008 resume",
-          "objects": ["M-05", "FRS-TRAIN-v010", "paired-intent-minus-repair-v1", "k_stage_index", "active_k", "stage_iteration", "phase", "actor_loss_weight", "critic grad", "actor/std grad"],
+          "summary": "每次全局 K x M stage 变化后先重校准同一 Critic, 再线性释放 actor, 最后 joint PPO",
+          "owns": "FRS-TRAIN-v011 owns fresh Intent-Critic entry, per-stage critic_only recalibration, actor ramp, joint phase, exact-M transaction boundary, checkpoint review blocks and checkpoint-v6 identity; current source remains v010/v5 until implementation",
+          "mustNot": "不恢复 rho、Multi-Critic、第二 optimizer、K/M-conditioned actor、HSL Stage-3 target、legacy update route、checkpoint-v5 migration或 schedule append",
+          "objects": ["M-05", "FRS-TRAIN-v011", "paired-intent-minus-repair-v1", "km_stage_index", "active_k", "active_m", "stage_iteration", "phase", "actor_loss_weight", "critic grad", "actor/std grad"],
           "files": [
-            {"id": "M2C-W01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "role": "active v010 immutable schedule/fingerprint and committed-iteration to K-stage/local-phase owner", "functions": ["resolve_frontres_k_stage_identity()", "parse_frontres_k_stage_schedule()"], "sourceLine": 27, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=27"},
+            {"id": "M2C-W01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "role": "current v010 K-only schedule/fingerprint owner; v011 coordinated K x M parser is contract-mismatch/missing", "functions": ["resolve_frontres_k_stage_identity()", "parse_frontres_k_stage_schedule()"], "sourceLine": 27, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=27"},
             {"id": "M2C-W02", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "active PPO-v004 scalar-Intent grouped loss, per-constraint surrogate, and KKT-checked joint projection", "functions": ["compute_frontres_segment_ppo_loss()", "install_frontres_v004_projected_gradients()"], "sourceLine": 251, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=251"},
-            {"id": "M2C-W03", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "active v010 homogeneous-K seal, projected-gradient install, exact-one update, committed receipt and phase isolation owner", "functions": ["_v015_resolve_curriculum_identity()", "run_frontres_v015_formal_transaction_update()"], "sourceLine": 3640, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3640"},
-            {"id": "M2C-W04", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "active checkpoint-v5 v010/v005/v004 identity, solver schema, committed receipt and pre-mutation compatibility owner", "functions": ["save_runner()", "load_runner()"], "sourceLine": 1556, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1556"}
+            {"id": "M2C-W03", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "current v010 homogeneous-K seal/exact-one owner; v011 must add active-M seal and final telemetry", "functions": ["_v015_resolve_curriculum_identity()", "run_frontres_v015_formal_transaction_update()"], "sourceLine": 3640, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3640"},
+            {"id": "M2C-W04", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "current checkpoint-v5 owner; v011 checkpoint-v6 K/M/max/review identity and v5 reject are missing", "functions": ["save_runner()", "load_runner()"], "sourceLine": 1556, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1556"}
           ],
           "mainRoute": [
-            "B1 frontres_segment_warmup.py: explicit schedule + committed iteration -> active K + stage-local phase + actor weight",
+            "B1 planned v011: complete K x M schedule + committed iteration -> active K/M + stage-local phase + actor weight",
             "B2 frontres_segment_ppo.py: scalar v005 return + grouped constraint surrogates -> PPO-v004 projected actor gradient and scalar-Critic value loss",
             "B3 formal v015 owner: complete transaction + sealed phase -> critic-only/actor-ramp/joint exact-one update",
-            "B4 frontres_checkpointing.py: checkpoint-v5 v010/v005/v004 schedule + solver + transaction identity -> exact resume or pre-mutation reject"
+            "B4 planned checkpoint-v6: v011 schedule/max/review/K/M rows + solver + transaction identity -> exact resume or pre-mutation reject"
           ],
           "mainRouteTitles": ["解析 Warmup Phase", "组合 Grouped PPO Loss", "执行正式 Phase Update", "持久化 Phase Identity"],
           "review": ["每次换 K 后 critic_only actor/std 必须不变且同一 Critic 必须更新", "一笔 transaction 内 K 必须同质", "stage 仅在 committed transaction 后前进", "resume 必须选择同一 schedule/stage/K/phase", "一笔 transaction 只有一次 optimizer step"],
           "tests": ["E-FI-68 v008 K=8 critic-only foundation", "E-FI-70 C1 schedule kernel", "E-FI-70 C2 homogeneous-K transition", "E-FI-70 C3 checkpoint-v4 persistence", "E-FI-71 C4 bounded official K-transition sentinel"],
-          "gap": "E-FI-74 closes the v010 offline source route and strict checkpoint-v5 identity. Real constraint gradients, projection outcome, parameter deltas and policy efficacy remain blocked on the one-transaction P3 runtime sentinel."
+          "gap": "CONTRACT-MISMATCH at E-FI-88: v010/checkpoint-v5 runtime is proven through model_2000, but v011 exact-M schedule and checkpoint-v6 have no source or deterministic evidence yet."
         }
       ]
     },

@@ -140,7 +140,7 @@ def _args(**overrides) -> SimpleNamespace:
         "frontres_segment_live_update_steps": 6,
         "frontres_segment_critic_warmup_iterations": 200,
         "frontres_segment_actor_warmup_iterations": 500,
-        "frontres_segment_k_curriculum": "8:200:500:100,16:200:500:0",
+        "frontres_segment_k_curriculum": "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625",
         "frontres_formal_runtime_audit": False,
         "frontres_v015_future_offsets": "1,2",
         "frontres_v015_hsl_initializer_checkpoint": "/tmp/frontres-v015-hsl-proposal-v1.pt",
@@ -204,7 +204,11 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
     assert alg.frontres_segment_live_update_steps == 1
     assert alg.frontres_segment_critic_warmup_iterations == 200
     assert alg.frontres_segment_actor_warmup_iterations == 500
-    assert alg.frontres_segment_k_curriculum == ((8, 200, 500, 100), (16, 200, 500, 0))
+    assert alg.frontres_segment_k_curriculum == (
+        (8, 2, 200, 500, 1300),
+        (16, 3, 300, 300, 900),
+        (32, 4, 400, 300, 625),
+    )
     assert alg.frontres_formal_runtime_audit is True
     assert alg.frontres_hsl_init_enabled is False
     assert alg.frontres_hsl_rollout_label_enabled is False

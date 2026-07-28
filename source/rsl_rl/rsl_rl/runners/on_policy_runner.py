@@ -701,7 +701,7 @@ class OnPolicyRunner:
         )
 
     def finalize_frontres_v015_local_sentinel_checkpoint(self, result: object) -> str:
-        """Save the exact checkpoint-v5 adjacent to one completed local sentinel."""
+        """Save the exact checkpoint-v6 adjacent to one completed local sentinel."""
 
         return finalize_frontres_v015_local_sentinel_checkpoint_helper(self, result)
 
@@ -1203,7 +1203,7 @@ class OnPolicyRunner:
                         and bool(self.cfg.get("frontres_hsl_rollout_label_enabled", False))
                     ):
                         raise RuntimeError(
-                            "FRS-TRAIN-v010 forbids frontres_hsl_rollout_label_enabled on every active Stage-3 route"
+                "FRS-TRAIN-v011 forbids frontres_hsl_rollout_label_enabled on every active Stage-3 route"
                         )
                     
                     # ------------------- Policy Rollout -------------------

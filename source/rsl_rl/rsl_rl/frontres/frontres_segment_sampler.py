@@ -222,6 +222,7 @@ class FrontRESFrozenPolicyTransactionPlan:
     base_trial_count: torch.Tensor
     base_horizon_k: torch.Tensor
     minimum_policy_attempts: int
+    exact_policy_attempts: int | None = None
 
     def validate(self) -> None:
         if not self.transaction_id:
@@ -230,6 +231,8 @@ class FrontRESFrozenPolicyTransactionPlan:
             raise ValueError("policy_snapshot_id must be non-empty")
         if int(self.minimum_policy_attempts) < 2:
             raise ValueError("minimum_policy_attempts must be at least two")
+        if self.exact_policy_attempts is not None and int(self.exact_policy_attempts) < 2:
+            raise ValueError("exact_policy_attempts must be at least two")
 
         source_count = int(self.base_segment_ids.numel())
         if source_count < 2:
@@ -244,6 +247,10 @@ class FrontRESFrozenPolicyTransactionPlan:
             raise ValueError("frozen policy transaction selected duplicate segment groups")
         if bool((self.base_trial_count < int(self.minimum_policy_attempts)).any()):
             raise ValueError("every selected segment requires the configured minimum policy attempts")
+        if self.exact_policy_attempts is not None and bool(
+            (self.base_trial_count != int(self.exact_policy_attempts)).any()
+        ):
+            raise ValueError("every selected segment requires the configured exact policy attempts")
         if bool((self.base_horizon_k <= 0).any()):
             raise ValueError("base_horizon_k must be positive")
 
@@ -1709,6 +1716,7 @@ class FrontRESSegmentSampler:
         policy_snapshot_id: str,
         max_horizon_k: int = 8,
         minimum_policy_attempts: int = 2,
+        exact_policy_attempts: int | None = None,
         active_horizon_k: int | None = None,
     ) -> FrontRESFrozenPolicyTransactionPlan:
         """Plan a complete all-policy attempt layout without mutating sampler state.
@@ -1730,6 +1738,8 @@ class FrontRESSegmentSampler:
             raise ValueError("policy_snapshot_id must be non-empty")
         if int(minimum_policy_attempts) < 2:
             raise ValueError("minimum_policy_attempts must be at least two")
+        if exact_policy_attempts is not None and int(exact_policy_attempts) < 2:
+            raise ValueError("exact_policy_attempts must be at least two")
 
         budget = self.plan_rollout_budget(ids, max_horizon_k=max_horizon_k)
         if active_horizon_k is not None:
@@ -1741,12 +1751,18 @@ class FrontRESSegmentSampler:
                 trial_count=budget.trial_count,
                 horizon_k=torch.full_like(budget.horizon_k, active_horizon),
                 segment_state=budget.segment_state,
-                reason=tuple(f"v009_global_k_{active_horizon}" for _ in budget.reason),
+                reason=tuple(f"v011_global_k_{active_horizon}" for _ in budget.reason),
             )
-        trial_count = torch.clamp_min(
-            budget.trial_count.to(device=self.device, dtype=torch.long),
-            int(minimum_policy_attempts),
-        )
+        if exact_policy_attempts is None:
+            trial_count = torch.clamp_min(
+                budget.trial_count.to(device=self.device, dtype=torch.long),
+                int(minimum_policy_attempts),
+            )
+        else:
+            trial_count = torch.full_like(
+                budget.trial_count.to(device=self.device, dtype=torch.long),
+                int(exact_policy_attempts),
+            )
         expanded_ids: list[int] = []
         source_index: list[int] = []
         trial_index: list[int] = []
@@ -1772,6 +1788,7 @@ class FrontRESSegmentSampler:
             base_trial_count=trial_count.detach().clone(),
             base_horizon_k=budget.horizon_k.detach().clone(),
             minimum_policy_attempts=int(minimum_policy_attempts),
+            exact_policy_attempts=(int(exact_policy_attempts) if exact_policy_attempts is not None else None),
         )
         plan.validate()
         return plan

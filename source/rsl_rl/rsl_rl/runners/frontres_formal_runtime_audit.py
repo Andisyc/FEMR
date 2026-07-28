@@ -503,7 +503,7 @@ def print_ppo_audit(runner: Any, *, result: Any) -> None:
 def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[str, Any]) -> None:
     if not formal_runtime_audit_enabled(runner):
         return
-    # B1: active persistence audit follows the checkpoint-v5 coordinated owner.
+    # B1: active persistence audit follows the checkpoint-v6 coordinated owner.
     required = (
         "model_state_dict",
         "optimizer_state_dict",
@@ -519,12 +519,12 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
     # B2: Cross-check the top-level resume schedule and coordinated v5 identity.
     identity = payload["frontres_v015_checkpoint_identity"]
     assert isinstance(identity, Mapping), "formal Stage 3 checkpoint identity must be a mapping"
-    assert identity.get("format") == "frontres-v015-checkpoint-v5", "formal audit requires checkpoint-v5"
+    assert identity.get("format") == "frontres-v015-checkpoint-v6", "formal audit requires checkpoint-v6"
     assert identity.get("method_contract_id") == "FRS-METHOD-v016", "formal audit requires FRS-METHOD-v016"
     assert identity.get("gain_contract_id") == "FRS-GAIN-v006", "formal audit requires FRS-GAIN-v006"
     assert identity.get("optimization_contract_id") == "FRS-PPO-v004", "formal audit requires FRS-PPO-v004"
-    assert identity.get("training_contract_id") == "FRS-TRAIN-v010", "formal audit requires FRS-TRAIN-v010"
-    assert "frontres_gain_config" not in payload, "active checkpoint-v5 must exclude legacy scalar Gain metadata"
+    assert identity.get("training_contract_id") == "FRS-TRAIN-v011", "formal audit requires FRS-TRAIN-v011"
+    assert "frontres_gain_config" not in payload, "active checkpoint-v6 must exclude legacy scalar Gain metadata"
     solver = identity.get("constraint_solver")
     assert isinstance(solver, Mapping), "formal Stage 3 checkpoint has no constraint-solver identity"
     assert solver.get("persistent_dual_state") is False, "formal Stage 3 must not persist learned dual state"

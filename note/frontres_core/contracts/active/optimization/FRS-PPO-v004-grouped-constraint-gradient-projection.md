@@ -2,7 +2,7 @@
 contract_id: FRS-PPO-v004
 status: active
 effective_date: 2026-07-23
-updated_date: 2026-07-27
+updated_date: 2026-07-28
 supersedes: FRS-PPO-v003
 scope: equal-mass grouped PPO with one scalar Intent advantage, three independent Physics constraint gradients, joint first-order projection/recovery, and one optimizer step per sealed transaction
 ---
@@ -36,7 +36,7 @@ is not part of the actor projection.
 
 ## Independent Grouped Constraint Gradients
 
-For `j in {contact,zmp,survival}`, v005 supplies detached per-row constraint
+For `j in {contact,zmp,survival}`, v006 supplies detached per-row constraint
 advantages `A^c_ij`. At the frozen old-policy transaction boundary:
 
 ```text
@@ -122,7 +122,8 @@ masking, or another optimizer step.
 
 ## Warmup And Exact-One Update
 
-FRS-TRAIN-v010 supplies `actor_loss_weight=w in [0,1]`. The solver first obtains
+FRS-TRAIN-v011 supplies `actor_loss_weight=w in [0,1]` for each coordinated
+K x M stage. The solver first obtains
 the unscaled `p_proj` or recovery direction, then applies:
 
 ```text
@@ -173,7 +174,8 @@ P2 S1 must cover feasible, inactive, conflicting, zero-gradient, recovery,
 permutation, KKT, finite, and actor-ramp fixtures. S2 must prove one complete
 transaction produces one scalar Critic gradient, one jointly projected actor
 gradient, and exactly one optimizer step with v003 fallback rejected. S3 must
-bind the solver schema in checkpoint-v5.
+bind the unchanged solver schema in checkpoint-v6. K/M scheduling does not
+alter this projection formula.
 
 Stop if the QP result depends on constraint order, an infeasible case updates
 actor/std, a constraint reaches the Critic, multiple optimizer steps occur, or

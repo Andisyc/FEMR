@@ -1,14 +1,15 @@
 # FRS-v015 Physics-Constrained Intent Migration Engineering Plan
 
-Status: active, volatile engineering plan. Updated: 2026-07-27.
+Status: active, volatile engineering plan. Updated: 2026-07-28.
 
 ## Authority
 
 - Concept Figure: `../../architecture/concept/03_frontres_concept_tabs.data.json`
 - Active contracts: FRS-METHOD-v016 / FRS-GAIN-v006 / FRS-PPO-v004 /
-  FRS-TRAIN-v010
-- Active source/runtime route: FRS-METHOD-v016 / FRS-GAIN-v006 /
-  FRS-PPO-v004 / FRS-TRAIN-v010
+  FRS-TRAIN-v011
+- Current source/runtime route: FRS-METHOD-v016 / FRS-GAIN-v006 /
+  FRS-PPO-v004 / FRS-TRAIN-v010 checkpoint-v5; contract-mismatch for active
+  FRS-TRAIN-v011 until P5-B
 - P0 decision record:
 `FRS-GAIN-v005-vector-physics-constrained-intent-proposal.md`
 - Checklist: `../checklists/FRS-v015-future-intent-single-action-k-checklist.md`
@@ -22,6 +23,7 @@ semantics, while replacing v004 scalar Physics/Intent utility with:
 ```text
 scalar paired Intent objective - repair cost -> one scalar Critic
 Contact / phase-ZMP / survival K-step evidence -> actor constraints
+global K x exact-M schedule -> checkpointed quality blocks
 ```
 
 The final engineering closure must prove that Physics determines admissible
@@ -355,8 +357,11 @@ training.
 
 #### P4 Long Training And KKT Postcondition Repair
 
-Status: long training runtime-complete at E-FI-79; deterministic repair
-contract-complete at E-FI-80; no post-fix simulator/training run has occurred.
+Status: the pre-fix long run is runtime-complete at E-FI-79 and its deterministic
+KKT repair is complete at E-FI-80. E-FI-84 live-confirms the v006 sensor route;
+E-FI-86 then completes the post-capacity K8 continuation through absolute
+iteration 2000. This closes formal long-training connectivity, not independent
+policy efficacy or deployment quality.
 
 Runtime result: `v015_train_to_model2000_gpu1.log` resumes `model_251.pt` and
 executes 1749 unique K8 transactions through absolute iteration 2000. Every
@@ -389,8 +394,9 @@ warm-start or a strictly clean checkpoint lineage is required.
 
 #### P4 Physics Evidence Authority Closure
 
-Status: deterministic S1/S2/S3 contract-complete at E-FI-81; no simulator,
-training or live run has occurred.
+Status: deterministic S1/S2/S3 contract-complete at E-FI-81 and official
+sensor-authority live-confirmed at E-FI-84. E-FI-86 is the currently running
+capacity continuation, not a new Physics-authority experiment.
 
 Owner route: `commands.py` derives and seals Clean-continuation expected
 Contact plus an oriented `[K,6]` foot support envelope; G1 config installs
@@ -442,21 +448,148 @@ applicability combinations, row permutation, missing fields and fabricated
 finite diagnostics must fail or pass according to FRS-GAIN-v006 before another
 live or long run is admitted.
 
-## Why Four Main Steps
+#### P4 Raw-Contact Capacity Continuation
 
-The plan has four execution steps plus preparatory P0. The splits are not by
-file or test tier:
+Status: completed live at E-FI-86.
+
+Owner: `frontres_segment_live_probe.py::_ensure_frontres_raw_contact_view()`.
+The raw filtered view now provisions 256 contacts per foot/environment
+(`2048` for the current 8-env route), replacing the earlier 16-contact budget.
+The reader still rejects an exactly saturated buffer, so this is evidence
+transport headroom rather than a change to Contact, phase-ZMP, Gain, PPO or
+TRAIN-v010 semantics. Focused contracts preserve the saturation fail-closed
+boundary and the 8-env capacity identity.
+
+Runtime result: `v015_gain_v006_postfix_to_model2000_gpu3.log` contains 1999
+telemetry rows and 1999 matching formal-train receipts from iteration 1 through
+1999, reaching absolute iteration 2000. Every receipt has two Segments, four
+valid attempts, grouped exact-one commit and step delta one. KKT maximum is
+zero, all contract/schema identities remain v016/v006/v004/v010, no capacity or
+applicability failure occurs, and the formal save owner emits `model_2000.pt`.
+No matched-route experiment or additional diagnostic owner is required.
+
+#### P4 Policy-Only Deployment Quality Closure
+
+Status: offline final-consumer ready at E-FI-87; one user-run S4 remains.
+
+The existing deployment CLI/evaluator now loads the dated post-fix
+`model_2000.pt`, starts the robot from the ordinary Clean sequence frame 0,
+and exposes only the separately sealed persistent Noisy carrier to FEMR/GMT.
+Its atomic policy-only report reuses ContactSensor/contact-wrench ZMP and
+FRS-GAIN-v006 phase interpretation to serialize Intent, expected/actual
+Contact, phase-ZMP, survival, sustained lateral lean and unplanned Contact
+events. No zero/HSL comparison, training feedback, new evaluator or matched
+action experiment is in scope. The dedicated shell driver is the sole next
+runtime action.
+
+### P5 Coordinated K x M Checkpointed Curriculum
+
+#### P5-A Contract Activation
+
+Status: completed document-only at E-FI-88.
+
+FRS-TRAIN-v011 supersedes the K-only v010 training contract without changing
+METHOD-v016, GAIN-v006, PPO-v004, HSL, actor observation or one-action-K. It
+freezes the complete campaign before collection:
+
+```text
+(K8,  M2, critic 200, ramp 500, first joint review 1300)
+(K16, M3, critic 300, ramp 300, first joint review 900)
+(K32, M4, critic 400, ramp 300, first joint review 625)
+
+selected Segments = 2
+absolute review boundaries = 2000, 3500, 4825, 6500, 8000
+maximum absolute iteration = 8000
+```
+
+E-FI-89 installs the v011/checkpoint-v6 source route. E-FI-86
+`model_2000.pt` remains the K8/M2 checkpoint-v5 pilot and cannot be migrated
+into v011. The new campaign starts fresh from strict HSL-v1.
+
+#### P5-B One-Shot Exact-M And Checkpoint-v6 Engineering Closure
+
+Status: completed offline at E-FI-89; no simulator, training or live run.
+
+Terminal outcome: the ordinary Stage3-v015 formal route consumes one immutable
+K x M schedule, derives exactly two Segment sources x active M attempts,
+rejects state-driven M on the v011 route, executes grouped exact-one update and
+saves/resumes strict checkpoint-v6 with schedule/max/review/receipt identity.
+
+Scope:
+
+- extend the existing schedule parser/resolver/config with active M and the
+  complete v011 fingerprint;
+- make the existing formal transaction owner require exactly two sources and
+  M attempts per source, with role env width `4*M`;
+- isolate legacy sampler-state trial counts from v011 formal transaction width;
+- carry K/M/stage/row counts through final telemetry and committed receipt;
+- implement checkpoint-v6 strict save/resume and checkpoint-v5 pre-mutation
+  rejection;
+- update existing launch connectors and focused S1/S2/S3 contracts.
+
+Non-scope: actor/GMT observation, HSL, Gain/PPO mathematics, Physics evidence,
+new sampler priority semantics, simulator, training, deployment composition,
+matched zero/HSL/policy evaluation or long-run threshold tuning.
+
+Primary owners:
+
+- schedule identity: `frontres_segment_warmup.py`;
+- formal exact-M layout: `frontres_segment_live_sampler.py`;
+- formal consumer/telemetry: `frontres_segment_live_probe.py`;
+- persistence: `frontres_checkpointing.py`;
+- orchestration/config: existing `train.py`, `rsl_rl_cfg.py` and Stage3 shell
+  connectors.
+
+Embedded acceptance: deterministic parsing/boundary/fingerprint tests,
+M=2/3/4 row-permutation and env-width tests, sampler-state isolation,
+same-Critic transition, actor freeze/ramp, exact-one grouped route, final
+telemetry serialization, checkpoint-v6 round-trip/tamper and checkpoint-v5
+pre-mutation rejection. These are evidence rows inside one engineering unit,
+not separate approvals.
+
+Stop: any ambiguity between number of Segments and M, state-driven M reaching
+the v011 formal route, mixed K/M, actor/std drift during critic-only, Critic
+reinitialization, schedule append on resume, checkpoint-v5 mutation, partial
+transaction save, or more than one optimizer update.
+
+Completion evidence: the exact K/M parser and frozen schedule, exact two-source
+M=2/3/4 planner, `4*M` role-width guard, state-driven-M isolation, sealed
+active-M telemetry, grouped exact-one consumer, checkpoint-v6 round-trip and
+checkpoint-v5 pre-mutation rejection all pass. The 63-contract Segment Replay
+suite also reports `failed_count=0`.
+
+#### P5-C Progressive Official Training Blocks
+
+Status: engineering-ready; blocked only on user-controlled material runtime
+authority.
+
+Each declared absolute boundary is one execution unit: official training,
+committed save, existing telemetry review and policy-only deployment review
+when required, followed by `CONTINUE`, `PAUSE-REPAIR` or `STOP-DESIGN`. The
+first real K16/M3 and K32/M4 transactions provide the formal first-occurrence
+runtime evidence; no separate sentinel is added when existing telemetry is
+complete. No schedule change or new checkpoint identity is permitted between
+blocks.
+
+## Why The P5 Follow-On Is Separate
+
+P0--P4 preserve the completed method/engineering history. P5 is a follow-on
+training-authority change exposed by the K8/M2 quality/data audit. Its three
+boundaries are not split by file or test tier:
 
 - P1 is the completed scientific/optimization contract decision;
 - P2 is the largest safe local implementation and verification closure;
 - P3 requires simulator/material-cost authority;
-- P4 is the policy-quality and longer-training authorization boundary.
+- P4 is the completed K8 formal-training and open policy/Demo-quality boundary;
+- P5-A is the accepted schedule/persistence semantic decision;
+- P5-B is one compressed offline engineering closure;
+- P5-C is a materially costly user-controlled campaign.
 
 Removing any one would either hide a human semantic decision, cross a costly
 runtime boundary, or admit training without causal evidence. All owner edits,
-focused tests, formal connectivity, persistence, and routine document refresh
-are deliberately merged into P2.
+focused tests, formal connectivity, persistence and routine document refresh
+for the new route are deliberately merged into P5-B.
 
 ## Cursor
 
-Current cursor: `P4 ZMP applicability carrier closure complete offline at E-FI-85; one bounded/continued server run may now validate the repaired formal path before further scale training`.
+Current cursor: `P5-B E-FI-89 offline engineering closure complete; P5-C is the next user-controlled official campaign boundary. P4 policy-only deployment quality remains independently open`.

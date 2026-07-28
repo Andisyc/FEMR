@@ -185,7 +185,7 @@ def test_t_sentinel_prepare_accepts_kernel_immutable_provenance() -> None:
         segment_ids=torch.tensor([101, 101, 202, 202], dtype=torch.long),
         source_index=torch.tensor([0, 0, 1, 1], dtype=torch.long),
         trial_index=torch.tensor([0, 1, 0, 1], dtype=torch.long),
-        horizon_k=torch.tensor([3, 3, 3, 3], dtype=torch.long),
+        horizon_k=torch.tensor([8, 8, 8, 8], dtype=torch.long),
         base_trial_count=torch.tensor([2, 2], dtype=torch.long),
         trial_role=("policy", "policy", "policy", "policy"),
     )
@@ -203,7 +203,7 @@ def test_t_sentinel_prepare_accepts_kernel_immutable_provenance() -> None:
             valid_mask=base_sample.valid_mask[row : row + 1],
             segment_state=None,
             rollout_trial_count=base_sample.rollout_trial_count[row : row + 1],
-            horizon_k=torch.tensor([3], dtype=torch.long),
+            horizon_k=torch.tensor([8], dtype=torch.long),
             budget_reason=(base_sample.budget_reason[row],),
             trial_role=("policy",),
             source_index=torch.zeros(1, dtype=torch.long),
@@ -219,8 +219,8 @@ def test_t_sentinel_prepare_accepts_kernel_immutable_provenance() -> None:
         alg=SimpleNamespace(
             policy=policy,
             frontres_v015_local_sentinel_only=True,
-            frontres_segment_max_horizon_k=3,
-            frontres_segment_k_curriculum=((3, 1, 1, 0),),
+            frontres_segment_max_horizon_k=32,
+            frontres_segment_k_curriculum=((8, 2, 200, 500, 1300), (16, 3, 300, 300, 900), (32, 4, 400, 300, 625)),
             frontres_segment_k_curriculum_fingerprint="",
             frontres_future_offsets=(1, 2),
         ),
@@ -284,7 +284,7 @@ def test_t_sentinel_prepare_accepts_kernel_immutable_provenance() -> None:
     print("[T-immutable-provenance/T-prepare/T-formal-owner] sentinel and ordinary routes share the sealed local transaction owner", flush=True)
 
 
-def test_t_formal_source_selection_fills_rows_without_partial_attempts() -> None:
+def test_t_formal_source_selection_chooses_exactly_two_and_ignores_state_driven_m() -> None:
     _formal, _candidate, _owners, live_sampler, _live_probe = _load_owners()
     attempts = (3, 3, 2, 6)
 
@@ -307,13 +307,12 @@ def test_t_formal_source_selection_fills_rows_without_partial_attempts() -> None
 
     selected = live_sampler._sample_frontres_v015_transaction_sources(
         SimpleNamespace(sample=sample_batch, num_segments=len(attempts)),
-        repair_rows=8,
+        selected_segment_count=2,
         max_horizon_k=8,
     )
-    assert tuple(selected.segment_ids.tolist()) == (100, 101, 102)
-    assert tuple(selected.rollout_trial_count.tolist()) == (3, 3, 2)
-    assert int(selected.rollout_trial_count.sum().item()) == 8
-    print("[T-complete-transaction/T-no-partial] exact source selection preserves whole M budgets for all Repair rows", flush=True)
+    assert tuple(selected.segment_ids.tolist()) == (100, 101)
+    assert tuple(selected.rollout_trial_count.tolist()) == (3, 3)
+    print("[T-exact-two/T-state-M-isolation] source selection ignores sampler trial counts", flush=True)
 
 
 def test_t_formal_source_selection_excludes_k_ineligible_edge_segments_before_seal() -> None:
@@ -339,13 +338,12 @@ def test_t_formal_source_selection_excludes_k_ineligible_edge_segments_before_se
 
     selected = live_sampler._sample_frontres_v015_transaction_sources(
         SimpleNamespace(sample=sample_batch, num_segments=len(attempts)),
-        repair_rows=8,
+        selected_segment_count=2,
         max_horizon_k=8,
         candidate_is_eligible=lambda segment_id: segment_id != 100,
     )
-    assert tuple(selected.segment_ids.tolist()) == (102, 103)
-    assert int(selected.rollout_trial_count.sum().item()) == 8
-    print("[T-K-eligibility/T-before-seal] edge Segment is excluded before exact M-layout selection", flush=True)
+    assert tuple(selected.segment_ids.tolist()) == (101, 102)
+    print("[T-K-eligibility/T-before-seal] edge Segment is excluded before exact-two selection", flush=True)
 
 
 def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> None:
@@ -592,9 +590,9 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
             torch.save(
                 {
                     "frontres_v015_checkpoint_identity": {
-                        "format": "frontres-v015-checkpoint-v5",
+                        "format": "frontres-v015-checkpoint-v6",
                         "method_contract_id": "FRS-METHOD-v016",
-                        "training_contract_id": "FRS-TRAIN-v010",
+                        "training_contract_id": "FRS-TRAIN-v011",
                         "gain_contract_id": "FRS-GAIN-v006",
                         "optimization_contract_id": "FRS-PPO-v004",
                         "scalar_target_id": "paired-intent-minus-repair-v1",
@@ -610,6 +608,13 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
 
         fixture.runner.save = save_checkpoint
         valid_identity = True
+        result.diagnostics["critic_parameter_delta"] = {
+            "param_delta_max_abs": 1.0e-6,
+            "param_delta_l2": 1.0e-6,
+            "param_delta_changed": 1,
+            "param_delta_total": 1,
+            "param_delta_first_changed": "critic.weight",
+        }
 
         def reject_checkpoint_probe(_summary: object, _path: str) -> None:
             raise RuntimeError("checkpoint probe failed")
@@ -621,8 +626,8 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
             assert "checkpoint probe failed" in str(exc)
         else:
             raise AssertionError("local sentinel checkpoint retained a post-write probe failure")
-        assert fixture.runner.current_learning_iteration == 2
-        assert not Path(tmp, "model_3.pt").exists()
+        assert fixture.runner.current_learning_iteration == 202
+        assert not Path(tmp, "model_203.pt").exists()
 
         fixture.runner._record_frontres_checkpoint_probe = lambda _summary, _path: None
         valid_identity = False
@@ -632,21 +637,21 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
             assert "Physics evidence identity" in str(exc)
         else:
             raise AssertionError("local sentinel checkpoint accepted a malformed Physics identity")
-        assert fixture.runner.current_learning_iteration == 2
-        assert not Path(tmp, "model_3.pt").exists()
+        assert fixture.runner.current_learning_iteration == 202
+        assert not Path(tmp, "model_203.pt").exists()
 
         valid_identity = True
         checkpoint_path = training.finalize_frontres_v015_local_sentinel_checkpoint(fixture.runner, result)
-        assert checkpoint_path.endswith("model_3.pt")
-        assert fixture.runner.current_learning_iteration == 3
-        checkpoint = fixture.runner._frontres_v015_local_sentinel_telemetry["checkpoint_v5"]
-        assert checkpoint["format"] == "frontres-v015-checkpoint-v5"
+        assert checkpoint_path.endswith("model_203.pt")
+        assert fixture.runner.current_learning_iteration == 203
+        checkpoint = fixture.runner._frontres_v015_local_sentinel_telemetry["checkpoint_v6"]
+        assert checkpoint["format"] == "frontres-v015-checkpoint-v6"
         assert checkpoint["gain_contract_id"] == "FRS-GAIN-v006"
         assert checkpoint["transaction_id"] == result.transaction_id
         assert checkpoint["optimizer_step_delta"] == 1
 
     print(
-        "[T-connect/T-order/T-final-snapshot/T-checkpoint-v5/T-exact-one-update] "
+        "[T-connect/T-order/T-final-snapshot/T-checkpoint-v6/T-exact-one-update] "
         "sealed Repair/Noisy K evidence and the adjacent committed checkpoint reach final serializers",
         flush=True,
     )
@@ -656,7 +661,7 @@ def main() -> None:
     test_t_local_carrier_replaces_fixed_tape_on_reset_request()
     test_t_sentinel_batch_materializes_local_scenario_not_legacy_tape()
     test_t_sentinel_prepare_accepts_kernel_immutable_provenance()
-    test_t_formal_source_selection_fills_rows_without_partial_attempts()
+    test_t_formal_source_selection_chooses_exactly_two_and_ignores_state_driven_m()
     test_t_formal_source_selection_excludes_k_ineligible_edge_segments_before_seal()
     test_t_real_builder_orders_local_reset_capture_and_candidate_adapter()
     test_t_sentinel_provider_is_collected_before_one_grouped_update()

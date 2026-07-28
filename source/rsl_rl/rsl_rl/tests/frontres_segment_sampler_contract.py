@@ -440,6 +440,32 @@ def test_v009_frozen_transaction_overrides_legacy_per_segment_k() -> None:
             raise AssertionError("v009 active K outside the formal horizon must reject")
 
 
+def test_v011_frozen_transaction_uses_exact_m_and_ignores_sampler_trial_state() -> None:
+    sampler = _sampler_with_all_budget_states()
+    before = sampler.state_dict()
+    for horizon_k, attempts_m in ((8, 2), (16, 3), (32, 4)):
+        plan = sampler.plan_frozen_policy_transaction(
+            torch.tensor([1, 2]),
+            transaction_id=f"txn-v011-k{horizon_k}-m{attempts_m}",
+            policy_snapshot_id=f"snapshot-v011-k{horizon_k}-m{attempts_m}",
+            max_horizon_k=32,
+            active_horizon_k=horizon_k,
+            exact_policy_attempts=attempts_m,
+        )
+        assert plan.base_segment_ids.tolist() == [1, 2]
+        assert plan.base_trial_count.tolist() == [attempts_m, attempts_m]
+        assert plan.segment_ids.tolist() == [1] * attempts_m + [2] * attempts_m
+        assert plan.trial_index.tolist() == list(range(attempts_m)) * 2
+        assert plan.horizon_k.tolist() == [horizon_k] * (2 * attempts_m)
+        assert plan.exact_policy_attempts == attempts_m
+    after = sampler.state_dict()
+    for name in before:
+        if isinstance(before[name], torch.Tensor):
+            assert torch.equal(before[name], after[name])
+        else:
+            assert before[name] == after[name]
+
+
 def test_sampler_frozen_policy_transaction_plan_enforces_multiple_segments_and_attempts() -> None:
     sampler = _sampler_with_all_budget_states()
     plan = sampler.plan_frozen_policy_transaction(
@@ -539,6 +565,7 @@ def main() -> None:
     test_sampler_trial_plan_expands_policy_first_roles()
     test_sampler_frozen_policy_transaction_plan_keeps_all_attempts_policy_sampled()
     test_v009_frozen_transaction_overrides_legacy_per_segment_k()
+    test_v011_frozen_transaction_uses_exact_m_and_ignores_sampler_trial_state()
     test_sampler_frozen_policy_transaction_plan_enforces_multiple_segments_and_attempts()
     test_sampler_rollout_row_sampling_respects_fixed_env_budget()
     test_sampler_review_and_staleness_keep_coverage()

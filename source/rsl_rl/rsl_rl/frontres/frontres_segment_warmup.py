@@ -17,6 +17,16 @@ _AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
 emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
 
 
+FRONTRES_V011_SELECTED_SEGMENT_COUNT = 2
+FRONTRES_V011_MAX_ABSOLUTE_ITERATION = 8000
+FRONTRES_V011_REVIEW_BOUNDARIES = (2000, 3500, 4825, 6500, 8000)
+FRONTRES_V011_K_M_SCHEDULE = (
+    (8, 2, 200, 500, 1300),
+    (16, 3, 300, 300, 900),
+    (32, 4, 400, 300, 625),
+)
+
+
 @dataclass(frozen=True)
 class FrontRESSegmentWarmupPhase:
     """Describe the direct Segment PPO optimization phase for one iteration."""
@@ -29,9 +39,10 @@ class FrontRESSegmentWarmupPhase:
 
 @dataclass(frozen=True)
 class FrontRESKStageSpec:
-    """One immutable FRS-TRAIN-v010 horizon stage."""
+    """One immutable FRS-TRAIN-v011 coordinated K x exact-M stage."""
 
     horizon_k: int
+    attempts_m: int
     critic_only_iterations: int
     actor_warmup_iterations: int
     joint_iterations: int
@@ -39,11 +50,12 @@ class FrontRESKStageSpec:
 
 @dataclass(frozen=True)
 class FrontRESKStageIdentity:
-    """Resolved v009 identity for one committed-update iteration."""
+    """Resolved v011 K x M identity for one committed-update iteration."""
 
     schedule_fingerprint: str
     stage_index: int
     active_k: int
+    active_m: int
     stage_iteration: int
     absolute_iteration: int
     phase: FrontRESSegmentWarmupPhase
@@ -62,30 +74,35 @@ def normalize_frontres_k_stage_schedule(
             spec = raw
             values = (
                 spec.horizon_k,
+                spec.attempts_m,
                 spec.critic_only_iterations,
                 spec.actor_warmup_iterations,
                 spec.joint_iterations,
             )
         else:
             values = tuple(raw)
-            if len(values) != 4:
-                raise ValueError(f"K-stage row {row} must contain (K,N_c,N_a,N_joint)")
+            if len(values) != 5:
+                raise ValueError(f"K x M stage row {row} must contain (K,M,N_c,N_a,N_joint)")
             spec = FrontRESKStageSpec(*values)
         if any(not isinstance(value, int) or isinstance(value, bool) for value in values):
             raise ValueError(f"K-stage row {row} requires integer durations and K")
         if spec.horizon_k <= 0:
             raise ValueError(f"K-stage row {row} horizon_k must be positive")
+        if spec.attempts_m < 2:
+            raise ValueError(f"K x M stage row {row} attempts_m must be at least two")
         if spec.critic_only_iterations <= 0 or spec.actor_warmup_iterations <= 0:
             raise ValueError(f"K-stage row {row} requires positive critic-only and actor-warmup durations")
         if spec.joint_iterations < 0:
             raise ValueError(f"K-stage row {row} joint duration must be nonnegative")
         if row > 0 and spec.horizon_k <= normalized[-1].horizon_k:
             raise ValueError("K-stage horizons must be strictly increasing")
+        if row > 0 and spec.attempts_m < normalized[-1].attempts_m:
+            raise ValueError("K x M stage attempts must be non-decreasing")
         if max_horizon_k is not None and spec.horizon_k > int(max_horizon_k):
             raise ValueError(f"K-stage horizon {spec.horizon_k} exceeds max_horizon_k={int(max_horizon_k)}")
         normalized.append(spec)
     if not normalized:
-        raise ValueError("FRS-TRAIN-v010 requires a nonempty explicit K-stage schedule")
+        raise ValueError("FRS-TRAIN-v011 requires a nonempty explicit K x M schedule")
     for row, spec in enumerate(normalized[:-1]):
         if spec.joint_iterations <= 0:
             raise ValueError(f"non-final K-stage row {row} requires a positive joint duration")
@@ -97,15 +114,15 @@ def parse_frontres_k_stage_schedule(
     *,
     max_horizon_k: int | None = None,
 ) -> tuple[FrontRESKStageSpec, ...]:
-    """Parse ``K:N_c:N_a:N_joint`` comma-separated CLI syntax."""
+    """Parse ``K:M:N_c:N_a:N_joint`` comma-separated CLI syntax."""
 
     if not isinstance(value, str) or not value.strip():
-        raise ValueError("FRS-TRAIN-v010 requires an explicit K-stage schedule")
-    rows: list[tuple[int, int, int, int]] = []
+        raise ValueError("FRS-TRAIN-v011 requires an explicit K x M schedule")
+    rows: list[tuple[int, int, int, int, int]] = []
     for row, token in enumerate(value.split(",")):
         parts = tuple(part.strip() for part in token.split(":"))
-        if len(parts) != 4 or any(not part for part in parts):
-            raise ValueError(f"K-stage token {row} must use K:N_c:N_a:N_joint")
+        if len(parts) != 5 or any(not part for part in parts):
+            raise ValueError(f"K x M stage token {row} must use K:M:N_c:N_a:N_joint")
         try:
             rows.append(tuple(int(part) for part in parts))
         except ValueError as exc:
@@ -115,11 +132,12 @@ def parse_frontres_k_stage_schedule(
 
 def frontres_k_stage_schedule_tuple(
     schedule: Iterable[FrontRESKStageSpec | Iterable[int]],
-) -> tuple[tuple[int, int, int, int], ...]:
+) -> tuple[tuple[int, int, int, int, int], ...]:
     normalized = normalize_frontres_k_stage_schedule(schedule)
     return tuple(
         (
             spec.horizon_k,
+            spec.attempts_m,
             spec.critic_only_iterations,
             spec.actor_warmup_iterations,
             spec.joint_iterations,
@@ -133,6 +151,19 @@ def frontres_k_stage_schedule_fingerprint(
 ) -> str:
     payload = json.dumps(frontres_k_stage_schedule_tuple(schedule), separators=(",", ":"))
     return hashlib.sha256(payload.encode("ascii")).hexdigest()
+
+
+def require_frontres_v011_campaign_schedule(
+    schedule: Iterable[FrontRESKStageSpec | Iterable[int]],
+) -> tuple[FrontRESKStageSpec, ...]:
+    """Return the one immutable TRAIN-v011 campaign schedule or fail closed."""
+
+    normalized = normalize_frontres_k_stage_schedule(schedule, max_horizon_k=32)
+    if frontres_k_stage_schedule_tuple(normalized) != FRONTRES_V011_K_M_SCHEDULE:
+        raise ValueError(
+            "FRS-TRAIN-v011 requires the frozen K8/M2 -> K16/M3 -> K32/M4 campaign schedule"
+        )
+    return normalized
 
 
 def resolve_frontres_k_stage_identity(
@@ -173,6 +204,7 @@ def resolve_frontres_k_stage_identity(
         schedule_fingerprint=frontres_k_stage_schedule_fingerprint(normalized),
         stage_index=stage_index,
         active_k=spec.horizon_k,
+        active_m=spec.attempts_m,
         stage_iteration=stage_iteration,
         absolute_iteration=absolute_iteration,
         phase=phase,
@@ -182,6 +214,7 @@ def resolve_frontres_k_stage_identity(
         schedule_fingerprint=identity.schedule_fingerprint,
         stage_index=identity.stage_index,
         active_k=identity.active_k,
+        active_m=identity.active_m,
         stage_iteration=identity.stage_iteration,
         absolute_iteration=identity.absolute_iteration,
         phase=identity.phase.name,
@@ -254,6 +287,10 @@ def frontres_segment_warmup_phase(
 
 
 __all__ = [
+    "FRONTRES_V011_K_M_SCHEDULE",
+    "FRONTRES_V011_MAX_ABSOLUTE_ITERATION",
+    "FRONTRES_V011_REVIEW_BOUNDARIES",
+    "FRONTRES_V011_SELECTED_SEGMENT_COUNT",
     "FrontRESKStageIdentity",
     "FrontRESKStageSpec",
     "FrontRESSegmentWarmupPhase",
@@ -262,5 +299,6 @@ __all__ = [
     "frontres_segment_warmup_phase",
     "normalize_frontres_k_stage_schedule",
     "parse_frontres_k_stage_schedule",
+    "require_frontres_v011_campaign_schedule",
     "resolve_frontres_k_stage_identity",
 ]

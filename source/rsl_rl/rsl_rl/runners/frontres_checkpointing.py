@@ -47,12 +47,25 @@ _K_STAGE_SPEC = importlib.util.spec_from_file_location(
     Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_warmup.py",
 )
 if _K_STAGE_SPEC is None or _K_STAGE_SPEC.loader is None:
-        raise RuntimeError("Could not load FRS-TRAIN-v010 K-stage owner")
+        raise RuntimeError("Could not load FRS-TRAIN-v011 K x M stage owner")
 _K_STAGE_MODULE = importlib.util.module_from_spec(_K_STAGE_SPEC)
 sys.modules[_K_STAGE_SPEC.name] = _K_STAGE_MODULE
 _K_STAGE_SPEC.loader.exec_module(_K_STAGE_MODULE)
 frontres_k_stage_schedule_tuple = _K_STAGE_MODULE.frontres_k_stage_schedule_tuple
 resolve_frontres_k_stage_identity = _K_STAGE_MODULE.resolve_frontres_k_stage_identity
+_require_frontres_v011_campaign_schedule = _K_STAGE_MODULE.require_frontres_v011_campaign_schedule
+
+
+def require_frontres_v011_campaign_schedule(schedule: object) -> None:
+    """Normalize schedule-identity failures to the checkpoint API error type."""
+
+    try:
+        _require_frontres_v011_campaign_schedule(schedule)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+FRONTRES_V011_MAX_ABSOLUTE_ITERATION = _K_STAGE_MODULE.FRONTRES_V011_MAX_ABSOLUTE_ITERATION
+FRONTRES_V011_REVIEW_BOUNDARIES = _K_STAGE_MODULE.FRONTRES_V011_REVIEW_BOUNDARIES
+FRONTRES_V011_SELECTED_SEGMENT_COUNT = _K_STAGE_MODULE.FRONTRES_V011_SELECTED_SEGMENT_COUNT
 
 
 _FRONTRES_GAIN_CONFIG_FIELDS = (
@@ -68,7 +81,7 @@ _FRONTRES_GAIN_CONFIG_FIELDS = (
 )
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-_V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v5"
+_V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v6"
 _V015_PHYSICS_EVIDENCE_IDENTITY = {
     "zmp_estimator_id": "contact-wrench-zmp-v1",
     "support_envelope_id": "clean-foot-pose-oriented-box-v1",
@@ -342,7 +355,7 @@ def _inspect_frontres_v015_policy_quality_payload(
     if (
         identity.get("format") != _V015_CHECKPOINT_FORMAT
         or identity.get("method_contract_id") != "FRS-METHOD-v016"
-        or identity.get("training_contract_id") != "FRS-TRAIN-v010"
+        or identity.get("training_contract_id") != "FRS-TRAIN-v011"
         or identity.get("gain_contract_id") != "FRS-GAIN-v006"
         or identity.get("optimization_contract_id") != "FRS-PPO-v004"
         or identity.get("future_intent_layout") != _v015_quality_expected_layout()
@@ -368,8 +381,9 @@ def _inspect_frontres_v015_policy_quality_payload(
         raise RuntimeError("quality policy has an incompatible v006 constraint solver identity")
     curriculum = identity.get("curriculum")
     if not isinstance(curriculum, Mapping):
-        raise RuntimeError("quality policy has no FRS-TRAIN-v010 curriculum identity")
+        raise RuntimeError("quality policy has no FRS-TRAIN-v011 curriculum identity")
     schedule = curriculum.get("schedule")
+    require_frontres_v011_campaign_schedule(schedule if isinstance(schedule, (tuple, list)) else ())
     iteration = int(curriculum.get("absolute_iteration", -1))
     expected = resolve_frontres_k_stage_identity(
         schedule=schedule if isinstance(schedule, (tuple, list)) else (),
@@ -381,6 +395,12 @@ def _inspect_frontres_v015_policy_quality_payload(
         "schedule_fingerprint": expected.schedule_fingerprint,
         "k_stage_index": expected.stage_index,
         "active_k": expected.active_k,
+        "active_m": expected.active_m,
+        "selected_segment_count": FRONTRES_V011_SELECTED_SEGMENT_COUNT,
+        "policy_row_count": FRONTRES_V011_SELECTED_SEGMENT_COUNT * expected.active_m,
+        "role_row_count": 2 * FRONTRES_V011_SELECTED_SEGMENT_COUNT * expected.active_m,
+        "maximum_absolute_iteration": FRONTRES_V011_MAX_ABSOLUTE_ITERATION,
+        "checkpoint_review_boundaries": FRONTRES_V011_REVIEW_BOUNDARIES,
         "stage_iteration": expected.stage_iteration,
         "absolute_iteration": expected.absolute_iteration,
         "phase": expected.phase.name,
@@ -388,7 +408,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         "actor_loss_weight": expected.phase.actor_loss_weight,
     }
     if dict(curriculum) != expected_payload:
-        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v010 curriculum identity")
+        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v011 curriculum identity")
     transaction = identity.get("transaction")
     if not isinstance(transaction, Mapping) or str(transaction.get("state", "")) not in {"idle", "committed"}:
         raise RuntimeError("quality policy rejects partial or malformed transaction identity")
@@ -422,7 +442,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         format=_V015_CHECKPOINT_FORMAT,
         file_sha256=file_sha256,
         method_contract_id="FRS-METHOD-v016",
-        training_contract_id="FRS-TRAIN-v010",
+        training_contract_id="FRS-TRAIN-v011",
         gain_contract_id="FRS-GAIN-v006",
         ppo_contract_id="FRS-PPO-v004",
         future_intent_layout=tuple(_v015_quality_expected_layout().items()),
@@ -1143,6 +1163,10 @@ def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, A
         "curriculum_fingerprint",
         "k_stage_index",
         "active_k",
+        "active_m",
+        "selected_segment_count",
+        "policy_row_count",
+        "role_row_count",
         "k_stage_iteration",
         "training_iteration",
     )
@@ -1169,7 +1193,7 @@ def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, A
         "method_contract_id": "FRS-METHOD-v016",
         "gain_contract_id": "FRS-GAIN-v006",
         "optimization_contract_id": "FRS-PPO-v004",
-        "training_contract_id": "FRS-TRAIN-v010",
+        "training_contract_id": "FRS-TRAIN-v011",
         "scalar_target_id": "paired-intent-minus-repair-v1",
         "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
         "projection_schema_id": "grouped-first-order-constraint-projection-v1",
@@ -1185,6 +1209,10 @@ def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, A
         "optimizer_step_delta",
         "k_stage_index",
         "active_k",
+        "active_m",
+        "selected_segment_count",
+        "policy_row_count",
+        "role_row_count",
         "k_stage_iteration",
         "training_iteration",
     ):
@@ -1199,6 +1227,10 @@ def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, A
         or len(result["curriculum_fingerprint"]) != 64
         or result["k_stage_index"] < 0
         or result["active_k"] <= 0
+        or result["active_m"] < 2
+        or result["selected_segment_count"] != FRONTRES_V011_SELECTED_SEGMENT_COUNT
+        or result["policy_row_count"] != result["selected_segment_count"] * result["active_m"]
+        or result["role_row_count"] != 2 * result["policy_row_count"]
         or result["k_stage_iteration"] < 0
         or result["training_iteration"] < 0
     ):
@@ -1242,10 +1274,10 @@ def _v015_transaction_checkpoint_payload(runner: Any) -> dict[str, Any]:
     raise RuntimeError(f"v015 checkpoint transaction has unknown state={phase!r}")
 
 
-def _validate_v009_receipt_curriculum(
+def _validate_v011_receipt_curriculum(
     transaction: Mapping[str, Any],
     *,
-    schedule: tuple[tuple[int, int, int, int], ...],
+    schedule: tuple[tuple[int, int, int, int, int], ...],
     current_iteration: int,
 ) -> None:
     """Bind the last committed update to the stage immediately before save."""
@@ -1255,7 +1287,7 @@ def _validate_v009_receipt_curriculum(
     receipt = transaction["receipt"]
     expected_iteration = int(current_iteration) - 1
     if expected_iteration < 0 or int(receipt["training_iteration"]) != expected_iteration:
-        raise RuntimeError("FRS-TRAIN-v010 committed receipt is not adjacent to checkpoint iteration")
+        raise RuntimeError("FRS-TRAIN-v011 committed receipt is not adjacent to checkpoint iteration")
     expected = resolve_frontres_k_stage_identity(
         schedule=schedule,
         committed_update_iteration=expected_iteration,
@@ -1265,9 +1297,13 @@ def _validate_v009_receipt_curriculum(
         receipt["curriculum_fingerprint"] != expected.schedule_fingerprint
         or int(receipt["k_stage_index"]) != expected.stage_index
         or int(receipt["active_k"]) != expected.active_k
+        or int(receipt["active_m"]) != expected.active_m
+        or int(receipt["selected_segment_count"]) != FRONTRES_V011_SELECTED_SEGMENT_COUNT
+        or int(receipt["policy_row_count"]) != FRONTRES_V011_SELECTED_SEGMENT_COUNT * expected.active_m
+        or int(receipt["role_row_count"]) != 2 * FRONTRES_V011_SELECTED_SEGMENT_COUNT * expected.active_m
         or int(receipt["k_stage_iteration"]) != expected.stage_iteration
     ):
-        raise RuntimeError("FRS-TRAIN-v010 committed receipt has a mismatched K-stage identity")
+        raise RuntimeError("FRS-TRAIN-v011 committed receipt has a mismatched K x M stage identity")
 
 
 def _build_v015_checkpoint_identity(
@@ -1319,7 +1355,10 @@ def _build_v015_checkpoint_identity(
             "prefix_stats_fingerprint": None,
         }
     iteration = int(getattr(runner, "current_learning_iteration", 0))
+    if iteration < 0 or iteration > FRONTRES_V011_MAX_ABSOLUTE_ITERATION:
+        raise RuntimeError("FRS-TRAIN-v011 checkpoint iteration must be within [0,8000]")
     schedule = tuple(getattr(alg, "frontres_segment_k_curriculum", ()) or ())
+    require_frontres_v011_campaign_schedule(schedule)
     curriculum = resolve_frontres_k_stage_identity(
         schedule=schedule,
         committed_update_iteration=iteration,
@@ -1327,10 +1366,10 @@ def _build_v015_checkpoint_identity(
     )
     configured_fingerprint = str(getattr(alg, "frontres_segment_k_curriculum_fingerprint", "") or "")
     if configured_fingerprint and configured_fingerprint != curriculum.schedule_fingerprint:
-        raise RuntimeError("FRS-TRAIN-v010 checkpoint curriculum fingerprint drifted after config resolution")
+        raise RuntimeError("FRS-TRAIN-v011 checkpoint curriculum fingerprint drifted after config resolution")
     schedule_tuple = frontres_k_stage_schedule_tuple(schedule)
     transaction = _v015_transaction_checkpoint_payload(runner)
-    _validate_v009_receipt_curriculum(
+    _validate_v011_receipt_curriculum(
         transaction,
         schedule=schedule_tuple,
         current_iteration=iteration,
@@ -1338,7 +1377,7 @@ def _build_v015_checkpoint_identity(
     return {
         "format": _V015_CHECKPOINT_FORMAT,
         "method_contract_id": "FRS-METHOD-v016",
-        "training_contract_id": "FRS-TRAIN-v010",
+        "training_contract_id": "FRS-TRAIN-v011",
         "gain_contract_id": "FRS-GAIN-v006",
         "optimization_contract_id": "FRS-PPO-v004",
         "scalar_target_id": "paired-intent-minus-repair-v1",
@@ -1369,6 +1408,12 @@ def _build_v015_checkpoint_identity(
             "schedule_fingerprint": curriculum.schedule_fingerprint,
             "k_stage_index": curriculum.stage_index,
             "active_k": curriculum.active_k,
+            "active_m": curriculum.active_m,
+            "selected_segment_count": FRONTRES_V011_SELECTED_SEGMENT_COUNT,
+            "policy_row_count": FRONTRES_V011_SELECTED_SEGMENT_COUNT * curriculum.active_m,
+            "role_row_count": 2 * FRONTRES_V011_SELECTED_SEGMENT_COUNT * curriculum.active_m,
+            "maximum_absolute_iteration": FRONTRES_V011_MAX_ABSOLUTE_ITERATION,
+            "checkpoint_review_boundaries": FRONTRES_V011_REVIEW_BOUNDARIES,
             "stage_iteration": curriculum.stage_iteration,
             "absolute_iteration": curriculum.absolute_iteration,
             "phase": curriculum.phase.name,
@@ -1392,7 +1437,7 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
     if (
         identity.get("format") != _V015_CHECKPOINT_FORMAT
         or identity.get("method_contract_id") != "FRS-METHOD-v016"
-        or identity.get("training_contract_id") != "FRS-TRAIN-v010"
+        or identity.get("training_contract_id") != "FRS-TRAIN-v011"
         or identity.get("gain_contract_id") != "FRS-GAIN-v006"
         or identity.get("optimization_contract_id") != "FRS-PPO-v004"
         or identity.get("scalar_target_id") != "paired-intent-minus-repair-v1"
@@ -1473,14 +1518,19 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
         raise RuntimeError("v015 checkpoint has an incompatible FRS-PPO-v004 solver identity")
     curriculum = identity.get("curriculum")
     if not isinstance(curriculum, Mapping):
-        raise RuntimeError("FRS-TRAIN-v010 checkpoint curriculum identity is missing")
+        raise RuntimeError("FRS-TRAIN-v011 checkpoint curriculum identity is missing")
     runtime_schedule = tuple(getattr(runner.alg, "frontres_segment_k_curriculum", ()) or ())
+    require_frontres_v011_campaign_schedule(runtime_schedule)
     runtime_schedule_tuple = frontres_k_stage_schedule_tuple(runtime_schedule)
     if curriculum.get("schedule") != runtime_schedule_tuple:
-        raise RuntimeError("FRS-TRAIN-v010 checkpoint schedule differs from the runtime schedule")
+        raise RuntimeError("FRS-TRAIN-v011 checkpoint schedule differs from the runtime schedule")
     saved_iteration = int(curriculum.get("absolute_iteration", -1))
-    if saved_iteration < 0 or int(checkpoint.get("iter", -1)) != saved_iteration:
-        raise RuntimeError("FRS-TRAIN-v010 checkpoint iteration identity is inconsistent")
+    if (
+        saved_iteration < 0
+        or saved_iteration > FRONTRES_V011_MAX_ABSOLUTE_ITERATION
+        or int(checkpoint.get("iter", -1)) != saved_iteration
+    ):
+        raise RuntimeError("FRS-TRAIN-v011 checkpoint iteration identity is inconsistent")
     expected_curriculum = resolve_frontres_k_stage_identity(
         schedule=runtime_schedule,
         committed_update_iteration=saved_iteration,
@@ -1491,6 +1541,12 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
         "schedule_fingerprint": expected_curriculum.schedule_fingerprint,
         "k_stage_index": expected_curriculum.stage_index,
         "active_k": expected_curriculum.active_k,
+        "active_m": expected_curriculum.active_m,
+        "selected_segment_count": FRONTRES_V011_SELECTED_SEGMENT_COUNT,
+        "policy_row_count": FRONTRES_V011_SELECTED_SEGMENT_COUNT * expected_curriculum.active_m,
+        "role_row_count": 2 * FRONTRES_V011_SELECTED_SEGMENT_COUNT * expected_curriculum.active_m,
+        "maximum_absolute_iteration": FRONTRES_V011_MAX_ABSOLUTE_ITERATION,
+        "checkpoint_review_boundaries": FRONTRES_V011_REVIEW_BOUNDARIES,
         "stage_iteration": expected_curriculum.stage_iteration,
         "absolute_iteration": expected_curriculum.absolute_iteration,
         "phase": expected_curriculum.phase.name,
@@ -1498,7 +1554,7 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
         "actor_loss_weight": expected_curriculum.phase.actor_loss_weight,
     }
     if dict(curriculum) != expected_curriculum_payload:
-        raise RuntimeError("FRS-TRAIN-v010 checkpoint curriculum stage/phase identity is inconsistent")
+        raise RuntimeError("FRS-TRAIN-v011 checkpoint curriculum stage/phase identity is inconsistent")
     fields = _v015_checkpoint_layout_fields(runner)
     if identity.get("future_intent_layout") != fields:
         raise RuntimeError(
@@ -1559,7 +1615,7 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
             "state": "committed",
             "receipt": _v015_committed_transaction_receipt(transaction),
         }
-        _validate_v009_receipt_curriculum(
+        _validate_v011_receipt_curriculum(
             result["transaction"],
             schedule=runtime_schedule_tuple,
             current_iteration=saved_iteration,
@@ -2019,7 +2075,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
         _validate_frontres_gain_config_resume(self, loaded_dict, is_full_resume=is_full_resume)
     else:
         print(
-            "[Runner] Verified FRS-GAIN-v006 and FRS-TRAIN-v010 through the v015 checkpoint identity; "
+            "[Runner] Verified FRS-GAIN-v006 and FRS-TRAIN-v011 through the v015 checkpoint identity; "
             "legacy scalar Gain metadata is excluded from the active v015 owner.",
             flush=True,
         )
@@ -2208,7 +2264,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
         )
         if saved_schedule != runtime_schedule:
             raise ValueError(
-                "FRS-TRAIN-v010 K-stage schedule changed across full resume: "
+                "FRS-TRAIN-v011 K x M schedule changed across full resume: "
                 f"checkpoint={saved_schedule}, runtime={runtime_schedule}."
             )
     if resumed_training:

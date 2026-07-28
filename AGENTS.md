@@ -6,8 +6,10 @@ repository. Keep it concise and update it when the experiment design changes.
 ## Project Context
 
 FrontRES is a lightweight residual corrector placed before the frozen GMT
-tracker. It receives the tracking observation plus anchor-error history and
-outputs task-space corrections:
+tracker. Under the active v015/v016 route it receives the deployable 158D
+FrontRES prefix: the current Noisy root artifact/state features plus the
+deployment/Noisy q29 future-intent tail. Frozen GMT retains authority over the
+original 770D suffix. FrontRES outputs task-space corrections:
 
 ```text
 [dx, dy, dz, droll, dpitch, dyaw]
@@ -42,10 +44,15 @@ The intended training flow is:
 1. Stage 1 Segment Cache
    - Store replayable Clean dynamic states and discrete Noisy variants.
 2. Stage 2 HSL
-   - Train a proposal-only full-6D actor from the 870D ZMP/balance observation.
+   - Initialize only the proposal actor from the deployable 158D FrontRES
+     prefix. HSL-v1 is proposal-only and does not define the Stage-3 target.
 3. Stage 3 Segment Replay PPO
    - Initialize the same 6D actor from HSL, then optimize direct Delta SE(3)
-     repair with paired executable evidence and K-step replay.
+     repair with one-action-K paired evidence, sealed multi-Segment x M replay,
+     and exactly one grouped optimizer update per committed transaction.
+   - The scalar Critic predicts paired Intent improvement minus repair cost.
+     Expected Contact, loaded-support phase-ZMP, and survival remain independent
+     actor constraints under grouped first-order projection.
 
 ## Perturbation Curriculum
 
@@ -59,33 +66,33 @@ Do not use the full environment reward for Segment gain or PPO return.
 Teleoperation, velocity-command, generic tracking, and unrelated task terms are
 not repair evidence.
 
-The accepted Segment gain has two paired improvements and one regularizer:
+The accepted scalar Stage-3 objective is:
 
 ```text
-gain_total = w_style * style_gain
-           + w_physics * physics_gain
-           - w_repair * repair_cost
+y_I = paired_intent_improvement - full_6D_repair_cost
+return_K = y_I
 ```
 
-Style compares Noisy/Repaired robot execution against immutable Clean motion.
-Physics compares paired frozen-GMT executability. Repair cost covers full-6D
-magnitude and temporal change. There is no epsilon-style mechanism or extra
-gate. The current RP-only Segment score is a known implementation mismatch,
-not the accepted method.
+The scalar Critic predicts only `y_I`. Physics is not folded into this scalar:
+expected/actual Contact, loaded-support phase-ZMP, and survival produce separate
+actor constraints. Missing or malformed evidence fails the transaction closed;
+valid actual no-load is a Contact violation with role-specific ZMP N/A. Clean
+continuation is GMT/Physics-evaluator evidence only and never actor input.
+Repair cost covers full-6D magnitude and temporal change. There is no rho,
+second actor/Critic/optimizer, scalar Physics reward fallback, or epsilon gate.
 
 Important diagnostics:
 
-- `gap`: estimated executable damage before repair;
-- `gain`: executable improvement from FrontRES;
-- `ratio`: normalized repair gain;
-- `positive_gain_frac`: fraction of samples with positive gain;
-- `safe/fragile/broken`: distribution of sample difficulty;
-- `damage/broken/actor_gate`: whether the actor is being updated on the right
-  samples;
-- `exec planar/vertical/task`: reward decomposition for mismatch debugging.
+- scalar target, return, value, raw/scaled advantage, and Critic calibration;
+- expected/actual Contact and loaded-support phase-ZMP applicability/violation;
+- survival, sustained lateral lean, and unplanned support changes;
+- constraint levels, gradients, projection status, dual/KKT facts;
+- action magnitude/non-collapse and actor/Critic parameter deltas;
+- scenario/noisy hash, group mass, exact-one update and committed receipt.
 
-If gain becomes negative, first check whether the perturbation family and
-repair-specific executability component are aligned.
+Negative scalar objective is not by itself a Physics failure. Inspect paired
+Intent improvement and repair cost separately from Contact/phase-ZMP/survival
+constraints, then locate the first invalid owner before changing the method.
 
 ## Validation Experiments
 

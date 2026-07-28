@@ -5772,3 +5772,237 @@ Verdict: Repair/Noisy applicability carrier closure is
 `contract-confirmed`. The next runtime action is a single post-E-FI-85 server
 validation/continuation; no further local probe or semantic redesign is
 required unless that run exposes a different first-invalid owner.
+
+## E-FI-86: Raw-Contact Capacity And Formal K8 Long-Training Closure
+
+Date: 2026-07-28
+
+Tier: source/focused deterministic plus official live-confirmed formal training.
+
+Evidence:
+
+- the relevant source/test diff in commit
+  `648e1db9555804cf5841ebc20181b5dcfc204aeb` changes the existing raw-contact
+  view owner and its focused contract for this boundary; unrelated repository
+  bookkeeping in that commit is not method evidence;
+- `frontres_segment_live_probe.py::_ensure_frontres_raw_contact_view()` now
+  provisions 256 contacts per foot/environment, giving capacity `2048` for the
+  current 8-env route instead of `128`;
+- `frontres_contact_wrench_zmp_contract.py` asserts the 8-env capacity and adds
+  `test_raw_contact_capacity_saturation_remains_fail_closed`, so an exactly
+  saturated PhysX payload is still rejected rather than treated as complete;
+- `v015_gain_v006_postfix_to_model2000_gpu3.log` is 123549 lines / 32 MB and
+  contains no Traceback, RuntimeError, ValueError, assertion, CUDA fault,
+  capacity-saturation error or applicability failure;
+- the log contains 1999 transaction telemetry records, 1999 formal-train
+  receipts and 1999 `step_delta=1 committed=1` receipts. Iterations 1--1999
+  reach `absolute_iter=2000`; 40 periodic saves end with
+  `/hdd1/cyx/FEMR/g1_flat_frontres_stage3_segment_hrl/2026-07-28_14-06-10_V015_GAIN_V006_POSTFIX_TO_MODEL2000/model_2000.pt`;
+- all 1999 rows use METHOD-v016 / GAIN-v006 / PPO-v004 / TRAIN-v010,
+  `paired-intent-minus-repair-v1`, the v2 Contact/loaded-phase-ZMP/survival
+  schema, deployment-Noisy q29 provenance and K8;
+- every transaction has four valid policy rows, sealed pairwise scenario/hash
+  identity and equal attempt/Segment mass. The two `[1.0]` motion-mass cases
+  are correct because both Segments came from one underlying motion;
+- curriculum phase counts are 199 critic-only, 500 actor-warmup and 1300 joint.
+  Critic delta is nonzero in all 1999 updates; actor/std delta is nonzero in all
+  1800 actor-warmup/joint updates and zero during critic-only;
+- projection counts are 625 constraint-recovery, 1120 projected-Intent, 7
+  Intent-feasible, 69 no-common-first-order-descent and 178 no-empirical-
+  direction. `constraint_kkt_max_violation` is exactly zero for all updates.
+
+Facts:
+
+- this change increases evidence-transport headroom; it does not change the
+  contact-wrench ZMP estimator, GAIN-v006 applicability, PPO-v004 projection,
+  TRAIN-v010 curriculum, actor observation, or checkpoint identity;
+- E-FI-86 is `live-confirmed`: the larger buffer eliminates the prior capacity
+  stop without weakening truncation detection;
+- formal K8 training connectivity, exact-one persistence, applicability and
+  postscale KKT are closed through iteration 2000;
+- aggregate training telemetry is informative but not independent quality
+  evaluation. First-to-final 200-row summaries change as follows:
+  `gain_mean -0.0170 -> -0.0104`, positive Gain `0.341 -> 0.386`,
+  `intent_mean -0.00656 -> 0.000077`, positive Intent `0.465 -> 0.483`;
+  action L2 remains non-collapsed near `0.0104`; Repair-vs-Noisy Contact gain
+  stays positive, survival is approximately one, and Physics gain is positive
+  on average. These are weak improvements, not a deployment-quality claim;
+- no additional matched-route or all-variable comparison is required for
+  engineering closure.
+
+Open risks / stop:
+
+- the emitted remote `model_2000.pt` was not copied locally in this evidence
+  pass, so its payload was not independently reopened; the live log proves the
+  formal save receipt and prior contracts prove the strict v5 producer/loader;
+- policy efficacy, sustained-lean/unplanned-step behavior, fresh deployment
+  reload and deployment composition remain separate unresolved claims;
+- the old pre-KKT-fix `model_2000.pt` remains historical evidence only. The
+  authoritative post-fix artifact is distinguished by the dated output path
+  above.
+
+Next: use the existing policy/deployment route with the dated post-fix
+`model_2000.pt` to judge actual motion quality. Do not reopen capacity,
+applicability or matched-route debugging without a new first-invalid runtime
+fact.
+
+## E-FI-87: Policy-Only Deployment Final-Consumer Readiness
+
+Date: 2026-07-28
+
+Scope: close the existing v015 deployment-composition final consumer for the
+post-fix `model_2000.pt`; no matched zero/HSL route, training, optimizer update,
+Gain/PPO/HSL change, or live execution.
+
+Evidence:
+
+- the five focused deployment/Contact contracts exit 0;
+- `frontres_segment_all_contract_suite.py` exits 0 with
+  `contract_count=63 failed_count=0 total_marker_count=63`;
+- `python -m py_compile` and `bash -n run/run_v015_model2000_deployment_demo.sh`
+  exit 0.
+
+Facts:
+
+- the formal CLI separates the ordinary Clean source used only for frame-0
+  physical reset and expected Physics evidence from the immutable Noisy carrier
+  consumed by FEMR/GMT;
+- the policy-only report uses filtered ContactSensor forces and raw
+  contact-wrench ZMP against Clean expected Contact/support envelopes; the old
+  foot-height actual Contact and root/capture-point proxy are no longer the
+  formal deployment report authority;
+- atomic JSON/S4 telemetry now exposes action, Intent q29 error,
+  expected/actual Contact, timing-aware mismatch, phase-ZMP
+  applicability/violation/recovery, survival, signed lateral-roll cumulative
+  lean, and unplanned Contact events with training feedback fixed at zero;
+- the evaluator freezes the policy and every 158D/GMT/privileged/teacher
+  observation normalizer before the first observation read, fingerprints their
+  state, and restores their original modes on success or exception;
+- `run/run_v015_model2000_deployment_demo.sh` materializes one fixed `local_rp`
+  carrier and dispatches the dated post-fix `model_2000.pt` through the existing
+  formal IsaacLab evaluator.
+
+Open risk: this is deterministic S1/S2/final-serializer evidence. Real
+simulator values and policy/Demo quality remain unconfirmed until the single
+deployment script is run and its JSON/log is reviewed.
+
+## E-FI-88: Coordinated K x M Checkpointed Curriculum Activation
+
+Date: 2026-07-28
+
+Tier: user-confirmed semantic decision, source audit and document-only contract
+activation. No training source, test, simulator, checkpoint IO, optimizer
+update, deployment or live run occurred.
+
+Observed source/runtime facts:
+
+- E-FI-86 contains 1999 committed K8 transactions and every transaction has
+  exactly two Segment sources, four Repair policy attempts and equal attempt
+  mass, so M remained two for the entire pilot;
+- the current launcher supplies only `FRONTRES_V015_K_CURRICULUM=8:200:500:0`;
+- `frontres_segment_live_sampler.py` calls
+  `plan_frozen_policy_transaction(..., minimum_policy_attempts=2)` and derives
+  wider transaction layouts from sampler `rollout_trial_count` rather than an
+  explicit global M identity;
+- the generic legacy sampler step calls `sampler.update_with_probe()`, while
+  the v015 formal transaction/update path does not use that owner to advance M;
+- changing only `num_envs` therefore cannot prove more attempts per Segment:
+  it may select additional M2 Segment sources instead;
+- checkpoint-v5 binds the complete v010 K-only schedule fingerprint and rejects
+  a different schedule on strict resume.
+
+Confirmed decision:
+
+- activate FRS-TRAIN-v011 while preserving METHOD-v016, GAIN-v006, PPO-v004,
+  EVAL-v003, HSL-v1, 928/158/770 authority, one-action-K and one scalar Critic;
+- freeze the coordinated schedule
+  `(K8,M2,200,500,1300) -> (K16,M3,300,300,900) ->
+  (K32,M4,400,300,625)` with exactly two Segment sources;
+- freeze absolute review boundaries `2000,3500,4825,6500,8000` and maximum
+  absolute iteration 8000;
+- define role env widths `8,12,16`, one policy row per Repair attempt, equal
+  motion -> Segment -> attempt mass and exactly one update per sealed
+  transaction;
+- bind schedule/max/review/stage/K/M/row/receipt identity in strict
+  `frontres-v015-checkpoint-v6`;
+- preserve E-FI-86 `model_2000.pt` as the K8/M2 checkpoint-v5 pilot only. The
+  v011 campaign starts fresh from strict HSL-v1 and checkpoint-v5 rejects
+  before mutation.
+
+Governed artifacts:
+
+- active contract and registry now point to
+  `FRS-TRAIN-v011-coordinated-k-m-checkpointed-curriculum.md`;
+- FRS-TRAIN-v010 is archived as superseded;
+- Concept Figure keeps the existing Segment Replay, K-step Curriculum and
+  Actor & Critic Warmup blocks while their concise text reflects coordinated
+  K x M stages;
+- Method-to-Code and Policy Quality Architecture mark the current v010/v5
+  source as contract-mismatch rather than implemented v011;
+- the current plan, checklist and task canvas freeze P5-B as one offline
+  engineering closure and P5-C as the later material-runtime boundary.
+
+Open implementation boundary:
+
+- no v011 parser, active-M carrier, exact-M formal owner, stage env-width
+  guard, checkpoint-v6 producer/loader, launcher or deterministic test exists;
+- no v011 training command is authorized until one P5-B engineering closure
+  implements and verifies this complete route;
+- P4 policy-only deployment quality remains independently open and does not
+  prove or block the exact-M engineering route.
+
+Next: execute P5-B in one unit across the existing schedule, sampler,
+transaction, telemetry, orchestration and checkpoint owners; run focused
+S1/S2/S3 contracts and refresh governance evidence; stop before simulator,
+training or live execution.
+
+## E-FI-89: Exact-M And Checkpoint-v6 Offline Engineering Closure
+
+Date: 2026-07-28
+
+Tier: deterministic S1/S2/S3 source and persistence evidence. No simulator,
+training, optimizer-bearing live run or deployment composition occurred.
+
+Implemented facts:
+
+- the only accepted formal schedule is
+  `(8,2,200,500,1300) -> (16,3,300,300,900) ->
+  (32,4,400,300,625)`, with maximum absolute iteration 8000 and review
+  boundaries 2000/3500/4825/6500/8000;
+- the formal planner selects exactly two Segment sources and expands each to
+  exact active M attempts; state-driven sampler trial counts cannot change the
+  formal width;
+- formal role width is fail-closed at `num_envs=4*M`, yielding policy rows
+  `2*M` and Repair/Noisy role rows `4*M`;
+- sealed transaction request, receipt, final telemetry and live snapshot carry
+  active K/M, selected-Segment count, policy-row count and role-row count;
+- grouped PPO-v004 still performs exactly one optimizer update after the whole
+  transaction is sealed; METHOD-v016, GAIN-v006, PPO-v004, HSL and Physics
+  mathematics are unchanged;
+- strict `frontres-v015-checkpoint-v6` binds the full schedule, stage/K/M,
+  maximum/review boundaries, row counts, optimizer/sampler/normalizers and
+  committed receipt. Checkpoint-v5 and malformed schedules reject before
+  mutable restore.
+
+Fresh evidence:
+
+- `frontres_segment_warmup_contract.py`: PASS;
+- `frontres_segment_sampler_contract.py`: PASS for M2/M3/M4 exact expansion
+  and sampler-state immutability;
+- `frontres_v015_transaction_route_contract.py`: PASS for sealed grouped
+  exact-one update and active TRAIN-v011 identity;
+- `frontres_v015_unmocked_observation_connectivity_contract.py`: PASS for the
+  unchanged 928/158/770 and one-action-K route through exact-one update;
+- `frontres_v015_local_sentinel_connectivity_contract.py`: PASS through the
+  final active-M serializer and checkpoint-v6 sentinel;
+- `frontres_v015_checkpoint_resume_contract.py`: PASS for v6 round-trip,
+  tamper rejection, v5 pre-mutation rejection and fresh inference equality;
+- launcher, entrypoint, formal-runtime Atlas, policy-quality identity/save-
+  reload and design-contract focused contracts: PASS;
+- `frontres_segment_all_contract_suite.py`:
+  `contract_count=63 failed_count=0 total_marker_count=63`;
+- `git diff --check`: PASS.
+
+Verdict: P5-B is offline-complete. P5-C is now blocked only by explicit
+material runtime authority. First real K16/M3 and K32/M4 transactions,
+checkpoint-boundary quality and long-run policy efficacy remain unconfirmed.

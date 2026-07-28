@@ -2,7 +2,7 @@
 contract_id: FRS-GAIN-v006
 status: active
 effective_date: 2026-07-27
-updated_date: 2026-07-27
+updated_date: 2026-07-28
 supersedes: FRS-GAIN-v005
 scope: scalar paired root-invariant Intent improvement minus full-6D repair cost, with independent Contact, loaded-support phase-ZMP, and survival actor constraints
 ---
@@ -138,7 +138,8 @@ actual_contact_id = contact-sensor-net-normal-force-threshold-v1
 expected_phase_id = clean-foot-height-phase-v1
 ```
 
-Checkpoint format remains `frontres-v015-checkpoint-v5`, but strict full resume
+FRS-TRAIN-v011 carries the unchanged v006 identities in
+`frontres-v015-checkpoint-v6`; strict full resume
 must reject v005/schema-v1 identities before mutating actor, Critic, optimizer,
 sampler, or normalizer state.
 Atomic held-out reports use `frontres-v015-heldout-quality-report-v2`; v1 cannot
@@ -165,7 +166,7 @@ S2 must carry separate Repair/Noisy applicability through one-action-K, Gain,
 return evidence, formal transaction diagnostics, and atomic quality reporting
 without changing exact-one update or scalar return.
 
-S3 must preserve checkpoint-v5 layout while accepting only GAIN-v006/schema-v2
-identity. S4 remains one bounded official sensor-authority sentinel. Stop on
+S3 must preserve the GAIN-v006/schema-v2 fields inside checkpoint-v6 while
+rejecting checkpoint-v5 and earlier before mutation. Stop on
 silent row deletion, shared Repair/Noisy applicability, fabricated finite ZMP,
 legacy v005 acceptance, actor-input leakage, or any PPO/Critic formula change.

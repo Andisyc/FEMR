@@ -163,13 +163,13 @@ class _SemanticAlg:
         self.frontres_segment_live_single_update_only = False
         self.frontres_segment_critic_warmup_iterations = 0
         self.frontres_segment_actor_warmup_iterations = 0
-        self.frontres_segment_k_curriculum = ((8, 1, 1, 0),)
+        self.frontres_segment_k_curriculum = ((8, 2, 200, 500, 1300), (16, 3, 300, 300, 900), (32, 4, 400, 300, 625))
         self.frontres_segment_k_curriculum_fingerprint = ""
-        self.frontres_segment_max_horizon_k = 8
+        self.frontres_segment_max_horizon_k = 32
         self.frontres_method_contract_id = "FRS-METHOD-v016"
         self.frontres_gain_contract_id = "FRS-GAIN-v006"
         self.frontres_optimization_contract_id = "FRS-PPO-v004"
-        self.frontres_training_contract_id = "FRS-TRAIN-v010"
+        self.frontres_training_contract_id = "FRS-TRAIN-v011"
         self.frontres_scalar_target_id = "paired-intent-minus-repair-v1"
         self.frontres_constraint_schema_id = "contact-loaded-phase_zmp-survival-physical-v2"
         self.frontres_projection_schema_id = "grouped-first-order-constraint-projection-v1"
@@ -259,15 +259,19 @@ def _build_fixture():
     command.cfg = SimpleNamespace(motion_horizon=1, command_velocity=True)
     env_ids = torch.arange(8, dtype=torch.long)
     sealed = command.frontres_local_scenario_snapshot(env_ids)
+    def repeat_to_k(value: torch.Tensor, horizon_k: int = 8) -> torch.Tensor:
+        repeats = (horizon_k + int(value.shape[1]) - 1) // int(value.shape[1])
+        return value.repeat((1, repeats) + (1,) * (value.ndim - 2))[:, :horizon_k].clone()
+
     command.clear_frontres_local_scenario()
     command.set_frontres_local_scenario(
         current_root_artifact_t=sealed["current_root_artifact_t"],
         intent_q29=sealed["intent_q29"],
-        clean_continuation=sealed["clean_continuation"],
-        expected_support=sealed["expected_support"],
-        expected_support_envelope=sealed["expected_support_envelope"],
-        horizon_k=torch.full((8,), 2, dtype=torch.long),
-        continuation_lengths=torch.full((8,), 2, dtype=torch.long),
+        clean_continuation=repeat_to_k(sealed["clean_continuation"]),
+        expected_support=repeat_to_k(sealed["expected_support"]),
+        expected_support_envelope=repeat_to_k(sealed["expected_support_envelope"]),
+        horizon_k=torch.full((8,), 8, dtype=torch.long),
+        continuation_lengths=torch.full((8,), 8, dtype=torch.long),
         scenario_ids=sealed["scenario_ids"],
         noisy_segment_hashes=sealed["noisy_segment_hashes"],
         x_t_identities=sealed["x_t_identities"],
@@ -409,8 +413,7 @@ def test_t_unmocked_observation_to_exact_one_update() -> None:
     horizon = fixture.command._frontres_local_scenario_horizon_k.detach().clone()
     assert int(torch.unique(horizon).numel()) == 1
     active_k = int(horizon[0].item())
-    runner.alg.frontres_segment_k_curriculum = ((active_k, 1, 1, 0),)
-    runner.alg.frontres_segment_max_horizon_k = active_k
+    assert active_k == 8
     assert len(fixture.policy.gmt_policy.inputs) == int(horizon.max().item())
     assert runner._frontres_v015_observation_route_trace["post_advance_gmt_read_count"] == int(horizon.max().item())
     for offset, gmt_input in enumerate(fixture.policy.gmt_policy.inputs):
@@ -458,6 +461,7 @@ def test_t_unmocked_observation_to_exact_one_update() -> None:
         curriculum_fingerprint=live_probe._v015_resolve_curriculum_identity(runner).schedule_fingerprint,
         k_stage_index=live_probe._v015_resolve_curriculum_identity(runner).stage_index,
         active_k=live_probe._v015_resolve_curriculum_identity(runner).active_k,
+        active_m=live_probe._v015_resolve_curriculum_identity(runner).active_m,
         k_stage_iteration=live_probe._v015_resolve_curriculum_identity(runner).stage_iteration,
         training_iteration=live_probe._v015_resolve_curriculum_identity(runner).absolute_iteration,
         warmup_phase_name=live_probe._v015_resolve_curriculum_identity(runner).phase.name,

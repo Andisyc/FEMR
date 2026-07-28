@@ -2,7 +2,7 @@
 contract_id: FRS-METHOD-v016
 status: active
 effective_date: 2026-07-23
-updated_date: 2026-07-27
+updated_date: 2026-07-28
 supersedes: FRS-METHOD-v015
 scope: FrontRES Stage 3 local root-artifact repair with one scalar paired Intent objective, independent Contact/phase-ZMP/survival actor constraints, grouped first-order constraint-gradient projection, one-action K evidence, and sealed multi-attempt Segment Replay
 ---
@@ -139,10 +139,11 @@ scalar Physics reward.
 
 ## Training And Persistence Boundary
 
-FRS-TRAIN-v010 owns Critic initialization and K-stage scheduling. The first
-entry into the v016/v005 target uses the strict HSL-v1 actor initializer and a
+FRS-TRAIN-v011 owns Critic initialization and coordinated K x exact-M stage
+scheduling. The first
+entry into the v016/v006 target uses the strict HSL-v1 actor initializer and a
 fresh scalar Critic/optimizer target identity. Old v004 Stage-3 checkpoints are
-not migration sources. At every later global K increase, the same v010 Critic
+not migration sources. At every later global K x M transition, the same Critic
 continues but re-enters critic-only recalibration while actor/std freeze.
 
 Full resume requires the coordinated identities:
@@ -151,8 +152,8 @@ Full resume requires the coordinated identities:
 FRS-METHOD-v016
 FRS-GAIN-v006
 FRS-PPO-v004
-FRS-TRAIN-v010
-frontres-v015-checkpoint-v5
+FRS-TRAIN-v011
+frontres-v015-checkpoint-v6
 ```
 
 ## Forbidden Behavior
@@ -163,14 +164,14 @@ frontres-v015-checkpoint-v5
 - sequential/order-dependent projection of Contact, ZMP, and survival;
 - a second actor, Critic, optimizer, rho, constraint predictor, or dual network;
 - Contact/Clean/constraint leakage to actor input or HSL target;
-- later FEMR actions inside K, mixed K inside a transaction, or unequal group mass;
-- v004/v003/v009/checkpoint-v4 fallback or compatibility padding.
+- later FEMR actions inside K, mixed K/M inside a transaction, sampler-controlled formal M, or unequal group mass;
+- v004/v003/v010/checkpoint-v5 fallback or compatibility padding.
 
 ## Acceptance And Stop Conditions
 
 P2 must prove raw evidence preservation, distinct constraint surrogates, grouped
 projection/recovery, actor/Critic gradient separation, exact-one update, strict
-v5 persistence, and legacy rejection through deterministic S1/S2/S3 evidence.
+v6 persistence, and legacy rejection through deterministic S1/S2/S3 evidence.
 
 Stop before source implementation or training if a constraint requires hidden
 labels or actor-visible Clean data, the joint projection cannot be defined
@@ -182,5 +183,5 @@ more than one optimizer step.
 
 - Objective and constraints: `../reward/FRS-GAIN-v006-loaded-support-zmp-applicability.md`.
 - Grouped actor update: `../optimization/FRS-PPO-v004-grouped-constraint-gradient-projection.md`.
-- Critic/K schedule: `../training/FRS-TRAIN-v010-intent-critic-k-curriculum.md`.
+- Critic/K/M schedule: `../training/FRS-TRAIN-v011-coordinated-k-m-checkpointed-curriculum.md`.
 - Evaluation remains `../evaluation/FRS-EVAL-v003-local-repair-composition-evaluation.md` until separately versioned.

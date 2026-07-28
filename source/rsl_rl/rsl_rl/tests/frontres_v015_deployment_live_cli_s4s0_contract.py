@@ -40,6 +40,7 @@ def _args(tmp_path: Path) -> SimpleNamespace:
         task="FrontRES-Unified-Tracking-Flat-G1-v0",
         frontres_checkpoint=_touch(tmp_path / "frontres.pt"),
         gmt_checkpoint=_touch(tmp_path / "gmt.pt"),
+        source_reference_npz=_touch(tmp_path / "clean.npz"),
         reference_npz=_touch(tmp_path / "noisy.npz"),
         report_path=str((tmp_path / "report.json").resolve()),
         future_offsets="1,2",
@@ -100,6 +101,7 @@ def test_t_cli_contract_paths_gpu_and_protocol(tmp_path: Path) -> None:
 
     assert contract.frontres_checkpoint == str(Path(args.frontres_checkpoint).resolve())
     assert contract.gmt_checkpoint == str(Path(args.gmt_checkpoint).resolve())
+    assert contract.source_reference_npz == str(Path(args.source_reference_npz).resolve())
     assert contract.reference_npz == str(Path(args.reference_npz).resolve())
     assert contract.report_path == str(Path(args.report_path).resolve())
     assert contract.future_offsets == (1, 2)
@@ -116,6 +118,7 @@ def test_t_cli_contract_paths_gpu_and_protocol(tmp_path: Path) -> None:
     )
     run_config.validate()
     assert run_config.request_config.reference_path == contract.reference_npz
+    assert run_config.request_config.source_reference_path == contract.source_reference_npz
     assert run_config.request_config.corruption_protocol.protocol_hash
 
     bad = SimpleNamespace(**vars(args))
@@ -189,6 +192,12 @@ def test_t_agent_config_and_dispatch_are_eval_only(tmp_path: Path) -> None:
                 frame_count=7,
                 femr_action_count=7,
                 accumulated_failure_count=1,
+                mean_intent_q29_error=0.012,
+                contact_preservation_fraction=0.95,
+                phase_zmp_violation_count=2,
+                survival_fraction=1.0,
+                max_abs_cumulative_lateral_roll_rad=0.03,
+                unplanned_contact_event_count=1,
                 return_feedback=False,
                 priority_feedback=False,
                 ppo_feedback=False,
@@ -212,6 +221,13 @@ def test_t_agent_config_and_dispatch_are_eval_only(tmp_path: Path) -> None:
     assert "femr_actions=7" in sentinel
     assert "optimizer_step_delta=0" in sentinel
     assert "no_feedback=True" in sentinel
+    assert "intent_q29_mean=0.012" in sentinel
+    assert "contact_preservation=0.95" in sentinel
+    assert "zmp_violations=2" in sentinel
+    assert "survival=1" in sentinel
+    assert "max_cum_roll=0.03" in sentinel
+    assert "unplanned_contact_events=1" in sentinel
+    assert f"frontres_checkpoint={contract.frontres_checkpoint}" in sentinel
     print("[T-config/T-dispatch/T-zero-update] dedicated config calls only S2B and preserves optimizer count", flush=True)
 
 
@@ -226,6 +242,10 @@ def test_t_source_uses_formal_owners_without_training_route() -> None:
         "RslRlVecEnvWrapper",
         "OnPolicyRunner(",
         "gmt_checkpoint_path",
+        "source_reference_npz",
+        '"start_from_beginning", True',
+        '"start_frame", 0',
+        "episode_length_s",
         "load_optimizer=False",
         "load_critic=False",
         "run_frontres_v015_deployment_composition_eval",

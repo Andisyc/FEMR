@@ -1,9 +1,10 @@
 ---
 contract_id: FRS-TRAIN-v010
-status: active
+status: superseded
 effective_date: 2026-07-23
-updated_date: 2026-07-27
+updated_date: 2026-07-28
 supersedes: FRS-TRAIN-v009
+superseded_by: FRS-TRAIN-v011
 scope: fresh scalar Intent-Critic initialization, strict v006 target identity, per-global-K critic-only recalibration, projected actor ramp, joint exact-one update, and checkpoint-v5 persistence
 ---
 

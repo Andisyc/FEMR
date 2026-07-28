@@ -25,6 +25,7 @@
         {"question": "每个动作片段在哪里施加扰动？", "point": "只在 Segment 首帧 t 施加当前 root artifact；后续 K 步不再注入新扰动，GMT 在同一 Clean continuation 上观察首帧修复的后果"},
         {"question": "为什么每次都从 Clean x_t reset？", "point": "Clean x_t 只固定可重复的动力学起点，使多次试验可比；它从不作为 actor 的 Clean reference"},
         {"question": "M 次尝试如何只比较修复动作？", "point": "同一 x_t、首帧 artifact、future intent、Clean continuation、K 与冻结旧策略保持不变；M 次只改变 policy 采样出的首帧 full-6D 修复动作"},
+        {"question": "M 由谁决定？", "point": "FRS-TRAIN-v011 在全局 stage 中显式固定 M=2、3、4；replay priority 只选择 Segment，不能改变同一 stage 的 M 或 grouped mass"},
         {"question": "Probing 与 M 次尝试期间何时允许 PPO 更新？", "point": "均不允许更新 PPO；每个 selected Segment 的 M 次尝试必须先完整收集，不能让早期尝试改变后续尝试的策略"},
         {"question": "何时才允许 PPO 学习这些尝试？", "point": "只有全部 selected Segment 的 M 次证据聚合为完整 transaction 后，才进行一次 PPO update；M 用于寻找和比较更优修复，而非让单次偶然结果立刻改写策略"}
       ]
@@ -66,7 +67,8 @@
       "rows": [
         {"question": "K 在 policy 语义中代表什么？", "point": "每个 attempt 只有一条 PPO policy/action row；K 只是 executable-evidence horizon"},
         {"question": "K 的增长如何改变方法？", "point": "只逐步延长首帧修复的延迟后果评估，不把 K 变成额外 actor future frames 或 PPO rows"},
-        {"question": "不同 Segment 能否同时使用不同 K？", "point": "不能；FRS-TRAIN-v009 每个训练 stage 只有一个全局 active K，同一 sealed transaction 的所有 Segment x M attempts 必须同质"}
+        {"question": "不同 Segment 能否同时使用不同 K 或 M？", "point": "不能；FRS-TRAIN-v011 每个训练 stage 只有一组全局 active K x M，同一 sealed transaction 的两个 Segment 必须同质"},
+        {"question": "如何逐步扩大训练证据？", "point": "完整 schedule 在首次训练前冻结为 K8/M2、K16/M3、K32/M4，并只在 committed checkpoint 边界推进"}
       ]
     },
     {

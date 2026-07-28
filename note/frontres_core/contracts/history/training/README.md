@@ -11,5 +11,6 @@
 | `FRS-TRAIN-v007` | superseded | `FRS-TRAIN-v008` |
 | `FRS-TRAIN-v008` | superseded | `FRS-TRAIN-v009` |
 | `FRS-TRAIN-v009` | superseded | `FRS-TRAIN-v010` |
+| `FRS-TRAIN-v010` | superseded | `FRS-TRAIN-v011` |
 
 Read the active registry before using any historical training contract.

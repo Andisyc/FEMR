@@ -60,6 +60,7 @@ def _request(s1_helper, s1_owner, root: Path, *, frame_count: int = 6):
     request = s1_owner.load_frontres_v015_deployment_composition_request(
         s1_owner.FrontRESV015DeploymentCompositionConfig(
             enabled=True,
+            source_reference_path=str(reference),
             reference_path=str(reference),
             future_offsets=(1, 2),
             corruption_protocol=protocol,
@@ -308,6 +309,7 @@ def test_t_g4_materialized_carrier_to_current_h() -> None:
         request = owner.load_frontres_v015_deployment_composition_request(
             owner.FrontRESV015DeploymentCompositionConfig(
                 enabled=True,
+                source_reference_path=str(source),
                 reference_path=carrier.carrier_path,
                 future_offsets=(1, 2),
                 corruption_protocol=protocol,

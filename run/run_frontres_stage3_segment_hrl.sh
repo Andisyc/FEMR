@@ -35,7 +35,7 @@ PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"
 PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
 FRONTRES_SPECIALIST_MODE="${FRONTRES_SPECIALIST_MODE:-rp}"
 FRONTRES_V015_FUTURE_OFFSETS="${FRONTRES_V015_FUTURE_OFFSETS:-1,2}"
-FRONTRES_V015_K_CURRICULUM="${FRONTRES_V015_K_CURRICULUM:-}"
+FRONTRES_V015_K_CURRICULUM="${FRONTRES_V015_K_CURRICULUM:-8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625}"
 FRONTRES_V015_RESUME_CHECKPOINT="${FRONTRES_V015_RESUME_CHECKPOINT:-}"
 
 if ! [[ "${CHECKPOINT_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
@@ -43,8 +43,8 @@ if ! [[ "${CHECKPOINT_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
-if [[ "${MODE}" == "train" && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
-  echo "FRS-TRAIN-v009 requires FRONTRES_V015_K_CURRICULUM=K:N_c:N_a:N_joint,..." >&2
+if [[ "${MODE}" == "train" && "${FRONTRES_V015_K_CURRICULUM}" != "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625" ]]; then
+  echo "FRS-TRAIN-v011 requires the frozen K8/M2,K16/M3,K32/M4 schedule" >&2
   exit 4
 fi
 FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"
@@ -52,12 +52,16 @@ CONTRACT_SUITE="${FRONTRES_STAGE3_CONTRACT_SUITE:-source/rsl_rl/rsl_rl/tests/fro
 CONTRACT_PYTHON="${FRONTRES_STAGE3_CONTRACT_PYTHON:-python}"
 
 if [[ -n "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${FRONTRES_V015_RESUME_CHECKPOINT}" ]]; then
-  echo "checkpoint-v5 resume checkpoint not found: ${FRONTRES_V015_RESUME_CHECKPOINT}" >&2
+  echo "checkpoint-v6 resume checkpoint not found: ${FRONTRES_V015_RESUME_CHECKPOINT}" >&2
   exit 2
 fi
 if [[ -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${HSL_CHECKPOINT}" ]]; then
   echo "HSL checkpoint not found: ${HSL_CHECKPOINT}" >&2
   exit 2
+fi
+if [[ "${MODE}" == "train" && -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && "${NUM_ENVS}" != "8" ]]; then
+  echo "FRS-TRAIN-v011 fresh K8/M2 campaign requires NUM_ENVS=8" >&2
+  exit 4
 fi
 
 if [[ "${PERIODIC_EVAL_ENABLED}" != "0" ]]; then

@@ -1,6 +1,6 @@
 # FEMR Current Test Inventory
 
-Updated: 2026-07-27
+Updated: 2026-07-28
 
 ## Main Entries
 
@@ -31,7 +31,7 @@ Updated: 2026-07-27
 | `frontres_observation_layout_contract.py` | S1/S3 | 100D prefix + 770D GMT suffix + checkpoint stats. |
 | `frontres_balance_obs_cfg_contract.py` | S0/S1 | Balance/ZMP observation config. |
 | `frontres_balance_offline_connectivity_contract.py` | S2 | Balance observation reaches FrontRES actor path. |
-| `frontres_contact_wrench_zmp_contract.py` | S1/S2; S4 at E-FI-84 | Contact-wrench ZMP adapter and formal one-action-K connector: exact ground-filter identity, pre-reset raw-view lifecycle, variable per-foot contact slots (`C_left=10`, `C_right=3`) padded to a masked common axis without changing evidence, finite golden ZMP, foot/row permutation, missing-evidence fail-closed, and live-confirmed real PhysX population. |
+| `frontres_contact_wrench_zmp_contract.py` | S1/S2; S4 at E-FI-84; capacity live-confirmed at E-FI-86 | Contact-wrench ZMP adapter and formal one-action-K connector: exact ground-filter identity, pre-reset raw-view lifecycle, 256 raw contacts per foot/env (`2048` at 8 env), exact-saturation fail-closed, variable per-foot contact slots padded to a masked common axis without changing evidence, finite golden ZMP, foot/row permutation, missing-evidence fail-closed, and live-confirmed real PhysX population through iteration 2000. |
 | `frontres_segment_cache_builder_contract.py` | S1/S2 | Stage 1 cache construction and resume semantics. |
 | `frontres_segment_sampler_contract.py` | S1 / Step 2-S1a | Priority, state, legacy trial planning, 8/16/32/64 horizons, and a pure multi-Segment all-policy transaction layout with `M_s >= 2`; it does not prove a frozen parameter snapshot or runner/storage connectivity. |
 | `frontres_fixed_noisy_segment_lifecycle_contract.py` | S1 | One immutable Noisy sequence per `source_index`, M-row hash reuse, external-mutation isolation, closure/no-rematerialization, K + H coverage, and Clean-payload rejection; it does not prove command/actor routing. |
@@ -82,10 +82,10 @@ regression assets but cannot prove v015 semantics.
 | `frontres_v015_grouped_candidate_adapter_contract.py` | S1/S2 current, `E-FI-85` | Sealed v006 carrier -> immutable local transaction metadata -> grouped candidate batch; explicit Repair/Noisy applicability covers all four combinations, paired ZMP is finite iff both apply, PPO consumes Repair only, and legacy/partial/mixed rows fail closed. |
 | `frontres_v015_transaction_route_contract.py` | S2 complete, `E-FI-85` current | CPU fake `2 Segment x 2 attempt` sealed transaction reaches v006 grouped PPO and exactly one optimizer update; it retains explicit role applicability through diagnostics while PPO remains Repair-only and rejects legacy/HSL/partial paths. |
 | `frontres_v015_checkpoint_resume_contract.py` | S3 complete, `E-FI-15` | CPU fake checkpoint save/load preserves exact q29 H/prefix-normalizer/grouped identity, rejects old/mismatched/tampered layouts before mutation, and allows only idle or committed-receipt transaction state; a valid v015 Stage-3 envelope may retain completed-HSL history, but legacy HSL remains reject-only. |
-| `frontres_v015_deployment_composition_s1_contract.py` | S1 complete, `E-FI-28` | Structured `.npz` schema, content identity, canonical persistent-corruption protocol hash, per-frame report, no-feedback type boundary, and legacy/mixed-config rejection. |
+| `frontres_v015_deployment_composition_s1_contract.py` | S1 complete, `E-FI-28`, `E-FI-87` | Structured Clean-source/Noisy-carrier identity, canonical persistent-corruption hash, row-aligned action/Contact/phase-ZMP/survival/lean report, N/A/applicability fail-closed, no-feedback boundary, and legacy rejection. |
 | `frontres_v015_deployment_carrier_s2a_contract.py` | S1/S2 complete, `E-FI-29` | Sealed request -> immutable command q29/dq29 sequence -> current `[B,58]` plus dense H `[B,H+1,29]`; frame/cursor/order/identity/provenance/row alignment, no clamp/mixed reference, and actor/GMT/training isolation. |
-| `frontres_v015_deployment_composition_s2b_contract.py` | S2 complete, `E-FI-30` | Pre-materialized deployment request -> `T-max(H)` current/H frames -> 928D -> one 6D FEMR action -> frozen GMT -> metrics -> atomic JSON; formal runner isolation and unchanged optimizer/sampler/storage/transition fingerprints. |
-| `frontres_v015_deployment_live_cli_s4s0_contract.py` | S2 interface-only, `E-FI-31`; implemented-not-runnable at `E-FI-32` | Absolute checkpoint/file/report and CUDA dispatch isolation. It does not provide the missing trained checkpoint, controlled materializer, paired baseline, or S4 readiness. |
+| `frontres_v015_deployment_composition_s2b_contract.py` | S2 complete, `E-FI-30`, `E-FI-87` | Clean frame-0 state + sealed Noisy carrier -> 928D -> per-frame 6D FEMR -> frozen GMT -> timing-aware Contact/phase-ZMP/survival/lean -> atomic policy-only JSON; training fingerprints unchanged. |
+| `frontres_v015_deployment_live_cli_s4s0_contract.py` | S2 interface complete, `E-FI-31`, `E-FI-87`; S4 pending | Absolute post-fix checkpoint, Clean source, Noisy carrier, CUDA, frame-0/episode-length config, zero-update dispatch and final quality sentinel are fail-closed; real simulator values remain S4-only. |
 | Planned controlled-carrier contract | S1/S2 missing, G4 | Ordinary Clean/reference `.npz` plus fixed protocol materializes once, seals source/protocol/carrier hashes, exposes no metadata to actor, and never resamples across branches. |
 | Planned paired composition contract | S1/S2 missing, G6 | Same carrier/reset/GMT identity reaches No-FEMR baseline and FEMR repair branches; report stays no-feedback. |
 | Planned bounded deployment-composition sentinel | S4 blocked, G7 | Trained/reloaded v015 checkpoint plus fixed carrier and paired physical per-frame telemetry; blocked behind G1--G6. |

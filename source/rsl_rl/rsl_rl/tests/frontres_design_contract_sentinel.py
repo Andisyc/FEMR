@@ -30,7 +30,7 @@ def run_design_contract_sentinel() -> None:
     compatibility_entry = _read("frontres_core/contracts/design_contract.md")
     training = _read(
         "frontres_core/contracts/active/training/"
-        "FRS-TRAIN-v010-intent-critic-k-curriculum.md"
+        "FRS-TRAIN-v011-coordinated-k-m-checkpointed-curriculum.md"
     )
     optimization = _read(
         "frontres_core/contracts/active/optimization/"
@@ -50,7 +50,7 @@ def run_design_contract_sentinel() -> None:
     )
 
     _assert_contains(registry, "FRS-METHOD-v016-physics-constrained-intent-replay.md", "registry")
-    _assert_contains(registry, "FRS-TRAIN-v010-intent-critic-k-curriculum.md", "registry")
+    _assert_contains(registry, "FRS-TRAIN-v011-coordinated-k-m-checkpointed-curriculum.md", "registry")
     _assert_contains(
         registry,
         "FRS-PPO-v004-grouped-constraint-gradient-projection.md",
@@ -66,9 +66,9 @@ def run_design_contract_sentinel() -> None:
     _assert_contains(design, "FRS-GAIN-v006", "design")
     _assert_contains(design, "one grouped constraint projection", "design")
     _assert_contains(compatibility_entry, "contracts/README.md", "compatibility entry")
-    _assert_contains(training, "contract_id: FRS-TRAIN-v010", "training")
+    _assert_contains(training, "contract_id: FRS-TRAIN-v011", "training")
     _assert_contains(training, "gain_contract_id = FRS-GAIN-v006", "training")
-    _assert_contains(training, "checkpoint_schema = frontres-v015-checkpoint-v5", "training")
+    _assert_contains(training, "checkpoint_schema = frontres-v015-checkpoint-v6", "training")
     _assert_contains(optimization, "contract_id: FRS-PPO-v004", "optimization")
     _assert_contains(optimization, "FRS-GAIN-v006", "optimization")
     _assert_contains(reward, "contract_id: FRS-GAIN-v006", "reward")
@@ -96,7 +96,7 @@ def run_design_contract_sentinel() -> None:
         if phrase in active_contracts:
             raise AssertionError(f"active contract contains historical method text: {phrase}")
 
-    print("FrontRES active v016/v010/v006/v004/v003 design contract sentinel: PASS")
+    print("FrontRES active v016/v011/v006/v004/v003 design contract sentinel: PASS")
 
 
 if __name__ == "__main__":
