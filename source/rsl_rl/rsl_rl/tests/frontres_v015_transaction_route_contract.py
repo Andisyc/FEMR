@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from contextlib import redirect_stdout
+import copy
 import importlib.util
 import io
 import json
@@ -53,6 +54,18 @@ class _TrackingSGD(torch.optim.SGD):
         return super().step(closure=closure)
 
 
+class _TrackingAdam(torch.optim.Adam):
+    """Test-only Adam with the same explicit formal-step counter."""
+
+    def __init__(self, params) -> None:
+        super().__init__(params, lr=1.0e-3)
+        self.step_count = 0
+
+    def step(self, closure=None):
+        self.step_count += 1
+        return super().step(closure=closure)
+
+
 def _load_owners():
     candidate_contract = _load("frontres_v015_transaction_candidate_helper", CANDIDATE_TEST)
     owners = candidate_contract._load_owners()
@@ -61,6 +74,10 @@ def _load_owners():
     live_probe.FrontRESSegmentPPOConfig = ppo.FrontRESSegmentPPOConfig
     live_probe.compute_frontres_segment_ppo_loss = ppo.compute_frontres_segment_ppo_loss
     live_probe.install_frontres_v004_projected_gradients = ppo.install_frontres_v004_projected_gradients
+    live_probe.project_frontres_v004_actual_parameter_delta = ppo.project_frontres_v004_actual_parameter_delta
+    live_probe.step_frontres_v004_optimizer_with_actor_authority = (
+        ppo.step_frontres_v004_optimizer_with_actor_authority
+    )
     live_sampler = sys.modules.get("rsl_rl.runners.frontres_segment_live_sampler")
     if live_sampler is None:
         live_sampler = _load("rsl_rl.runners.frontres_segment_live_sampler", LIVE_SAMPLER_PATH)
@@ -105,7 +122,7 @@ def _formal_alg(policy: torch.nn.Module, optimizer: _TrackingSGD) -> SimpleNames
     )
 
 
-def _build_request(candidate_contract, owners, live_sampler):
+def _build_request(candidate_contract, owners, live_sampler, *, optimizer_factory=_TrackingSGD, prewarm_actor=False):
     gain_contract, one_action, helper, commands, hooks, setup, live_probe, storage, ppo = owners
     captured, _kwargs, _batch = candidate_contract._capture_and_build(
         gain_contract,
@@ -118,7 +135,14 @@ def _build_request(candidate_contract, owners, live_sampler):
         ppo,
     )
     policy = candidate_contract._ZeroRatioPolicy()
-    optimizer = _TrackingSGD(policy.parameters())
+    optimizer = optimizer_factory(policy.parameters())
+    if prewarm_actor:
+        critic_ids = {id(parameter) for parameter in policy.critic.parameters()}
+        for parameter in policy.parameters():
+            parameter.grad = None if id(parameter) in critic_ids else torch.ones_like(parameter)
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+        optimizer.step_count = 0
     # Default semantic transaction is the second K8 actor-ramp update. Tests
     # that exercise critic-only behavior explicitly reset this to iteration 0.
     runner = SimpleNamespace(alg=_formal_alg(policy, optimizer), current_learning_iteration=202)
@@ -211,6 +235,141 @@ def _build_request(candidate_contract, owners, live_sampler):
     )
 
 
+def test_t_no_direction_restores_actor_and_adam_state(candidate_contract, owners, live_sampler) -> None:
+    fixture = _build_request(
+        candidate_contract,
+        owners,
+        live_sampler,
+        optimizer_factory=_TrackingAdam,
+        prewarm_actor=True,
+    )
+    fixture.runner.alg.value_loss_coef = 1.0
+    critic_ids = {id(parameter) for parameter in fixture.policy.critic.parameters()}
+    actor_parameters = tuple(parameter for parameter in fixture.policy.parameters() if id(parameter) not in critic_ids)
+    actor_before = tuple(parameter.detach().clone() for parameter in actor_parameters)
+    actor_state_before = {id(parameter): copy.deepcopy(fixture.optimizer.state[parameter]) for parameter in actor_parameters}
+
+    candidate_batches = tuple(
+        replace(
+            batch,
+            contact_constraint=torch.ones_like(batch.contact_constraint),
+            contact_constraint_advantage=torch.zeros_like(batch.contact_constraint_advantage),
+            zmp_constraint=torch.zeros_like(batch.zmp_constraint),
+            zmp_constraint_advantage=torch.zeros_like(batch.zmp_constraint_advantage),
+            survival_constraint=torch.zeros_like(batch.survival_constraint),
+            survival_constraint_advantage=torch.zeros_like(batch.survival_constraint_advantage),
+        )
+        for batch in fixture.request.candidate_batches
+    )
+    request = replace(fixture.request, candidate_batches=candidate_batches)
+    result = owners[6].run_frontres_v015_formal_transaction_update(fixture.runner, request)
+
+    assert result.diagnostics["constraint_projection_status"] == "NO_EMPIRICAL_DIRECTION"
+    assert result.diagnostics["actor_std_parameter_delta"]["param_delta_max_abs"] == 0.0
+    for parameter, before in zip(actor_parameters, actor_before, strict=True):
+        torch.testing.assert_close(parameter.detach(), before, rtol=0.0, atol=0.0)
+        after_state = fixture.optimizer.state[parameter]
+        before_state = actor_state_before[id(parameter)]
+        assert after_state.keys() == before_state.keys()
+        for key in before_state:
+            if isinstance(before_state[key], torch.Tensor):
+                torch.testing.assert_close(after_state[key], before_state[key], rtol=0.0, atol=0.0)
+            else:
+                assert after_state[key] == before_state[key]
+    assert result.diagnostics["critic_parameter_delta"]["param_delta_max_abs"] > 0.0
+    assert result.optimizer_step_delta == 1
+    print("[T-actual-update-authority] no-direction restores Actor parameters and Adam state", flush=True)
+
+
+def test_t_adam_candidate_is_postprojected(candidate_contract, owners, live_sampler) -> None:
+    fixture = _build_request(
+        candidate_contract,
+        owners,
+        live_sampler,
+        optimizer_factory=_TrackingAdam,
+        prewarm_actor=True,
+    )
+    fixture.runner.alg.value_loss_coef = 1.0
+    result = owners[6].run_frontres_v015_formal_transaction_update(fixture.runner, fixture.request)
+    diagnostics = result.diagnostics
+    assert diagnostics["actual_update_projection_status"] == diagnostics["constraint_projection_status"]
+    assert diagnostics["actor_optimizer_state_restored"] is False
+    assert diagnostics["optimizer_candidate_actor_delta_l2"] > 0.0
+    assert diagnostics["committed_actor_delta_l2"] > 0.0
+    assert diagnostics["constraint_kkt_max_violation"] <= 1.0e-8
+    assert all(value <= 1.0e-8 for value in diagnostics["constraint_directional_derivatives"].values())
+    assert diagnostics["actor_std_parameter_delta"]["param_delta_max_abs"] > 0.0
+    assert diagnostics["critic_parameter_delta"]["param_delta_max_abs"] > 0.0
+    assert result.optimizer_step_delta == 1
+
+    ppo = owners[8]
+    source_projection = ppo.FrontRESConstraintProjectionResult(
+        status="PROJECTED_INTENT",
+        direction=torch.tensor([-1.0, 0.0]),
+        active_families=("contact",),
+        gradient_norms={"contact": 1.0, "zmp": 0.0, "survival": 0.0},
+        directional_derivatives={"contact": -1.0},
+        intent_direction_norm=1.0,
+        projected_direction_norm=1.0,
+        dual_coefficients={"contact": 0.0},
+        constraint_gram=((1.0,),),
+        intent_directional_derivatives={"contact": 1.0},
+        kkt_max_violation=0.0,
+        constraint_gradient_vectors={"contact": torch.tensor([1.0, 0.0])},
+    )
+    actual = ppo.project_frontres_v004_actual_parameter_delta(
+        torch.tensor([1.0, 1.0]),
+        source_projection,
+        actor_loss_weight=1.0,
+    )
+    assert actual.kkt_max_violation <= 1.0e-8
+    assert actual.directional_derivatives["contact"] < -1.0e-8
+    print("[T-actual-update-KKT] Adam candidate is postprojected before Actor commit", flush=True)
+
+
+def test_t_critic_only_restores_historical_actor_adam_state(candidate_contract, owners, live_sampler) -> None:
+    fixture = _build_request(
+        candidate_contract,
+        owners,
+        live_sampler,
+        optimizer_factory=_TrackingAdam,
+        prewarm_actor=True,
+    )
+    fixture.runner.current_learning_iteration = 0
+    fixture.runner.alg.value_loss_coef = 1.0
+    curriculum = owners[6]._v015_resolve_curriculum_identity(fixture.runner)
+    request = replace(
+        fixture.request,
+        curriculum_fingerprint=curriculum.schedule_fingerprint,
+        k_stage_index=curriculum.stage_index,
+        active_k=curriculum.active_k,
+        active_m=curriculum.active_m,
+        k_stage_iteration=curriculum.stage_iteration,
+        training_iteration=curriculum.absolute_iteration,
+        warmup_phase_name=curriculum.phase.name,
+        warmup_actor_loss_weight=curriculum.phase.actor_loss_weight,
+    )
+    critic_ids = {id(parameter) for parameter in fixture.policy.critic.parameters()}
+    actor_parameters = tuple(parameter for parameter in fixture.policy.parameters() if id(parameter) not in critic_ids)
+    actor_before = tuple(parameter.detach().clone() for parameter in actor_parameters)
+    actor_state_before = {id(parameter): copy.deepcopy(fixture.optimizer.state[parameter]) for parameter in actor_parameters}
+    result = owners[6].run_frontres_v015_formal_transaction_update(fixture.runner, request)
+    assert result.diagnostics["warmup_phase"] == "critic_only"
+    assert result.diagnostics["actor_optimizer_state_restored"] is True
+    assert result.diagnostics["committed_actor_delta_l2"] == 0.0
+    assert result.diagnostics["actor_std_parameter_delta"]["param_delta_max_abs"] == 0.0
+    for parameter, before in zip(actor_parameters, actor_before, strict=True):
+        torch.testing.assert_close(parameter.detach(), before, rtol=0.0, atol=0.0)
+        for key, value in actor_state_before[id(parameter)].items():
+            after = fixture.optimizer.state[parameter][key]
+            if isinstance(value, torch.Tensor):
+                torch.testing.assert_close(after, value, rtol=0.0, atol=0.0)
+            else:
+                assert after == value
+    assert result.diagnostics["critic_parameter_delta"]["param_delta_max_abs"] > 0.0
+    print("[T-v011-critic-only-Adam] stage recalibration restores historical Actor momentum state", flush=True)
+
+
 def test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, live_sampler, live_update_loop) -> None:
     fixture = _build_request(candidate_contract, owners, live_sampler)
     order_accumulator = live_sampler.FrontRESV015FormalTransactionAccumulator(
@@ -276,6 +435,9 @@ def test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, l
         "INTENT_FEASIBLE", "PROJECTED_INTENT", "CONSTRAINT_RECOVERY",
         "NO_EMPIRICAL_DIRECTION", "NO_COMMON_FIRST_ORDER_DESCENT",
     }
+    assert result.diagnostics["actual_update_projection_status"] == result.diagnostics["constraint_projection_status"]
+    assert result.diagnostics["constraint_kkt_max_violation"] <= 1.0e-8
+    assert result.diagnostics["gradient_projection_kkt_max_violation"] <= 1.0e-8
     for name in (
         "contact_constraint_advantage",
         "zmp_constraint_advantage",
@@ -782,6 +944,33 @@ def test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(
         assert "inconsistent constraint KKT telemetry" in str(exc)
     else:
         raise AssertionError("formal telemetry must reject an inconsistent KKT projection report")
+    missing_actual = dict(result.diagnostics)
+    missing_actual.pop("actual_update_projection_status")
+    _expect_runtime_error(
+        lambda: training._v015_sealed_transaction_telemetry(replace(result, diagnostics=missing_actual), ppo=runner.alg)
+    )
+    invalid_actual_delta = dict(result.diagnostics)
+    invalid_actual_delta["committed_actor_delta_l2"] = float("nan")
+    _expect_runtime_error(
+        lambda: training._v015_sealed_transaction_telemetry(
+            replace(result, diagnostics=invalid_actual_delta), ppo=runner.alg
+        )
+    )
+    invalid_restore = dict(result.diagnostics)
+    invalid_restore["actor_optimizer_state_restored"] = not bool(
+        result.diagnostics["actor_optimizer_state_restored"]
+    )
+    _expect_runtime_error(
+        lambda: training._v015_sealed_transaction_telemetry(replace(result, diagnostics=invalid_restore), ppo=runner.alg)
+    )
+    tangent_actual = dict(result.diagnostics)
+    tangent_actual["constraint_active_families"] = ("contact",)
+    tangent_actual["constraint_directional_derivatives"] = {"contact": 0.0}
+    tangent_actual["actor_optimizer_state_restored"] = False
+    tangent_actual["actor_loss_weight"] = 1.0
+    _expect_runtime_error(
+        lambda: training._v015_sealed_transaction_telemetry(replace(result, diagnostics=tangent_actual), ppo=runner.alg)
+    )
     runner.alg.frontres_segment_live_train_enabled = True
     runner._frontres_segment_replay_boundary = SimpleNamespace(
         live_train_enabled=True,
@@ -839,6 +1028,12 @@ def test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(
         "NO_EMPIRICAL_DIRECTION",
         "NO_COMMON_FIRST_ORDER_DESCENT",
     }
+    assert logged["actual_update_projection_status"] == logged["constraint_projection_status"]
+    assert logged["constraint_kkt_max_violation"] <= 1.0e-8
+    assert logged["gradient_projection_kkt_max_violation"] <= 1.0e-8
+    assert logged["optimizer_candidate_actor_delta_l2"] >= 0.0
+    assert logged["committed_actor_delta_l2"] >= 0.0
+    assert isinstance(logged["actor_optimizer_state_restored"], bool)
     assert set(logged["constraint_levels"]) == {"contact", "zmp", "survival"}
     assert set(logged["constraint_gradient_norms"]) == {"contact", "zmp", "survival"}
     assert set(logged["constraint_directional_derivatives"]) <= {"contact", "zmp", "survival"}
@@ -909,6 +1104,9 @@ def test_t_q29_actor_route_before_normalizer(_candidate_contract, owners, _live_
 
 def main() -> None:
     candidate_contract, owners, live_sampler, live_update_loop = _load_owners()
+    test_t_no_direction_restores_actor_and_adam_state(candidate_contract, owners, live_sampler)
+    test_t_adam_candidate_is_postprojected(candidate_contract, owners, live_sampler)
+    test_t_critic_only_restores_historical_actor_adam_state(candidate_contract, owners, live_sampler)
     test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_partial_hsl_and_legacy_config_fail_before_step(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_ordinary_training_provider_uses_exact_one_owner(candidate_contract, owners, live_sampler, live_update_loop)

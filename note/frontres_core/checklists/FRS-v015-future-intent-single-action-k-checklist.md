@@ -1,6 +1,6 @@
 # FRS-v015 Physics-Constrained Intent Migration Checklist
 
-Status: active, volatile acceptance surface. Updated: 2026-07-28.
+Status: active, volatile acceptance surface. Updated: 2026-07-29.
 
 | Step | Owner / tier | Acceptance assertion | Status | Evidence / stop |
 | --- | --- | --- | --- | --- |
@@ -44,6 +44,9 @@ Status: active, volatile acceptance surface. Updated: 2026-07-28.
 | P5-B | S1 schedule/layout | parser resolves active K/M/phase and exact two-Segment x M rows for M=2/3/4; env width is exactly 4M and sampler state cannot change formal M | completed offline | E-FI-89; exact schedule/parser, M2/M3/M4 sampler and launcher/config contracts |
 | P5-B | S2 formal connectivity | sealed exact-M transaction reaches grouped equal-mass PPO-v004, final telemetry and exactly one committed update with no formula change | completed offline | E-FI-89; transaction/unmocked/local-sentinel contracts and 63/63 suite |
 | P5-B | S3 persistence | checkpoint-v6 binds full K x M schedule, max/review boundaries, stage/rows, optimizer/sampler/normalizers and receipt; checkpoint-v5 rejects pre-mutation | completed offline | E-FI-89; strict round-trip/tamper/v5 pre-mutation rejection and fresh reload |
+| P5-C | K8/M2 official block | strict v011 campaign reaches absolute iteration 2000 with exact M2, grouped exact-one updates and checkpoint-v6 | runtime-complete with actual-update defect | P5-C log; 240 actor-enabled no-direction rows changed Actor/std through historical Adam momentum |
+| P5-C | actual Actor-update authority | no-direction/critic-only restores Actor/std parameters and Adam state exactly; permitted post-Adam delta satisfies the active PPO-v004 halfspaces | completed offline | E-FI-90; red momentum regression, post-Adam KKT/restore tests, 63/63 aggregate suite |
+| P5-C | update-owner maintainability | existing PPO owner performs the one shared optimizer call and actual Actor/std commit; diagnostics owns the read-only postcondition validator; live probe/training remain orchestration/serialization only | completed offline | E-FI-91; focused owner/route/Atlas/checkpoint contracts plus 63/63 aggregate suite; no runtime claimed |
 | P5-C | first-live stage evidence | first K16/M3 and K32/M4 formal transactions prove active stage, required env width, actor freeze, same-Critic delta, KKT, exact-one and unchanged fingerprint inside the real block | ready; runtime authority required | no separate sentinel when existing telemetry is complete |
 | P5-C | checkpointed quality | boundaries 2000/3500/4825/6500/8000 receive committed save plus rolling Intent/repair/Contact/ZMP/survival/lean/step/action/value review and CONTINUE/PAUSE-REPAIR/STOP-DESIGN | ready; runtime authority required | systematic no-op/lean/unplanned support/Physics regression stops design; one bad transaction does not |
 

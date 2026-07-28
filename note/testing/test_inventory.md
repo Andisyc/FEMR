@@ -1,6 +1,6 @@
 # FEMR Current Test Inventory
 
-Updated: 2026-07-28
+Updated: 2026-07-29
 
 ## Main Entries
 
@@ -80,7 +80,7 @@ regression assets but cannot prove v015 semantics.
 | `frontres_v015_gain_consumer_contract.py` | S1 complete, `E-FI-11`/`E-FI-13` | Candidate-only post-t q29/I[t] -> v003 Gain -> one-row return/advantage plus actual K evidence-step count and immutable scenario-keyed priority evidence; invalid rows and v002/legacy fallback fail closed. |
 | `frontres_v015_evaluation_isolation_contract.py` | S1 complete, `E-FI-12` | Sealed v003 candidate carrier -> q29 intent/physics/cost/total local-K report; missing valid rows remain NaN rather than zero; legacy v002 evaluators reject v015 before capture; deployment-composition protocol has no return/priority/PPO feedback. |
 | `frontres_v015_grouped_candidate_adapter_contract.py` | S1/S2 current, `E-FI-85` | Sealed v006 carrier -> immutable local transaction metadata -> grouped candidate batch; explicit Repair/Noisy applicability covers all four combinations, paired ZMP is finite iff both apply, PPO consumes Repair only, and legacy/partial/mixed rows fail closed. |
-| `frontres_v015_transaction_route_contract.py` | S2 complete, `E-FI-85` current | CPU fake `2 Segment x 2 attempt` sealed transaction reaches v006 grouped PPO and exactly one optimizer update; it retains explicit role applicability through diagnostics while PPO remains Repair-only and rejects legacy/HSL/partial paths. |
+| `frontres_v015_transaction_route_contract.py` | S2 complete, `E-FI-90`/`E-FI-91` current | CPU fake sealed transaction reaches v006 grouped PPO and the algorithm-owned exact-one optimizer/actual-commit boundary; historical Adam momentum cannot move Actor/std under critic-only or no-direction statuses, permitted post-Adam deltas are reprojected through PPO-v004 KKT, the diagnostics-owned validator fails malformed telemetry closed, role applicability remains explicit, and legacy/HSL/partial paths reject. |
 | `frontres_v015_checkpoint_resume_contract.py` | S3 complete, `E-FI-15` | CPU fake checkpoint save/load preserves exact q29 H/prefix-normalizer/grouped identity, rejects old/mismatched/tampered layouts before mutation, and allows only idle or committed-receipt transaction state; a valid v015 Stage-3 envelope may retain completed-HSL history, but legacy HSL remains reject-only. |
 | `frontres_v015_deployment_composition_s1_contract.py` | S1 complete, `E-FI-28`, `E-FI-87` | Structured Clean-source/Noisy-carrier identity, canonical persistent-corruption hash, row-aligned action/Contact/phase-ZMP/survival/lean report, N/A/applicability fail-closed, no-feedback boundary, and legacy rejection. |
 | `frontres_v015_deployment_carrier_s2a_contract.py` | S1/S2 complete, `E-FI-29` | Sealed request -> immutable command q29/dq29 sequence -> current `[B,58]` plus dense H `[B,H+1,29]`; frame/cursor/order/identity/provenance/row alignment, no clamp/mixed reference, and actor/GMT/training isolation. |

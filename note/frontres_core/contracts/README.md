@@ -117,6 +117,22 @@ save/resume while rejecting checkpoint-v5 pre-mutation. The route is now
 offline contract-confirmed; simulator/training and first M3/M4 evidence still
 require separate material-runtime authorization.
 
+The first P5-C K8/M2 block reached strict checkpoint-v6 `model_2000.pt` and
+exposed an actual-update authority mismatch: 240 actor-enabled no-direction
+transactions installed zero Actor gradients but historical Adam momentum still
+changed Actor/std. E-FI-90 closes this mismatch without versioning a new
+optimization contract. PPO-v004 now governs the committed post-Adam parameter
+delta, restores Actor/std parameters and optimizer state for critic-only and
+no-direction statuses, and checks actual-update KKT. The correction is
+offline-confirmed; the first K16/M3 transaction remains the live boundary.
+
+E-FI-91 is a behavior-preserving implementation ownership closure, not a new
+contract version: `frontres_segment_ppo.py` owns the one shared optimizer call
+and actual Actor/std commit; `frontres_segment_diagnostics.py` owns the final
+read-only authority validator; runner files retain orchestration and
+serialization only. METHOD-v016, GAIN-v006, PPO-v004, TRAIN-v011,
+checkpoint-v6 and the 928/158/770 layout are unchanged.
+
 ## Reading Rule
 
 1. Read this registry first.

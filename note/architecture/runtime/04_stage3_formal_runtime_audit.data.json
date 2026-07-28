@@ -75,24 +75,24 @@
               "capture": "stage/task/mode/checkpoint",
               "whyHere": "命令刚完成 Stage 3 preset, 这里能确认本次运行身份而不受 runner 后续状态影响",
               "failureOwner": "失败归属: CLI 参数或 Stage 3 preset",
-              "sourceLine": 1791,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1791"
+          "sourceLine": 1794,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1794"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:2628 :: run_frontres_segment_live_training_loop() 产物边界",
               "capture": "live_train/alternate_modes",
               "whyHere": "formal guard 在这里首次排除 sentinel/eval/update_loop 等替代路径",
               "failureOwner": "失败归属: runner route guard 或 boundary config",
-              "sourceLine": 2666,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=2666"
+          "sourceLine": 2675,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=2675"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:2630 :: 正式 consumer 接收前",
               "capture": "iteration/update loop",
               "whyHere": "进入 live update loop 前是正式训练承诺点, 再晚只能看到训练结果",
               "failureOwner": "失败归属: train dispatch 到 live loop 的连接",
-              "sourceLine": 2674,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=2674"
+          "sourceLine": 2683,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=2683"
             }
           ],
           "probe": {
@@ -649,24 +649,24 @@
               "capture": "reset 前/随机化后/reset 后 episode_length_buf",
               "whyHere": "index reset 刚结束且 env.step 尚未发生, 可直接比较每个 role 的 episode 生命周期是否同源",
               "failureOwner": "失败归属: episode_length_buf randomization 或 index-reset lifecycle wiring",
-              "sourceLine": 2994,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2994"
+          "sourceLine": 4515,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=4515"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2858 :: _run_live_rollout_capture() 产物边界",
               "capture": "quartet origin-relative root/joint pair error",
               "whyHere": "policy/candidate/noisy/clean 的机器人 dynamic state 在此首次应构成可比较 quartet",
               "failureOwner": "失败归属: index reset robot-state write 或 quartet state synchronization",
-              "sourceLine": 2995,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2995"
+          "sourceLine": 4516,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=4516"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2859 :: 正式 consumer 接收前",
               "capture": "逐步 role done/timeout/termination/survival 与 active term masks",
               "whyHere": "env.step 返回时 done 与 time_out 同时可见, 能区分时限结束和物理 termination",
               "failureOwner": "失败归属: environment termination owner 或 rollout survival accounting",
-              "sourceLine": 2996,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2996"
+          "sourceLine": 4517,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=4517"
             }
           ],
           "probe": {
@@ -1224,24 +1224,24 @@
               "capture": "shared segment/K",
               "whyHere": "同一 quartet frame 的 Clean/Repaired/Noisy 行尚未聚合, 可验证配对身份",
               "failureOwner": "失败归属: role slicing 或 motion/frame alignment",
-              "sourceLine": 3379,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3379"
+          "sourceLine": 4924,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=4924"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:3267 :: _capture_motion_quality_frame() 产物边界",
               "capture": "Noisy/Repaired execution",
               "whyHere": "style 与 physics frame 完成后首次具备 canonical Gain 所需配对语义",
               "failureOwner": "失败归属: motion/physics capture owners",
-              "sourceLine": 3026,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3026"
+          "sourceLine": 4925,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=4925"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:3268 :: 正式 consumer 接收前",
               "capture": "paired style/physics evidence",
               "whyHere": "Gain 调用前检查可发现 transaction/batch signature 不一致或 evidence 被跨 motion、跨 K 或跨 role 混合",
               "failureOwner": "失败归属: paired capture 到 Gain connector",
-              "sourceLine": 3073,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3073"
+          "sourceLine": 4926,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=4926"
             }
           ],
           "probe": {
@@ -1642,24 +1642,24 @@
               "capture": "old stats/action/advantage",
               "whyHere": "old action/logprob/mean/sigma/advantage 同时可见, 可验证 rollout tuple 同源性",
               "failureOwner": "失败归属: storage/PPO batch source",
-              "sourceLine": 505,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=505"
+          "sourceLine": 739,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=739"
             },
             {
               "location": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py:356 :: compute_frontres_segment_ppo_loss() 产物边界",
               "capture": "loss/backward/optimizer step",
               "whyHere": "loss、ratio、KL 在同一次 forward 后首次具备 PPO 更新语义",
               "failureOwner": "失败归属: compute_frontres_segment_ppo_loss",
-              "sourceLine": 585,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=585"
+          "sourceLine": 819,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=819"
             },
             {
               "location": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py:390 :: 正式 consumer 接收前",
               "capture": "post-KL/trust decision",
               "whyHere": "optimizer/rollback 后检查可区分计算正确但提交状态错误",
               "failureOwner": "失败归属: optimizer step、post-KL 或 trust rollback",
-              "sourceLine": 668,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=668"
+          "sourceLine": 902,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=902"
             }
           ],
           "probe": {
@@ -1765,7 +1765,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "E-FI-89 offline-confirms strict checkpoint-v6 save/resume, exact K x M identity and checkpoint-v5 pre-mutation rejection; first material M3/M4 persistence remains pending"
+          "gap": "E-FI-89 offline-confirms strict checkpoint-v6/exact K x M persistence; E-FI-90 adds committed post-Adam Actor KKT and exact Actor/std optimizer-state restoration for critic-only/no-direction transactions; first material M3/M4 persistence remains pending"
         },
         {
           "id": "AUDIT-DIAG-01",
@@ -1807,24 +1807,24 @@
               "capture": "canonical live summary",
               "whyHere": "canonical live summary 尚未格式化, 可确认日志字段真实来源",
               "failureOwner": "失败归属: live summary aggregation",
-              "sourceLine": 515,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=515"
+          "sourceLine": 1047,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=1047"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py:83 :: repair_effect_summary_to_scalars() 产物边界",
               "capture": "single/aggregate transaction identity",
               "whyHere": "diagnostic scalars 形成后可检查缺失值是否仍为 UNCONFIRMED/NaN",
               "failureOwner": "失败归属: repair_effect_summary_to_scalars",
-              "sourceLine": 573,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=573"
+          "sourceLine": 1013,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=1013"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py:135 :: 正式 consumer 接收前",
               "capture": "diagnostic scalars",
               "whyHere": "terminal/logger 消费前检查可发现 aggregate 是否误报为 single transaction, 或正确 scalar 被旧字段覆盖",
               "failureOwner": "失败归属: diagnostics formatting 或 logger wiring",
-              "sourceLine": 581,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=581"
+          "sourceLine": 1065,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=1065"
             }
           ],
           "probe": {

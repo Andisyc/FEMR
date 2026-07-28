@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+import copy
 from dataclasses import dataclass
 import importlib.util
 import itertools
@@ -247,6 +249,20 @@ class FrontRESConstraintProjectionResult:
     constraint_gram: tuple[tuple[float, ...], ...]
     intent_directional_derivatives: dict[str, float]
     kkt_max_violation: float
+    # Internal optimizer-authority carrier. These vectors use the exact flat
+    # actor/std parameter order installed below and are never checkpointed or
+    # exposed to the actor.
+    constraint_gradient_vectors: dict[str, torch.Tensor]
+
+
+@dataclass(frozen=True)
+class FrontRESActualOptimizerCommitResult:
+    """Result of the single PPO-v004 optimizer call and Actor commit guard."""
+
+    projection: FrontRESConstraintProjectionResult
+    optimizer_candidate_actor_delta_l2: float
+    committed_actor_delta_l2: float
+    actor_optimizer_state_preserved: bool
 
 
 def project_frontres_grouped_constraint_direction(
@@ -291,6 +307,7 @@ def project_frontres_grouped_constraint_direction(
             intent_direction_norm=float(intent_direction.norm().item()), projected_direction_norm=0.0,
             dual_coefficients={family: 0.0 for family in active}, constraint_gram=gram_rows,
             intent_directional_derivatives=intent_dots, kkt_max_violation=0.0,
+            constraint_gradient_vectors={key: value.detach() for key, value in constraint_gradients.items()},
         )
     if not rows:
         return FrontRESConstraintProjectionResult(
@@ -299,6 +316,7 @@ def project_frontres_grouped_constraint_direction(
             intent_direction_norm=float(intent_direction.norm().item()),
             projected_direction_norm=float(intent_direction.norm().item()),
             dual_coefficients={}, constraint_gram=(), intent_directional_derivatives={}, kkt_max_violation=0.0,
+            constraint_gradient_vectors={key: value.detach() for key, value in constraint_gradients.items()},
         )
     matrix = torch.stack(rows, dim=0)
     gram = matrix @ matrix.T
@@ -349,6 +367,7 @@ def project_frontres_grouped_constraint_direction(
                 dual_coefficients={family: float(dual[index].item()) for index, family in enumerate(active)},
                 constraint_gram=gram_rows, intent_directional_derivatives=intent_dots,
                 kkt_max_violation=float(torch.relu(dots).max().item()),
+                constraint_gradient_vectors={key: value.detach() for key, value in constraint_gradients.items()},
             )
     normalized = matrix / matrix.norm(dim=1, keepdim=True).clamp_min(float(eps_grad))
     recovery_solution = project(-normalized.mean(dim=0))
@@ -381,6 +400,7 @@ def project_frontres_grouped_constraint_direction(
                         dual_coefficients={family: 0.0 for family in active}, constraint_gram=gram_rows,
                         intent_directional_derivatives=intent_dots,
                         kkt_max_violation=float(torch.relu(dots).max().item()),
+                        constraint_gradient_vectors={key: value.detach() for key, value in constraint_gradients.items()},
                     )
     return FrontRESConstraintProjectionResult(
         status="NO_COMMON_FIRST_ORDER_DESCENT", direction=zero, active_families=tuple(active),
@@ -388,6 +408,212 @@ def project_frontres_grouped_constraint_direction(
         intent_direction_norm=float(intent_direction.norm().item()), projected_direction_norm=0.0,
         dual_coefficients={family: 0.0 for family in active}, constraint_gram=gram_rows,
         intent_directional_derivatives=intent_dots, kkt_max_violation=0.0,
+        constraint_gradient_vectors={key: value.detach() for key, value in constraint_gradients.items()},
+    )
+
+
+def project_frontres_v004_actual_parameter_delta(
+    candidate_delta: torch.Tensor,
+    gradient_projection: FrontRESConstraintProjectionResult,
+    *,
+    actor_loss_weight: float,
+    eps_grad: float = 1.0e-10,
+    tolerance: float = 1.0e-8,
+) -> FrontRESConstraintProjectionResult:
+    """Commit one Adam candidate delta inside the already accepted Physics cone.
+
+    This is the post-optimizer authority boundary. It never changes the PPO
+    surrogate or constraint gradients; it only prevents Adam momentum and
+    coordinate-wise preconditioning from bypassing the v004 halfspaces.
+    """
+
+    if candidate_delta.ndim != 1 or not bool(torch.isfinite(candidate_delta).all()):
+        raise ValueError("FRS-PPO-v004 requires one finite flattened optimizer candidate delta")
+    if not 0.0 <= float(actor_loss_weight) <= 1.0:
+        raise ValueError("FRS-PPO-v004 actual update requires actor_loss_weight in [0,1]")
+    gradients = gradient_projection.constraint_gradient_vectors
+    zero = torch.zeros_like(candidate_delta)
+    candidate_norm = float(candidate_delta.norm().item())
+    frozen = float(actor_loss_weight) == 0.0 or gradient_projection.status in {
+        "NO_EMPIRICAL_DIRECTION",
+        "NO_COMMON_FIRST_ORDER_DESCENT",
+    }
+    if frozen:
+        return FrontRESConstraintProjectionResult(
+            status=gradient_projection.status,
+            direction=zero,
+            active_families=gradient_projection.active_families,
+            gradient_norms=gradient_projection.gradient_norms,
+            directional_derivatives={family: 0.0 for family in gradient_projection.active_families},
+            intent_direction_norm=float(candidate_delta.norm().item()),
+            projected_direction_norm=0.0,
+            dual_coefficients=gradient_projection.dual_coefficients,
+            constraint_gram=gradient_projection.constraint_gram,
+            intent_directional_derivatives={
+                family: float(torch.dot(gradients[family], candidate_delta).item())
+                for family in gradient_projection.active_families
+            },
+            kkt_max_violation=0.0,
+            constraint_gradient_vectors=gradients,
+        )
+    if gradient_projection.projected_direction_norm > float(eps_grad) and candidate_norm <= float(eps_grad):
+        raise RuntimeError("FRS-PPO-v004 optimizer erased a permitted nonzero Actor direction")
+    active = gradient_projection.active_families
+    if not active:
+        return FrontRESConstraintProjectionResult(
+            status=gradient_projection.status,
+            direction=candidate_delta.clone(),
+            active_families=(),
+            gradient_norms=gradient_projection.gradient_norms,
+            directional_derivatives={},
+            intent_direction_norm=float(candidate_delta.norm().item()),
+            projected_direction_norm=float(candidate_delta.norm().item()),
+            dual_coefficients={}, constraint_gram=(), intent_directional_derivatives={},
+            kkt_max_violation=0.0, constraint_gradient_vectors=gradients,
+        )
+    matrix = torch.stack(tuple(gradients[family] for family in active), dim=0)
+    if matrix.shape[1] != candidate_delta.numel() or not bool(torch.isfinite(matrix).all()):
+        raise ValueError("FRS-PPO-v004 actual update received misaligned constraint gradients")
+
+    best: torch.Tensor | None = None
+    best_distance = float("inf")
+    count = int(matrix.shape[0])
+    for size in range(count + 1):
+        for subset in itertools.combinations(range(count), size):
+            if not subset:
+                candidate = candidate_delta
+            else:
+                index = torch.tensor(subset, device=matrix.device, dtype=torch.long)
+                selected = matrix.index_select(0, index)
+                lambdas = torch.linalg.pinv(selected @ selected.T) @ (selected @ candidate_delta)
+                if bool((lambdas < -float(tolerance)).any()):
+                    continue
+                candidate = candidate_delta - selected.T @ lambdas.clamp_min(0.0)
+            if not bool(torch.isfinite(candidate).all()) or bool((matrix @ candidate > float(tolerance)).any()):
+                continue
+            distance = float((candidate - candidate_delta).square().sum().item())
+            if distance < best_distance:
+                best, best_distance = candidate.clone(), distance
+    if best is None:
+        raise RuntimeError("FRS-PPO-v004 could not project the actual optimizer delta")
+    dots = matrix @ best
+    if (
+        float(best.norm().item()) <= float(eps_grad)
+        or not bool((dots < -float(tolerance)).any())
+    ) and candidate_norm > float(eps_grad):
+        accepted = gradient_projection.direction
+        accepted_norm = float(accepted.norm().item())
+        if accepted_norm > float(eps_grad):
+            best = accepted * (candidate_norm / accepted_norm)
+            dots = matrix @ best
+    kkt = float(torch.relu(dots).max().item())
+    if kkt > float(tolerance):
+        raise RuntimeError(
+            "FRS-PPO-v004 actual optimizer delta violates a Physics halfspace: "
+            f"kkt={kkt:.9g} tolerance={float(tolerance):.9g}"
+        )
+    if not bool((dots < -float(tolerance)).any()):
+        raise RuntimeError("FRS-PPO-v004 actual optimizer delta has no strict Physics descent")
+    return FrontRESConstraintProjectionResult(
+        status=gradient_projection.status,
+        direction=best,
+        active_families=active,
+        gradient_norms=gradient_projection.gradient_norms,
+        directional_derivatives={family: float(dots[index].item()) for index, family in enumerate(active)},
+        intent_direction_norm=float(candidate_delta.norm().item()),
+        projected_direction_norm=float(best.norm().item()),
+        dual_coefficients=gradient_projection.dual_coefficients,
+        constraint_gram=gradient_projection.constraint_gram,
+        intent_directional_derivatives={
+            family: float(torch.dot(gradients[family], candidate_delta).item()) for family in active
+        },
+        kkt_max_violation=kkt,
+        constraint_gradient_vectors=gradients,
+    )
+
+
+def step_frontres_v004_optimizer_with_actor_authority(
+    optimizer: Any,
+    actor_parameters: tuple[torch.Tensor, ...],
+    parameter_snapshots: dict[int, torch.Tensor],
+    gradient_projection: FrontRESConstraintProjectionResult,
+    *,
+    actor_loss_weight: float,
+    eps_grad: float = 1.0e-10,
+    tolerance: float = 1.0e-8,
+) -> FrontRESActualOptimizerCommitResult:
+    """Run exactly one shared step, then govern the actual Actor/std increment.
+
+    Critic ownership remains with the caller's installed gradients. This owner
+    only prevents optimizer momentum/preconditioning from bypassing the
+    accepted PPO-v004 Actor direction.
+    """
+
+    if not actor_parameters:
+        raise RuntimeError("FRS-PPO-v004 actual update requires Actor/std parameters")
+    if any(id(parameter) not in parameter_snapshots for parameter in actor_parameters):
+        raise RuntimeError("FRS-PPO-v004 actual update requires pre-step Actor snapshots")
+    state = getattr(optimizer, "state", None)
+    step = getattr(optimizer, "step", None)
+    if not isinstance(state, Mapping) or not callable(step):
+        raise TypeError("FRS-PPO-v004 optimizer must expose parameter state and step()")
+
+    must_preserve = float(actor_loss_weight) == 0.0 or gradient_projection.status in {
+        "NO_EMPIRICAL_DIRECTION",
+        "NO_COMMON_FIRST_ORDER_DESCENT",
+    }
+    state_snapshots = (
+        {
+            id(parameter): (parameter in state, copy.deepcopy(state.get(parameter, {})))
+            for parameter in actor_parameters
+        }
+        if must_preserve
+        else None
+    )
+
+    step()
+    candidate_delta = torch.cat(
+        tuple(
+            (parameter.detach() - parameter_snapshots[id(parameter)]).reshape(-1)
+            for parameter in actor_parameters
+        ),
+        dim=0,
+    )
+    actual_projection = project_frontres_v004_actual_parameter_delta(
+        candidate_delta,
+        gradient_projection,
+        actor_loss_weight=actor_loss_weight,
+        eps_grad=eps_grad,
+        tolerance=tolerance,
+    )
+
+    if must_preserve:
+        if state_snapshots is None:
+            raise RuntimeError("FRS-PPO-v004 Actor optimizer-state snapshot is missing")
+        for parameter in actor_parameters:
+            parameter.data.copy_(parameter_snapshots[id(parameter)])
+            existed, before = state_snapshots[id(parameter)]
+            if existed:
+                state[parameter] = copy.deepcopy(before)
+            else:
+                state.pop(parameter, None)
+    else:
+        offset = 0
+        for parameter in actor_parameters:
+            count = parameter.numel()
+            parameter.data.copy_(
+                parameter_snapshots[id(parameter)]
+                + actual_projection.direction[offset : offset + count].reshape_as(parameter)
+            )
+            offset += count
+        if offset != int(actual_projection.direction.numel()):
+            raise RuntimeError("FRS-PPO-v004 actual Actor delta does not match parameter layout")
+
+    return FrontRESActualOptimizerCommitResult(
+        projection=actual_projection,
+        optimizer_candidate_actor_delta_l2=float(candidate_delta.norm().detach().cpu().item()),
+        committed_actor_delta_l2=float(actual_projection.direction.norm().detach().cpu().item()),
+        actor_optimizer_state_preserved=must_preserve,
     )
 
 
@@ -434,10 +660,18 @@ def install_frontres_v004_projected_gradients(
         tolerance=cfg.projection_tolerance,
     )
     actor_direction = float(cfg.actor_loss_weight) * projection.direction
+    actor_frozen = float(cfg.actor_loss_weight) == 0.0 or projection.status in {
+        "NO_EMPIRICAL_DIRECTION",
+        "NO_COMMON_FIRST_ORDER_DESCENT",
+    }
     offset = 0
     for parameter in actor_parameters:
         count = parameter.numel()
-        parameter.grad = (-actor_direction[offset : offset + count].reshape_as(parameter)).detach().clone()
+        parameter.grad = (
+            None
+            if actor_frozen
+            else (-actor_direction[offset : offset + count].reshape_as(parameter)).detach().clone()
+        )
         offset += count
     critic_loss = float(cfg.value_loss_coef) * result.value_loss
     critic_gradients = gradients(critic_loss, critic_parameters, retain_graph=False)

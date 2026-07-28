@@ -22,6 +22,7 @@ from rsl_rl.algorithms.frontres_segment_ppo import (
     FrontRESSegmentPPOConfig,
     compute_frontres_segment_ppo_loss,
     install_frontres_v004_projected_gradients,
+    step_frontres_v004_optimizer_with_actor_authority,
 )
 from rsl_rl.frontres.frontres_segment_storage import (
     FrontRESV015RejectedTransactionEvidence,
@@ -3929,6 +3930,10 @@ def run_frontres_v015_formal_transaction_update(
     except TypeError:
         zero_grad()
     optimizer_params, parameter_snapshots = _optimizer_parameter_snapshots(policy, optimizer)
+    critic = getattr(policy, "critic", None)
+    critic_ids = {id(parameter) for parameter in critic.parameters()} if critic is not None else set()
+    critic_params = tuple((name, parameter) for name, parameter in optimizer_params if id(parameter) in critic_ids)
+    noncritic_params = tuple((name, parameter) for name, parameter in optimizer_params if id(parameter) not in critic_ids)
     parameters = [
         parameter
         for group in getattr(optimizer, "param_groups", ())
@@ -3969,12 +3974,18 @@ def run_frontres_v015_formal_transaction_update(
             f"telemetry={int(diagnostic_valid.sum().item())} ppo={int(ppo_result.valid_count)}"
         )
     valid_returns = ppo_batch.returns.detach().float()[diagnostic_valid]
-    step()
+    actual_commit = step_frontres_v004_optimizer_with_actor_authority(
+        optimizer,
+        tuple(parameter for _, parameter in noncritic_params),
+        parameter_snapshots,
+        projection,
+        actor_loss_weight=warmup_phase.actor_loss_weight,
+        eps_grad=ppo_cfg.constraint_grad_epsilon,
+        tolerance=ppo_cfg.projection_tolerance,
+    )
+    actual_projection = actual_commit.projection
+    actor_state_restored = actual_commit.actor_optimizer_state_preserved
     parameter_delta = _parameter_delta_stats(optimizer_params, parameter_snapshots)
-    critic = getattr(policy, "critic", None)
-    critic_ids = {id(parameter) for parameter in critic.parameters()} if critic is not None else set()
-    critic_params = tuple((name, parameter) for name, parameter in optimizer_params if id(parameter) in critic_ids)
-    noncritic_params = tuple((name, parameter) for name, parameter in optimizer_params if id(parameter) not in critic_ids)
     critic_delta = _parameter_delta_stats(critic_params, parameter_snapshots)
     noncritic_delta = _parameter_delta_stats(noncritic_params, parameter_snapshots)
     if warmup_phase.name == "critic_only" and noncritic_delta["param_delta_max_abs"] != 0.0:
@@ -4048,14 +4059,20 @@ def run_frontres_v015_formal_transaction_update(
         "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
         "projection_schema_id": "grouped-first-order-constraint-projection-v1",
         "constraint_projection_status": projection.status,
+        "actual_update_projection_status": actual_projection.status,
         "constraint_active_families": projection.active_families,
         "constraint_gradient_norms": projection.gradient_norms,
-        "constraint_directional_derivatives": projection.directional_derivatives,
+        "constraint_directional_derivatives": actual_projection.directional_derivatives,
+        "gradient_projection_directional_derivatives": projection.directional_derivatives,
         "constraint_levels": dict(ppo_result.constraint_levels or {}),
         "constraint_dual_coefficients": projection.dual_coefficients,
         "constraint_gram": projection.constraint_gram,
         "constraint_intent_directional_derivatives": projection.intent_directional_derivatives,
-        "constraint_kkt_max_violation": projection.kkt_max_violation,
+        "constraint_kkt_max_violation": actual_projection.kkt_max_violation,
+        "gradient_projection_kkt_max_violation": projection.kkt_max_violation,
+        "optimizer_candidate_actor_delta_l2": actual_commit.optimizer_candidate_actor_delta_l2,
+        "committed_actor_delta_l2": actual_commit.committed_actor_delta_l2,
+        "actor_optimizer_state_restored": bool(actor_state_restored),
         "contact_constraint": tuple(float(value) for value in ppo_batch.contact_constraint.detach().cpu().tolist()),
         "zmp_constraint": tuple(float(value) for value in ppo_batch.zmp_constraint.detach().cpu().tolist()),
         "survival_constraint": tuple(float(value) for value in ppo_batch.survival_constraint.detach().cpu().tolist()),

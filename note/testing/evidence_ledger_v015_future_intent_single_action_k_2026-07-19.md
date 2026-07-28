@@ -6006,3 +6006,129 @@ Fresh evidence:
 Verdict: P5-B is offline-complete. P5-C is now blocked only by explicit
 material runtime authority. First real K16/M3 and K32/M4 transactions,
 checkpoint-boundary quality and long-run policy efficacy remain unconfirmed.
+
+## E-FI-90: Actual Actor-Update Authority Closure
+
+Date: 2026-07-29
+
+Tier: runtime-rooted defect audit plus deterministic S1/S2/S3 closure. No new
+simulator, training, live run or checkpoint IO occurred.
+
+First-invalid runtime fact:
+
+- `v015_p5c_v011_k8m2_to_2000_gpu3.log` completed the strict K8/M2 block at
+  absolute iteration 2000, but 240 actor-enabled transactions reported
+  `NO_EMPIRICAL_DIRECTION` or `NO_COMMON_FIRST_ORDER_DESCENT` while Actor/std
+  parameters still changed;
+- those rows had no installed Actor gradient. Historical Adam momentum and
+  coordinate-wise state therefore remained an ungoverned update authority:
+  zeroing the current gradient was insufficient to enforce the PPO-v004
+  no-direction contract;
+- this is an implementation mismatch, not a change to METHOD-v016, GAIN-v006,
+  PPO-v004 mathematics, TRAIN-v011, exact-M, exact-one or checkpoint-v6.
+
+Implemented closure:
+
+- the existing PPO-v004 owner now carries the exact active constraint-gradient
+  vectors to a post-optimizer authority check;
+- the existing formal transaction owner still performs exactly one optimizer
+  call, then measures Adam's actual Actor/std candidate increment;
+- critic-only, `NO_EMPIRICAL_DIRECTION` and
+  `NO_COMMON_FIRST_ORDER_DESCENT` restore Actor/std parameters and their Adam
+  state bit-exactly while retaining the legal Critic update;
+- permitted Actor increments are projected into the same active Physics
+  halfspaces before commit, and KKT/postconditions are computed from the
+  committed parameter delta rather than only the installed gradient;
+- formal telemetry now distinguishes gradient-projection KKT from
+  actual-update KKT and records optimizer-candidate norm, committed norm and
+  optimizer-state restoration.
+
+Deterministic evidence:
+
+- the new historical-momentum regression failed before the repair because
+  Actor/std changed under `NO_EMPIRICAL_DIRECTION`, then passed after the
+  repair with exact parameter and Adam-state equality plus nonzero Critic
+  delta;
+- a critic-only K8 recalibration fixture with pre-existing Actor Adam momentum
+  also preserves Actor/std parameters and optimizer state exactly;
+- a valid actor-enabled fixture proves nonzero Adam candidate, nonzero
+  committed Actor delta, actual-update directional derivatives within
+  tolerance, finite Critic delta and exactly one optimizer call;
+- grouped PPO, strict checkpoint-v6 resume, formal-runtime Architecture and
+  policy-quality Architecture focused contracts pass;
+- `frontres_segment_all_contract_suite.py` reports
+  `contract_count=63 failed_count=0 total_marker_count=63`; modified Python
+  owners compile and `git diff --check` passes.
+
+Runtime boundary and lineage limitation:
+
+- the new actual-update telemetry and restoration behavior remain offline-
+  confirmed until the next official transaction;
+- the existing strict checkpoint-v6 `model_2000.pt` remains the authorized
+  TRAIN-v011 parent for K16/M3, but its K8 lineage contains the 240 pre-fix
+  momentum-bypass Actor deltas. The repair is not retroactive and this fact
+  must remain attached to later policy-quality claims;
+- the next material action is the declared K16/M3 critic-only recalibration.
+  Its first transaction must show M3/12-env identity, Actor/std and Actor Adam
+  state freeze, same-Critic update, actual-update KKT, exact-one update and
+  unchanged checkpoint-v6 curriculum fingerprint.
+
+## E-FI-91: Formal Update Maintainability Closure
+
+Date: 2026-07-29
+
+Tier: behavior-preserving ownership refactor plus deterministic S1/S2/S3
+regression. No simulator, training, live run or checkpoint IO occurred.
+
+Problem and boundary:
+
+- E-FI-90 closed the actual Actor-update defect, but its exact-one optimizer
+  call, Adam-state restoration, actual-delta commit and postcondition checks
+  were split across the already-large formal runner files;
+- this did not invalidate the method, but it increased integration debt and
+  made future optimizer-authority repairs unnecessarily dependent on the live
+  orchestration layer;
+- METHOD-v016, GAIN-v006, PPO-v004 mathematics, TRAIN-v011, HSL,
+  checkpoint-v6, 928/158/770 observation authority and all public telemetry
+  identities were frozen for this closure.
+
+Implemented ownership closure:
+
+- the existing `frontres_segment_ppo.py` algorithm owner now performs the one
+  shared optimizer call, measures Adam's candidate Actor/std delta, applies the
+  actual parameter-space projection/restoration authority and returns an
+  immutable commit result;
+- `frontres_segment_live_probe.py` retains sealed-transaction orchestration,
+  snapshots, Critic/non-Critic delta accounting and detached telemetry only;
+- the final actual-update telemetry validator is centralized in the existing
+  `frontres_segment_diagnostics.py` owner, and
+  `frontres_segment_live_training.py` delegates to it before serialization;
+- no new module, runner, optimizer step, checkpoint field, method formula or
+  training-state feedback path was introduced.
+
+Evidence:
+
+- Python compilation passes for the PPO, diagnostics, live-probe and
+  live-training owners;
+- `frontres_segment_diagnostics_contract.py`,
+  `frontres_v015_transaction_route_contract.py`,
+  `frontres_segment_grouped_ppo_contract.py`,
+  `frontres_v015_checkpoint_resume_contract.py`,
+  `frontres_formal_runtime_audit_contract.py` and
+  `frontres_policy_quality_atlas_contract.py` pass;
+- both runtime Architecture files point to current source boundaries after the
+  ownership move;
+- `frontres_segment_all_contract_suite.py` reports
+  `contract_count=63 failed_count=0 total_marker_count=63`.
+
+Verdict and remaining boundary:
+
+- the repository does not require a broad rewrite before continuing. The
+  highest-risk optimizer-authority responsibility is now isolated in its
+  algorithm owner and diagnostics no longer duplicates its serializer checks;
+- the two live runner files remain large orchestration modules and may receive
+  further behavior-preserving extraction when a concrete owner boundary is
+  touched, but that is not a prerequisite for K16/M3;
+- runtime behavior of the refactored owner remains unconfirmed until the next
+  already-planned official K16/M3 transaction. No extra standalone live probe
+  is authorized or required.

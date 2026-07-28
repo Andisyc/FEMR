@@ -560,8 +560,12 @@ suite also reports `failed_count=0`.
 
 #### P5-C Progressive Official Training Blocks
 
-Status: engineering-ready; blocked only on user-controlled material runtime
-authority.
+Status: K8/M2 official block reached absolute iteration 2000. E-FI-90 closes
+the actual Actor-update authority defect offline. E-FI-91 then moves the
+exact-one optimizer/actual-commit authority into the existing PPO owner and
+the read-only postcondition validator into diagnostics, without changing any
+method or persistence identity. K16/M3 remains blocked on code synchronization
+and user-controlled material runtime authority.
 
 Each declared absolute boundary is one execution unit: official training,
 committed save, existing telemetry review and policy-only deployment review
@@ -570,6 +574,26 @@ first real K16/M3 and K32/M4 transactions provide the formal first-occurrence
 runtime evidence; no separate sentinel is added when existing telemetry is
 complete. No schedule change or new checkpoint identity is permitted between
 blocks.
+
+The K8/M2 log exposed one implementation mismatch: in 240 actor-enabled
+transactions with `NO_EMPIRICAL_DIRECTION` or
+`NO_COMMON_FIRST_ORDER_DESCENT`, installed zero Actor gradients did not prevent
+Adam momentum from changing Actor/std parameters. E-FI-90 makes the committed
+post-Adam parameter increment the final PPO-v004 authority, restores
+Actor/std parameters and Adam state for no-direction/critic-only transactions,
+and checks actual-update KKT for permitted directions. This does not change the
+Critic, schedule, exact-one call count, checkpoint-v6 schema or PPO objective.
+
+E-FI-91 is a behavior-preserving ownership closure: the algorithm module owns
+the one shared optimizer call and actual Actor/std commit, the live probe only
+orchestrates the sealed transaction, and diagnostics owns the final read-only
+telemetry validator used by the live serializer. No new runner/module, schema,
+formula, checkpoint version, simulator run or training run is introduced.
+
+The existing `model_2000.pt` remains the authorized parent for the first
+K16/M3 recalibration, but its K8 lineage contains those pre-fix momentum
+deltas. This limitation must remain attached to later quality claims; the
+offline repair itself is not retroactive runtime evidence.
 
 ## Why The P5 Follow-On Is Separate
 
@@ -592,4 +616,4 @@ for the new route are deliberately merged into P5-B.
 
 ## Cursor
 
-Current cursor: `P5-B E-FI-89 offline engineering closure complete; P5-C is the next user-controlled official campaign boundary. P4 policy-only deployment quality remains independently open`.
+Current cursor: `P5-C K8/M2 model_2000 runtime complete; E-FI-90 actual-update authority and E-FI-91 ownership refactor are offline-complete; next is user-controlled K16/M3 critic recalibration from model_2000 after synchronization. P4 policy-only deployment quality remains independently open`.

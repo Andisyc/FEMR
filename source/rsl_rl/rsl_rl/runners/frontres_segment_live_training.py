@@ -42,6 +42,9 @@ format_segment_periodic_eval_log = _DIAGNOSTICS_MODULE.format_segment_periodic_e
 format_segment_train_effect_log = _DIAGNOSTICS_MODULE.format_segment_train_effect_log
 action_distribution_health_summary = _DIAGNOSTICS_MODULE.action_distribution_health_summary
 motion_quality_summary_to_scalars = _DIAGNOSTICS_MODULE.motion_quality_summary_to_scalars
+validate_frontres_v004_actual_update_telemetry = (
+    _DIAGNOSTICS_MODULE.validate_frontres_v004_actual_update_telemetry
+)
 
 try:
     from rsl_rl.runners.frontres_segment_live_probe import (
@@ -1883,16 +1886,28 @@ def _v015_formal_update_summary(result: Any) -> dict[str, Any]:
         "constraint_schema_id": str(diagnostics.get("constraint_schema_id", "")),
         "projection_schema_id": str(diagnostics.get("projection_schema_id", "")),
         "constraint_projection_status": str(diagnostics.get("constraint_projection_status", "")),
+        "actual_update_projection_status": str(diagnostics.get("actual_update_projection_status", "")),
         "constraint_active_families": tuple(diagnostics.get("constraint_active_families", ())),
         "constraint_levels": dict(diagnostics.get("constraint_levels", {})),
         "constraint_gradient_norms": dict(diagnostics.get("constraint_gradient_norms", {})),
         "constraint_directional_derivatives": dict(diagnostics.get("constraint_directional_derivatives", {})),
+        "gradient_projection_directional_derivatives": dict(
+            diagnostics.get("gradient_projection_directional_derivatives", {})
+        ),
         "constraint_dual_coefficients": dict(diagnostics.get("constraint_dual_coefficients", {})),
         "constraint_gram": tuple(diagnostics.get("constraint_gram", ())),
         "constraint_intent_directional_derivatives": dict(
             diagnostics.get("constraint_intent_directional_derivatives", {})
         ),
         "constraint_kkt_max_violation": float(diagnostics.get("constraint_kkt_max_violation", float("nan"))),
+        "gradient_projection_kkt_max_violation": float(
+            diagnostics.get("gradient_projection_kkt_max_violation", float("nan"))
+        ),
+        "optimizer_candidate_actor_delta_l2": float(
+            diagnostics.get("optimizer_candidate_actor_delta_l2", float("nan"))
+        ),
+        "committed_actor_delta_l2": float(diagnostics.get("committed_actor_delta_l2", float("nan"))),
+        "actor_optimizer_state_restored": bool(diagnostics.get("actor_optimizer_state_restored", False)),
         "contact_constraint_advantage": tuple(diagnostics.get("contact_constraint_advantage", ())),
         "zmp_constraint_advantage": tuple(diagnostics.get("zmp_constraint_advantage", ())),
         "survival_constraint_advantage": tuple(diagnostics.get("survival_constraint_advantage", ())),
@@ -1977,23 +1992,18 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
     projection_schema_id = required_identity(
         "projection_schema_id", "grouped-first-order-constraint-projection-v1"
     )
-    projection_status = str(diagnostics.get("constraint_projection_status", ""))
-    allowed_projection_status = {
-        "INTENT_FEASIBLE",
-        "PROJECTED_INTENT",
-        "CONSTRAINT_RECOVERY",
-        "NO_EMPIRICAL_DIRECTION",
-        "NO_COMMON_FIRST_ORDER_DESCENT",
-    }
-    if projection_status not in allowed_projection_status:
-        raise RuntimeError(f"v015 formal result has invalid constraint projection status: {projection_status!r}")
-    active_families = tuple(str(value) for value in diagnostics.get("constraint_active_families", ()))
-    if len(set(active_families)) != len(active_families) or not set(active_families) <= constraint_families:
-        raise RuntimeError(f"v015 formal result has invalid active constraint families: {active_families}")
+    optimizer_authority = validate_frontres_v004_actual_update_telemetry(
+        diagnostics,
+        tolerance=_V015_PROJECTION_TOLERANCE,
+    )
+    projection_status = optimizer_authority.projection_status
+    actual_update_projection_status = optimizer_authority.actual_projection_status
+    active_families = optimizer_authority.active_families
     constraint_levels = required_constraint_mapping("constraint_levels", exact_families=True)
     constraint_gradient_norms = required_constraint_mapping("constraint_gradient_norms", exact_families=True)
-    constraint_directional_derivatives = required_constraint_mapping(
-        "constraint_directional_derivatives", exact_families=False
+    constraint_directional_derivatives = optimizer_authority.directional_derivatives
+    gradient_projection_directional_derivatives = required_constraint_mapping(
+        "gradient_projection_directional_derivatives", exact_families=False
     )
     constraint_intent_directional_derivatives = required_constraint_mapping(
         "constraint_intent_directional_derivatives", exact_families=False
@@ -2009,18 +2019,11 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         math.isfinite(value) for row in constraint_gram for value in row
     ):
         raise RuntimeError("v015 formal result has invalid constraint_gram telemetry")
-    constraint_kkt_max_violation = required_finite("constraint_kkt_max_violation")
-    if not 0.0 <= constraint_kkt_max_violation <= _V015_PROJECTION_TOLERANCE:
-        raise RuntimeError(
-            "v015 formal result exceeds the checkpoint-v6 constraint projection tolerance: "
-            f"kkt={constraint_kkt_max_violation:.9g} tolerance={_V015_PROJECTION_TOLERANCE:.9g}"
-        )
-    observed_kkt = max((max(0.0, value) for value in constraint_directional_derivatives.values()), default=0.0)
-    if abs(observed_kkt - constraint_kkt_max_violation) > _V015_PROJECTION_TOLERANCE:
-        raise RuntimeError(
-            "v015 formal result has inconsistent constraint KKT telemetry: "
-            f"reported={constraint_kkt_max_violation:.9g} observed={observed_kkt:.9g}"
-        )
+    constraint_kkt_max_violation = optimizer_authority.kkt_max_violation
+    gradient_projection_kkt_max_violation = optimizer_authority.gradient_kkt_max_violation
+    optimizer_candidate_actor_delta_l2 = optimizer_authority.optimizer_candidate_actor_delta_l2
+    committed_actor_delta_l2 = optimizer_authority.committed_actor_delta_l2
+    actor_optimizer_state_restored = optimizer_authority.actor_optimizer_state_preserved
 
     transaction_id = str(getattr(result, "transaction_id", ""))
     fields: dict[str, list[Any]] = {
@@ -2334,14 +2337,20 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         "constraint_schema_id": constraint_schema_id,
         "projection_schema_id": projection_schema_id,
         "constraint_projection_status": projection_status,
+        "actual_update_projection_status": actual_update_projection_status,
         "constraint_active_families": active_families,
         "constraint_levels": constraint_levels,
         "constraint_gradient_norms": constraint_gradient_norms,
         "constraint_directional_derivatives": constraint_directional_derivatives,
+        "gradient_projection_directional_derivatives": gradient_projection_directional_derivatives,
         "constraint_dual_coefficients": constraint_dual_coefficients,
         "constraint_gram": constraint_gram,
         "constraint_intent_directional_derivatives": constraint_intent_directional_derivatives,
         "constraint_kkt_max_violation": constraint_kkt_max_violation,
+        "gradient_projection_kkt_max_violation": gradient_projection_kkt_max_violation,
+        "optimizer_candidate_actor_delta_l2": optimizer_candidate_actor_delta_l2,
+        "committed_actor_delta_l2": committed_actor_delta_l2,
+        "actor_optimizer_state_restored": actor_optimizer_state_restored,
         "training_iteration": int(diagnostics.get("training_iteration", -1)),
         "curriculum_fingerprint": str(diagnostics.get("curriculum_fingerprint", "")),
         "k_stage_index": int(diagnostics.get("k_stage_index", -1)),

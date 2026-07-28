@@ -53,6 +53,8 @@ def _install_live_probe_import_stubs():
 
     ppo_module.compute_frontres_segment_ppo_loss = _unused_ppo_loss
     ppo_module.install_frontres_v004_projected_gradients = lambda *_args, **_kwargs: None
+    ppo_module.project_frontres_v004_actual_parameter_delta = lambda *_args, **_kwargs: None
+    ppo_module.step_frontres_v004_optimizer_with_actor_authority = lambda *_args, **_kwargs: None
     sys.modules[ppo_module.__name__] = ppo_module
     algorithms_pkg.frontres_segment_ppo = ppo_module
 

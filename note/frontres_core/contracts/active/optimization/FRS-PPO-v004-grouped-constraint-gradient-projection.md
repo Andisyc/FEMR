@@ -2,7 +2,7 @@
 contract_id: FRS-PPO-v004
 status: active
 effective_date: 2026-07-23
-updated_date: 2026-07-28
+updated_date: 2026-07-29
 supersedes: FRS-PPO-v003
 scope: equal-mass grouped PPO with one scalar Intent advantage, three independent Physics constraint gradients, joint first-order projection/recovery, and one optimizer step per sealed transaction
 ---
@@ -135,6 +135,36 @@ permitted/recovery direction consistently. Critic and projected actor gradients
 are installed into their disjoint parameter sets, followed by exactly one call
 to the existing optimizer step after the complete transaction seals.
 
+The projected gradient is not the final Actor authority when the shared
+optimizer has momentum or coordinate-wise preconditioning. Let
+`delta_adam` be the Actor/std parameter increment produced by that single
+optimizer call. Before commit, the same active halfspaces must be imposed on
+the actual increment:
+
+```text
+delta_actor = projection(delta_adam,
+                         {delta | g_j^T delta <= 0 for every j in A})
+```
+
+The committed parameter delta, not only the pre-optimizer gradient, must pass
+the KKT/postcondition checks. For critic-only,
+`NO_EMPIRICAL_DIRECTION`, or `NO_COMMON_FIRST_ORDER_DESCENT`, both Actor/std
+parameters and their optimizer state are restored exactly after the one shared
+optimizer call; Critic state remains eligible to advance. This restoration is
+part of the same exact-one transaction and cannot create a second optimizer
+step.
+
+## Implementation Ownership
+
+The existing algorithm owner `frontres_segment_ppo.py` performs the one shared
+optimizer call, measures Adam's candidate Actor/std delta, applies the actual
+parameter-space authority above, and commits or restores Actor/std state. The
+formal live probe only supplies the sealed batch/snapshots and records the
+detached result. `frontres_segment_diagnostics.py` validates those detached
+postconditions before serialization; diagnostics may never feed back into the
+optimizer. This ownership split is behavior-preserving and does not create a
+new optimizer, runner, checkpoint field or projection formula.
+
 ## Replay Priority Boundary
 
 Replay may use explicit named constraint/frontier diagnostics for selection or
@@ -151,7 +181,10 @@ Every update reports:
   norms;
 - pairwise constraint-gradient Gram matrix and objective-gradient dot products;
 - active/N/A/no-direction families, solver/KKT status, dual coefficients,
-  projected/recovery norm, and each `g_j^T p_actor`;
+  projected/recovery norm, pre-optimizer and actual-update KKT, and each
+  `g_j^T delta_actor`;
+- optimizer-candidate and committed Actor-delta norms plus exact Actor
+  optimizer-state restoration status;
 - actor/std/Critic parameter deltas, grouped mass, exact-one update count;
 - `optimization_contract_id=FRS-PPO-v004` and projection schema fingerprint.
 
@@ -178,5 +211,7 @@ bind the unchanged solver schema in checkpoint-v6. K/M scheduling does not
 alter this projection formula.
 
 Stop if the QP result depends on constraint order, an infeasible case updates
-actor/std, a constraint reaches the Critic, multiple optimizer steps occur, or
-the implementation requires a learned dual/cost network.
+actor/std parameters or optimizer state, an Adam-preconditioned committed
+increment violates an active halfspace, a constraint reaches the Critic,
+multiple optimizer steps occur, or the implementation requires a learned
+dual/cost network.

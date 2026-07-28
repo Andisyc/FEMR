@@ -61,6 +61,12 @@ def _load_owners():
     ppo_module.install_frontres_v004_projected_gradients = lambda *_args, **_kwargs: (_ for _ in ()).throw(
         AssertionError("Step 2B must not install PPO gradients")
     )
+    ppo_module.project_frontres_v004_actual_parameter_delta = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("Step 2B must not commit PPO parameter deltas")
+    )
+    ppo_module.step_frontres_v004_optimizer_with_actor_authority = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("Step 2B must not enter optimizer authority")
+    )
     sys.modules[ppo_module.__name__] = ppo_module
     algorithms_pkg.frontres_segment_ppo = ppo_module
 

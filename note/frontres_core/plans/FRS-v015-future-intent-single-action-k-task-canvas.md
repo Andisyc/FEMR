@@ -1,6 +1,6 @@
 # FRS-v015 Physics-Constrained Intent Task Canvas
 
-Status: active volatile control surface. Updated: 2026-07-28.
+Status: active volatile control surface. Updated: 2026-07-29.
 
 ## Objective
 
@@ -20,7 +20,7 @@ checkpointed curriculum.
 
 ## Current Cursor
 
-`P5-B E-FI-89 exact-M/checkpoint-v6 offline engineering closure complete; P5-C awaits user-controlled material runtime authority`
+`P5-C K8/M2 reached model_2000; E-FI-90 actual Actor-update authority and E-FI-91 ownership refactor are offline-complete; K16/M3 critic recalibration awaits synchronization and user runtime authority`
 
 ## Confirmed
 
@@ -67,7 +67,10 @@ P0 document/owner rebase [complete]
 -> P4 single deployment quality run [ready]
 -> P5-A coordinated K x M contract activation [complete at E-FI-88]
 -> P5-B one-shot exact-M/checkpoint-v6 engineering closure [complete at E-FI-89]
--> P5-C checkpointed official campaign [ready; runtime authority required]
+-> P5-C K8/M2 official block to model_2000 [runtime-complete]
+-> P5-C actual Actor-update authority [offline-complete at E-FI-90]
+-> P5-C optimizer/diagnostics ownership closure [offline-complete at E-FI-91]
+-> P5-C K16/M3 critic recalibration [next; runtime authority required]
 ```
 
 ## Active Blockers
@@ -91,6 +94,15 @@ P0 document/owner rebase [complete]
 - E-FI-89 installs the exact-M formal owner, isolates sampler trial state,
   enforces role width `4*M`, serializes active-M/count telemetry and persists
   strict checkpoint-v6; no material runtime evidence exists yet for M3/M4.
+- the K8/M2 P5-C log exposed 240 actor-enabled no-direction transactions where
+  Adam momentum bypassed zero installed Actor gradients. E-FI-90 restores
+  Actor/std parameters and Adam state exactly for these statuses and applies
+  PPO-v004 KKT to the actual post-Adam committed delta; 63/63 deterministic
+  contracts pass. The fix has not yet run in the simulator.
+- E-FI-91 removes the duplicated optimizer-state/commit and telemetry-validation
+  logic from the runner layer: the existing PPO owner now owns the exact-one
+  call and Actor/std commit, while diagnostics owns the read-only validator.
+  This is offline-confirmed and deliberately does not widen runtime scope.
 
 ## Non-Scope
 
@@ -100,8 +112,9 @@ Critics/optimizers, Noisy physical prefix, or scalar reward-weight tuning.
 
 ## Next Action
 
-P5-C is the next boundary: start a fresh strict HSL-v1 v011 campaign and use
-the existing checkpoint boundaries and telemetry to review the first real
-K16/M3 and K32/M4 transactions. This requires separate user authorization
-because it starts simulator/training. P4 policy-only deployment remains an
-independent open quality readout.
+After synchronizing E-FI-90, resume strict checkpoint-v6 `model_2000.pt` into
+the declared K16/M3 critic-only recalibration. The first real M3 transaction
+must show Actor/std and Actor Adam-state freeze, actual-update KKT, exact-one
+update and unchanged curriculum fingerprint. This requires separate user
+authorization because it starts simulator/training. P4 policy-only deployment
+remains an independent open quality readout.
