@@ -1144,11 +1144,26 @@ def build_frontres_v015_gain_return_evidence(
         if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.numel()) != count:
             raise ValueError(f"v016 return evidence requires FRS-GAIN-v006 {name} [B]")
         value = value.detach().to(device=facts.policy_values.device, dtype=torch.float32).clone()
-        physics_components[name] = torch.where(valid, value, nan)
+        component_valid = valid
+        if name == "physics_zmp_gain":
+            component_valid = (
+                valid
+                & zmp_applicability["zmp_applicable_repaired"]
+                & zmp_applicability["zmp_applicable_noisy"]
+            )
+        physics_components[name] = torch.where(component_valid, value, nan)
 
     def masked_fact(value: torch.Tensor) -> torch.Tensor:
         return torch.where(
             valid,
+            value.detach().to(device=facts.policy_values.device, dtype=torch.float32),
+            nan,
+        ).clone()
+
+    def masked_zmp_fact(value: torch.Tensor, applicability_name: str) -> torch.Tensor:
+        applicable = zmp_applicability[applicability_name]
+        return torch.where(
+            valid & applicable,
             value.detach().to(device=facts.policy_values.device, dtype=torch.float32),
             nan,
         ).clone()
@@ -1178,8 +1193,8 @@ def build_frontres_v015_gain_return_evidence(
         noisy_success=masked_fact(facts.noisy_success),
         repaired_survival=masked_fact(facts.repaired_survival),
         noisy_survival=masked_fact(facts.noisy_survival),
-        repaired_zmp_margin=masked_fact(facts.repaired_zmp_margin),
-        noisy_zmp_margin=masked_fact(facts.noisy_zmp_margin),
+        repaired_zmp_margin=masked_zmp_fact(facts.repaired_zmp_margin, "zmp_applicable_repaired"),
+        noisy_zmp_margin=masked_zmp_fact(facts.noisy_zmp_margin, "zmp_applicable_noisy"),
         repaired_contact=masked_fact(facts.repaired_contact),
         noisy_contact=masked_fact(facts.noisy_contact),
         physics_success_gain=physics_components["physics_success_gain"],

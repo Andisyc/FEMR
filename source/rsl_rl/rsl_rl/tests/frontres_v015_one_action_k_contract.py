@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import types
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -506,6 +507,83 @@ def test_t_continuation_and_row(live_probe, helper, commands, hooks, setup) -> N
     print("[T-continuation/T-row] one-policy-row-per-Repair; GMT=C[q29,dq29,root] only", flush=True)
 
 
+def test_t_phase_exempt_zmp_remains_na_in_aggregate(live_probe, helper, commands, hooks, setup) -> None:
+    result = _capture(live_probe, helper, commands, hooks, setup, horizons=(2, 2), physics_mode="tie")
+    evidence = result.evidence
+    expected = evidence.physics_expected_support_steps.clone()
+    repaired_contact = evidence.physics_contact_repaired_steps.clone()
+    noisy_contact = evidence.physics_contact_noisy_steps.clone()
+    repaired_zmp = evidence.physics_zmp_repaired_steps.clone()
+    noisy_zmp = evidence.physics_zmp_noisy_steps.clone()
+
+    # Row 0 only loads support on the transition frame. That raw ZMP sample is
+    # valid sensor evidence, but the phase recovery rule excludes it from the
+    # scored ZMP envelope, so its aggregate margin must remain N/A.
+    expected[:, 0] = False
+    expected[1, 0, 0] = True
+    repaired_contact[:, 0] = expected[:, 0]
+    noisy_contact[:, 0] = expected[:, 0]
+    repaired_zmp[:, 0] = float("nan")
+    noisy_zmp[:, 0] = float("nan")
+    repaired_zmp[1, 0] = 0.2
+    noisy_zmp[1, 0] = 0.1
+    transition_only = replace(
+        evidence,
+        physics_expected_support_steps=expected,
+        physics_contact_repaired_steps=repaired_contact,
+        physics_contact_noisy_steps=noisy_contact,
+        physics_zmp_repaired_steps=repaired_zmp,
+        physics_zmp_noisy_steps=noisy_zmp,
+    )
+    transition_only.validate()
+
+    storage = sys.modules["rsl_rl.frontres.frontres_segment_storage"]
+    facts = storage.pair_frontres_v015_gain_facts(transition_only)
+    gain = _load(
+        "rsl_rl.frontres.frontres_gain",
+        RSL_ROOT / "frontres" / "frontres_gain.py",
+    )
+    sys.modules["rsl_rl.frontres"].frontres_gain = gain
+    gain_input = gain.FrontRESIntentPhysicsGainInput(
+        intent_q29=facts.intent_q29,
+        repaired_q29=facts.repaired_q29,
+        noisy_q29=facts.noisy_q29,
+        intent_q29_provenance=facts.intent_q29_provenance,
+        intent_q29_source=facts.intent_q29_source,
+        repair_action_steps=facts.policy_actions,
+        intent_valid_mask=facts.intent_valid_mask,
+        repaired_success=facts.repaired_success,
+        noisy_success=facts.noisy_success,
+        repaired_survival=facts.repaired_survival,
+        noisy_survival=facts.noisy_survival,
+        effective_horizon_k=facts.horizon_k,
+        repaired_zmp_margin=facts.repaired_zmp_margin,
+        noisy_zmp_margin=facts.noisy_zmp_margin,
+        repaired_contact=facts.repaired_contact,
+        noisy_contact=facts.noisy_contact,
+        repaired_contact_violation=facts.repaired_contact_violation,
+        noisy_contact_violation=facts.noisy_contact_violation,
+        repaired_zmp_violation=facts.repaired_zmp_violation,
+        noisy_zmp_violation=facts.noisy_zmp_violation,
+        expected_support_steps=facts.expected_support_steps,
+        repaired_contact_steps=facts.repaired_contact_steps,
+        noisy_contact_steps=facts.noisy_contact_steps,
+        repaired_zmp_margin_steps=facts.repaired_zmp_margin_steps,
+        noisy_zmp_margin_steps=facts.noisy_zmp_margin_steps,
+        physics_pair_valid_mask=facts.physics_pair_valid_mask,
+    )
+    gain_result = gain.compute_intent_physics_local_repair_gain(
+        gain_input,
+        config=gain.FrontRESIntentPhysicsGainConfig(),
+    )
+    returned = storage.build_frontres_v015_gain_return_evidence(facts, gain_result)
+    assert not bool(returned.zmp_applicable_repaired[0])
+    assert not bool(returned.zmp_applicable_noisy[0])
+    assert torch.isnan(returned.repaired_zmp_margin[0])
+    assert torch.isnan(returned.noisy_zmp_margin[0])
+    print("[T-phase-zmp-aggregate] recovery-exempt raw ZMP remains aggregate N/A", flush=True)
+
+
 def test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, commands, hooks, setup) -> None:
     unequal = _capture(live_probe, helper, commands, hooks, setup, horizons=(3, 2), physics_mode="unequal")
     facts = sys.modules["rsl_rl.frontres.frontres_segment_storage"].pair_frontres_v015_gain_facts(unequal.evidence)
@@ -723,6 +801,7 @@ def main() -> None:
     test_t_quality_deterministic_proposal(live_probe, helper, commands, hooks, setup)
     test_t_quality_lateral_lean_is_actual_robot_only(live_probe)
     test_t_continuation_and_row(live_probe, helper, commands, hooks, setup)
+    test_t_phase_exempt_zmp_remains_na_in_aggregate(live_probe, helper, commands, hooks, setup)
     test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, commands, hooks, setup)
     test_t_k_metamorphic_and_legacy_reject(live_probe, helper, commands, hooks, setup)
     print("frontres_v015_one_action_k_contract: ok", flush=True)
