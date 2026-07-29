@@ -497,23 +497,23 @@ def project_frontres_v004_actual_parameter_delta(
     if best is None:
         raise RuntimeError("FRS-PPO-v004 could not project the actual optimizer delta")
     dots = matrix @ best
-    if (
-        float(best.norm().item()) <= float(eps_grad)
-        or not bool((dots < -float(tolerance)).any())
-    ) and candidate_norm > float(eps_grad):
+    # The source gradient already proved strict Physics descent. Adam's much
+    # smaller parameter-space step only has to remain inside every active
+    # halfspace; a nonzero tangent step is a legal constrained Intent update.
+    if float(best.norm().item()) <= float(eps_grad) and candidate_norm > float(eps_grad):
         accepted = gradient_projection.direction
         accepted_norm = float(accepted.norm().item())
         if accepted_norm > float(eps_grad):
             best = accepted * (candidate_norm / accepted_norm)
             dots = matrix @ best
+    if float(best.norm().item()) <= float(eps_grad):
+        raise RuntimeError("FRS-PPO-v004 actual optimizer delta lost the permitted Actor update")
     kkt = float(torch.relu(dots).max().item())
     if kkt > float(tolerance):
         raise RuntimeError(
             "FRS-PPO-v004 actual optimizer delta violates a Physics halfspace: "
             f"kkt={kkt:.9g} tolerance={float(tolerance):.9g}"
         )
-    if not bool((dots < -float(tolerance)).any()):
-        raise RuntimeError("FRS-PPO-v004 actual optimizer delta has no strict Physics descent")
     return FrontRESConstraintProjectionResult(
         status=gradient_projection.status,
         direction=best,

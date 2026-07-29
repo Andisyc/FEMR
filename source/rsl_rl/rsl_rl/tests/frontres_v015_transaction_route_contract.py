@@ -323,8 +323,9 @@ def test_t_adam_candidate_is_postprojected(candidate_contract, owners, live_samp
         actor_loss_weight=1.0,
     )
     assert actual.kkt_max_violation <= 1.0e-8
-    assert actual.directional_derivatives["contact"] < -1.0e-8
-    print("[T-actual-update-KKT] Adam candidate is postprojected before Actor commit", flush=True)
+    assert actual.directional_derivatives["contact"] <= 1.0e-8
+    torch.testing.assert_close(actual.direction, torch.tensor([0.0, 1.0]))
+    print("[T-actual-update-KKT] Adam candidate is postprojected into the feasible tangent", flush=True)
 
 
 def test_t_critic_only_restores_historical_actor_adam_state(candidate_contract, owners, live_sampler) -> None:

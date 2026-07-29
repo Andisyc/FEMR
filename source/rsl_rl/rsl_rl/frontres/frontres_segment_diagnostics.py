@@ -118,8 +118,8 @@ def validate_frontres_v004_actual_update_telemetry(
         raise RuntimeError("v015 formal result Actor optimizer-state preservation disagrees with projection authority")
     if must_preserve and committed_l2 != 0.0:
         raise RuntimeError("v015 formal result committed an Actor delta while Actor authority was frozen")
-    if active_families and not must_preserve and not any(value < -float(tolerance) for value in derivatives.values()):
-        raise RuntimeError("v015 formal result committed no strict Physics descent for an active constraint")
+    if active_families and not must_preserve and committed_l2 == 0.0:
+        raise RuntimeError("v015 formal result lost a permitted nonzero Actor update")
 
     return FrontRESV004ActualUpdateTelemetry(
         projection_status=projection_status,

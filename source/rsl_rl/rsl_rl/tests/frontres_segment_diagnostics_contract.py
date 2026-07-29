@@ -29,6 +29,48 @@ segment_summary_to_scalars = diag_module.segment_summary_to_scalars
 summarize_segment_batch = diag_module.summarize_segment_batch
 
 
+def _actual_update_telemetry(**overrides) -> dict[str, object]:
+    telemetry: dict[str, object] = {
+        "constraint_projection_status": "PROJECTED_INTENT",
+        "actual_update_projection_status": "PROJECTED_INTENT",
+        "constraint_active_families": ("contact", "zmp"),
+        "constraint_directional_derivatives": {"contact": 0.0, "zmp": 0.0},
+        "constraint_kkt_max_violation": 0.0,
+        "gradient_projection_kkt_max_violation": 0.0,
+        "optimizer_candidate_actor_delta_l2": 1.7e-4,
+        "committed_actor_delta_l2": 1.0e-4,
+        "actor_optimizer_state_restored": False,
+        "actor_loss_weight": 0.43,
+    }
+    telemetry.update(overrides)
+    return telemetry
+
+
+def test_v004_actual_update_diagnostics_accept_tangent_and_reject_violation() -> None:
+    accepted = diag_module.validate_frontres_v004_actual_update_telemetry(
+        _actual_update_telemetry(),
+        tolerance=1.0e-8,
+    )
+    assert accepted.committed_actor_delta_l2 == 1.0e-4
+    assert accepted.kkt_max_violation == 0.0
+
+    invalid_cases = (
+        _actual_update_telemetry(
+            constraint_directional_derivatives={"contact": 2.0e-8, "zmp": 0.0},
+            constraint_kkt_max_violation=2.0e-8,
+        ),
+        _actual_update_telemetry(committed_actor_delta_l2=0.0),
+    )
+    for invalid in invalid_cases:
+        try:
+            diag_module.validate_frontres_v004_actual_update_telemetry(invalid, tolerance=1.0e-8)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("invalid actual-update telemetry must fail closed")
+    print("[T-actual-update-consumer] feasible tangent serializes; violation and lost update reject", flush=True)
+
+
 def _v015_candidate_evidence() -> SimpleNamespace:
     actions = torch.tensor(
         [
@@ -594,6 +636,7 @@ def test_action_distribution_health_flags_raw_mean_saturation() -> None:
 
 
 def main() -> None:
+    test_v004_actual_update_diagnostics_accept_tangent_and_reject_violation()
     test_v015_transaction_telemetry_projects_sealed_rows_without_recompute()
     test_v015_diagnostics_preserve_role_specific_zmp_na()
     test_segment_diagnostics_required_keys_and_no_acceptance_keys()

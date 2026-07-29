@@ -628,6 +628,38 @@ def test_gradient_authority_and_actor_ramp() -> None:
     print("[T-gradient-authority] projected actor ramp and scalar-Critic gradients are disjoint", flush=True)
 
 
+def test_actual_adam_delta_accepts_nonworsening_constraint_tangent() -> None:
+    """A small Adam step may improve Intent along the active Physics boundary."""
+
+    source_projection = ppo_module.FrontRESConstraintProjectionResult(
+        status="PROJECTED_INTENT",
+        direction=torch.tensor([-2.0e-8, 0.0, 1.0]),
+        active_families=("contact", "zmp"),
+        gradient_norms={"contact": 1.0, "zmp": 1.0, "survival": 0.0},
+        directional_derivatives={"contact": -2.0e-8, "zmp": 0.0},
+        intent_direction_norm=1.0,
+        projected_direction_norm=1.0,
+        dual_coefficients={"contact": 0.0, "zmp": 0.0},
+        constraint_gram=((1.0, 0.0), (0.0, 1.0)),
+        intent_directional_derivatives={"contact": 1.0, "zmp": 1.0},
+        kkt_max_violation=0.0,
+        constraint_gradient_vectors={
+            "contact": torch.tensor([1.0, 0.0, 0.0]),
+            "zmp": torch.tensor([0.0, 1.0, 0.0]),
+        },
+    )
+    actual = ppo_module.project_frontres_v004_actual_parameter_delta(
+        torch.tensor([1.0e-4, 1.0e-4, 1.0e-4]),
+        source_projection,
+        actor_loss_weight=0.5,
+    )
+    torch.testing.assert_close(actual.direction, torch.tensor([0.0, 0.0, 1.0e-4]))
+    assert actual.projected_direction_norm > 0.0
+    assert actual.kkt_max_violation <= 1.0e-8
+    assert all(value <= 1.0e-8 for value in actual.directional_derivatives.values())
+    print("[T-actual-tangent] small Adam delta may move along a nonworsening Physics boundary", flush=True)
+
+
 def test_mixed_zmp_na_rows_are_excluded_without_losing_group_identity() -> None:
     batch = _batch()
     applicable = torch.tensor([True, False, True, False, True, False, True, False])
@@ -669,6 +701,7 @@ def main() -> None:
     test_joint_projection_statuses_kkt_and_permutation()
     test_recovery_rescale_rechecks_kkt_postcondition()
     test_gradient_authority_and_actor_ramp()
+    test_actual_adam_delta_accepts_nonworsening_constraint_tangent()
     test_mixed_zmp_na_rows_are_excluded_without_losing_group_identity()
     print("frontres_segment_grouped_ppo_contract: ok")
 
