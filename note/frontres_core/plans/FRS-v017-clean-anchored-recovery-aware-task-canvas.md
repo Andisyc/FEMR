@@ -97,6 +97,10 @@ action. TEST-04/05/10/16 and the 49/49 deterministic aggregate pass.
   formal owners and passes the focused offline instrumentation regressions.
   The HSL-v2 artifact is runtime-confirmed; the single live transaction remains
   unexecuted and separately authorized.
+- E-FI-122 records the first live attempt: B01 passed, then the command correctly
+  rejected execution-mode selection before sealed-scenario installation. The
+  existing reset seam now owns `install -> mode -> refresh` and focused offline
+  regressions pass; B02-B08 still require the bounded live rerun.
 E-FI-109 proves offline code and persistence semantics. It does not prove
 simulator/live class populations, policy quality or deployment behavior.
 
@@ -126,7 +130,7 @@ MOSAIC host change or an unresolvable P0/P1.
 
 ## Next Action
 
-`AUDIT-B01..B08` are inserted and offline-closed at E-FI-121, and the real
-HSL-v2 artifact is confirmed. The next separately authorized action is the
-single bounded official 8-env, K8/M2, one-transaction, one-update run. No
-simulator, training or live execution occurred during instrumentation closure.
+`AUDIT-B01` is runtime-confirmed. E-FI-122 closes the first-invalid reset
+lifecycle offline without weakening the command detector. The next action is
+to rerun the same bounded official 8-env, K8/M2, one-transaction, one-update
+command and observe B02-B08; no policy-quality claim is yet available.

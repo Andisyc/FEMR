@@ -2,8 +2,10 @@
 
 Status: DP10 Future Motion Context is integrated offline and Phase A reviewed
 at E-FI-119. All ten Phase A design points are now reviewed offline. E-FI-121
-adds and offline-tests the eight Phase B fail-closed runtime checks; the single
-official live transaction has not run. No
+adds and offline-tests the eight Phase B fail-closed runtime checks. E-FI-122
+records the first official run: B01 passed, then the first Clean reset exposed
+and offline-closed an install-before-mode lifecycle defect; B02-B08 require the
+same bounded live rerun. No
 Gain/PPO semantics or live boundary was reopened
 under `FRS-METHOD-v017 / FRS-GAIN-v007 / FRS-PPO-v005 / FRS-TRAIN-v014 /
 FRS-EVAL-v004`. E-FI-105 proves the previous v012 module surface;
@@ -410,8 +412,8 @@ unifying the formal phase identity and proving same-Critic K-transition
 recalibration plus critic-only Actor/std optimizer-state preservation. E-FI-119
 then fixes the only legal future deployment/Noisy offsets to `(1,2)` and proves
 the unmocked offline `870D + 58D -> 928D -> FrontRES 158D / GMT 770D` route.
-Formal Runtime Audit Phase B, Step 2 / 2, simulator, training and live remain
-separately unauthorized.
+Formal Runtime Audit Phase B has runtime evidence only for B01. E-FI-122 closes
+the first-invalid reset lifecycle offline; B02-B08 remain live-pending.
 
 ### DP10 Future Motion Context Offline Readiness Closure
 
@@ -461,8 +463,13 @@ bash run_stage3.sh \
 /hdd1/cyx/AMASS_G1NPZ_Final 8 1 1 train
 ```
 
-Instrumentation and artifact verification are complete. Executing the command
-is the remaining separately authorized live boundary.
+Instrumentation and artifact verification are complete. The first GPU7 run
+confirmed B01 and then stopped because formal collection selected
+`clean_baseline` before reset installed the sealed scenario. E-FI-122 moves the
+mode through the reset request so the environment owner now performs
+`install -> mode -> refresh`; focused offline regressions pass without weakening
+the command fail-closed check. Rerunning the same bounded command is the
+remaining live boundary for B02-B08.
 
 ### DP09 Actor & Critic Warmup Offline Readiness Closure
 

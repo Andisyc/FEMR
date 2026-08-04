@@ -32,6 +32,7 @@ from rsl_rl.algorithms.frontres_segment_ppo import FrontRESSegmentPPOBatch
 from rsl_rl.frontres.frontres_local_evaluation import FrontRESV017LocalEvaluationReport
 from rsl_rl.frontres.frontres_segment_storage_records import FrontRESV015GroupedCandidateMetadata
 from rsl_rl.frontres.frontres_segment_warmup import resolve_frontres_k_stage_identity
+from rsl_rl.runners import frontres_segment_formal_transaction as formal_transaction
 from rsl_rl.runners.frontres_segment_formal_transaction import run_frontres_formal_transaction_update
 from rsl_rl.runners.frontres_segment_runtime_types import open_frontres_checkpoint_transaction_barrier
 from rsl_rl.runners.frontres_segment_runtime_types import reset_frontres_checkpoint_transaction
@@ -437,11 +438,40 @@ def test_partial_transaction_rejects_before_update() -> None:
         raise AssertionError("partial exact-M transaction must fail before optimizer update")
 
 
+def test_phase_reset_routes_mode_through_sealed_reset_owner() -> None:
+    calls: list[tuple[object, str]] = []
+    original = formal_transaction._apply_current_segment_reset
+
+    def reset(_runner, *, pair_layout, local_scenario_execution_mode):
+        calls.append((pair_layout, local_scenario_execution_mode))
+        return SimpleNamespace(success_mask=torch.ones(4, dtype=torch.bool))
+
+    formal_transaction._apply_current_segment_reset = reset
+    layout = object()
+    try:
+        for mode in ("clean_baseline", "noisy_baseline", "repair_attempts"):
+            formal_transaction._reset_frontres_v017_phase(
+                object(),
+                pair_layout=layout,
+                mode=mode,
+                policy_row_count=4,
+                label="contract",
+            )
+    finally:
+        formal_transaction._apply_current_segment_reset = original
+    assert calls == [
+        (layout, "clean_baseline"),
+        (layout, "noisy_baseline"),
+        (layout, "repair_attempts"),
+    ]
+
+
 def main() -> None:
     test_exact_one_scalar_commit_and_critic_only()
     test_k_transitions_keep_one_critic_and_preserve_frozen_actor_optimizer_state()
     test_actor_ramp_identity_reaches_transaction_and_telemetry()
     test_partial_transaction_rejects_before_update()
+    test_phase_reset_routes_mode_through_sealed_reset_owner()
     print("frontres_v015_transaction_route_contract: v017 scalar exact-one ok", flush=True)
 
 

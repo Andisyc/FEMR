@@ -500,6 +500,34 @@ def run_frontres_formal_transaction_update(
     return result
 
 
+def _reset_frontres_v017_phase(
+    runner: Any,
+    *,
+    pair_layout: Any,
+    mode: str,
+    policy_row_count: int,
+    label: str,
+) -> None:
+    """Install the sealed scenario, select one phase, then validate the reset."""
+
+    # B1: command 尚无 carrier 时不得预先选 mode；reset hook 拥有 install -> mode -> refresh 顺序。
+    reset_result = _apply_current_segment_reset(
+        runner,
+        pair_layout=pair_layout,
+        local_scenario_execution_mode=mode,
+    )
+    success_mask = getattr(reset_result, "success_mask", None)
+    if (
+        reset_result is None
+        or not isinstance(success_mask, torch.Tensor)
+        or int(success_mask.numel()) != int(policy_row_count)
+        or not bool(success_mask.detach().bool().all())
+    ):
+        raise RuntimeError(
+            f"v017 {label} requires every selected local scenario reset to succeed in phase={mode}"
+        )
+
+
 def _build_frontres_v015_local_transaction_request(
     runner: Any,
     *,
@@ -546,24 +574,14 @@ def _build_frontres_v015_local_transaction_request(
             or int(getattr(pair_layout, "n_clean", 0)) != 0
         ):
             raise RuntimeError(f"v015 {label} requires an exact Repair/Noisy two-role layout for every planned policy row")
-        command = _motion_command_for_runner(runner)
-
         def reset_phase(mode: str) -> None:
-            select_mode = getattr(command, "set_frontres_local_scenario_execution_mode", None)
-            if not callable(select_mode):
-                raise RuntimeError("v017 formal collection requires command-owned execution modes")
-            select_mode(mode)
-            reset_result = _apply_current_segment_reset(runner, pair_layout=pair_layout)
-            success_mask = getattr(reset_result, "success_mask", None)
-            if (
-                reset_result is None
-                or not isinstance(success_mask, torch.Tensor)
-                or int(success_mask.numel()) != policy_row_count
-                or not bool(success_mask.detach().bool().all())
-            ):
-                raise RuntimeError(
-                    f"v017 {label} requires every selected local scenario reset to succeed in phase={mode}"
-                )
+            _reset_frontres_v017_phase(
+                runner,
+                pair_layout=pair_layout,
+                mode=mode,
+                policy_row_count=policy_row_count,
+                label=label,
+            )
 
         # One authoritative row per Segment is retained; companion rows are
         # allocation scaffold and never become baseline observations or scores.

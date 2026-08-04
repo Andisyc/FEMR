@@ -7744,3 +7744,38 @@ Artifact and remaining boundary:
 
 Verdict: Phase B instrumentation is offline-closed. Runtime observation remains
 pending; no runtime or policy-quality claim is made.
+
+## E-FI-122: Phase B First-Invalid Reset Lifecycle Closure
+
+Date: 2026-08-04
+
+Observed runtime fact:
+
+- the first official GPU7 Phase B run emitted `AUDIT-B01` with the active
+  v017/v007/v005/v014, HSL-v2, K8/M2 and `(1,2)` identities, then stopped before
+  `AUDIT-B02`;
+- the first invalid operation was the Clean-baseline phase calling
+  `set_frontres_local_scenario_execution_mode("clean_baseline")` before the
+  reset hook had installed an active sealed local scenario. The command owner
+  correctly rejected this ordering. This was not a GPU, HSL, sampler-identity
+  or audit-assertion failure.
+
+Offline repair and evidence:
+
+- the formal transaction now carries the requested Clean/Noisy/Repair phase
+  through the existing reset request. The environment hook installs the sealed
+  scenario first, selects the command-owned execution mode second, and only
+  then refreshes the current command/cache and writes the robot reference;
+- the command fail-closed check is unchanged. Legacy and non-local reset paths
+  reject a supplied v017 execution mode, while all three formal phase names are
+  validated before the environment hook runs;
+- `frontres_v015_two_role_reset_contract.py` proves first-install Clean mode,
+  same-identity Repair reuse and correct Clean/artifact cache selection;
+  `frontres_v015_transaction_route_contract.py` proves the formal owner routes
+  `clean_baseline -> noisy_baseline -> repair_attempts` through the reset seam;
+  one-action-K and formal runtime-audit regressions also pass, together with
+  Python compilation and `git diff --check`.
+
+Verdict: the first-invalid owner lifecycle is closed offline. `AUDIT-B01` is
+runtime-confirmed; `AUDIT-B02` through `AUDIT-B08` remain live-pending until the
+same bounded official transaction is rerun. No policy-quality claim is made.

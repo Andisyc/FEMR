@@ -2,6 +2,18 @@
 
 Updated: 2026-08-04
 
+## Phase B Reset Lifecycle Closure E-FI-122
+
+- the first GPU7 runtime stopped at the first Clean baseline because the formal
+  transaction selected a command mode before reset had installed its sealed
+  scenario; `AUDIT-B01` passed and later sentinels were not reached;
+- `frontres_v015_two_role_reset_contract.py` now independently proves
+  install-before-mode-before-refresh for Clean and immutable Repair reuse;
+- `frontres_v015_transaction_route_contract.py` proves the formal phase order
+  is carried through the reset request. One-action-K and runtime-audit focused
+  regressions pass. This is an offline repair verdict; the bounded live rerun
+  remains required.
+
 ## Phase B Instrumentation Closure E-FI-121
 
 - `frontres_formal_runtime_audit_contract.py` independently exercises

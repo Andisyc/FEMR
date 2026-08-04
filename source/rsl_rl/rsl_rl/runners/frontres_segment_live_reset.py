@@ -66,6 +66,7 @@ def _apply_current_segment_reset(
     runner: Any,
     *,
     pair_layout: Any | None = None,
+    local_scenario_execution_mode: str | None = None,
 ) -> FrontRESSegmentResetResult | None:
     # FRS3-EVAL-013: apply the current index-only reset batch to the live env.
     batch = frontres_collection_batch(runner)
@@ -73,7 +74,14 @@ def _apply_current_segment_reset(
         runner._frontres_segment_live_current_reset_skip_reason = "no_current_segment_batch"
         return None
     if _is_index_only_segment_batch(batch):
-        return _apply_index_only_segment_reset(runner, batch, pair_layout=pair_layout)
+        return _apply_index_only_segment_reset(
+            runner,
+            batch,
+            pair_layout=pair_layout,
+            local_scenario_execution_mode=local_scenario_execution_mode,
+        )
+    if local_scenario_execution_mode is not None:
+        raise RuntimeError("v017 local-scenario execution mode is only valid for an index-only sealed reset")
     adapter = getattr(runner, "_frontres_segment_reset_adapter", None)
     if adapter is None:
         adapter = FrontRESSegmentResetAdapter(
@@ -139,10 +147,15 @@ def apply_frontres_current_segment_reset(
     runner: Any,
     *,
     pair_layout: Any | None = None,
+    local_scenario_execution_mode: str | None = None,
 ) -> FrontRESSegmentResetResult | None:
     """Public reset gateway for evaluators using the sealed Segment state."""
 
-    return _apply_current_segment_reset(runner, pair_layout=pair_layout)
+    return _apply_current_segment_reset(
+        runner,
+        pair_layout=pair_layout,
+        local_scenario_execution_mode=local_scenario_execution_mode,
+    )
 
 
 def _is_index_only_segment_batch(batch: Any) -> bool:
@@ -158,6 +171,7 @@ def _apply_index_only_segment_reset(
     batch: Any,
     *,
     pair_layout: Any | None = None,
+    local_scenario_execution_mode: str | None = None,
 ) -> FrontRESSegmentResetResult | None:
     specs = tuple(getattr(batch, "specs", ()) or ())
     motion_ids = tuple(str(getattr(spec, "motion_id", "")) for spec in specs)
@@ -203,7 +217,15 @@ def _apply_index_only_segment_reset(
     v015_local_scenario = getattr(batch, "frontres_local_scenario_rows", None) is not None
     if v015_local_scenario:
         _attach_frontres_local_scenario_to_index_request(request, batch)
+        if local_scenario_execution_mode is not None:
+            mode = str(local_scenario_execution_mode)
+            if mode not in {"clean_baseline", "noisy_baseline", "repair_attempts"}:
+                raise ValueError(f"unsupported v017 local-scenario execution mode: {mode!r}")
+            # B1: mode 随 reset request 进入环境 owner；command carrier 尚未安装时禁止提前切换。
+            request.frontres_local_scenario_execution_mode = mode
     else:
+        if local_scenario_execution_mode is not None:
+            raise RuntimeError("v017 local-scenario execution mode requires one sealed local scenario")
         _attach_fixed_noisy_tape_to_index_request(request, batch)
     if pair_layout is not None:
         request.frontres_role_env_ids = _frontres_reset_role_env_ids(

@@ -384,6 +384,17 @@ class FrontRESStage1EnvAdapter:
                 )
                 if not isinstance(applied, torch.Tensor) or not bool(applied.detach().bool().all()):
                     raise RuntimeError("command rejected one or more v015 local scenario rows during index reset")
+                execution_mode = getattr(request, "frontres_local_scenario_execution_mode", None)
+                if execution_mode is not None:
+                    select_execution_mode = getattr(
+                        self.command,
+                        "set_frontres_local_scenario_execution_mode",
+                        None,
+                    )
+                    if not callable(select_execution_mode):
+                        raise RuntimeError("v017 local scenario reset requires command-owned execution modes")
+                    # B3: carrier 已 sealed 后再选 phase，随后 refresh 才能生成正确的 current command/cache。
+                    select_execution_mode(str(execution_mode))
                 perturbation_state = {
                     "strength": None,
                     "family": tuple(),

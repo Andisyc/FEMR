@@ -423,7 +423,9 @@ def test_t_role_layout(commands, setup) -> tuple[_FakeEnv, object, dict[str, tor
 def test_t_state_and_identity(hooks, env, command, role_env_ids) -> None:
     adapter = hooks.FrontRESStage1EnvAdapter(env=env, amass_root="/tmp", trace=False)
     request = _local_request(role_env_ids)
+    request.frontres_local_scenario_execution_mode = "clean_baseline"
     source_artifacts = request.frontres_local_scenario_current_root_artifact_t.clone()
+    source_clean = request.frontres_local_scenario_clean_reference_t.clone()
     source_intent = request.frontres_local_scenario_intent_q29.clone()
     source_continuation = request.frontres_local_scenario_clean_continuation.clone()
     result = adapter.apply_frontres_segment_index_reset(request)
@@ -438,8 +440,9 @@ def test_t_state_and_identity(hooks, env, command, role_env_ids) -> None:
     assert snapshot["noisy_segment_hashes"] == ("hash-a", "hash-b", "hash-a", "hash-b")
     assert snapshot["x_t_identities"] == ("x_t-a", "x_t-b", "x_t-a", "x_t-b")
     assert snapshot["roles"] == ("repair", "repair", "noisy", "noisy")
-    torch.testing.assert_close(command._cached_perturbed_pos, source_artifacts.index_select(0, expected_rows)[:, :3])
-    torch.testing.assert_close(command._cached_perturbed_quat, source_artifacts.index_select(0, expected_rows)[:, 3:])
+    torch.testing.assert_close(command._cached_perturbed_pos, source_clean.index_select(0, expected_rows)[:, 58:61])
+    torch.testing.assert_close(command._cached_perturbed_quat, source_clean.index_select(0, expected_rows)[:, 61:65])
+    assert command._frontres_local_scenario_execution_mode == "clean_baseline"
     assert not bool(command._frontres_reference_window_active.any())
     assert command.perturber.calls == 0
 
@@ -449,6 +452,7 @@ def test_t_state_and_identity(hooks, env, command, role_env_ids) -> None:
 
     # M attempts are new physical resets over the exact same sealed command carrier.
     retry_request = _local_request(role_env_ids)
+    retry_request.frontres_local_scenario_execution_mode = "repair_attempts"
     retry_result = adapter.apply_frontres_segment_index_reset(retry_request)
     assert retry_result["reset_success"].tolist() == [True, True]
     retry_snapshot = command.frontres_local_scenario_snapshot(torch.arange(4))
@@ -456,6 +460,9 @@ def test_t_state_and_identity(hooks, env, command, role_env_ids) -> None:
     torch.testing.assert_close(retry_snapshot["intent_q29"], source_intent.index_select(0, expected_rows))
     torch.testing.assert_close(retry_snapshot["clean_continuation"], source_continuation.index_select(0, expected_rows))
     assert retry_snapshot["noisy_segment_hashes"] == ("hash-a", "hash-b", "hash-a", "hash-b")
+    assert command._frontres_local_scenario_execution_mode == "repair_attempts"
+    torch.testing.assert_close(command._cached_perturbed_pos, source_artifacts.index_select(0, expected_rows)[:, :3])
+    torch.testing.assert_close(command._cached_perturbed_quat, source_artifacts.index_select(0, expected_rows)[:, 3:])
     assert command.perturber.calls == 0
     print("[T-2A-scenario-identity] retry reuses x_t/artifact/q29/C/K/hash without resampling", flush=True)
 
