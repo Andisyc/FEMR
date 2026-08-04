@@ -1228,6 +1228,23 @@ def _configure_frontres_stage3_segment_hrl_env_cfg(env_cfg) -> None:
     )
 
 
+def _configure_frontres_stage1_hsl_env_cfg(env_cfg, args_cli) -> None:
+    """Reserve the real q29 future window before Stage-1 motion-frame sampling."""
+
+    motion_cfg = getattr(getattr(env_cfg, "commands", None), "motion", None)
+    if motion_cfg is None or not hasattr(motion_cfg, "frontres_required_future_frames"):
+        raise RuntimeError("Stage-1 HSL requires a future-window-aware motion command config")
+    requested = getattr(args_cli, "frontres_v015_future_offsets", None)
+    offsets = (1, 2) if requested is None else _parse_frontres_v015_future_offsets(requested)
+    # B1: 将 active H=(1,2) 写入采样 owner, 在 reset 前排除末尾非法起点.
+    motion_cfg.frontres_required_future_frames = max(offsets)
+    print(
+        "[FrontRES Stage1 HSL] motion_frame_budget "
+        f"future_offsets={offsets} required_future_frames={max(offsets)}",
+        flush=True,
+    )
+
+
 def _frontres_stage1_motion_loader_probe(adapter, *, requested_max_motions: int | None) -> None:
     probe_fn = getattr(adapter, "frontres_motion_loader_probe", None)
     if not callable(probe_fn):
@@ -1457,6 +1474,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     env_cfg.commands.motion.motion = args_cli.motion
     if args_cli.frontres_stage == "stage1_segment_cache":
         _configure_frontres_stage1_segment_cache_env_cfg(env_cfg, args_cli)
+    elif args_cli.frontres_stage in ("stage1_hsl", "stage2_hsl_warmup"):
+        _configure_frontres_stage1_hsl_env_cfg(env_cfg, args_cli)
     elif args_cli.frontres_stage == "stage3_segment_hrl":
         _configure_frontres_stage3_segment_hrl_env_cfg(env_cfg)
     _configure_frontres_motion_perturbations(env_cfg, agent_cfg)

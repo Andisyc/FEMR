@@ -38,6 +38,7 @@ OBSERVATIONS_PATH = (
     / "mdp"
     / "observations.py"
 )
+COMMANDS_PATH = OBSERVATIONS_PATH.with_name("commands.py")
 G1_CFG_PATH = (
     ROOT
     / "source"
@@ -146,13 +147,17 @@ def _load_stage1_preset():
         "_set_if_present",
         "_parse_frontres_v015_future_offsets",
         "_apply_frontres_stage_preset",
+        "_configure_frontres_stage1_hsl_env_cfg",
     }
     nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in wanted]
     module = ast.Module(body=nodes, type_ignores=[])
     ast.fix_missing_locations(module)
     namespace = {"RslRlOnPolicyRunnerCfg": object}
     exec(compile(module, str(TRAIN_PATH), "exec"), namespace)
-    return namespace["_apply_frontres_stage_preset"]
+    return (
+        namespace["_apply_frontres_stage_preset"],
+        namespace["_configure_frontres_stage1_hsl_env_cfg"],
+    )
 
 
 def _intent(batch_size: int = 2, hmax: int = 2) -> torch.Tensor:
@@ -375,7 +380,7 @@ def test_t_hsl_proposal_runtime_route() -> None:
 
 
 def test_t_hsl_formal_stage1_config_and_layout() -> None:
-    apply_preset = _load_stage1_preset()
+    apply_preset, configure_env = _load_stage1_preset()
     alg = SimpleNamespace(
         frontres_training_objective="legacy",
         lambda_supervised=1.0,
@@ -427,6 +432,31 @@ def test_t_hsl_formal_stage1_config_and_layout() -> None:
     assert alg.lambda_supervised_min == 0.0
     assert alg.frontres_hsl_rollout_label_enabled is False
     assert policy.num_frontres_obs == 100
+
+    motion_cfg = SimpleNamespace(frontres_required_future_frames=0)
+    env_cfg = SimpleNamespace(commands=SimpleNamespace(motion=motion_cfg))
+    configure_env(env_cfg, args)
+    assert motion_cfg.frontres_required_future_frames == 2
+
+    commands, _hooks, _setup = _load("frontres_hsl_frame_budget_helper", RESET_HELPER_PATH)._load_owners()
+    ceilings = commands._frontres_sample_frame_ceiling(torch.tensor([376, 2]), 2)
+    assert ceilings.tolist() == [374, 0]
+    torch.testing.assert_close(
+        commands._frontres_sample_frame_ceiling(torch.tensor([376, 2]), 0),
+        torch.tensor([376, 2]),
+    )
+    _expect_error(
+        ValueError,
+        lambda: commands._frontres_sample_frame_ceiling(torch.tensor([1]), 2),
+        "too short",
+    )
+    command_source = COMMANDS_PATH.read_text()
+    assert "sample_frame_ceiling = _frontres_sample_frame_ceiling(" in command_source
+    assert "time_steps = torch.minimum(time_steps, sample_frame_ceiling)" in command_source
+    print(
+        "[T-HSL-frame-budget] Stage-1 reserves two real future frames before motion sampling",
+        flush=True,
+    )
 
     args.frontres_hsl_live_smoke = True
     agent.max_iterations = 0

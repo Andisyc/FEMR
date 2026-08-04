@@ -54,6 +54,25 @@ def _frontres_sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _frontres_sample_frame_ceiling(
+    lengths_minus_one: torch.Tensor,
+    required_future_frames: int,
+) -> torch.Tensor:
+    """Return the latest current frame that retains the required real future frames."""
+
+    if not isinstance(lengths_minus_one, torch.Tensor) or lengths_minus_one.ndim != 1:
+        raise TypeError("FrontRES sample frame ceiling requires rank-1 motion lengths")
+    reserve = int(required_future_frames)
+    if reserve < 0:
+        raise ValueError("FrontRES required future frames must be nonnegative")
+    if bool((lengths_minus_one < reserve).any().item()):
+        raise ValueError(
+            "FrontRES motion is too short for the required future window: "
+            f"required_future_frames={reserve}"
+        )
+    return lengths_minus_one - reserve
+
+
 def _get_rank_world_size(shard_by: str = "global") -> tuple[int, int]:
     """Best-effort (rank, world_size) for multi-GPU dataset sharding.
 
@@ -3688,7 +3707,7 @@ class MultiMotionCommand(CommandTerm):
         )
 
     def _adaptive_sampling(self, env_ids: Sequence[int]):
-        """Within-motion sampling for the provided environment indices."""
+        """Sample current frames while preserving any configured real future window."""
         if len(env_ids) == 0:
             return
 
@@ -3697,6 +3716,11 @@ class MultiMotionCommand(CommandTerm):
 
         lengths = self.motion_lengths[motion_indices]
         lengths_minus_one = self.motion_lengths_minus_one[motion_indices]
+        # B1: 为 HSL q29 window 预留真实未来帧, 产出合法 current-frame ceiling.
+        sample_frame_ceiling = _frontres_sample_frame_ceiling(
+            lengths_minus_one,
+            int(self.cfg.frontres_required_future_frames),
+        )
         denominators = self.motion_length_denominator[motion_indices]
         bin_counts = self.motion_bin_counts[motion_indices]
         bin_counts_float = self.motion_bin_counts_float[motion_indices]
@@ -3751,17 +3775,17 @@ class MultiMotionCommand(CommandTerm):
         sampled_bins = torch.multinomial(prob, 1).squeeze(1)
         rand_offset = torch.rand(len(env_ids), device=self.device)
 
-        lengths_minus_one_float = lengths_minus_one.to(torch.float32)
+        sample_frame_ceiling_float = sample_frame_ceiling.to(torch.float32)
         time_steps = torch.where(
-            lengths_minus_one == 0,
-            torch.zeros_like(lengths_minus_one),
+            sample_frame_ceiling == 0,
+            torch.zeros_like(sample_frame_ceiling),
             (
                 (sampled_bins.to(torch.float32) + rand_offset)
                 / torch.clamp(bin_counts_float, min=1.0)
-                * lengths_minus_one_float
+                * sample_frame_ceiling_float
             ).long(),
         )
-        time_steps = torch.clamp(time_steps, max=lengths_minus_one)
+        time_steps = torch.minimum(time_steps, sample_frame_ceiling)
         self.time_steps[env_ids] = time_steps
 
         entropy = -(prob * (prob + 1e-12).log()).sum(dim=1)
@@ -3782,8 +3806,12 @@ class MultiMotionCommand(CommandTerm):
             start_frame = max(int(self.cfg.start_frame), 0)
             lengths_minus_one = self.motion_lengths[self.env_motion_indices[env_ids]] - 1
             lengths_minus_one = torch.clamp(lengths_minus_one, min=0)
+            sample_frame_ceiling = _frontres_sample_frame_ceiling(
+                lengths_minus_one,
+                int(self.cfg.frontres_required_future_frames),
+            )
             start_frame_tensor = torch.full_like(lengths_minus_one, start_frame)
-            self.time_steps[env_ids] = torch.minimum(start_frame_tensor, lengths_minus_one)
+            self.time_steps[env_ids] = torch.minimum(start_frame_tensor, sample_frame_ceiling)
         else:
             self._adaptive_sampling(env_ids)
 
@@ -4163,6 +4191,9 @@ class MultiMotionCommandCfg(CommandTermCfg):
     motion_preload_device: str | None = 'cuda'
 
     motion_horizon: int = 1
+
+    # Stage-1 HSL requires real t+1,t+2 q29 rows. Zero preserves ordinary GMT sampling.
+    frontres_required_future_frames: int = 0
 
     # ---- multi-teacher support: motion groups ----
     # Motion groups configuration for multi-teacher support.
