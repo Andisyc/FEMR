@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import inspect
 import importlib.util
 import sys
 import tempfile
@@ -450,11 +451,45 @@ def test_t_hsl_formal_stage1_config_and_layout() -> None:
         lambda: commands._frontres_sample_frame_ceiling(torch.tensor([1]), 2),
         "too short",
     )
+    # max_frame=221 and H=2: frame 219 is the last valid current frame.
+    # The flag is consumed by the following env.step, before frame 220 can be observed.
+    hsl_end = commands._frontres_motion_end_mask(
+        torch.tensor([218, 219]),
+        torch.tensor([222, 222]),
+        2,
+    )
+    assert hsl_end.tolist() == [False, True]
+    ordinary_end = commands._frontres_motion_end_mask(
+        torch.tensor([220, 221, 222]),
+        torch.tensor([222, 222, 222]),
+        0,
+    )
+    assert ordinary_end.tolist() == [False, False, True]
+    fake_clock = SimpleNamespace(
+        num_envs=1,
+        device=torch.device("cpu"),
+        cfg=SimpleNamespace(frontres_required_future_frames=2),
+        motion_lengths=torch.tensor([222]),
+        env_motion_indices=torch.tensor([0]),
+        time_steps=torch.tensor([218]),
+        motion_end_buf=torch.zeros(1, dtype=torch.bool),
+    )
+    commands.MultiMotionCommand._refresh_frontres_motion_end_buf(fake_clock)
+    assert fake_clock.motion_end_buf.tolist() == [False]
+    fake_clock.time_steps += 1
+    commands.MultiMotionCommand._refresh_frontres_motion_end_buf(fake_clock)
+    assert fake_clock.time_steps.tolist() == [219]
+    assert fake_clock.motion_end_buf.tolist() == [True]
     command_source = COMMANDS_PATH.read_text()
     assert "sample_frame_ceiling = _frontres_sample_frame_ceiling(" in command_source
     assert "time_steps = torch.minimum(time_steps, sample_frame_ceiling)" in command_source
+    assert command_source.count("self._refresh_frontres_motion_end_buf(") == 2
+    resample_source = inspect.getsource(commands.MultiMotionCommand._resample_command)
+    assert resample_source.index("_sync_frontres_pairs") < resample_source.index(
+        "_refresh_frontres_motion_end_buf"
+    )
     print(
-        "[T-HSL-frame-budget] Stage-1 reserves two real future frames before motion sampling",
+        "[T-HSL-frame-budget] Stage-1 sampling and motion end preserve two real future frames",
         flush=True,
     )
 

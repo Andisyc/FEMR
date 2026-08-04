@@ -73,6 +73,24 @@ def _frontres_sample_frame_ceiling(
     return lengths_minus_one - reserve
 
 
+def _frontres_motion_end_mask(
+    time_steps: torch.Tensor,
+    motion_lengths: torch.Tensor,
+    required_future_frames: int,
+) -> torch.Tensor:
+    """Mark rows whose next step must reset to preserve a real future window."""
+
+    if not isinstance(time_steps, torch.Tensor) or not isinstance(motion_lengths, torch.Tensor):
+        raise TypeError("FrontRES motion-end mask requires tensor frame and length rows")
+    if time_steps.ndim != 1 or motion_lengths.ndim != 1 or time_steps.shape != motion_lengths.shape:
+        raise ValueError("FrontRES motion-end mask requires aligned rank-1 frame and length rows")
+    reserve = int(required_future_frames)
+    if reserve == 0:
+        return time_steps >= motion_lengths
+    last_valid_current = _frontres_sample_frame_ceiling(motion_lengths - 1, reserve)
+    return time_steps >= last_valid_current
+
+
 def _get_rank_world_size(shard_by: str = "global") -> tuple[int, int]:
     """Best-effort (rank, world_size) for multi-GPU dataset sharding.
 
@@ -3797,6 +3815,22 @@ class MultiMotionCommand(CommandTerm):
         self.metrics["sampling_top1_prob"][env_ids] = pmax
         self.metrics["sampling_top1_bin"][env_ids] = imax.to(torch.float32) / torch.clamp(bin_counts_float, min=1.0)
 
+    def _refresh_frontres_motion_end_buf(self, env_ids: Sequence[int] | None = None) -> torch.Tensor:
+        """Publish the motion-end rows consumed by the following environment step."""
+
+        if env_ids is None:
+            ids = torch.arange(self.num_envs, device=self.device, dtype=torch.long)
+        else:
+            ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long)
+        motion_lengths = self.motion_lengths[self.env_motion_indices[ids]]
+        ended = _frontres_motion_end_mask(
+            self.time_steps[ids],
+            motion_lengths,
+            int(self.cfg.frontres_required_future_frames),
+        )
+        self.motion_end_buf[ids] = ended
+        return ended
+
     def _resample_command(self, env_ids: Sequence[int]):
         if len(env_ids) == 0:
             return
@@ -3816,6 +3850,8 @@ class MultiMotionCommand(CommandTerm):
             self._adaptive_sampling(env_ids)
 
         self._sync_frontres_pairs(sync_perturbation=False)
+        # B1: pair frame 同步后发布 future-window end 状态, 防止边界起点多走一步.
+        self._refresh_frontres_motion_end_buf(env_ids)
 
         motion_indices = self.env_motion_indices[env_ids]
         self.motion_sample_counts.index_add_(
@@ -4076,12 +4112,8 @@ class MultiMotionCommand(CommandTerm):
         # ─────────────────────────────────────────────────────────────────────
 
         # Per-motion episode end detection and resampling
-        motion_lengths = self.motion_lengths[self.env_motion_indices]
-        ended = self.time_steps >= motion_lengths                                  # (num_envs,)
-        self.motion_end_buf[:] = ended
-        # envs_to_resample = torch.where(self.time_steps >= motion_lengths)[0]
-        # if envs_to_resample.numel() > 0:
-        #     self._resample_command(envs_to_resample)
+        # B2: future-window owner 提前发布 motion end, 让下一 env.step 先 reset 再返回 observation.
+        self._refresh_frontres_motion_end_buf()
 
         # Compute relative body poses vs anchor
         anchor_pos_w_repeat = self.anchor_pos_w[:, None, :].repeat(1, len(self.cfg.body_names), 1)
