@@ -185,6 +185,8 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
     telemetry = {
         "transaction_id": transaction_id,
         "policy_snapshot_id": str(getattr(result, "policy_snapshot_id", "")),
+        "source_index": tuple(int(value) for value in diagnostics.get("source_index", ())),
+        "trial_index": tuple(int(value) for value in diagnostics.get("trial_index", ())),
         **fields,
         "intent_scales": gain_identity[0],
         "physics_scales": gain_identity[1],
@@ -289,4 +291,8 @@ def require_frontres_committed_result(runner: Any, result: Any) -> dict[str, Any
             or not float(critic_delta.get("param_delta_max_abs", 0.0)) > 0.0
         ):
             raise RuntimeError("FRS-TRAIN-v014 critic-only commit requires frozen actor/std and updated Critic")
+    # AUDIT-B02/B05/B06/B07: 最终 serializer 只读审计, 不反馈训练状态.
+    from rsl_rl.runners.frontres_formal_runtime_audit import print_phase_b_telemetry_audit
+
+    print_phase_b_telemetry_audit(runner, telemetry=telemetry)
     return summary

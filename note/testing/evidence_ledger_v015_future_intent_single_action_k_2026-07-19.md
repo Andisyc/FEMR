@@ -7695,3 +7695,52 @@ Validation:
 
 Verdict: Phase B instrumentation is ready for human review but not authorized.
 The only unresolved command input is the absolute HSL-v2 artifact path.
+
+## E-FI-121: Formal Runtime Audit Phase B Instrumentation Closure
+
+Date: 2026-08-04
+
+Scope and authority:
+
+- `AUDIT-B01` through `AUDIT-B08` are installed as read-only, fail-closed
+  assertions in the existing formal owners. No new runner, evaluator, Gain
+  owner, PPO owner or checkpoint format was introduced;
+- launch identity is checked at the formal route boundary; observation and
+  one-action-K facts are checked from the collector-owned immutable evidence;
+  final Gain/return/group/update facts are checked from the existing sealed
+  telemetry projection; checkpoint-v9 facts are checked from the committed
+  payload before reporting;
+- diagnostics do not recompute Gain and do not write sampler, optimizer,
+  transaction or curriculum state.
+
+Offline evidence:
+
+- `frontres_formal_runtime_audit_contract.py` emits B01-B08 exactly once for a
+  valid K8/M2 fixture and rejects later FEMR action, mixed scenario identity,
+  missing curriculum and mixed K/M payloads;
+- `frontres_segment_stage3_launch_command_contract.py`,
+  `frontres_v015_one_action_k_contract.py`,
+  `frontres_v015_transaction_route_contract.py` and
+  `frontres_v015_checkpoint_resume_contract.py` pass unchanged;
+- Python compilation and `git diff --check` pass. No simulator, training or
+  live transaction was started.
+
+Final engineering-discipline review:
+
+- verdict `APPROVE`, with P0=0 and P1=0. The added responsibility remains one
+  CCP-coherent read-only runtime-audit owner; the formal collector and final
+  serializer only call that owner at their existing immutable output seams;
+- no wrapper, service, duplicate Gain/PPO calculation, private simulator
+  traversal, silent fallback/zero-fill, persistence mutation or diagnostic
+  feedback path was added. Runtime truth and policy quality remain explicitly
+  outside this offline verdict.
+
+Artifact and remaining boundary:
+
+- the runtime-confirmed `frontres-v017-hsl-proposal-v2` artifact is
+  `/hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt`;
+- the only remaining Phase B evidence is one official 8-env, K8/M2,
+  one-transaction, one-update live execution and committed checkpoint-v9.
+
+Verdict: Phase B instrumentation is offline-closed. Runtime observation remains
+pending; no runtime or policy-quality claim is made.

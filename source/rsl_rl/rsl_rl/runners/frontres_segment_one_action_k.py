@@ -27,6 +27,7 @@ from rsl_rl.frontres.frontres_segment_grouped_adapter import build_frontres_v015
 
 
 from rsl_rl.runners.frontres_rollout_step import append_frontres_future_intent_actor_context, frontres_motion_command, prepare_frontres_v015_frozen_gmt_step, prepare_frontres_v015_one_action_at_t
+from rsl_rl.runners.frontres_formal_runtime_audit import print_one_action_k_audit
 
 
 
@@ -770,6 +771,8 @@ def collect_frontres_v015_one_action_k_evidence(
             ),
         )
         evidence.validate()
+        # AUDIT-B03/B04: 在 one-action-K owner 输出 observation authority 与 frozen-GMT 事实.
+        print_one_action_k_audit(runner, evidence=evidence)
         return evidence
     finally:
         if execution_started:

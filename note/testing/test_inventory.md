@@ -2,6 +2,17 @@
 
 Updated: 2026-08-04
 
+## Phase B Instrumentation Closure E-FI-121
+
+- `frontres_formal_runtime_audit_contract.py` independently exercises
+  `AUDIT-B01` through `AUDIT-B08`, including invalid later-FEMR action, mixed
+  scenario identity and malformed checkpoint curriculum rejection;
+- the production checks read existing one-action-K evidence, immutable final
+  telemetry and checkpoint payloads. They do not recompute Gain or feed state
+  back into training;
+- launch, one-action-K, sealed transaction and checkpoint-v9 focused
+  regressions pass. Simulator/live facts remain pending.
+
 ## DP10 Future Motion Context Offline Readiness E-FI-119
 
 - `frontres_future_intent_actor_context_contract.py` fixes the only valid

@@ -25,7 +25,7 @@ Affected Module Test Cards          updated and passed (E-FI-109)
 Step 1 / 2 offline migration        complete (E-FI-109)
 Direct full-6D action closure       completed offline (E-FI-114)
 Formal Runtime Audit Phase A        DP-01 through DP-10 reviewed offline
-Formal Runtime Audit Phase B        eight runtime cards drafted; probes/live not authorized
+Formal Runtime Audit Phase B        B01-B08 instrumented and offline-tested; live not run
 Step 2 / 2 bounded live sentinel    not authorized
 ```
 
@@ -92,9 +92,11 @@ layout/config owner, rejects `(1,3)` before mutation, and proves the unmocked
 offline `870D + 58D -> 928D -> FrontRES 158D / GMT 770D` route with one actor
 action. TEST-04/05/10/16 and the 49/49 deterministic aggregate pass.
 - E-FI-120 Phase B control surface: `note/architecture/06_frontres_runtime_audit_atlas.html`
-  projects AUDIT-B01 through AUDIT-B08 in official Stage3 order. No probe or
-  live evidence exists yet. A real HSL-v2 artifact path is the only command
-  precondition not confirmed from this checkout.
+  projects AUDIT-B01 through AUDIT-B08 in official Stage3 order.
+- E-FI-121 installs those eight read-only, fail-closed checks in the existing
+  formal owners and passes the focused offline instrumentation regressions.
+  The HSL-v2 artifact is runtime-confirmed; the single live transaction remains
+  unexecuted and separately authorized.
 E-FI-109 proves offline code and persistence semantics. It does not prove
 simulator/live class populations, policy quality or deployment behavior.
 
@@ -124,7 +126,7 @@ MOSAIC host change or an unresolvable P0/P1.
 
 ## Next Action
 
-Review the eight Phase B cards in Runtime Audit Atlas 06 and confirm the real
-HSL-v2 checkpoint path. Only after that human gate may AUDIT-B01..B08 be
-inserted and one bounded official run be started. Phase B and Step 2 / 2 live
-execution remain unauthorized.
+`AUDIT-B01..B08` are inserted and offline-closed at E-FI-121, and the real
+HSL-v2 artifact is confirmed. The next separately authorized action is the
+single bounded official 8-env, K8/M2, one-transaction, one-update run. No
+simulator, training or live execution occurred during instrumentation closure.

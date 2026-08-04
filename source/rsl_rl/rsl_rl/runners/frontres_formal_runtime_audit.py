@@ -255,6 +255,35 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
     )
     assert getattr(runner.alg, "frontres_training_objective", "") == "segment_replay_hrl"
     assert bool(getattr(boundary, "live_train_enabled", False)) and not alternate
+    required_identity = {
+        "frontres_method_contract_id": "FRS-METHOD-v017",
+        "frontres_gain_contract_id": "FRS-GAIN-v007",
+        "frontres_optimization_contract_id": "FRS-PPO-v005",
+        "frontres_training_contract_id": "FRS-TRAIN-v014",
+    }
+    for name, expected in required_identity.items():
+        assert getattr(alg, name, None) == expected, f"AUDIT-B01 requires {name}={expected}"
+    offsets = tuple(int(value) for value in (getattr(alg, "frontres_future_offsets", ()) or ()))
+    checkpoint_path = str(getattr(runner, "_frontres_last_loaded_checkpoint_path", ""))
+    assert offsets == (1, 2), "AUDIT-B01 requires future offsets (1,2)"
+    assert checkpoint_path, "AUDIT-B01 requires a validated HSL-v2 initializer path"
+    assert int(num_learning_iterations) == 1 and int(getattr(runner, "current_learning_iteration", -1)) == 0, (
+        "AUDIT-B01 is admitted only for the fresh one-transaction Phase B run"
+    )
+    # AUDIT-B01: 检查正式入口身份, 位于 HSL-v2 load -> ordinary Stage3 train.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-B01",
+        limit=1,
+        checkpoint=checkpoint_path,
+        contracts="FRS-METHOD-v017/FRS-GAIN-v007/FRS-PPO-v005/FRS-TRAIN-v014",
+        future_offsets=offsets,
+        active_k=8,
+        active_m=2,
+        envs=8,
+        iterations=int(num_learning_iterations),
+        alternate_modes=int(alternate),
+    )
     print(
         "[AUDIT-ROUTE-01] "
         f"objective={getattr(runner.alg, 'frontres_training_objective', 'missing')} "
@@ -504,6 +533,204 @@ def print_segment_replay_transaction_audit(runner: Any, *, result: Any) -> None:
     )
 
 
+def print_one_action_k_audit(runner: Any, *, evidence: Any) -> None:
+    """Expose the active observation and one-action-K facts at their owner boundary."""
+
+    if not formal_runtime_audit_enabled(runner):
+        return
+    from rsl_rl.runners.frontres_segment_runtime_types import frontres_observation_trace
+
+    trace = dict(frontres_observation_trace(runner))
+    expected_trace = {
+        "role_row_count": 8,
+        "current_command_dim": 58,
+        "raw_observation_dim": 870,
+        "q29_tail_dim": 58,
+        "combined_observation_dim": 928,
+        "normalized_observation_dim": 928,
+        "femr_visible_dim": 158,
+        "gmt_suffix_dim": 770,
+        "gmt_input_dim": 770,
+    }
+    for name, expected in expected_trace.items():
+        assert int(trace.get(name, -1)) == expected, f"AUDIT-B03 requires {name}={expected}"
+
+    roles = tuple(getattr(evidence, "roles", ()))
+    provenance = tuple(getattr(evidence, "intent_q29_provenance", ()))
+    sources = tuple(str(value).lower() for value in getattr(evidence, "intent_q29_source", ()))
+    assert len(roles) == 8 and roles.count("repair") == roles.count("noisy") == 4
+    assert len(provenance) == len(sources) == 8
+    assert all(value == "deployment_noisy_q29" for value in provenance)
+    assert all(value and not any(token in value for token in ("clean", "root", "global")) for value in sources)
+
+    actions = getattr(evidence, "policy_actions", None)
+    horizon_k = getattr(evidence, "horizon_k", None)
+    continuation = getattr(evidence, "continuation", None)
+    gmt_actions = getattr(evidence, "frozen_gmt_env_actions", None)
+    assert isinstance(actions, torch.Tensor) and tuple(actions.shape) == (4, 6)
+    assert bool(torch.isfinite(actions).all().item())
+    assert isinstance(horizon_k, torch.Tensor) and tuple(horizon_k.shape) == (8,)
+    assert bool((horizon_k == 8).all().item())
+    assert isinstance(continuation, torch.Tensor) and tuple(continuation.shape) == (8, 8, 65)
+    assert isinstance(gmt_actions, torch.Tensor) and tuple(gmt_actions.shape) == (8, 8, 29)
+    assert int(getattr(evidence, "actor_forward_count", -1)) == 1
+    assert int(getattr(evidence, "later_femr_action_count", -1)) == 0
+    assert int(trace.get("post_advance_gmt_read_count", -1)) == 8
+
+    policy = getattr(getattr(runner, "alg", None), "policy", None)
+    gmt_policy = getattr(policy, "gmt_policy", None)
+    assert isinstance(gmt_policy, torch.nn.Module) and not gmt_policy.training
+    assert all(not parameter.requires_grad for parameter in gmt_policy.parameters())
+
+    # AUDIT-B03: 检查角色、Noisy provenance 与 928/158/770 权限分割.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-B03",
+        limit=8,
+        roles=roles,
+        provenance=provenance,
+        raw=trace["raw_observation_dim"],
+        q29_tail=trace["q29_tail_dim"],
+        combined=trace["combined_observation_dim"],
+        femr=trace["femr_visible_dim"],
+        gmt=trace["gmt_suffix_dim"],
+    )
+    # AUDIT-B04: 检查一次 FEMR action 后仅 frozen GMT 执行 K8.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-B04",
+        limit=8,
+        action_shape=tuple(actions.shape),
+        action_finite=1,
+        actor_forward_count=1,
+        later_femr_action_count=0,
+        horizon_k=8,
+        continuation_shape=tuple(continuation.shape),
+        gmt_action_shape=tuple(gmt_actions.shape),
+        gmt_eval=int(not gmt_policy.training),
+        gmt_trainable=sum(int(parameter.requires_grad) for parameter in gmt_policy.parameters()),
+    )
+
+
+def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) -> None:
+    """Validate the final immutable serializer used by the formal transaction."""
+
+    if not formal_runtime_audit_enabled(runner):
+        return
+    rows = int(telemetry.get("policy_row_count", -1))
+    active_m = int(telemetry.get("active_m", -1))
+    source_index = tuple(int(value) for value in telemetry.get("source_index", ()))
+    trial_index = tuple(int(value) for value in telemetry.get("trial_index", ()))
+    scenario_ids = tuple(telemetry.get("scenario_ids", ()))
+    noisy_hashes = tuple(telemetry.get("noisy_segment_hashes", ()))
+    assert rows == 4 and active_m == 2 and int(telemetry.get("selected_segment_count", -1)) == 2
+    assert len(source_index) == len(trial_index) == len(scenario_ids) == len(noisy_hashes) == rows
+    unique_sources = sorted(set(source_index))
+    assert len(unique_sources) == 2
+    for source in unique_sources:
+        indices = [index for index, value in enumerate(source_index) if value == source]
+        assert len(indices) == active_m and sorted(trial_index[index] for index in indices) == [0, 1]
+        assert len({scenario_ids[index] for index in indices}) == 1
+        assert len({noisy_hashes[index] for index in indices}) == 1
+
+    # AUDIT-B02: 检查两个 sealed Segment 各有 exact M=2 attempts.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-B02",
+        limit=1,
+        transaction_id=telemetry.get("transaction_id"),
+        source_index=source_index,
+        trial_index=trial_index,
+        scenario_ids=scenario_ids,
+        noisy_hashes=noisy_hashes,
+        policy_rows=rows,
+    )
+
+    gain_fields = (
+        "intent_remaining_noisy",
+        "intent_remaining_repaired",
+        "physics_remaining_noisy",
+        "physics_remaining_repaired",
+        "intent_gain",
+        "physics_gain",
+        "recovery_pressure",
+        "weighted_physics_gain",
+        "repair_cost",
+        "repair_penalty",
+        "cost_free_score",
+        "gain_total",
+    )
+    for name in gain_fields:
+        values = tuple(float(value) for value in telemetry.get(name, ()))
+        assert len(values) == rows and all(math.isfinite(value) for value in values), (
+            f"AUDIT-B05 requires four finite {name} rows"
+        )
+    assert tuple(telemetry.get("clean_execution_count", ())) == (1, 1)
+    assert tuple(telemetry.get("noisy_execution_count", ())) == (1, 1)
+    # AUDIT-B05: 检查 Clean/Noisy baseline 与四条完整 v007 Repair Gain.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-B05",
+        limit=1,
+        clean=telemetry["clean_execution_count"],
+        noisy=telemetry["noisy_execution_count"],
+        repair=rows,
+        intent_gain=telemetry["intent_gain"],
+        physics_gain=telemetry["physics_gain"],
+        physics_remaining_noisy=telemetry["physics_remaining_noisy"],
+        physics_remaining_repaired=telemetry["physics_remaining_repaired"],
+        pressure=telemetry["recovery_pressure"],
+        weighted_physics_gain=telemetry["weighted_physics_gain"],
+        repair_cost=telemetry["repair_cost"],
+        repair_penalty=telemetry["repair_penalty"],
+        gain_total=telemetry["gain_total"],
+    )
+
+    gains = tuple(float(value) for value in telemetry["gain_total"])
+    assert int(telemetry.get("active_k", -1)) == 8
+    assert tuple(bool(value) for value in telemetry.get("valid_policy_row_mask", ())) == (True,) * 4
+    assert math.isclose(float(telemetry["return_mean"]), sum(gains) / rows, abs_tol=1e-6)
+    assert math.isclose(float(telemetry["return_min"]), min(gains), abs_tol=1e-6)
+    assert math.isclose(float(telemetry["return_max"]), max(gains), abs_tol=1e-6)
+    # AUDIT-B06: 检查每个 attempt 只写一条 PPO row 且 return=G_total.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-B06",
+        limit=1,
+        policy_rows=rows,
+        active_k=telemetry.get("active_k"),
+        valid=telemetry.get("valid_policy_row_mask"),
+        gain_total=gains,
+        return_mean=telemetry["return_mean"],
+        return_min=telemetry["return_min"],
+        return_max=telemetry["return_max"],
+    )
+
+    assert bool(telemetry.get("grouped_reduction_active", False))
+    assert tuple(float(value) for value in telemetry.get("grouped_segment_mass_shares", ())) == (0.5, 0.5)
+    assert tuple(float(value) for value in telemetry.get("grouped_attempt_mass_shares", ())) == (0.25,) * 4
+    assert int(telemetry.get("optimizer_step_delta", -1)) == 1
+    assert int(telemetry.get("update_count", -1)) == 1
+    if telemetry.get("warmup_phase") == "critic_only":
+        actor_delta = telemetry.get("actor_std_parameter_delta", {})
+        critic_delta = telemetry.get("critic_parameter_delta", {})
+        assert float(actor_delta.get("param_delta_max_abs", float("nan"))) == 0.0
+        assert float(critic_delta.get("param_delta_max_abs", 0.0)) > 0.0
+    # AUDIT-B07: 检查 grouped 等权、exact-one update 和 critic-only freeze.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-B07",
+        limit=1,
+        segment_mass=telemetry["grouped_segment_mass_shares"],
+        attempt_mass=telemetry["grouped_attempt_mass_shares"],
+        update_count=telemetry["update_count"],
+        optimizer_step_delta=telemetry["optimizer_step_delta"],
+        phase=telemetry.get("warmup_phase"),
+        actor_std_delta=telemetry.get("actor_std_parameter_delta"),
+        critic_delta=telemetry.get("critic_parameter_delta"),
+    )
+
+
 def print_ppo_audit(runner: Any, *, result: Any) -> None:
     if not formal_runtime_audit_enabled(runner):
         return
@@ -600,6 +827,27 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
     )
     active_k = int(curriculum.get("active_k", 0))
     assert active_k in {row[0] for row in identity_schedule}, "formal Stage 3 checkpoint active K is not scheduled"
+    transaction = identity.get("transaction")
+    assert isinstance(transaction, Mapping) and transaction.get("state") == "committed"
+    receipt = transaction.get("receipt")
+    assert isinstance(receipt, Mapping), "AUDIT-B08 requires the committed receipt"
+    assert int(receipt.get("optimizer_step_delta", -1)) == 1
+    assert int(receipt.get("selected_segment_count", -1)) == 2
+    assert int(receipt.get("policy_row_count", -1)) == 4
+    assert int(receipt.get("role_row_count", -1)) == 8
+    assert int(receipt.get("active_k", -1)) == 8
+    assert int(receipt.get("active_m", -1)) == 2
+    gmt = identity.get("gmt")
+    assert isinstance(gmt, Mapping), "AUDIT-B08 requires frozen GMT identity"
+    assert int(gmt.get("normalizer_dim", -1)) == 770
+    assert len(str(gmt.get("checkpoint_sha256", ""))) == 64
+    assert len(str(gmt.get("normalizer_fingerprint", ""))) == 64
+    layout = identity.get("future_intent_layout")
+    assert isinstance(layout, Mapping), "AUDIT-B08 requires the 928/158/770 layout identity"
+    assert int(layout.get("actor_dim", -1)) == 928
+    assert int(layout.get("prefix_dim", -1)) == 158
+    assert int(layout.get("gmt_dim", -1)) == 770
+    assert tuple(layout.get("future_offsets", ())) == (1, 2)
 
     # B3: Emit the exact coordinated identity immediately before torch.save.
     print(
@@ -615,12 +863,32 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
         f"fingerprint={curriculum.get('schedule_fingerprint', 'missing')}",
         flush=True,
     )
+    # AUDIT-B08: 检查 committed receipt 与 checkpoint-v9 的同一身份.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-B08",
+        limit=1,
+        path=path,
+        checkpoint_format=identity["format"],
+        transaction_id=receipt.get("transaction_id"),
+        iteration=payload.get("iter"),
+        active_k=receipt.get("active_k"),
+        active_m=receipt.get("active_m"),
+        policy_rows=receipt.get("policy_row_count"),
+        role_rows=receipt.get("role_row_count"),
+        optimizer_step_delta=receipt.get("optimizer_step_delta"),
+        gmt_sha256=gmt["checkpoint_sha256"],
+        gmt_normalizer=gmt["normalizer_fingerprint"],
+        layout=(layout["actor_dim"], layout["prefix_dim"], layout["gmt_dim"]),
+    )
 
 
 __all__ = [
     "formal_runtime_audit_enabled",
     "print_checkpoint_payload_audit",
     "print_formal_route_audit",
+    "print_one_action_k_audit",
+    "print_phase_b_telemetry_audit",
     "print_ppo_audit",
     "print_rollout_storage_audit",
     "print_sampler_audit",

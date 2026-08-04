@@ -1,6 +1,6 @@
 {
   "title": "FrontRES Formal Runtime Audit Atlas",
-  "subtitle": "Phase B 人类检查面：只用一次 8-env / 1-transaction / 1-update 正式 Stage3 运行确认已经离线正确的模块是否在正式链路中按设计连接",
+  "subtitle": "Phase B 内部检查清单：B01-B08 已完成离线 instrumentation；等待一次 8-env / 1-transaction / 1-update 正式 Stage3 运行确认真实链路",
   "layout": "repository_reading_atlas",
   "canvasWidth": 4300,
   "defaultZoom": 1.0,
@@ -41,8 +41,8 @@
           ],
           "mainRouteTitles": ["解析唯一运行模式", "创建正式 Runner", "确认 active 身份"],
           "review": ["AUDIT-B01：打印 contract、HSL/checkpoint、offset、K/M/DR fingerprint", "正确结果：train + K8/M2 + offsets(1,2)，且无 legacy route"],
-          "tests": ["Phase B live-only: actual composed config and branch"],
-          "gap": "PENDING_LIVE；真实 HSL-v2 artifact 路径尚未确认"
+          "tests": ["Offline instrumentation contract passed; actual composed config remains live-only"],
+          "gap": "INSTRUMENTED_OFFLINE；HSL-v2 artifact 已确认；等待唯一一次正式 live observation"
         },
         {
           "id": "AUDIT-R02",
@@ -63,8 +63,8 @@
           ],
           "mainRouteTitles": ["读取当前 Curriculum", "封存两个情境", "收齐 exact M"],
           "review": ["AUDIT-B02：打印 segment/attempt/role counts 与 scenario/noisy hashes", "正确结果：2 Segment × 2 attempts；同 Segment 的 identity 全相同"],
-          "tests": ["Phase B live-only: actual sampler population and no-resample"],
-          "gap": "PENDING_LIVE"
+          "tests": ["Offline instrumentation contract passed; actual sampler population remains live-only"],
+          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
         },
         {
           "id": "AUDIT-R03",
@@ -85,8 +85,8 @@
           ],
           "mainRouteTitles": ["恢复同一动力学起点", "读取 Noisy Future Intent", "切分 Actor 与 GMT 权限"],
           "review": ["AUDIT-B03：打印 role identity、provenance 和全部 shape", "正确结果：8 role rows；Actor provenance 仅 deployment/Noisy"],
-          "tests": ["Phase B live-only: real env observation and role routing"],
-          "gap": "PENDING_LIVE"
+          "tests": ["Offline instrumentation contract passed; real env observation remains live-only"],
+          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
         },
         {
           "id": "AUDIT-R04",
@@ -107,8 +107,8 @@
           ],
           "mainRouteTitles": ["采样一次 Repair", "冻结 FEMR", "执行 K-step 后果"],
           "review": ["AUDIT-B04：打印 action shape/finite、per-attempt actor count、K frame count、GMT mode", "正确结果：4 个 attempt 各一次 Actor；GMT 始终 eval/no-grad"],
-          "tests": ["Phase B live-only: simulator action count and frozen lifecycle"],
-          "gap": "PENDING_LIVE"
+          "tests": ["Offline instrumentation contract passed; simulator action count remains live-only"],
+          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
         },
         {
           "id": "AUDIT-R05",
@@ -129,8 +129,8 @@
           ],
           "mainRouteTitles": ["封存 Paired Evidence", "计算 Recovery Pressure", "形成唯一 Scalar Gain"],
           "review": ["AUDIT-B05：打印 baseline/Repair counts、valid mask 和完整 Gain 分解", "正确结果：所有四条 attempt 有同 identity 的 finite G_total；语义 N/A 不伪装成缺失"],
-          "tests": ["Phase B live-only: real Contact/ZMP/survival applicability"],
-          "gap": "PENDING_LIVE"
+          "tests": ["Offline instrumentation contract passed; real Contact/ZMP/survival remains live-only"],
+          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
         },
         {
           "id": "AUDIT-R06",
@@ -151,8 +151,8 @@
           ],
           "mainRouteTitles": ["写入一条 Policy Row", "计算 Scalar Credit", "交给 Grouped PPO"],
           "review": ["AUDIT-B06：打印 row count、shape、valid count、return==G_total 和 identity hash", "正确结果：4 rows，不是 4×K；所有必需字段存在"],
-          "tests": ["Phase B live-only: official storage write and batch forwarding"],
-          "gap": "PENDING_LIVE"
+          "tests": ["Offline instrumentation contract passed; official storage write remains live-only"],
+          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
         },
         {
           "id": "AUDIT-R07",
@@ -173,8 +173,8 @@
           ],
           "mainRouteTitles": ["公平归约 Transaction", "执行一次 Optimizer", "核验 Phase 参数变化"],
           "review": ["AUDIT-B07：打印 group mass、loss/advantage、before/after steps 与 parameter deltas", "正确结果：step_delta=1；fresh K8 critic_only 的 Actor/std delta=0"],
-          "tests": ["Phase B live-only: real optimizer and parameter state"],
-          "gap": "PENDING_LIVE"
+          "tests": ["Offline instrumentation contract passed; real optimizer state remains live-only"],
+          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
         },
         {
           "id": "AUDIT-R08",
@@ -195,8 +195,8 @@
           ],
           "mainRouteTitles": ["封存 Transaction Receipt", "推进唯一训练状态", "保存严格 Checkpoint"],
           "review": ["AUDIT-B08：打印 receipt、iteration、schedule fingerprint、GMT hash、save identity", "正确结果：commit=1、iteration=1、checkpoint-v9；无 partial/mixed state"],
-          "tests": ["Phase B live-only: actual committed save"],
-          "gap": "PENDING_LIVE"
+          "tests": ["Offline instrumentation contract passed; actual committed save remains live-only"],
+          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
         }
       ]
     },
@@ -209,7 +209,7 @@
         {
           "id": "AUDIT-RUN",
           "title": "运行前必须确认",
-          "summary": "必须先给出真实 HSL-v2 checkpoint；旧 model_warmup.pt 的历史路径不能默认视为 v2",
+          "summary": "真实 HSL-v2 checkpoint 已确认；旧 HSL-v1 artifact 仍不得进入正式运行",
           "owns": "正式命令、artifact path、GPU、log path 与成本边界",
           "mustNot": "没有 HSL-v2 identity 时不得启动；不得改用 sentinel/probe 旁路",
           "designIds": ["FRS-DP-08"],
@@ -219,14 +219,14 @@
             {"id": "RUN-2", "path": "run_stage3.sh", "role": "服务器后台启动器", "functions": [], "sourceLine": 1, "sourceHref": "/open-source?path=run_stage3.sh&line=1"}
           ],
           "mainRoute": [
-            "B1 verify HSL_V2 identity + motion/cache roots",
-            "B2 install AUDIT-B01..B08 without changing method",
+            "B1 verified HSL_V2 identity + motion/cache roots",
+            "B2 AUDIT-B01..B08 installed and offline-tested without changing method",
             "B3 run train mode with 8 env / 1 iteration / 1 update"
           ],
           "mainRouteTitles": ["核验 Artifact", "安装正式边界诊断", "执行一次 Tiny Train"],
-          "review": ["命令模板见当前 checklist；HSL_V2 绝对路径确认后才能变成可执行命令", "成本：一个 K8/M2 transaction、一次 optimizer update、一个 checkpoint"],
-          "tests": ["No live run authorized by this atlas creation"],
-          "gap": "BLOCKED_FOR_HUMAN_INPUT：真实 HSL-v2 artifact path"
+          "review": ["HSL_V2=/hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt", "成本：一个 K8/M2 transaction、一次 optimizer update、一个 checkpoint"],
+          "tests": ["Artifact and offline instrumentation confirmed; no live run executed"],
+          "gap": "READY_FOR_SEPARATE_LIVE_AUTHORIZATION"
         }
       ]
     }

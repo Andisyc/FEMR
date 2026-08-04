@@ -1,7 +1,9 @@
 # FRS-v017 Clean-Anchored Recovery-Aware Engineering Plan
 
 Status: DP10 Future Motion Context is integrated offline and Phase A reviewed
-at E-FI-119. All ten Phase A design points are now reviewed offline. No
+at E-FI-119. All ten Phase A design points are now reviewed offline. E-FI-121
+adds and offline-tests the eight Phase B fail-closed runtime checks; the single
+official live transaction has not run. No
 Gain/PPO semantics or live boundary was reopened
 under `FRS-METHOD-v017 / FRS-GAIN-v007 / FRS-PPO-v005 / FRS-TRAIN-v014 /
 FRS-EVAL-v004`. E-FI-105 proves the previous v012 module surface;
@@ -436,14 +438,14 @@ Phase B is one bounded execution unit, not eight independent live tests. Atlas
 06 exposes eight edge cards in the official Stage3 order: launch identity,
 sealed scenario/transaction, reset/observation authority, one-action-K/frozen
 GMT, paired v007 Gain, storage/return, grouped exact-one update, and committed
-checkpoint/telemetry. The cards are a human review surface only; no source
-probe or runtime status is implied.
+checkpoint/telemetry. E-FI-121 installs their read-only assertions in the
+existing formal owners and proves them with deterministic offline fixtures;
+this is instrumentation evidence, not live evidence.
 
 The eventual run is fixed to fresh K8/M2, 8 envs, one transaction, one update
-and checkpoint interval 1. Before probe insertion or command release, the user
-must confirm an absolute artifact whose payload identity is
-`frontres-v017-hsl-proposal-v2`. The historical HSL-v1 path is not accepted by
-assumption. The intended command template is:
+and checkpoint interval 1. The runtime-confirmed HSL-v2 artifact is
+`/hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt`.
+The historical HSL-v1 path remains rejected. The executable command is:
 
 ```bash
 cd /hdd1/cyx/FEMR
@@ -454,13 +456,13 @@ RUN_NAME=V017_PHASE_B_RUNTIME_AUDIT \
 FRONTRES_G5_S4_BOUNDED=1 \
 FRONTRES_CHECKPOINT_INTERVAL=1 \
 FRONTRES_V015_K_CURRICULUM='8:2:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381,16:3:300:300:900:lower-k16:0.6:linear-joint-v1:900:2.381,32:4:400:300:625:lower-k32:0.7:linear-joint-v1:625:2.381' \
-bash run_stage3.sh <ABSOLUTE_HSL_V2_CHECKPOINT> \
+bash run_stage3.sh \
+/hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt \
 /hdd1/cyx/AMASS_G1NPZ_Final 8 1 1 train
 ```
 
-This template is deliberately not yet a runnable command. Probe insertion,
-source comments, exact artifact verification and the single live execution
-require the next explicit human confirmation.
+Instrumentation and artifact verification are complete. Executing the command
+is the remaining separately authorized live boundary.
 
 ### DP09 Actor & Critic Warmup Offline Readiness Closure
 

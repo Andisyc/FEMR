@@ -40,7 +40,10 @@ SCHEDULE = (
 def _runner(enabled: bool = True) -> SimpleNamespace:
     policy = SimpleNamespace(
         gmt_policy=nn.Linear(3, 3),
+        num_frontres_obs=158,
+        num_actor_obs=928,
     )
+    policy.gmt_policy.eval()
 
     for param in policy.gmt_policy.parameters():
         param.requires_grad = False
@@ -49,6 +52,11 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
         frontres_formal_runtime_audit=enabled,
         frontres_training_objective="segment_replay_hrl",
         frontres_segment_max_horizon_k=64,
+        frontres_future_offsets=(1, 2),
+        frontres_method_contract_id="FRS-METHOD-v017",
+        frontres_gain_contract_id="FRS-GAIN-v007",
+        frontres_optimization_contract_id="FRS-PPO-v005",
+        frontres_training_contract_id="FRS-TRAIN-v014",
         policy=policy,
         optimizer=torch.optim.SGD([actor_param], lr=0.1),
     )
@@ -69,8 +77,21 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
         },
         _dr_scale=1.25,
         _frontres_segment_replay_boundary=boundary,
-        current_learning_iteration=3,
+        current_learning_iteration=0,
+        _frontres_last_loaded_checkpoint_path="/tmp/frontres-v017-hsl-proposal-v2.pt",
     )
+
+
+def _committed_receipt(*, transaction_id: str = "tx-v017") -> dict[str, object]:
+    return {
+        "transaction_id": transaction_id,
+        "optimizer_step_delta": 1,
+        "selected_segment_count": 2,
+        "policy_row_count": 4,
+        "role_row_count": 8,
+        "active_k": 8,
+        "active_m": 2,
+    }
 
 
 def test_return_audit_uses_policy_gain_rows_only() -> None:
@@ -134,17 +155,29 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                     "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
                     "grouped_schema_id": "grouped-all-attempt-scalar-v1",
                     "gain": {"beta": 0.02},
+                    "gmt": {
+                        "checkpoint_sha256": "a" * 64,
+                        "normalizer_dim": 770,
+                        "normalizer_fingerprint": "b" * 64,
+                    },
+                    "future_intent_layout": {
+                        "actor_dim": 928,
+                        "prefix_dim": 158,
+                        "gmt_dim": 770,
+                        "future_offsets": (1, 2),
+                    },
                     "curriculum": {
                         "schedule": SCHEDULE,
                         "schedule_fingerprint": "f" * 64,
-                        "k_stage_index": 1,
-                        "active_k": 16,
+                        "k_stage_index": 0,
+                        "active_k": 8,
                         "stage_iteration": 0,
-                        "absolute_iteration": 3,
+                        "absolute_iteration": 0,
                         "phase": "critic_only",
                         "phase_iteration": 0,
                         "actor_loss_weight": 0.0,
                     },
+                    "transaction": {"state": "committed", "receipt": _committed_receipt()},
                 },
             },
         )
@@ -153,8 +186,10 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
         "AUDIT-ROUTE-01",
         "AUDIT-PERTURB-01",
         "AUDIT-HSL-LOAD-01",
+        "AUDIT-B01",
         "AUDIT-SEGMENT-REPLAY-01",
         "AUDIT-PERSIST-01",
+        "AUDIT-B08",
     ):
         assert output.count(f"[{label}]") == 1
     assert "alternate_modes=0" in output
@@ -171,8 +206,7 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     assert "optimizer_step_delta=1" in transaction_line and "update_invocations=1" in transaction_line
     assert "FRS-METHOD-v017/FRS-GAIN-v007/FRS-PPO-v005/FRS-TRAIN-v014" in transaction_line
     assert "FRS-GAIN-v002" not in output and "shape=(2, 870)" not in output
-    assert "lower-k8" in output and "active_k=16" in output
-    assert "active_k=16" in output
+    assert "lower-k8" in output and "active_k=8" in output
 
     for changed in (
         {"optimization_contract_id": "FRS-PPO-v004"},
@@ -210,7 +244,19 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v013_curriculum() -> None:
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
             "gain": {"beta": 0.02},
-            "curriculum": {"schedule": schedule, "active_k": 16},
+            "gmt": {
+                "checkpoint_sha256": "a" * 64,
+                "normalizer_dim": 770,
+                "normalizer_fingerprint": "b" * 64,
+            },
+            "future_intent_layout": {
+                "actor_dim": 928,
+                "prefix_dim": 158,
+                "gmt_dim": 770,
+                "future_offsets": (1, 2),
+            },
+            "curriculum": {"schedule": schedule, "active_k": 8},
+            "transaction": {"state": "committed", "receipt": _committed_receipt()},
         },
     }
     for mutate in (
@@ -233,6 +279,102 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v013_curriculum() -> None:
             pass
         else:
             raise AssertionError("formal audit accepted missing or mixed v013 curriculum")
+
+
+def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
+    from rsl_rl.runners.frontres_segment_runtime_types import (
+        bind_frontres_collection_context,
+        open_frontres_checkpoint_transaction_barrier,
+        update_frontres_observation_trace,
+    )
+
+    runner = _runner()
+    open_frontres_checkpoint_transaction_barrier(runner)
+    bind_frontres_collection_context(runner, route="training", sample=object(), batch=object())
+    update_frontres_observation_trace(
+        runner,
+        role_row_count=8,
+        current_command_dim=58,
+        raw_observation_dim=870,
+        q29_tail_dim=58,
+        combined_observation_dim=928,
+        normalized_observation_dim=928,
+        femr_visible_dim=158,
+        gmt_suffix_dim=770,
+        gmt_input_dim=770,
+        post_advance_gmt_read_count=8,
+    )
+    evidence = SimpleNamespace(
+        roles=("repair",) * 4 + ("noisy",) * 4,
+        intent_q29_provenance=("deployment_noisy_q29",) * 8,
+        intent_q29_source=("sealed_noisy_q29",) * 8,
+        policy_actions=torch.zeros(4, 6),
+        horizon_k=torch.full((8,), 8, dtype=torch.long),
+        continuation=torch.zeros(8, 8, 65),
+        frozen_gmt_env_actions=torch.zeros(8, 8, 29),
+        actor_forward_count=1,
+        later_femr_action_count=0,
+    )
+    telemetry = {
+        "transaction_id": "tx-v017",
+        "source_index": (0, 0, 1, 1),
+        "trial_index": (0, 1, 0, 1),
+        "scenario_ids": ("s0", "s0", "s1", "s1"),
+        "noisy_segment_hashes": ("h0", "h0", "h1", "h1"),
+        "policy_row_count": 4,
+        "active_k": 8,
+        "active_m": 2,
+        "selected_segment_count": 2,
+        "valid_policy_row_mask": (True,) * 4,
+        "clean_execution_count": (1, 1),
+        "noisy_execution_count": (1, 1),
+        "intent_remaining_noisy": (0.4,) * 4,
+        "intent_remaining_repaired": (0.2, 0.3, 0.5, 0.6),
+        "physics_remaining_noisy": (0.5,) * 4,
+        "physics_remaining_repaired": (0.4, 0.3, 0.2, 0.1),
+        "intent_gain": (0.2, 0.1, -0.1, -0.2),
+        "physics_gain": (0.1, 0.2, 0.3, 0.4),
+        "recovery_pressure": (1.0,) * 4,
+        "weighted_physics_gain": (0.1, 0.2, 0.3, 0.4),
+        "repair_cost": (0.01,) * 4,
+        "repair_penalty": (0.01,) * 4,
+        "cost_free_score": (0.3, 0.3, 0.2, 0.2),
+        "gain_total": (0.29, 0.29, 0.19, 0.19),
+        "return_mean": 0.24,
+        "return_min": 0.19,
+        "return_max": 0.29,
+        "grouped_reduction_active": True,
+        "grouped_segment_mass_shares": (0.5, 0.5),
+        "grouped_attempt_mass_shares": (0.25,) * 4,
+        "optimizer_step_delta": 1,
+        "update_count": 1,
+        "warmup_phase": "critic_only",
+        "actor_std_parameter_delta": {"param_delta_max_abs": 0.0},
+        "critic_parameter_delta": {"param_delta_max_abs": 0.1},
+    }
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        audit.print_one_action_k_audit(runner, evidence=evidence)
+        audit.print_phase_b_telemetry_audit(runner, telemetry=telemetry)
+    output = stream.getvalue()
+    for label in ("AUDIT-B02", "AUDIT-B03", "AUDIT-B04", "AUDIT-B05", "AUDIT-B06", "AUDIT-B07"):
+        assert output.count(f"[{label}]") == 1
+
+    invalid_evidence = SimpleNamespace(**{**vars(evidence), "later_femr_action_count": 1})
+    try:
+        audit.print_one_action_k_audit(runner, evidence=invalid_evidence)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("AUDIT-B04 accepted a later FEMR action")
+
+    invalid_telemetry = {**telemetry, "scenario_ids": ("s0", "mixed", "s1", "s1")}
+    try:
+        audit.print_phase_b_telemetry_audit(runner, telemetry=invalid_telemetry)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("AUDIT-B02 accepted mixed scenario identity")
 
 
 def test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners() -> None:
@@ -407,6 +549,7 @@ def test_termination_term_snapshot_preserves_term_and_role_identity() -> None:
 if __name__ == "__main__":
     test_return_audit_uses_policy_gain_rows_only()
     test_structured_phase_b_snapshots_cover_all_formal_boundaries()
+    test_phase_b_one_action_and_final_telemetry_are_fail_closed()
     test_checkpoint_audit_rejects_missing_or_mixed_v013_curriculum()
     test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners()
     test_active_k_audit_ids_exclude_legacy_state_driven_sampler()
