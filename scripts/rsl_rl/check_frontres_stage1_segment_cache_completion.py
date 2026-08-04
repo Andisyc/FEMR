@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -13,7 +12,11 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FRONTRES_SOURCE = ROOT / "source" / "rsl_rl" / "rsl_rl" / "frontres"
+SOURCE_ROOT = ROOT / "source" / "rsl_rl"
+if str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
+
+from rsl_rl.frontres.frontres_segment_cache_validator import validate_stage1_cache_artifacts  # noqa: E402
 AMASS_G1_REQUIRED_KEYS = (
     "fps",
     "joint_pos",
@@ -364,8 +367,7 @@ def _run_deep_validation(cache_dir: Path, *, expect_mode: str | None, mode: str)
     if mode == "never":
         return True, "skipped"
     try:
-        validator = _load_frontres_module("frontres_segment_cache_validator")
-        result = validator.validate_stage1_cache_artifacts(cache_dir)
+        result = validate_stage1_cache_artifacts(cache_dir)
         if expect_mode is not None and result.perturbation_curriculum_mode != expect_mode:
             return False, "failed_mode_mismatch"
         return True, "passed"
@@ -374,18 +376,6 @@ def _run_deep_validation(cache_dir: Path, *, expect_mode: str | None, mode: str)
         if mode == "auto":
             return True, "skipped_unavailable"
         return False, "failed"
-
-
-def _load_frontres_module(module_name: str):
-    path = FRONTRES_SOURCE / f"{module_name}.py"
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        raise ModuleNotFoundError(module_name)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
 
 def _expected_noisy_count(metadata: dict[str, Any], segment_count: int) -> int | None:
     variants_per_strength = int(metadata.get("variants_per_strength", 1))

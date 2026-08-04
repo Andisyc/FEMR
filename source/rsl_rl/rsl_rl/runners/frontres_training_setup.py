@@ -5,20 +5,11 @@
 
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
 from typing import Any
 
 import torch
 
-_AUDIT_SPEC = importlib.util.spec_from_file_location(
-    "frontres_formal_runtime_probe_setup",
-    Path(__file__).resolve().parents[1] / "frontres" / "frontres_formal_runtime_probe.py",
-)
-assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
-_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
-_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
-emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
+from rsl_rl.frontres.frontres_formal_runtime_probe import emit_formal_runtime_probe
 
 from rsl_rl.frontres.perturbation_runtime import (
     apply_frontres_dr_scale,

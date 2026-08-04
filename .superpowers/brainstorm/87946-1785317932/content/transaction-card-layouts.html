@@ -1,0 +1,60 @@
+<h2>Atlas 07 应怎样只讲 Transaction？</h2>
+<p class="subtitle">三种方案都保留现有十个设计索引按钮，并删除实现证据、风险、公式矩阵和源码页脚。请只比较阅读负担与流程清晰度。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock-nav">设计索引：Perturbation · Replay · K · Repair · GMT · Pair · Gain · HSL · Warmup · Future</div>
+      <div class="mockup-body">
+        <div class="label">A · 推荐</div>
+        <h3>一条统一主链，按设计点高亮</h3>
+        <p>选择 Segment Replay 后，仅高亮它负责的环节：</p>
+        <p><strong>选择 2 个 Segment</strong> → 封存 scenario → 重置到同一 x_t → <strong>采样 exact M 次</strong> → one-action-K → 封存 2×M rows → <strong>一次 grouped update</strong></p>
+        <p style="opacity:.58">其余环节保留为灰色上下文，不展开解释。</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>统一 Transaction Spine</h3>
+      <p>十个按钮共同检查同一条 transaction。选中设计点只改变高亮和一句职责说明，概念最不容易漂移。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock-nav">设计索引：Perturbation · Replay · K · Repair · GMT · Pair · Gain · HSL · Warmup · Future</div>
+      <div class="mockup-body">
+        <div class="label">B</div>
+        <h3>每个设计点一条局部流程</h3>
+        <p><strong>Segment Replay</strong></p>
+        <p>输入：两个 sealed scenarios</p>
+        <p>流程：同一 x_t 重置 → exact M attempts → 收集期间不更新</p>
+        <p>输出：完整 2×M rows → 一次 grouped update</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>设计点局部流程卡</h3>
+      <p>每张卡只保留与该设计点直接有关的 transaction 片段，更短，但跨卡比较时需要自己拼接全局流程。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock-nav">设计索引：Perturbation · Replay · K · Repair · GMT · Pair · Gain · HSL · Warmup · Future</div>
+      <div class="mockup-body">
+        <div class="label">C</div>
+        <h3>三阶段 Transaction 账本</h3>
+        <p><strong>进入时：</strong>冻结 scenario、π_old、K、M</p>
+        <p><strong>执行时：</strong>每 attempt 仅在 t 输出一次 ΔSE(3)</p>
+        <p><strong>提交时：</strong>完整封存后恰好一次 update</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>进入 / 执行 / 提交</h3>
+      <p>视觉最短，但复杂设计点会被压缩成概述，不一定足以审查 reset、role 和 evidence 的时序。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <p><strong>统一语言规则：</strong>中文负责完整句子；只保留 Transaction、Segment、scenario、attempt、one-action-K、PPO row、grouped update、ΔSE(3)、π_old 等已经成为方法对象的英文术语。禁止“中文半句 + 英文动词半句”的拼接写法。</p>
+</div>

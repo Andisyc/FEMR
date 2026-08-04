@@ -6132,3 +6132,1566 @@ Verdict and remaining boundary:
 - runtime behavior of the refactored owner remains unconfirmed until the next
   already-planned official K16/M3 transaction. No extra standalone live probe
   is authorized or required.
+
+## E-FI-92: Interface-Oriented Formal Route Closure
+
+Date: 2026-07-29
+
+Tier: behavior-preserving ownership refactor plus deterministic S1/S2/S3
+regression. No simulator, training, deployment, live run or checkpoint IO
+occurred.
+
+Implemented boundary:
+
+- the MOSAIC host files remain byte-identical; existing public wrapper calls
+  are the compatibility shell rather than implementation owners;
+- `frontres_interfaces.py` is the lightweight authority for v016/v006/v004/
+  v011 identity, 928/158/770 observation authority, exact two-Segment x M row
+  shape, committed-update receipt, final telemetry and the lifecycle/update/
+  mode ports actually consumed by the engine;
+- `FrontRESStage3Engine` is the unique public formal transaction state machine;
+  it opens the barrier, forbids optimizer mutation during collection,
+  recollects only declared invalid evidence, commits one update, validates its
+  receipt and closes the ordinary training lifecycle;
+- `MosaicFrontRESStage3Backend` is the only adapter that knows the existing
+  live-probe primitives. The public update-loop dispatcher no longer imports
+  those private functions;
+- `frontres_segment_runner_boundary.py` now exposes one explicit run mode and
+  rejects mixed modes; final transaction telemetry is validated through the
+  typed identity/shape view before serialization;
+- the FrontRES package facade now lazily resolves its existing public exports,
+  allowing interface imports without eagerly constructing IsaacLab-dependent
+  modules.
+
+Evidence:
+
+- `frontres_interface_refactor_contract.py` passes under both system Python and
+  the project runtime, covering K8/M2, K16/M3, K32/M4, exact-one update,
+  provider-time mutation rejection, bounded recollection, exception cleanup,
+  lazy import and mixed-mode rejection;
+- `frontres_v015_transaction_route_contract.py`,
+  `frontres_segment_runner_boundary_contract.py`,
+  `frontres_segment_live_sentinel_contract.py`,
+  `frontres_segment_live_update_loop_contract.py`,
+  `frontres_v015_checkpoint_resume_contract.py`,
+  `frontres_segment_diagnostics_contract.py` and
+  `frontres_formal_runtime_audit_contract.py` pass;
+- `frontres_segment_all_contract_suite.py` reports
+  `contract_count=64 failed_count=0 total_marker_count=64`;
+- modified Python modules compile and `git diff --check` passes;
+- SHA-256 values for `train.py`, `on_policy_runner.py`, `commands.py`, base
+  `ppo.py` and `mosaic.py` match the frozen pre-refactor baseline.
+
+Residual boundary:
+
+- `frontres_segment_live_probe.py` remains a large concrete compatibility
+  backend. It is no longer the public orchestration owner, so internal physical
+  splitting can be performed by responsibility when a concrete backend change
+  requires it; doing so is not necessary to add a new engine/backend or to
+  change formal transaction sequencing.
+
+## E-FI-93: Interface Discipline One-Shot Completion
+
+Date: 2026-07-29
+
+Tier: behavior-preserving S1/S2/S3 interface and package-composition closure.
+No simulator, training, deployment or live run occurred. Deterministic tests
+used only fake/CPU owners and temporary checkpoint artifacts.
+
+Implementation evidence:
+
+- `frontres_interfaces.py` now exposes consumer-shaped request, committed
+  receipt, telemetry, observation-authority and exact K x M records. Invalid
+  identities, K/M rows, checkpoint format and exact-one counts reject before
+  the final consumer proceeds.
+- `frontres_stage3_engine.py` owns the only public transaction Unit of Work:
+  `idle -> collecting -> committing -> idle`. Its backend and bindings are
+  injected by `frontres_segment_live_update_loop.py`; the engine does not
+  import or locate live-probe implementations.
+- formal training, sampler, checkpoint, warmup, Gain, storage, diagnostics and
+  runtime owners use normal package imports. This removes duplicate module
+  identities for the v011 schedule, formal audit switch and Physics evaluator.
+- live training consumes public reset/observation/rollout/Gain and legacy-eval
+  batch seams. Physics consumers use public `frontres_balance.py` gateways.
+  Compatibility aliases remain only for historical callers and contracts.
+- isolated contracts use `frontres_contract_imports.py` as a lightweight test
+  composition root. They no longer depend on production file-path fallback or
+  empty pseudo-packages that contradict normal owner imports.
+
+Executed evidence:
+
+- modified Python owners passed `python -m py_compile`;
+- focused interface, transaction, one-action-K, sampler, checkpoint,
+  diagnostics, formal-runtime, policy-quality and sequence contracts passed;
+- `frontres_segment_all_contract_suite.py` reported
+  `contract_count=64 failed_count=0 total_marker_count=64`;
+- `git diff --check` passed;
+- the diff for frozen host files `train.py`, `on_policy_runner.py`,
+  `commands.py`, base `ppo.py` and `mosaic.py` was empty;
+- runtime and policy-quality Architecture source links were mechanically
+  realigned to their unchanged `# Bn:` evidence markers and both Atlas
+  contracts passed.
+
+Verdict:
+
+- the formal FEMR route is interface-oriented at its change-prone boundaries:
+  MOSAIC host adapter, transaction lifecycle, request/receipt identity,
+  telemetry, Physics gateway and package composition;
+- METHOD-v016, GAIN-v006, PPO-v004, TRAIN-v011, checkpoint-v6,
+  928/158/770, one-action-K and exact-M/exact-one semantics are unchanged;
+- the remaining size of `frontres_segment_live_probe.py` is localized
+  compatibility-facade debt. Further splitting is justified only when a
+  concrete internal responsibility changes; it is not a blocker for formal
+  training or adding a new backend implementation.
+
+## E-FI-94: Live-Probe Responsibility-Owner Extraction
+
+Date: 2026-07-29
+
+Tier: behavior-preserving S1/S2 architecture and deterministic connectivity
+closure. No simulator, training, deployment or live run occurred.
+
+Change evidence:
+
+- the 5840-line `frontres_segment_live_probe.py` implementation was separated
+  into runtime-types, probe-logging, policy-update, reset, storage/Gain,
+  one-action-K, formal-transaction, Physics, rollout, reporting and legacy-probe
+  owners. The old module is now a 225-line import-only compatibility facade;
+- active live-training, transaction-loop and policy-quality consumers import
+  public owner seams directly. The frozen MOSAIC `on_policy_runner.py` remains
+  the sole production facade consumer for its legacy probe entry;
+- cross-owner imports use public names, the extracted dependency graph is
+  acyclic and every owner is below 1000 lines. Physics and one-action-K expose
+  patchable public gateways instead of requiring facade-global replacement;
+- legacy characterization contracts now replace dependencies at the actual
+  owner boundary. No tensor formula, transaction ordering, checkpoint payload,
+  role layout, K/M schedule or actor/GMT observation authority changed;
+- repository, formal-runtime and policy-quality Architecture links now name the
+  extracted owners rather than stale lines in the former large module.
+
+Executed evidence:
+
+- `frontres_interface_refactor_contract.py` passes its facade-body, public
+  import, acyclic dependency, owner-size and direct-consumer assertions;
+- focused live-probe, one-action-K, Contact/ZMP, transaction, grouped-PPO,
+  formal-runtime and policy-quality contracts pass;
+- `frontres_segment_all_contract_suite.py` reports
+  `contract_count=64 failed_count=0 total_marker_count=64`;
+- modified Python files compile, Architecture JSON parses, both source-link
+  Atlas contracts pass and `git diff --check` passes;
+- the frozen MOSAIC host file diff remains empty.
+
+Verdict:
+
+- Phase B is complete. A change to reset, one-action-K, Physics, optimizer
+  update, transaction assembly or reporting now starts in one named owner and
+  does not require reading the compatibility facade;
+- E-FI-93 remains the typed outer transaction/Unit-of-Work evidence; E-FI-94
+  closes the inner responsibility split. The active training cursor remains
+  P5-C K16/M3 and is unaffected by this offline refactor.
+
+## E-FI-95: Adjacent Runner-Owner Interface Closure
+
+Date: 2026-07-29
+
+Tier: behavior-preserving S1/S2/S3 ownership and deterministic connectivity
+closure. No simulator, training, deployment or live run occurred.
+
+Change evidence:
+
+- `frontres_segment_transaction.py` is the single frozen-policy/exact-M
+  plan/accumulator owner; runtime records and formal commit no longer depend on
+  transaction definitions inside the sampler facade;
+- `frontres_segment_sampler_reporting.py` owns evidence projection and human
+  reporting, while `frontres_segment_live_sampler.py` retains selection,
+  materialization and compatibility orchestration;
+- `frontres_segment_training_telemetry.py` owns fail-closed committed telemetry
+  and removes the reverse formal-transaction dependency on the training loop;
+  legacy periodic/offline evaluation is isolated in
+  `frontres_segment_training_evaluation.py`;
+- `frontres_checkpoint_quality.py` owns read-only strict HSL-v1/Stage3-v6
+  identity inspection. `frontres_checkpointing.py` remains the only mutable
+  save/load gateway, consumes only the public identity API, and preserves the
+  payload format unchanged;
+- active v015 deployment and held-out evaluators contain no legacy sequence
+  plan or counterfactual actor implementations. Those compatibility paths live
+  in `frontres_segment_legacy_sequence_eval.py` and
+  `frontres_policy_quality_legacy.py`;
+- isolated tests now patch/load the real owner and lightweight package seam.
+  Production code gained no file-path fallback, service locator or second
+  mutable transaction owner.
+
+Executed evidence:
+
+- focused exact-M sampler/transaction, pseudo-training, telemetry,
+  sequence-evaluation, policy-quality identity/held-out/state/executor,
+  checkpoint-v6 resume and actual save/fresh-reload contracts pass;
+- `frontres_interface_refactor_contract.py` passes the Phase C owner and reverse
+  dependency assertions, including active/legacy policy-quality import in both
+  clean-process load orders and rejection of cross-owner private checkpoint
+  imports;
+- `frontres_segment_all_contract_suite.py` reports
+  `contract_count=64 failed_count=0 total_marker_count=64`;
+- modified Python compiles; repository/runtime/policy-quality Architecture JSON
+  parses; formal-runtime and policy-quality source-link contracts pass;
+- `git diff --check` passes and frozen MOSAIC hosts `train.py`,
+  `on_policy_runner.py`, `commands.py`, base `ppo.py` and `mosaic.py` have no
+  Phase C diff.
+
+Verdict:
+
+- Phase C is complete. Changes to exact-M lifecycle, sampler reporting,
+  transaction telemetry, quality artifact inspection, deployment composition
+  or legacy evaluation start in one named owner rather than a multi-purpose
+  hotspot;
+- METHOD-v016, GAIN-v006, PPO-v004, TRAIN-v011, checkpoint-v6,
+  928/158/770, one-action-K and exact-M/exact-one semantics are unchanged. The
+  active runtime cursor remains P5-C K16/M3.
+
+Reviewed hotspot exceptions:
+
+- `frontres_segment_live_sampler.py` (1312 lines) remains the single
+  selection/materialization imperative shell; sampler, fixed-scenario and
+  exact-M contracts contain it. Re-audit before adding a non-materialization
+  responsibility or at 2000 lines;
+- `frontres_segment_training_evaluation.py` (1549 lines) is an isolated legacy
+  evaluation owner. Sequence-evaluation characterization contains it; retire
+  it when the v002 compatibility route is removed rather than splitting it
+  into new public helpers;
+- `frontres_checkpointing.py` (1926 lines) remains one mutable HSL-v1/Stage3-v6
+  Unit-of-Work gateway. Resume, pre-mutation reject and actual save/fresh-load
+  contracts contain it; re-audit before any new format or persistence backend;
+- `frontres_segment_sequence_eval.py` (1587 lines) and
+  `frontres_policy_quality_eval.py` (1454 lines) remain deep active evaluator
+  owners. Their S1/S2/S3 evaluation contracts contain them; re-audit when a
+  second production entrypoint or independent report schema is introduced.
+
+## E-FI-96: Domain, Evidence, Projection And Dependency Owner Closure
+
+Date: 2026-07-29
+
+Tier: behavior-preserving S1/S2/S3 ownership and deterministic connectivity
+closure. No simulator, training, deployment or live run occurred.
+
+Change evidence:
+
+- `frontres_segment_planning.py`, `frontres_local_scenario.py` and
+  `frontres_segment_legacy_scenario.py` own transaction planning, active v015
+  immutable local scenarios and retired fixed-Noisy lifecycle respectively;
+  `frontres_segment_sampler.py` retains stateful selection, priority, budget
+  and persistence;
+- `frontres_segment_storage_records.py`, `frontres_segment_evidence.py`,
+  `frontres_segment_grouped_adapter.py` and
+  `frontres_segment_rollout_storage.py` own records, paired one-action-K facts,
+  grouped adaptation and mutable storage. `frontres_segment_storage.py` is a
+  41-line compatibility facade with no semantic body;
+- `frontres_constraint_projection.py` owns grouped constraint projection and
+  actual Adam Actor/std commit/restore. `frontres_segment_ppo.py` retains
+  grouped loss/reduction. Update validation, local evaluation and report
+  formatting moved to named diagnostic owners behind a 51-line facade;
+- production FrontRES modules use normal package imports. Formal transaction
+  dispatch uses the runner public port, and policy-quality request/state
+  interfaces break the former evaluator/formal-owner dependency cycle;
+- active consumers import their concrete public owner. Compatibility re-exports
+  remain only for frozen-host and historical contract surfaces.
+
+Executed evidence:
+
+- scenario lifecycle/provenance, sampler, storage, grouped candidate,
+  one-action-K, grouped PPO, v015 transaction, diagnostics, policy-quality
+  state/evaluator/held-out and Stage-1 cache contracts pass;
+- `frontres_interface_refactor_contract.py` rejects semantic bodies in storage
+  and diagnostics facades, production file-path dynamic loading, reverse formal
+  transaction dispatch and the policy-quality owner cycle;
+- `frontres_segment_all_contract_suite.py` reports
+  `contract_count=64 failed_count=0 total_marker_count=64`;
+- Runtime and Policy-Quality Atlas source links resolve to exact current
+  `# Bn:` boundaries; their contracts and JSON parse pass;
+- modified Python compiles, `git diff --check` passes, and frozen MOSAIC hosts
+  `train.py`, `on_policy_runner.py`, `commands.py`, base `ppo.py` and
+  `mosaic.py` have no Phase D diff.
+
+Verdict:
+
+- Phase D is complete. Scenario, evidence/storage, projection/actual commit,
+  diagnostics and policy-quality shared state changes now start in one named
+  owner instead of a multipurpose facade;
+- METHOD-v016, GAIN-v006, PPO-v004, TRAIN-v011, EVAL-v003, checkpoint-v6,
+  928/158/770, one-action-K and exact-M/exact-one semantics are unchanged;
+- the active runtime cursor remains P5-C. No additional refactor gate is needed
+  before the existing K16/M3 campaign resumes.
+
+## E-FI-97: Evaluation Legacy-Isolation And Public-Dependency Closure
+
+Date: 2026-07-30
+
+Tier: behavior-preserving S1/S2/S3 interface and deterministic connectivity
+evidence. No simulator, training, deployment or live run occurred.
+
+Change evidence:
+
+- runner evaluation connectors now depend directly on
+  `frontres_segment_training_evaluation.py`; live-training no longer re-exports
+  Evaluation functions or owns duplicate legacy Gain-name tables;
+- legacy sequence planning is consumed directly from
+  `frontres_segment_legacy_sequence_eval.py`; the active v015 deployment
+  evaluator no longer exposes legacy sequence-plan compatibility exports;
+- the active policy-quality entry is v015-only and fails closed instead of
+  selecting legacy semantics from a runtime boolean. Historical matched-route
+  evaluation has an explicit legacy entry;
+- policy-quality tensor snapshots and JSON conversion now cross module
+  boundaries through public owner names. Static contracts reject private and
+  reverse dependencies.
+
+Executed evidence:
+
+- `python -m py_compile` passes for every changed production module;
+- focused interface-refactor, v015 evaluation-isolation, policy-quality
+  state/entrypoint/executor/counterfactual/real-owner/Q2D, and sequence
+  contracts pass;
+- the aggregate deterministic suite reports 63 passing contracts and one
+  unrelated static Atlas failure because
+  `note/architecture/runtime/05_policy_quality_audit.data.json` is absent in
+  the current user worktree. The file was not restored or recreated.
+
+Verdict:
+
+- Evaluation dependency direction and legacy isolation are closed without
+  changing METHOD-v016, GAIN-v006, PPO-v004, TRAIN-v011, checkpoint-v6,
+  observation authority, transaction identity, update behavior or serialized
+  report values;
+- FRS-EVAL-v003 still requires paired full-sequence Baseline/Repair evaluation,
+  but the current v015 composition executor remains Repair-only. Baseline
+  initial-state/reset and stochastic-pairing semantics are unconfirmed; this is
+  a method contract mismatch, not an implementation claim.
+- `frontres_segment_sequence_eval.py` still crosses the active runtime boundary
+  through private runner/provider access. E-FI-97 does not claim that Gateway
+  boundary closed; it remains a P1 `Inappropriate Intimacy` finding under
+  FRS-ENG-v001.
+
+## E-FI-98: Paired Deployment Composition And Runtime Gateway Closure
+
+Date: 2026-07-30
+
+Tier: deterministic S1/S2 interface and offline connectivity evidence. No
+simulator, training, deployment or live run occurred.
+
+Change evidence:
+
+- `frontres_runtime.py::FrontRESV015DeploymentRuntimeGateway` is the sole active
+  owner of runner-private connectors, observation/normalizer access, FEMR/GMT
+  inference, environment step, ContactSensor/contact-wrench ZMP capture,
+  route-start snapshot/restore and training-state fingerprint;
+- the sequence evaluator captures one canonical route-start image and restores
+  it before Baseline and Repair. Both branches reuse the same carrier and state
+  hash; Baseline uses exact-zero 6D correction without invoking FEMR, while
+  Repair invokes FEMR once per evaluated frame;
+- the atomic report now contains both branch trajectories and paired intent
+  error/failure-count improvements. It fails closed on route-hash drift,
+  Baseline FEMR use, nonzero Baseline action, shape/row misalignment or mutable
+  training state;
+- dead evaluator-local runner/simulator helpers were removed. The active branch
+  collector has no direct runner-private access and depends on the public
+  runtime Gateway.
+
+Executed evidence:
+
+- `python -m py_compile` passes for the changed runtime, evaluator and focused
+  contracts;
+- `frontres_v015_deployment_composition_s1_contract.py` passes immutable report,
+  same-state identity and malformed-Baseline rejection;
+- `frontres_v015_deployment_carrier_s2a_contract.py` passes command carrier,
+  cursor, provenance, row alignment and no-resample boundaries;
+- `frontres_v015_deployment_composition_s2b_contract.py` passes Baseline/Repair
+  connectivity, zero/one FEMR call counts, frozen GMT, Gateway dependency,
+  inference-mode restoration, atomic JSON and zero training-state writes;
+- `frontres_v015_evaluation_isolation_contract.py` and
+  `frontres_interface_refactor_contract.py` pass legacy/training isolation and
+  typed formal-boundary checks.
+
+Verdict:
+
+- the E-FI-97 P1 `Inappropriate Intimacy` and Repair-only contract mismatch are
+  closed at deterministic S1/S2;
+- METHOD-v016, GAIN-v006, PPO-v004, TRAIN-v011, checkpoint-v6, HSL,
+  928/158/770 authority and training behavior are unchanged;
+- real simulator pairing, physical composition efficacy and Demo quality remain
+  S4 evidence and are not claimed here.
+
+## E-FI-99: Clean-Anchored Recovery-Aware Contract Activation
+
+Date: 2026-08-01
+
+Tier: human-confirmed document and semantic-authority evidence. No training
+source, test, checkpoint, simulator, deployment, or live run was changed or
+executed.
+
+Decision evidence:
+
+- human review of all ten Design Detail Inspector cards completed;
+- METHOD-v017 makes one executed Clean Rollout and one fixed zero-action Noisy
+  Rollout read-only Segment baselines for all M Repair attempts;
+- GAIN-v007 defines fixed-unit Clean-conditioned Intent and Physics remaining
+  problems, direction-sensitive K-step evidence, separate smooth worst-item
+  family aggregation, signed Noisy-to-Repair improvement, continuous remaining
+  Physics pressure, full-6D repair cost, and one scalar Recovery-Aware
+  `G_total`;
+- PPO-v005 sends every valid attempt's complete scalar return through grouped
+  equal-mass exact-one PPO and retires the independent Physics projection/KKT
+  route;
+- TRAIN-v012 preserves K8/M2 -> K16/M3 -> K32/M4, K-conditioned perturbation
+  frontiers, Critic-only/recalibration/Actor-ramp/Joint Optimize, HSL-v1 Actor
+  initialization, provisional `beta_init=0.02`, and introduces strict
+  checkpoint-v7 identity;
+- EVAL-v004 makes the executed Clean/Noisy/Repair local evidence lifecycle and
+  v007 decomposition authoritative while preserving isolated no-feedback
+  full-sequence deployment composition;
+- METHOD-v016, GAIN-v006, PPO-v004, TRAIN-v011 and their checkpoint-v6
+  campaign are historical and cannot resume the changed scalar objective.
+
+Documentation evidence:
+
+- the contract registry, history indexes, Concept Figure mapping, Design Detail
+  Inspector/register, Architecture README, proposal rationale, and historical
+  v015 plan/checklist/task canvas identify the same active quartet and lifecycle;
+- the historical engineering controls are explicitly superseded rather than
+  silently reused;
+- current training source is recorded as contract-mismatched. Contract
+  activation does not authorize implementation.
+
+Verdict:
+
+- Concept Figure -> human Inspector review -> Active Contract is complete;
+- the workflow stops before Engineering Plan. No implementation, deterministic
+  test, checkpoint migration, simulator, training, or live evidence is claimed.
+
+## E-FI-100: Recovery-Aware Engineering Plan And Discipline Review
+
+Date: 2026-08-02
+
+Tier: document-only Engineering Plan and independent engineering-discipline
+review. No training source, test, checkpoint, simulator, deployment, or live run
+was changed or executed.
+
+Planning evidence:
+
+- the active METHOD-v017 / GAIN-v007 / PPO-v005 / TRAIN-v012 / EVAL-v004 set is
+  mapped to existing Gain, evidence, transaction, PPO, schedule, checkpoint,
+  diagnostics, evaluation and composition owners;
+- one Engineering Boundary Record freezes requested and preserved behavior,
+  public typed inputs/outputs, dependency direction, transaction lifecycle,
+  failure/retry/resource rules, non-scope and stop conditions;
+- the plan uses one offline implementation/S1-S3/review/formal-audit closure and
+  one separately authorized bounded S4 transaction. Long training and beta
+  selection remain outside the plan;
+- Characterization Test, Effect Sketch, Pinch Points, Seam/Enabling Point,
+  CCP/CRP/ADP/SDP, pattern admission, hotspot rules and legacy removal are
+  explicit under FRS-ENG-v001.
+
+Independent review evidence:
+
+- review mode: `engineering_plan_review`;
+- initial verdict: NEEDS_REVISION for ambiguous one-time Noisy versus `4*M`
+  logical rows, a proposed monolithic evidence Data Clump, contradictory
+  checkpoint-IO scope, and unspecified canonical source root;
+- revisions distinguish one authoritative baseline capture from read-only row
+  aliases, admit lifecycle-specific frozen Value Objects in the existing module,
+  allow cleanup-bound temporary S3 persistence tests, and freeze `source/` as
+  the production root while preserving the dirty `src/` mirror;
+- re-audit verdict: READY with no remaining P0/P1 discipline blocker.
+
+Verdict:
+
+- Step 1 / 2 is disciplined and executable but remains unimplemented and
+  unauthorized;
+- READY does not prove formal connectivity, runtime behavior, persistence
+  compatibility, beta calibration, policy quality, or deployment quality.
+
+## E-FI-101: Recovery-Aware Step 1 Offline Engineering Closure
+
+Date: 2026-08-02
+
+Tier: deterministic S1/S2/S3 implementation, engineering-review and formal-route
+evidence. No simulator, training, live run, deployment composition or production
+checkpoint artifact was executed.
+
+Implemented evidence:
+
+- the tracked `source/rsl_rl` formal root now binds METHOD-v017, GAIN-v007,
+  PPO-v005, TRAIN-v012, EVAL-v004 and checkpoint-v7;
+- one authoritative executed Clean and fixed zero-action Noisy baseline per
+  Segment is sealed and reused by exact-M typed Repair attempts;
+- `frontres_gain.py` uniquely computes fixed-scale, late-weighted,
+  smooth-worst Clean-anchored Intent/Physics remaining problems, signed
+  Noisy-to-Repair improvements, continuous recovery pressure, full-6D cost and
+  `G_total` with beta 0.02;
+- every valid Repair row reaches grouped equal-mass scalar PPO-v005 and the one
+  scalar Critic; old Physics projection/KKT cannot reach the active optimizer;
+- v004 local reports consume owner-produced evidence without recomputation;
+  legacy v002/v006/quartet local-evaluation modes fail closed while independent
+  full-sequence composition remains available;
+- checkpoint-v7 strictly persists contract/layout/beta/curriculum/sampler/
+  normalizer/receipt identity and rejects v6, tampered or partial payloads
+  before mutation.
+
+Executed evidence:
+
+- `frontres_gain_v007_contract.py`, `frontres_v017_step1_contract.py`,
+  `frontres_segment_grouped_ppo_contract.py`,
+  `frontres_v015_transaction_route_contract.py`,
+  `frontres_v015_checkpoint_resume_contract.py` and
+  `frontres_formal_runtime_audit_contract.py` pass;
+- preserved observation, q29, two-role reset, one-action-K, frozen GMT and local
+  scenario contracts pass;
+- the active aggregate reports `contract_count=53 failed_count=0`;
+- changed Python modules pass `py_compile`, the launcher passes `bash -n`, and
+  `git diff --check` passes;
+- construction and final `code-review-expert` gates report no open P0/P1.
+
+Verdict:
+
+- Step 1 / 2 is complete at deterministic S1/S2/S3 and formal offline scope;
+- Step 2 remains not authorized. Real baseline counts, Contact/ZMP evidence,
+  exact-one update, production checkpoint-v7, fresh reload and policy effect
+  require one separately authorized bounded 8-env K8/M2 transaction.
+
+## E-FI-102: Recovery-Aware Repository-Health P1 Closure
+
+Date: 2026-08-02
+
+Tier: behavior-preserving S1/S2/S3 interface, lifecycle and deterministic
+connectivity evidence. No simulator, training, live run, deployment composition
+or production checkpoint artifact was executed.
+
+Implemented evidence:
+
+- baseline collection accepts two authoritative Segment rows and projects raw
+  Contact/ZMP/dynamic capture before constructing persistent trajectory frames;
+- one `FrontRESStage3TransactionAggregate` now owns execution/checkpoint phase,
+  sample/batch context, observation trace and immutable pre-update projection;
+- explicit provider dispatch and public command cleanup replace runner-private
+  provider/diagnostic/batch flags and command-private active-state reads;
+- the active runner imports formal, legacy and single-update functions from
+  their actual owners and cannot import the compatibility facade or retired
+  projection transitively.
+
+Executed evidence:
+
+- focused baseline, interface, scalar exact-one transaction, checkpoint-v7 and
+  formal-runtime contracts pass;
+- changed Python modules pass `py_compile`;
+- aggregate suite: `contract_count=53 failed_count=0`;
+- final `code-review-expert` verdict: `APPROVE`, P0=0 and P1=0.
+
+Verdict:
+
+- E-FI-101 Step 1 remains complete with its later repository-health P1 findings
+  closed; Step 2 remains separately authorized S4 work;
+- P2 mixed-generation owners, pickle-capable checkpoint loading and v015 active
+  naming remain explicit maintenance debt and were not modified.
+
+## E-FI-103: Active-Generation, Safe-Load And Public-Naming Closure
+
+Date: 2026-08-02
+
+Tier: behavior-preserving deterministic S1/S2/S3 maintenance evidence. No
+simulator, training, live run, deployment composition or production checkpoint
+was executed.
+
+Implemented evidence:
+
+- active v007 Gain and v017 evidence retain their existing semantic owners but
+  historical implementations now live in explicit legacy modules; active
+  runtime imports do not execute those historical generations;
+- supported HSL-v1 and checkpoint-v7 entrypoints share the restricted loader in
+  `frontres_checkpoint_quality.py`; `weights_only=True`, recursive payload
+  validation and foreign-object rejection occur before actor, Critic,
+  optimizer, sampler, normalizer or receipt mutation;
+- active Composition Root, transaction, telemetry, checkpoint and observation
+  interfaces use version-neutral public names. Serialized checkpoint-v7 keys
+  and format values remain unchanged for strict wire compatibility;
+- no wrapper layer, new runner, semantic service, mutable carrier or method
+  parameter was introduced.
+
+Executed evidence:
+
+- interface isolation, v007 Gain, v017 transaction, diagnostics, Stage-3
+  entrypoint, local-sentinel config and checkpoint-v7 malicious-payload/
+  roundtrip contracts pass;
+- changed production and contract modules pass `py_compile`;
+- the aggregate deterministic suite reports
+  `contract_count=53 failed_count=0`;
+- `git diff --check` passes after the final source cleanup;
+- `code-review-expert` final-gate verdict is APPROVE with P0=0 and P1=0.
+
+Verdict:
+
+- the three repository-health P2 findings recorded by E-FI-102 are closed;
+- this closure does not produce S4 runtime evidence. Step 2 remains the next
+  separately authorized boundary: one bounded 8-env K8/M2 official
+  transaction, one update, committed checkpoint-v7 and fresh reload.
+
+## E-FI-104: Human-Confirmed Module Test Atlas Execution
+
+Date: 2026-08-03
+
+Tier: module-level S0/S1 and module-owned deterministic S2/S3 evidence. No
+simulator, training, live run, policy-quality run, or deployment composition
+was executed.
+
+Execution evidence:
+
+- all 18 Module Test Atlas cards were human-confirmed before execution;
+- result is `8 passed / 6 partial / 4 blocked`;
+- passed: Training Config, Motion Command, Observation Layout, Stage 3 Live
+  Loop, Repair Gain, Segment Storage, Segment PPO, and Checkpointing;
+- partial: Launch Entry, OnPolicyRunner, Perturbation Data, Trial Plan & Reset,
+  FrontRES Policy, and Runtime Diagnostics;
+- blocked: Segment Cache, Segment Sampler, Task-Space Correction, and
+  Evaluation;
+- focused active contracts and `py_compile` pass for the corrected translation
+  and residue paths;
+- the broad aggregate regression is explicitly not accepted as proof for all
+  cards because it contains historical v002/v006/v013 characterization.
+
+Repaired evidence:
+
+- one-action-K tests now use the public transaction collection context and test
+  raw evidence at the collector boundary rather than a retired Gain API;
+- deployment composition no longer exposes constructible `legacy_modes`;
+- HSL and fail-closed diagnostics use TRAIN-v012/METHOD-v017 identities.
+
+Open first-invalid facts:
+
+- cache does not own immutable Clean continuation and expected support/contact;
+- sampler has no owner for earlier-Segment soft preference and candidate-order
+  invariance;
+- task-space application still performs XY scaling, dz clamp, and local-frame
+  quaternion right multiplication against the active card;
+- active held-out evaluation still reaches v006 phase identity/owners;
+- six partial cards retain named independent-oracle or seam gaps.
+
+Verdict:
+
+- `code-review-expert`: REQUEST_CHANGES before formal-runtime audit;
+- module correctness is not complete and no live admission is claimed;
+- the next boundary is one reviewed Module Readiness Closure, then a complete
+  rerun of the unchanged 18 cards.
+
+Detailed execution ledger:
+`note/testing/frontres_module_test_execution_2026-08-03.md`.
+
+## E-FI-105: Module Readiness Closure
+
+Date: 2026-08-03
+
+Tier: module-level S0/S1 and module-owned deterministic S2/S3 evidence. No
+simulator, training, live run, policy-quality run, or deployment composition
+was executed.
+
+Implemented evidence:
+
+- the existing composition seam exposes observable config -> layout -> one
+  HSL/resume load -> one dispatch lifecycle and wraps the real authority
+  resolver, load and dispatch operations;
+- Cache owns immutable x_t identity, Clean continuation, expected support and
+  support envelope; it rejects missing, short, source-drifted, hash-drifted or
+  empty-identity artifacts;
+- the sampler selects two distinct identities with strictly positive soft
+  early-frame preference, preserves later reachability, expands exact-M rows
+  and resumes the same RNG stream;
+- task correction applies current-only full-6D world-frame Delta SE(3) without
+  XY scaling or dz clamp and adapts rotation to the unchanged MOSAIC host
+  right-multiplied buffer;
+- active v017 evaluation and diagnostics project sealed Contact, phase-ZMP,
+  survival, lean, unplanned-contact, Gain, group-mass and exact-one facts
+  without recomputation or training feedback;
+- perturbation, canonical route-start reset and 158D policy cards now contain
+  the missing hand-built and metamorphic cases.
+
+Executed evidence:
+
+- all 18 unchanged human-confirmed Module Test Atlas cards pass their focused
+  independent oracle: `18 passed / 0 partial / 0 blocked`;
+- active aggregate:
+  `contract_count=49 failed_count=0 total_marker_count=49`;
+- changed Python sources and contracts pass `python -m py_compile` and targeted
+  `git diff --check`;
+- final FRS-ENG-v001 review found and closed two in-scope P1 facts: real layout
+  resolution initially sat outside the lifecycle pinch point, and Cache did
+  not explicitly reject empty x_t identity. Final verdict is APPROVE with
+  P0=0/P1=0;
+- the retired `frontres_segment_live_sampler_contract.py` remains explicit
+  historical v002/composite characterization and is excluded from the active
+  aggregate rather than weakening v017 single-`local_rp` rejection.
+
+Verdict:
+
+- Module Readiness Closure is complete;
+- E-FI-105 admits the next `formal-runtime-audit` only. It does not prove
+  official connectivity or authorize simulator, training, live execution,
+  policy-quality evaluation, deployment composition, or Step 2.
+
+## E-FI-106: Phase A Legacy-Updater Isolation And Governance Correction
+
+Date: 2026-08-03
+
+Tier: Phase A source alignment plus deterministic S0/S1/S2 contract evidence.
+No simulator, training, live run, optimizer update, checkpoint IO,
+policy-quality evaluation or deployment composition was executed.
+
+Implemented evidence:
+
+- `run/run_frontres_stage3_segment_hrl.sh` no longer constructs commands for
+  `single_update` or `update_loop`; both modes fail closed before `TRAIN_CMD`;
+- `scripts/rsl_rl/train.py::_apply_frontres_stage_preset()` rejects both legacy
+  flags before runner construction and installs both legacy config fields as
+  false on the active Stage-3 route;
+- the active dispatch no longer calls the legacy update-loop owner. Historical
+  implementation files remain explicit compatibility code, not an active
+  Composition Root;
+- AGENTS, the v017 plan/checklist/task canvas, Test Atlas and Repo Architecture
+  now describe the v017/v007/v005/v012 scalar route and no longer report the
+  affected Phase A/curriculum rows as complete.
+
+Executed evidence:
+
+- shell and direct-preset negative contracts prove pre-construction rejection;
+- Stage-3 entrypoint, launcher, live-sentinel and failure-preflight focused
+  contracts pass;
+- interface-refactor contract passes under the project torch-capable Python;
+- the unchanged aggregate reports
+  `contract_count=49 failed_count=0 total_marker_count=49`;
+- changed Python files pass `py_compile`, the launcher passes `bash -n`, and
+  final `git diff --check` passes.
+
+Open blocker:
+
+- TRAIN-v012 names independent frozen `g_8/g_16/g_32`, but the active Contract
+  does not define which frozen-GMT Noisy-baseline statistic is calibrated, the
+  required observation budget, or the freeze/acceptance rule. Reusing the old
+  global episode-length threshold controller would silently restore retired
+  semantics. No `g_K` implementation or persistence claim is made.
+
+Verdict:
+
+- the legacy updater-selection mismatch is closed offline;
+- Phase A remains blocked on the `g_K` Contract Proposal and Design Inspector
+  decision. Phase B, simulator, training and the bounded official transaction
+  remain unauthorized.
+
+## E-FI-107: K-DR Coupling Design Rebase
+
+Date: 2026-08-03
+
+Tier: document-only semantic rebase. No source code, test, checkpoint IO,
+simulator, training, optimizer update, policy-quality evaluation or deployment
+composition was executed.
+
+Observed mismatch:
+
+- active TRAIN-v012 assumes each K first calibrates and freezes an independent
+  frozen-GMT Noisy frontier `g_K`;
+- E-FI-106 correctly stopped because v012 does not define the statistic,
+  observation budget or freeze rule;
+- current design review establishes that this is not merely a missing estimator:
+  frozen-GMT survival measures baseline difficulty, while the DR strength at
+  which K8 stops preserving K16/K32 Repair-attempt ordering depends on the
+  learned FEMR policy and cannot be known before training.
+
+Proposal evidence:
+
+- `FRS-TRAIN-v013-empirical-k-dr-coupling-proposal.md` records 2.381 only as a
+  provisional first-campaign DR reference ceiling, not a mastery threshold or
+  completed per-K frontier;
+- the candidate first campaign preserves the fixed K8/M2 -> K16/M3 -> K32/M4
+  schedule, keeps the DR distribution unchanged at a K transition, freezes
+  Actor/std and recalibrates the same Critic for the new horizon;
+- cross-horizon preservation of same-scenario Repair ordering is diagnostic-only
+  during the first campaign and supplies evidence for a later frozen K-DR rule;
+- the candidate does not revive the global episode-length controller, feed Gain
+  back into the sampler, or add an online adaptive curriculum controller.
+
+Governance result:
+
+- active TRAIN-v012 is not silently modified or superseded;
+- the Concept Figure parent points remain unchanged;
+- the affected Perturbation Data, K-step Curriculum and Actor & Critic Warmup
+  Design Inspector cards now project the TRAIN-v013 candidate for human review;
+- plan, checklist, task canvas, registry and Test Atlas mark Phase A as blocked
+  at this semantic gate.
+
+Verdict:
+
+- E-FI-107 is note-confirmed only and supplies no implementation or runtime
+  evidence;
+- next action is human review of the three affected Inspector cards. Only after
+  confirmation may TRAIN-v013 be activated and an Engineering Plan authorize
+  source changes or renewed Phase A work;
+- Phase B, simulator, training, live execution and Step 2 remain unauthorized.
+
+## E-FI-108: TRAIN-v013 Contract Activation And Engineering Rebase
+
+Date: 2026-08-03
+
+Tier: human-confirmed contract and document-only engineering-planning evidence.
+No production/training source, test, checkpoint IO, simulator, optimizer,
+training, live run, policy-quality evaluation or deployment composition was
+executed.
+
+Human-confirmed semantic result:
+
+- TRAIN-v012's pre-training calibrated/frozen `g_K` requirement is retired;
+- K8/M2 -> K16/M3 -> K32/M4 remains the outer curriculum;
+- every K owns an inner lower-to-higher DR curriculum and returns to a lower
+  informative distribution at the committed K transition;
+- Actor/std freeze while the same Critic recalibrates; Critic weights and
+  previously learned Actor behavior are not reset;
+- the four perturbation-strength classes remain Easy/Medium/Hard/Broken tail at
+  20/30/40/10 relative to the current explicit stage-local `d_cap`;
+- 2.381 is the first-campaign reference ceiling, not mastery, graduation or a
+  per-K estimated frontier;
+- cross-horizon attempt ordering is diagnostic-only and cannot feed Gain, PPO,
+  sampler or an online curriculum controller.
+
+Governance changes:
+
+- `FRS-TRAIN-v013-nested-k-dr-curriculum.md` is active and supersedes v012;
+- v012 moved to training history with `status: superseded`;
+- registry, AGENTS, Design Inspector/register, Architecture README, current
+  plan, checklist, task canvas, Test Atlas/register, test control board and
+  inventory were rebased;
+- the Concept Figure was not changed because the parent design points and their
+  interactions are unchanged;
+- proposal wording that previously said DR stayed unchanged at K transition is
+  superseded by the confirmed per-K DR restart;
+- TEST-02 Training Config, TEST-06 Perturbation Data and TEST-16 Checkpointing
+  are marked blocked/stale; the other 15 E-FI-105 cards remain valid for
+  unchanged behavior;
+- current production still carries TRAIN-v012/checkpoint-v7 and is explicitly
+  contract-mismatched rather than reported complete.
+
+Engineering review:
+
+- the active FRS-ENG-v001 discipline was applied to the rebased plan;
+- existing schedule, transaction, materialization, checkpoint, telemetry and
+  Composition Root owners are retained;
+- no new runner, Service Layer, wrapper, registry, second schedule owner or
+  online controller is admitted;
+- independent engineering-plan review verdict is `READY`, with implementation,
+  formal connectivity, checkpoint-v8 and S4 facts explicitly unconfirmed.
+
+Verdict:
+
+- contract activation and document rebase are complete;
+- source implementation is not authorized by this evidence record;
+- next gate is human review of the three revised Module Test Cards, followed by
+  one offline TRAIN-v013 engineering closure and renewed formal-runtime Phase A;
+- simulator, training and live remain a separate Step 2 authority boundary.
+
+## E-FI-109: TRAIN-v013 Offline Engineering Closure
+
+Date: 2026-08-03
+
+Tier: S1/S2/S3 deterministic offline implementation, Module Test regression,
+Formal Runtime Audit Phase A and FRS-ENG-v001 construction/final review. No
+simulator, training, optimizer live run, policy-quality evaluation or
+deployment composition was executed.
+
+Implemented facts:
+
+- the formal Stage3 identity is `FRS-TRAIN-v013` with
+  `frontres-v015-checkpoint-v8` and
+  `nested-k-dr-four-class-v1`;
+- the existing `frontres_segment_warmup.py` owner resolves K8/M2, K16/M3 and
+  K32/M4 plus an explicit per-K DRStageSpec. A committed K transition resets
+  the stage-local DR cap, freezes Actor/std during critic-only recalibration and
+  retains the same Critic;
+- current `d_cap` defines deterministic Easy/Medium/Hard/Broken sampling at
+  20/30/40/10. One Segment source samples once and every reset/attempt reuses
+  that class, strength and scenario identity;
+- formal class selection depends only on the sealed stage identity and sample
+  key. Gain, PPO, evaluation and diagnostics cannot feed it;
+- only an exact-one committed transaction advances the absolute iteration and
+  therefore K/M/DR progress. Abort/retry reuses the last committed identity;
+- checkpoint-v8 atomically saves/restores the full ten-field schedule, current
+  DR identity/progress/cap, model/Critic/std, optimizer, sampler, 928/158/770
+  normalizers, Python/NumPy/Torch/CUDA RNG and committed receipt. v7, `g_K`,
+  mixed, partial or tampered payloads reject before mutable restore;
+- to keep the Broken tail nonempty at the 2.381 outer reference ceiling, the
+  terminal Hard `d_cap` is `2.381 / 1.10`; this is the direct consequence of
+  the active `(d_cap, min(1.10*d_cap, ceiling)]` support, not a new controller.
+
+Executed evidence:
+
+- `frontres_segment_warmup_contract.py`: passed;
+- `frontres_segment_stage3_curriculum_distribution_contract.py`: passed;
+- `frontres_v015_transaction_route_contract.py` with canonical `PYTHONPATH`:
+  passed, two Segment sources / four attempts / exact-one update;
+- `frontres_v015_checkpoint_resume_contract.py`: passed strict v8 atomic
+  save/resume and pre-mutation negatives;
+- `frontres_formal_runtime_audit_contract.py`: passed;
+- `frontres_segment_stage3_launch_command_contract.py`: passed;
+- active aggregate:
+  `contract_count=49 failed_count=0 total_marker_count=49`;
+- changed Python owners passed `python -m py_compile`; JSON syntax, Atlas
+  structural check and `git diff --check` passed at final verification.
+
+Formal Runtime Audit Phase A:
+
+- official dispatch selects `learn_frontres_segment_live()` and returns before
+  generic `runner.learn()`;
+- formal sampler resolves TRAIN-v013 before the historical adaptive branch;
+  the retired episode-length/frontier curriculum is imported only inside the
+  explicitly non-formal branch;
+- the formal transaction seals K/M/DR/class/strength identity, grouped PPO owns
+  the single update, and the training loop increments iteration only after a
+  committed result;
+- telemetry and checkpoint consumers validate the same DR fingerprint,
+  progress and `d_cap`; no active formal `g_K` or checkpoint-v7 fallback was
+  found.
+
+Engineering review:
+
+- P0=0, P1=0. The curriculum policy remains in the existing warmup owner;
+  runner/entrypoint remain composition only; no new runner, Service Layer,
+  wrapper, second curriculum owner or MOSAIC host edit was added;
+- retained historical v011/v012 helpers are compatibility-only and do not own
+  or feed the formal TRAIN-v013 path.
+
+Verdict:
+
+- Step 1 / 2 is complete offline;
+- TEST-02, TEST-06 and TEST-16 are refreshed from the active Contract without
+  lowering their independent answers; all 18 cards pass;
+- Step 2 / 2, Formal Runtime Audit Phase B, simulator, training and live remain
+  separately unauthorized.
+
+## E-FI-110: Human-Confirmed TRAIN-v013 Module Test Closure
+
+Date: 2026-08-03
+
+Tier: module-level S0/S1 and module-owned S3 persistence evidence. No Formal
+Runtime Audit Phase A/B, simulator, training, optimizer live update,
+policy-quality evaluation or deployment composition was executed.
+
+Authority and scope:
+
+- the user confirmed all 18 Module Test Atlas cards before this execution;
+- card semantics, independent answers and failure standards remained frozen;
+- this closure answers only whether each module's own computation and state
+  behavior match its confirmed card. It does not prove official Stage3
+  connectivity;
+- E-FI-109's earlier Phase A evidence remains a separate record and was not
+  used to upgrade any module result.
+
+Executed facts:
+
+- TEST-01 through TEST-18 each passed their focused deterministic fixture;
+- ordinary, boundary, invalid, metamorphic/permutation and stateful cases pass
+  where required by the card;
+- TEST-16 additionally passes checkpoint-v8 S3 atomic roundtrip, resume
+  continuation, tamper, partial receipt, v7 and `g_K` pre-mutation rejection;
+- Test Atlas structural validation reports
+  `cards=18 pseudo_cases>=5 passed=18 partial=0 blocked=0`;
+- active TRAIN-v013 owners and the corrected test pass `python -m py_compile`;
+- code-quality Atlas generation and source-link validation pass with 18
+  modules, 1441 unique functions and 296 unique annotated blocks;
+- targeted `git diff --check` passes.
+
+Failure classification and repair:
+
+- the first TEST-10 run failed because three executable assertions in
+  `frontres_hsl_v007_s1_contract.py` still expected the superseded error-text
+  identity `FRS-TRAIN-v012`;
+- production correctly failed closed under `FRS-TRAIN-v013`; the accepted
+  design and rejection behavior were not contradicted;
+- classification: executable test did not faithfully translate the confirmed
+  card;
+- only the three expected identity strings were changed to v013. The complete
+  TEST-10 fixture then passed, including actor-only HSL restore, 928/158/770
+  visibility, finite 6D proposal, Stage-3 supervision rejection and
+  pre-mutation legacy checkpoint rejection.
+
+Code-discipline result:
+
+- repository discipline: active (`FRS-ENG-v001`);
+- final module-readiness verdict: APPROVE, P0=0 and P1=0;
+- no confirmed card required a production behavior change, no semantic owner
+  was duplicated, and no silent fallback/zero-fill was admitted by this
+  closure;
+- three existing P2 maintainability risks remain explicit: active/historical
+  save and sampler branches still share large owners; trusted cache artifacts
+  still use `torch.load(..., weights_only=False)`; active v017 behavior still
+  retains substantial v015 file/symbol naming. None is reported as fixed or as
+  module-semantic evidence.
+
+Verdict:
+
+- `18 passed / 0 partial / 0 blocked` at module scope;
+- the current module prerequisite for Formal Runtime Audit Phase A human review
+  is satisfied;
+- official config/owner/consumer connectivity, simulator behavior, policy
+  quality and Demo quality remain outside this evidence and unconfirmed by it.
+
+## E-FI-111: Perturbation Boundary And Optional Probing Semantic Correction
+
+Date: 2026-08-03
+
+Tier: human-confirmed document and Atlas correction during Formal Runtime Audit
+Phase A. No production source, test, checkpoint IO, simulator, training, live
+run, policy-quality evaluation or deployment composition was executed.
+
+Confirmed semantics:
+
+- `2.381` is the experimentally measured maximum reliable perturbation boundary
+  for the current frozen GMT, robot and perturbation definition, not merely an
+  arbitrary reference value;
+- the current campaign may configure this known value directly and let every
+  per-K inner DR curriculum progress from lower strength toward it;
+- after changing GMT, robot or perturbation scale, an optional offline
+  Perturbation Probing pass may remeasure the boundary using frozen-GMT
+  Noisy-only survival evidence;
+- Probing only acquires and freezes the scalar outer boundary. It does not train
+  FrontRES, decide K transitions, create a per-K `g_K`, adapt DR online, or
+  receive Gain/PPO/evaluation feedback;
+- direct configuration and offline Probing therefore have identical downstream
+  curriculum authority.
+
+Governance changes:
+
+- TRAIN-v013 now contains `Optional GMT Boundary Acquisition` and maps the
+  existing Concept Figure block `M-12` to supporting design ID `FRS-DP-01P`;
+- the Perturbation Data Inspector card and design register project the same
+  meaning, while the ten canonical parent tabs remain unchanged;
+- the Concept Figure keeps its existing Perturbation Probing node but now names
+  boundary measurement and frozen training support rather than generic hard-case
+  discovery;
+- the current repository Architecture points the active curriculum owner to
+  `frontres_segment_warmup.py`; retired adaptive curriculum remains legacy only;
+- no current implementation change is required because direct configuration of
+  `2.381` is one accepted acquisition route. Optional automatic Probing remains
+  unimplemented and is not required for the current campaign.
+
+Verdict:
+
+- FRS-DP-01 semantic correction is document-confirmed;
+- Formal Runtime Audit Phase A remains in human review and must continue with
+  the next canonical design point; Phase B/live remain unauthorized.
+
+## E-FI-112: Segment Replay Phase A Human Review And Audit Projection Correction
+
+Date: 2026-08-03
+
+Tier: human-confirmed Formal Runtime Audit Phase A semantics plus deterministic
+S1/S2 audit-projection evidence. No simulator, training, live run,
+policy-quality evaluation or deployment composition was executed.
+
+Human-facing correction:
+
+- the phrase `motion -> Segment -> attempt equal mass` is now explained as a
+  voting rule: first give each motion equal influence, then each Segment equal
+  influence, then each valid attempt inside that Segment equal influence;
+- equal influence does not mean equal score. Each attempt keeps its own
+  `G_total` and advantage, so it may support or oppose its sampled action;
+- a group cannot dominate merely because it contains more policy rows;
+- all valid attempts remain in PPO. Winner-only, argmax and best-of-M weighting
+  remain forbidden.
+
+Phase A source facts:
+
+- `FrontRESStage3Engine.run_training_transaction()` is the formal orchestration
+  owner; it delegates the complete request to the existing formal transaction
+  owner and verifies that collection performed zero optimizer steps;
+- one transaction freezes one old policy, selects two distinct Segment sources,
+  seals one scenario per Segment and collects exact M Repair rows per Segment;
+- Clean and zero-action Noisy are executed once per Segment as shared evidence;
+  only Repair attempts produce policy rows;
+- `FrontRESFormalTransactionAccumulator` rejects partial/mixed collection and
+  optimizer mutation before seal;
+- the grouped adapter carries every Repair row to scalar PPO-v005, and the
+  formal transaction performs exactly one committed optimizer update;
+- the historical update loop, flat legacy probe, v002 Gain and PPO-v004
+  projection do not own the active transaction route.
+
+Governance and diagnostic correction:
+
+- Registry, Design Inspector, Test Atlas wording and Repo Architecture now
+  project TRAIN-v013/checkpoint-v8 and the v017/v007/v005 scalar route;
+- the active formal transaction now calls the existing
+  `frontres_formal_runtime_audit.py` owner through a read-only
+  `AUDIT-SEGMENT-REPLAY-01` projection;
+- when the explicit formal-audit flag is enabled, that projection fails closed
+  unless it sees two Segments, exact M rows per
+  Segment, all rows valid, positive equal motion/Segment/attempt voting
+  weights, one update invocation, one optimizer step and the exact active
+  contract identities;
+- the retained 870D/v002 flat-probe audit is explicitly legacy and is no longer
+  used by the active Phase B fixture.
+
+Executed evidence:
+
+- `frontres_formal_runtime_audit_contract.py`: passed current transaction,
+  checkpoint-v8, old-PPO identity rejection and incomplete attempt-weight
+  rejection;
+- `frontres_v015_transaction_route_contract.py`: passed two Segment sources,
+  four exact-M Repair attempts, four valid rows and exactly one update;
+- `frontres_segment_grouped_ppo_contract.py`: passed scalar PPO-v005 grouped
+  sign/mask/permutation and voting-weight behavior;
+- changed Python files passed `python -m py_compile`.
+
+Code-discipline result:
+
+- repository discipline: active (`FRS-ENG-v001`);
+- no new runner, Service Layer, wrapper, transaction owner or training-state
+  mutation was introduced. The audit function is a read-only consumer of the
+  immutable committed result; with the audit flag disabled it performs no
+  validation, output or control-flow change;
+- the active transaction owner gained one diagnostics call and no method,
+  Gain, PPO, checkpoint or simulator responsibility;
+- P0=0 and P1=0 for this correction. Retained legacy audit functions remain
+  compatibility-only and cannot be cited as active Phase B evidence.
+
+Verdict:
+
+- FRS-DP-02 Segment Replay is human-confirmed and `integrated-offline` for
+  Phase A;
+- this evidence does not complete Phase A as a whole and does not authorize
+  Phase B or live execution;
+- the next canonical Phase A design point is FRS-DP-03 K-step Curriculum.
+
+## E-FI-113: K-step Curriculum Phase A Human Review And Legacy-Owner Isolation
+
+Date: 2026-08-03
+
+Tier: human-confirmed Formal Runtime Audit Phase A semantics plus deterministic
+S1/S2/S3 owner, connectivity and persistence evidence. No simulator, training,
+live run, policy-quality evaluation or deployment composition was executed.
+
+Human-confirmed semantics:
+
+- K is only the executable-evidence horizon. Each Repair attempt samples one
+  FEMR action at `t`, stores one PPO policy row, freezes FEMR, and lets frozen
+  GMT execute exactly K evidence steps;
+- the active outer schedule is K8/M2 -> K16/M3 -> K32/M4; K64 is inactive;
+- each committed K transition restarts the stage-local DR curriculum at a lower
+  informative distribution, freezes Actor/std and recalibrates the same Critic;
+- only a committed transaction may advance K/M/DR/iteration/receipt state.
+
+First-invalid Phase A fact and correction:
+
+- the formal sampler supplied exact active K/M but
+  `plan_frozen_policy_transaction()` still called the retired state-driven
+  rollout-budget owner before overwriting those values. The stale decision did
+  not reach PPO, but remained reachable and emitted misleading active K probes;
+- the same existing sampler owner now constructs the sealed exact-K/exact-M
+  budget directly when both values are present. Compatibility calls retain the
+  characterized legacy planner, whose probes are explicitly labeled legacy;
+- no new runner, wrapper, Service Layer, transaction owner, schedule owner or
+  public payload was introduced.
+
+Executed evidence:
+
+- `frontres_segment_sampler_contract.py` proves K8/M2, K16/M3 and K32/M4 exact
+  plans while replacing the legacy budget method with a raising sentinel; call
+  count remains zero;
+- `frontres_formal_runtime_audit_contract.py` proves active K audit identity is
+  owned by TRAIN-v013 and cannot be supplied by the legacy sampler projection;
+- interface, warmup, formal transaction, one-action-K and checkpoint-v8
+  deterministic contracts pass;
+- changed Python files pass `python -m py_compile`; JSON parsing and targeted
+  `git diff --check` pass.
+
+Verdict:
+
+- FRS-DP-03 K-step Curriculum is user-reviewed and integrated offline for
+  Phase A; live K-frame counts, real Actor/std freeze and production
+  checkpoint-v8 identity remain Phase B facts;
+- Phase A as a whole remains open. The next canonical design point is
+  FRS-DP-04 FrontRES 6D Repair; Phase B and live execution remain unauthorized.
+
+## E-FI-114: FrontRES Direct Full-6D Action Closure
+
+Date: 2026-08-03
+
+Tier: human-confirmed Formal Runtime Audit Phase A semantics plus deterministic
+S1/S2/S3 implementation, connectivity and persistence evidence. No simulator,
+training, live run, policy-quality evaluation or deployment composition was
+executed.
+
+Confirmed action contract:
+
+- the task-space Actor emits one finite direct `[B,6]` world-frame
+  `Delta SE(3)` value;
+- HSL prediction/target, Stage-3 Gaussian, rollout storage, old/new log-prob,
+  one-action-K evidence and command application use that same coordinate;
+- active code applies no action mask, per-axis action scale, `tanh`, `clip` or
+  `clamp`, and rejects mixed-width/legacy 12D actions instead of slicing them;
+- HSL identity is `frontres-v017-hsl-proposal-v2`; Stage-3 identity is
+  `frontres-v017-checkpoint-v9`; HSL-v1 and checkpoint-v8 reject before state
+  mutation.
+
+Executed evidence:
+
+- proposal-only HSL S1/S2, task-space policy, rollout action-stat, one-action-K,
+  live storage/PPO, single-update, policy-quality owner and strict checkpoint
+  contracts passed;
+- the aggregate `frontres_segment_all_contract_suite.py` passed 49/49;
+- changed Python owners passed `python -m py_compile`;
+- legacy MOSAIC host and joint-space `Delta q/Delta z` transforms remain outside
+  the active task-space owner. PPO clipping and numerical quaternion/index/
+  denominator guards retain their independent, non-action-authority semantics.
+
+Code-discipline result:
+
+- `FrontRESActorCritic` remains the single action-coordinate owner; existing
+  HSL, rollout, storage, PPO and checkpoint modules consume its exact public
+  `[B,6]` boundary;
+- no new runner, service, wrapper, second action owner or MOSAIC host change was
+  introduced; old `FrontRESActionCone` ownership was removed;
+- P0=0 and P1=0 for the direct-action closure.
+
+Verdict:
+
+- FRS-DP-04 FrontRES 6D Repair is integrated offline and confirmed for Phase A;
+- Phase A remains open. The next canonical design point is FRS-DP-05 Frozen
+  GMT; Phase B and live execution remain unauthorized.
+
+## E-FI-115: DP05 Frozen GMT Offline Readiness Closure
+
+Date: 2026-08-04
+
+Phase A facts recorded before implementation:
+
+- `OnPolicyRunner.train_mode()` calls `policy.train()` recursively, while the
+  composed FrontRES policy has no public invariant that restores the internal
+  GMT policy, GMT normalizer and optional estimator to `eval`; parameters are
+  no-grad and optimizer-excluded, but the module training flags are not closed;
+- checkpoint-v9 validates the 770D layout and combined normalizer shape but
+  does not persist the configured GMT checkpoint SHA256, so a shape-compatible
+  different GMT could pass strict resume;
+- both defects are offline-fixable inside existing FrontRES policy, runner-mode
+  connector and checkpoint owners. No METHOD/GAIN/PPO/HSL, command,
+  one-action-K or MOSAIC-host change is authorized.
+
+Implementation:
+
+- `FrontRESActorCritic.train()` now preserves normal `nn.Module` train/eval
+  behavior for the residual Actor and scalar Critic, then enforces one public
+  invariant over the GMT policy, GMT normalizer and optional reference-velocity
+  estimator: `eval`, `requires_grad=False`, frozen normalizer statistics;
+- the unchanged `OnPolicyRunner.train_mode()` continues to call the public
+  `policy.train()` boundary; the override closes the GMT mode lifecycle without
+  exposing GMT private state to the runner;
+- the existing checkpoint owner now uses one shared frozen-GMT identity for
+  HSL and Stage-3 persistence. Checkpoint-v9 stores the configured GMT artifact
+  SHA256, the required 770D suffix dimension and the exact GMT normalizer-state
+  fingerprint;
+- strict Stage-3 resume recomputes that identity before actor, Critic,
+  optimizer, sampler, normalizer, iteration or receipt restoration. A different
+  same-shape GMT artifact therefore rejects pre-mutation.
+
+Deterministic evidence:
+
+- changed Python owners and focused contracts pass `python -m py_compile`;
+- `frontres_frozen_gmt_contract.py` proves a parent `train()` call leaves the
+  residual Actor/Critic in train mode while all three GMT-family modules remain
+  eval/no-grad and optimizer-excluded; a real optimizer step changes
+  Actor/Critic but not GMT;
+- `frontres_v015_checkpoint_resume_contract.py` proves checkpoint-v9 records
+  the expected SHA256/770D/normalizer identity, round-trips the matching GMT,
+  and rejects a different same-shape GMT before actor, optimizer, sampler or
+  loaded-path mutation;
+- HSL S1/S2, 928/158/770 observation-authority and formal-runtime audit
+  regressions pass;
+- `frontres_segment_all_contract_suite.py` reports
+  `contract_count=49 failed_count=0 total_marker_count=49`.
+
+Code-discipline result:
+
+- no runner, wrapper, second identity owner or MOSAIC-host modification was
+  introduced. The public policy invariant reduces facts known by the runner;
+  the checkpoint pre-mutation gate remains the persistence pinch point;
+- METHOD-v017, GAIN-v007, PPO-v005, TRAIN-v014, HSL-v2, command routing,
+  one-action-K and GMT parameters are unchanged. P0=0 and P1=0 for this scope.
+
+Verdict: DP05 Frozen GMT offline readiness is complete and confirmed for Formal
+Runtime Audit Phase A. DP06, Phase B, simulator, training and live remain
+unauthorized.
+
+## E-FI-116: DP07 Repair Gain Read-Only Projection Closure
+
+Date: 2026-08-04
+
+Phase A first-invalid fact:
+
+- the formal v017 learning chain already consumed the unique
+  FRS-GAIN-v007 `G_total`, but the immutable local report and final transaction
+  telemetry exposed only a subset of the owner-produced decomposition;
+- therefore an operator could see `G_I`, `G_P`, recovery pressure and final
+  scalar, but could not trace the normalized channel values, `I_N/I_R/P_N/P_R`,
+  support-foot drift, fixed scales, cost-free score and beta through the same
+  row identity. This was a diagnostics contract mismatch, not a Gain or PPO
+  formula defect.
+
+Implementation:
+
+- `FrontRESRecoveryAwareGainResult` now carries the complete already-computed
+  decomposition plus immutable fixed scale/beta identity. Raw support-foot
+  drift is emitted inside the existing Gain owner from its own normalized
+  Physics channel;
+- `build_frontres_v017_local_evaluation_report()` projects those values into
+  the existing frozen report. It does not call Gain again. Required
+  Contact/Intent channels remain finite; only phase-ZMP may be explicit N/A;
+- `build_frontres_transaction_telemetry()` forwards every row field through
+  the existing report-to-PPO permutation and rejects mixed scale/beta identity.
+  It does not inspect evidence internals, access runner private fields, fill
+  missing values, or mutate training state;
+- legacy report types and mismatched v006/projection identities remain rejected.
+
+Deterministic evidence:
+
+- the focused TEST-18 formal transaction fixture assigns distinct sentinels to
+  every new field and proves exact forwarding, permutation, exact-one counts,
+  group mass and read-only behavior;
+- the v017 step1 fixture proves report values equal the owner result, explicit
+  phase-ZMP N/A is retained, missing Contact and non-finite beta reject;
+- `frontres_gain_v007_contract.py`, `frontres_v017_step1_contract.py`, and
+  `frontres_v015_transaction_route_contract.py` pass;
+- changed Python files pass `python -m py_compile`;
+- `frontres_segment_all_contract_suite.py` exits successfully with all 49
+  expected markers observed.
+
+Code-discipline result:
+
+- the existing result/report/serializer pinch point was extended in place;
+  no wrapper, Service Layer, second Gain owner, runner or feedback path was
+  introduced;
+- construction and final review report P0=0 and P1=0 for this scope.
+
+Verdict: DP07 Repair Gain is integrated offline and Phase A reviewed. Its
+formal producer, consumer, row identity and legacy isolation agree with
+FRS-GAIN-v007/EVAL-v004. Real simulator evidence and policy quality remain
+unconfirmed; Phase B, Step 2, training and live remain unauthorized.
+
+## E-FI-117: DP08 HSL Direct Full-6D Target Offline Readiness Closure
+
+Date: 2026-08-04
+
+Phase A first-invalid fact:
+
+- TRAIN-v014 and TEST-10 require one direct full-6D HSL target without an
+  action mask, per-axis scale, clip or clamp;
+- `get_supervision_target_task_space()` and
+  `validate_frontres_hsl_current_frame_target()` nevertheless replaced every
+  positive anti-DR `dz` with zero, and the old fixture repeated that answer;
+- therefore the former passing test and implementation shared one retired
+  asymmetric-Z assumption. This was an HSL target contract mismatch, not a
+  Stage-3 action, Gain, PPO or checkpoint defect.
+
+Implementation:
+
+- the existing Stage-1 target owner now emits exact
+  `target_pos = -anchor_dr_delta_pos` for all three world-frame translation
+  axes; quaternion-to-RPY numerical-domain protection remains unchanged;
+- the existing warmup validator independently reconstructs and checks that
+  complete translation instead of applying a second axis policy;
+- the confirmed TEST-10 oracle now executes the real target-owner body with a
+  semantic two-row fixture and proves positive and negative anti-DR `dz` are
+  both preserved. No Clean/future value enters the fixture or actor path;
+- no runner, wrapper, target type, checkpoint field, optimizer, transaction or
+  persistence owner was added.
+
+Deterministic evidence:
+
+- `python -m py_compile` passes for the producer, validator and two HSL
+  contracts;
+- `frontres_hsl_v007_s1_contract.py` prints
+  `current anti-DR [B,6] preserves both dz signs without Clean input or axis clamp`;
+- `frontres_hsl_v007_s2_connectivity_contract.py` proves the q29-normalizer-
+  actor-current-target edge and Stage-3 zero HSL writer/loss;
+- task-space proposal, actual policy distribution, 928/158/770 authority,
+  checkpoint-v9/HSL-v2, legacy rollout-label and formal Stage-1 entrypoint
+  contracts all exit zero;
+- the complete `frontres_segment_all_contract_suite.py` exits zero after the
+  change. This is deterministic regression evidence, not simulator/live or
+  policy-quality evidence;
+- `check_module_test_atlas.mjs` reports 18 cards, 18 passed, 0 partial and 0
+  blocked; the regenerated Code Quality Atlas validator reports 18 modules,
+  1417 unique functions and 296 unique annotated blocks.
+
+Code-discipline result:
+
+- the producer remains the single semantic owner and the validator remains a
+  fail-closed independent check at the existing Pinch Point;
+- the patch removes a hidden per-axis authority from both sides without adding
+  caller knowledge, a Service Layer, wrapper, private dependency or new state;
+- final review finds P0=0 and P1=0 for the bounded scope. Existing unrelated
+  worktree changes and live-only facts were not reviewed as part of this unit.
+  The bounded review is stored at
+  `note/frontres_core/reviews/FRS-v017-dp08-hsl-target-final-review.md`.
+
+Verdict: DP08 HSL Warmup is integrated offline and Phase A reviewed. HSL-v2
+remains proposal-only, actor-only, deployable-158D and cold-start-only. Phase B,
+simulator, training, live, policy-quality and DP09 remain outside this evidence.
+
+## E-FI-118: DP09 Actor And Critic Warmup Offline Readiness Closure
+
+Date: 2026-08-04
+
+Phase A first-invalid fact:
+
+- TRAIN-v014 defines the formal phases as `critic_only`, `actor_ramp` and
+  `joint`, but the schedule owner, typed request validators and checkpoint-v9
+  still emitted or accepted the retired public label `actor_warmup`;
+- existing tests proved critic-only Actor parameter freeze at K8 but did not
+  prove preservation of non-empty Actor/std optimizer state or continuity of
+  the same Critic across both K transitions.
+
+Implementation:
+
+- `frontres_segment_warmup.py` now emits `actor_ramp`; the phase duration and
+  linear actor-loss weight are unchanged;
+- both public transaction request validators accept only
+  `critic_only`, `actor_ramp`, `joint` and reject the old label;
+- transaction, diagnostics/telemetry and checkpoint-v9 consume the resolver's
+  immutable phase identity without recomputation;
+- no HSL, Gain, PPO formula, schedule duration, K/M/DR rule, checkpoint schema,
+  runner, simulator or MOSAIC host behavior changed.
+
+Deterministic evidence:
+
+- the red phase-oracle test first failed against `actor_warmup`, then
+  `frontres_segment_warmup_contract.py` passed the exact actor-ramp sequence;
+- `frontres_v015_transaction_route_contract.py` executed K16/M3 and K32/M4
+  critic-only formal transactions through exact-one updates. Both reused one
+  Critic object and changed its parameters, while pre-seeded Actor/std
+  parameters and their Adam state remained bitwise unchanged;
+- the same formal transaction contract proved `actor_ramp` reaches final
+  telemetry with its unchanged fractional actor-loss weight;
+- `frontres_v015_checkpoint_resume_contract.py` round-tripped checkpoint-v9 at
+  actor-ramp and rejected a tampered `actor_warmup` phase before mutation;
+- interface, legacy single-update regression and changed-file pycompile pass;
+- `frontres_segment_all_contract_suite.py` exited zero with all 49 contract
+  targets observing their required marker.
+
+Code-discipline result:
+
+- the existing pure resolver, typed request, Unit-of-Work, telemetry and
+  checkpoint Gateway boundaries remain intact; no duplicated phase owner,
+  private-state traversal, wrapper or fallback was added;
+- final review reports P0=0, P1=0 and no in-scope P2. The retained internal
+  `actor_warmup_iterations` duration field is compatibility naming only, not a
+  formal identity;
+- review: `note/frontres_core/reviews/FRS-v017-dp09-warmup-final-review.md`.
+
+Verdict: DP09 Actor & Critic Warmup is integrated offline and Phase A reviewed.
+The next canonical design point is DP10 Future Motion Context. Phase B,
+simulator, training, live and policy quality remain unauthorized and
+unconfirmed.
+
+## E-FI-119: DP10 Future Motion Context Offline Readiness Closure
+
+Date: 2026-08-04
+
+Phase A first-invalid fact:
+
+- the active contract, Design Inspector and checkpoint-v9 required exactly two
+  deployment/Noisy q29 future frames at offsets `(1,2)`, but the layout owner
+  still accepted arbitrary positive sorted offsets such as `(1,3)`;
+- this allowed config and actor-context tests to describe a layout that could
+  never satisfy the formal checkpoint identity. The mismatch was semantic
+  acceptance drift, not a q29 value, normalizer or GMT defect.
+
+Implementation:
+
+- `FrontRESFutureIntentLayout` now owns the exact `(1,2)` identity;
+- Stage-1/Stage-3 config parsing validates that identity before mutating config;
+- formal transaction and checkpoint-v9 consumers independently reject layout
+  drift before transaction collection or checkpoint mutation;
+- focused fixtures use `[B,3,29]` role-aligned deployment/Noisy q29 rows and
+  make `(1,3)` an explicit invalid case;
+- the unmocked observation contract was reduced to its actual DP10 boundary:
+  the production observation reader, normalizer and actor/GMT authority split.
+  The current exact-one transaction remains independently proved by its formal
+  transaction contract instead of being reconstructed inside the observation
+  fixture.
+
+Deterministic evidence:
+
+- TEST-04 role alignment, TEST-05 observation authority/layout, TEST-10 actual
+  policy distribution and TEST-16 checkpoint-v9 contracts pass;
+- HSL S1/S2 future-intent connectivity and Stage-3 config fail-closed contracts
+  pass with `(1,2)` and reject `(1,3)`;
+- `frontres_v015_unmocked_observation_connectivity_contract.py` uses the real
+  `_read_live_observations()` path and reports
+  `870 + 58 -> 928 -> FEMR 158 / frozen GMT 770; actor_calls=1`;
+- `frontres_v015_transaction_route_contract.py` independently passes the
+  current v017 grouped exact-one transaction;
+- changed-file `py_compile`, `git diff --check` and the complete deterministic
+  aggregate pass; the aggregate reports `49/49` required markers.
+
+Code-discipline result:
+
+- Characterization showed that the former generic layout accepted `(1,3)` and
+  failed only later at persistence. The Pinch Point is now the existing layout
+  validator, with config/formal/checkpoint consumers as narrow fail-closed
+  seams;
+- the formal transaction keeps a small independent public identity assertion
+  rather than importing policy-layout implementation into historical stub
+  seams. No wrapper, Service Layer, second owner, fallback or private-state
+  traversal was added;
+- final bounded review finds P0=0 and P1=0. Existing unrelated worktree changes
+  were preserved and remain outside this closure.
+
+Verdict: DP10 Future Motion Context is integrated offline and Phase A reviewed.
+All ten design points now have offline Phase A review evidence. Phase B,
+simulator, training, live and policy quality remain unauthorized and
+unconfirmed.
+
+## E-FI-120: Phase B Runtime Audit Human Control Surface
+
+Date: 2026-08-04
+
+Scope:
+
+- Phase A is already complete for DP01-DP10. This record does not reopen method
+  semantics or module tests;
+- the remaining live-only relationships are projected into one Runtime Audit
+  Atlas before any source probe or official run is authorized.
+
+Control surface:
+
+- `note/architecture/runtime/06_frontres_runtime_audit_atlas.data.json` contains
+  eight runtime-ordered cards: launch identity, sealed scenario/transaction,
+  reset/observation authority, one-action-K/frozen GMT, paired v007 Gain,
+  storage/return, grouped exact-one update, and committed checkpoint/telemetry;
+- each card names its parent Design IDs, formal owner, upstream/probe/downstream
+  route, expected runtime shape/count/value and `PENDING_LIVE` status;
+- `note/architecture/06_frontres_runtime_audit_atlas.html` is linked from the
+  repository Atlas index. The existing Module Test Atlas stage card now points
+  to this separate Phase B surface instead of mixing connectivity into module
+  correctness cards.
+
+Run boundary:
+
+- the intended cost is one fresh K8/M2 transaction with 8 envs, one optimizer
+  update and one checkpoint-v9 save through the official `train` branch;
+- the command template fixes the active schedule, `(1,2)` future offsets and
+  checkpoint interval 1, but intentionally retains
+  `<ABSOLUTE_HSL_V2_CHECKPOINT>` until a real
+  `frontres-v017-hsl-proposal-v2` artifact is confirmed;
+- the historical HSL-v1 `model_warmup.pt` path is not assumed compatible.
+
+Validation:
+
+- the runtime Atlas JSON parses and all referenced repository source paths
+  exist;
+- the actual local viewer loads all eight runtime cards and the run-contract
+  support card. A browser screenshot confirms readable default-zoom layout and
+  one source link resolves through the repository open-source endpoint;
+- no training source, probe, checkpoint, simulator, optimizer or live state was
+  changed or executed.
+
+Verdict: Phase B instrumentation is ready for human review but not authorized.
+The only unresolved command input is the absolute HSL-v2 artifact path.

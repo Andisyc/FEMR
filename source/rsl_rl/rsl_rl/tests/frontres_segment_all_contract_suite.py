@@ -64,7 +64,7 @@ CONTRACTS = (
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_cache_curriculum_contract.py",
         expected_marker="PASS: FrontRES Stage 1 curriculum bank derives cache levels from HRL perturbation curriculum.",
         path_class="core_param_path",
-        requires_torch=False,
+        requires_torch=True,
     ),
     ContractTarget(
         name="cache_noisy_capture",
@@ -146,6 +146,13 @@ CONTRACTS = (
         path_class="live_sentinel_path",
     ),
     ContractTarget(
+        name="interface_refactor",
+        path="source/rsl_rl/rsl_rl/tests/frontres_interface_refactor_contract.py",
+        expected_marker="FrontRES formal Stage-3 route is isolated behind typed fail-closed ports",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
         name="rollout_step_action_stats",
         path="source/rsl_rl/rsl_rl/tests/frontres_rollout_step_action_stats_contract.py",
         expected_marker="frontres_rollout_step_action_stats_contract: ok",
@@ -166,7 +173,7 @@ CONTRACTS = (
     ContractTarget(
         name="grouped_ppo",
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_grouped_ppo_contract.py",
-        expected_marker="frontres_segment_grouped_ppo_contract: ok",
+            expected_marker="frontres_segment_grouped_ppo_contract: scalar v005 ok",
         path_class="core_param_path",
     ),
     ContractTarget(
@@ -256,39 +263,32 @@ CONTRACTS = (
         requires_torch=True,
     ),
     ContractTarget(
-        name="policy_quality_manifest",
-        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_manifest_contract.py",
-        expected_marker="PASS: immutable policy-quality manifest and comparison signatures are closed.",
-        path_class="core_param_path",
-        requires_torch=False,
-    ),
-    ContractTarget(
-        name="v015_policy_quality_identity",
-        path="source/rsl_rl/rsl_rl/tests/frontres_v015_policy_quality_identity_contract.py",
-        expected_marker="frontres_v015_policy_quality_identity_contract: ok",
+        name="gain_v007",
+        path="source/rsl_rl/rsl_rl/tests/frontres_gain_v007_contract.py",
+        expected_marker="[T-v007-gain]",
         path_class="core_param_path",
         requires_torch=True,
     ),
     ContractTarget(
-        name="v015_policy_quality_heldout",
-        path="source/rsl_rl/rsl_rl/tests/frontres_v015_policy_quality_heldout_contract.py",
-        expected_marker="frontres_v015_policy_quality_heldout_contract: ok",
+        name="v017_step1_connectivity",
+        path="source/rsl_rl/rsl_rl/tests/frontres_v017_step1_contract.py",
+        expected_marker="[T-v017-step1]",
         path_class="core_param_path",
         requires_torch=True,
     ),
     ContractTarget(
-        name="v015_policy_quality_save_reload",
-        path="source/rsl_rl/rsl_rl/tests/frontres_v015_policy_quality_save_reload_contract.py",
-        expected_marker="frontres_v015_policy_quality_save_reload_contract: ok",
+        name="v017_transaction_route",
+        path="source/rsl_rl/rsl_rl/tests/frontres_v015_transaction_route_contract.py",
+        expected_marker="frontres_v015_transaction_route_contract: v017 scalar exact-one ok",
         path_class="core_param_path",
         requires_torch=True,
     ),
     ContractTarget(
-        name="policy_quality_q2_report",
-        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_q2_report_contract.py",
-        expected_marker="PASS: Q2 report preserves per-item noise floors and separates technical validity from science.",
-        path_class="secondary_contract_path",
-        requires_torch=False,
+        name="v017_checkpoint_resume",
+        path="source/rsl_rl/rsl_rl/tests/frontres_v015_checkpoint_resume_contract.py",
+        expected_marker="frontres_v015_checkpoint_resume_contract: v9 strict safe save/resume ok",
+        path_class="core_param_path",
+        requires_torch=True,
     ),
     ContractTarget(
         name="hsl_rollout_target_audit",
@@ -298,93 +298,9 @@ CONTRACTS = (
         requires_torch=True,
     ),
     ContractTarget(
-        name="policy_quality_hsl_magnitude_audit",
-        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_hsl_magnitude_audit_contract.py",
-        expected_marker="PASS: HSL magnitude audit separates scale losses and gradients.",
-        path_class="core_param_path",
-        requires_torch=True,
-    ),
-    ContractTarget(
-        name="policy_quality_q2d",
-        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_q2d_contract.py",
-        expected_marker="PASS: Q2-D scale sweep and controlled mean-direction contracts are closed offline.",
-        path_class="core_param_path",
-        requires_torch=True,
-    ),
-    ContractTarget(
-        name="policy_quality_q2d_wiring",
-        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_q2d_wiring_contract.py",
-        expected_marker="PASS: isolated Q2-D evaluator reaches canonical owners without modifying old eval control flow.",
-        path_class="secondary_contract_path",
-        requires_torch=False,
-    ),
-    ContractTarget(
-        name="policy_quality_scoring_state",
-        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_state_contract.py",
-        expected_marker="PASS: policy-quality scoring state capture and restore are closed offline.",
-        path_class="core_param_path",
-        requires_torch=True,
-    ),
-    ContractTarget(
-        name="policy_quality_counterfactuals",
-        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_eval_contract.py",
-        expected_marker="PASS: isolated zero/HSL/policy counterfactual execution is closed offline.",
-        path_class="core_param_path",
-        requires_torch=True,
-    ),
-    ContractTarget(
-        name="policy_quality_entrypoint",
-        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_entrypoint_contract.py",
-        expected_marker="PASS: dedicated policy-quality entrypoint and old-mode isolation are closed offline.",
-        path_class="live_sentinel_path",
-        requires_torch=False,
-    ),
-    ContractTarget(
-        name="policy_quality_executor",
-        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_executor_contract.py",
-        expected_marker="PASS: policy-quality formal manifest executor preflight is closed offline.",
-        path_class="live_sentinel_path",
-        requires_torch=True,
-    ),
-    ContractTarget(
-        name="policy_quality_real_owner_wiring",
-        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_real_owner_wiring_contract.py",
-        expected_marker="PASS: official policy-quality entry installs and reaches all six real owner adapters offline.",
-        path_class="live_sentinel_path",
-        requires_torch=True,
-    ),
-    ContractTarget(
-        name="policy_quality_q1f_inputs",
-        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_q1f_input_contract.py",
-        expected_marker="PASS: Q1-F single-item inputs are immutable and reviewable",
-        path_class="static_contract",
-        requires_torch=False,
-    ),
-    ContractTarget(
-        name="policy_quality_atlas",
-        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_atlas_contract.py",
-        expected_marker="PASS: policy-quality eight-owner Atlas is source-linked and governance-readable.",
-        path_class="static_contract",
-        requires_torch=False,
-    ),
-    ContractTarget(
-        name="stage3_live_sampler",
-        path="source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py",
-        expected_marker="frontres_segment_live_sampler_contract: ok",
-        path_class="core_param_path",
-        requires_torch=True,
-    ),
-    ContractTarget(
         name="stage3_live_probe_ppo_boundary",
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_ppo_contract.py",
         expected_marker="frontres_segment_live_probe_ppo_contract: ok",
-        path_class="core_param_path",
-        requires_torch=True,
-    ),
-    ContractTarget(
-        name="stage3_per_sample_evidence",
-        path="source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py",
-        expected_marker="[probe step14]",
         path_class="core_param_path",
         requires_torch=True,
     ),
@@ -423,20 +339,6 @@ CONTRACTS = (
         path_class="core_param_path",
         requires_torch=True,
     ),
-    ContractTarget(
-        name="stage3_sequence_eval_contract",
-        path="source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py",
-        expected_marker="frontres_segment_sequence_eval_contract: ok",
-        path_class="secondary_contract_path",
-        requires_torch=True,
-    ),
-    ContractTarget(
-        name="stage3_sequence_eval_live_owner",
-        path="source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py",
-        expected_marker="[probe step24]",
-        path_class="live_sentinel_path",
-        requires_torch=True,
-    ),
 )
 
 
@@ -471,10 +373,15 @@ def _python_for_contract(contract: ContractTarget) -> str:
 
 def _run_contract(contract: ContractTarget) -> tuple[int, bool, int]:
     python_path = _python_for_contract(contract)
+    env = os.environ.copy()
+    source_root = str(ROOT / "source" / "rsl_rl")
+    prior_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = source_root if not prior_pythonpath else os.pathsep.join((source_root, prior_pythonpath))
     try:
         result = subprocess.run(
             [python_path, contract.path],
             cwd=ROOT,
+            env=env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

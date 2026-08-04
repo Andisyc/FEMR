@@ -7,12 +7,14 @@ import inspect
 import importlib.util
 import json
 import math
+from dataclasses import fields
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import sys
 
 import torch
+from frontres_contract_imports import install_frontres_contract_packages
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -23,6 +25,13 @@ GAIN_PATH = ROOT / "source" / "rsl_rl" / "rsl_rl" / "frontres" / "frontres_gain.
 RSL_SOURCE_ROOT = ROOT / "source" / "rsl_rl"
 if str(RSL_SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(RSL_SOURCE_ROOT))
+install_frontres_contract_packages(RSL_SOURCE_ROOT / "rsl_rl")
+STATE_PATH = RSL_SOURCE_ROOT / "rsl_rl" / "runners" / "frontres_policy_quality_state.py"
+state_spec = importlib.util.spec_from_file_location("rsl_rl.runners.frontres_policy_quality_state", STATE_PATH)
+state_module = importlib.util.module_from_spec(state_spec)
+assert state_spec.loader is not None
+sys.modules[state_spec.name] = state_module
+state_spec.loader.exec_module(state_module)
 
 
 def _load_s2a_helper():
@@ -104,6 +113,7 @@ class _DeploymentEnv:
         self.command_manager = base_env.command_manager
         self.command_manager._terms = {"motion": command}
         self.scene = base_env.scene
+        self.episode_length_buf = torch.zeros(self.num_envs, dtype=torch.long)
         self.command = command
         self.raw_reads: list[torch.Tensor] = []
         self.current_commands: list[torch.Tensor] = []
@@ -144,6 +154,19 @@ def _runner(helper, command, runtime, layout):
     base_env = helper._FakeEnv(command, command.robot, command.num_envs)
     env = _DeploymentEnv(base_env, command)
     policy = _DeploymentPolicy()
+    command.perturber._deployment_test_state = torch.zeros(command.num_envs)
+    robot = command.robot
+    if not hasattr(robot.data, "root_state_w"):
+        robot.data.root_state_w = torch.zeros(command.num_envs, 13)
+        robot.data.root_state_w[:, 3] = 1.0
+    if not hasattr(robot.data, "joint_vel"):
+        robot.data.joint_vel = torch.zeros_like(robot.data.joint_pos)
+    if not hasattr(robot, "write_root_state_to_sim"):
+        robot.write_root_state_to_sim = lambda value, *, env_ids: robot.data.root_state_w.index_copy_(0, env_ids, value)
+        robot.write_joint_state_to_sim = lambda positions, velocities, *, env_ids: (
+            robot.data.joint_pos.index_copy_(0, env_ids, positions),
+            robot.data.joint_vel.index_copy_(0, env_ids, velocities),
+        )
     optimizer = _FrozenState("optimizer")
     sampler = _FrozenState("sampler")
     normalizer_calls: list[torch.Tensor] = []
@@ -246,30 +269,57 @@ def test_t_formal_composition_connectivity() -> None:
         runner = _runner(reset_helper, command, runtime, layout)
         report = owner.run_frontres_v015_deployment_composition_eval(runner, config=run_config)
 
+        compatibility_fields = (
+            "per_frame_femr_action_used",
+            "per_frame_intent_q29_error",
+            "per_frame_physics_success",
+            "per_frame_fall",
+            "per_frame_zmp_margin",
+            "per_frame_contact_consistency",
+            "per_frame_policy_actions",
+            "actual_contact_steps",
+            "contact_mismatch_steps",
+            "phase_zmp_applicable_steps",
+            "phase_zmp_violation_steps",
+            "phase_zmp_recovery_steps",
+            "survival_steps",
+            "lateral_roll_rad_steps",
+            "lateral_roll_cumulative_mean_rad_steps",
+            "unplanned_contact_steps",
+        )
+        assert all(name not in owner.FrontRESV015DeploymentCompositionReport.__dict__ for name in compatibility_fields)
         assert report.reference_frame_count == 6
         assert report.frame_count == 4
         assert report.femr_action_count == 4
+        assert report.baseline.per_frame_femr_action_used == (False, False, False, False)
+        assert all(
+            value == 0.0
+            for frame in report.baseline.per_frame_policy_actions
+            for row in frame
+            for value in row
+        )
+        assert report.baseline.route_start_state_hash == report.route_start_state_hash
         assert report.accumulated_failure_count >= 1
-        assert report.per_frame_femr_action_used == (True, True, True, True)
-        assert report.per_frame_physics_success[2] is False
-        assert report.per_frame_fall == (False, False, True, False)
-        assert len(report.per_frame_policy_actions) == 4
-        assert report.unplanned_contact_steps[2] == (True, True)
+        assert report.repair.per_frame_femr_action_used == (True, True, True, True)
+        assert report.repair.per_frame_physics_success[2] is False
+        assert report.repair.per_frame_fall == (False, False, True, False)
+        assert len(report.repair.per_frame_policy_actions) == 4
+        assert report.repair.unplanned_contact_steps[2] == (True, True)
         assert all(
             math.isclose(actual, expected, rel_tol=1e-5, abs_tol=1e-6)
             for actual, expected in zip(
-                report.per_frame_intent_q29_error,
+                report.repair.per_frame_intent_q29_error,
                 (0.0, 0.01, 0.02, 0.03),
                 strict=True,
             )
         )
         assert len(runner.alg.policy.actor_inputs) == 4
-        assert len(runner.alg.policy.gmt_policy.inputs) == 4
-        assert len(runner.env.motor_actions) == 4
-        assert runner.env.clock_modes == ["deployment_current_hold"] * 4
+        assert len(runner.alg.policy.gmt_policy.inputs) == 8
+        assert len(runner.env.motor_actions) == 8
+        assert runner.env.clock_modes == ["deployment_current_hold"] * 8
         assert all(tuple(value.shape) == (2, 928) for value in runner.alg.policy.actor_inputs)
         assert all(tuple(value.shape) == (2, 770) for value in runner.alg.policy.gmt_policy.inputs)
-        assert len(runner._normalizer_calls) == 8
+        assert len(runner._normalizer_calls) == 16
         assert runner.alg.optimizer.write_calls == 0
         assert runner._frontres_segment_sampler.write_calls == 0
         assert runner.alg.transition.marker == "unchanged"
@@ -282,6 +332,10 @@ def test_t_formal_composition_connectivity() -> None:
         assert payload["reference_frame_count"] == 6
         assert payload["evaluated_frame_count"] == 4
         assert payload["femr_action_count"] == 4
+        assert payload["route_start_state_hash"] == report.route_start_state_hash
+        assert set(payload["routes"]) == {"baseline", "repair"}
+        assert payload["routes"]["baseline"]["per_frame_femr_action_used"] == [False] * 4
+        assert "intent_q29_error_improvement" in payload["paired"]
         assert payload["source_reference_file_hash"] == report.request.source_reference_file_hash
         assert "expected_contact_steps" in payload
         assert "phase_zmp_applicable_steps" in payload
@@ -290,7 +344,7 @@ def test_t_formal_composition_connectivity() -> None:
         assert "summary" in payload
     print(
         "[T-connect/T-per-frame/T-frozen-GMT/T-report/T-zero-write] "
-        "T=6 Hmax=2 -> 4 actions, 4 GMT reads, immutable JSON, optimizer/sampler writes=0",
+        "T=6 Hmax=2 -> Baseline 0 FEMR + Repair 4 FEMR, 8 GMT reads, paired immutable JSON, writes=0",
         flush=True,
     )
 
@@ -302,14 +356,31 @@ def test_t_formal_entry_and_legacy_isolation() -> None:
     assert "run_frontres_segment_sequence_offline_eval" not in block
     forbidden = ("to_ppo_batch", "optimizer.step", "update_with_probe", "storage", "priority")
     assert all(value not in block for value in forbidden)
+    sequence_text = (RSL_SOURCE_ROOT / "rsl_rl" / "runners" / "frontres_segment_sequence_eval.py").read_text(
+        encoding="utf-8"
+    )
+    branch = sequence_text.split("def _collect_frontres_v015_deployment_branch(", 1)[1].split(
+        "\ndef run_frontres_v015_deployment_composition_eval(", 1
+    )[0]
+    assert "runner." not in branch and "getattr(runner" not in branch
+    assert "FrontRESV015DeploymentRuntimeGateway.from_runner(runner)" in sequence_text
+    assert "gateway.command" not in branch
+    assert "gateway.config" not in branch
+    assert 'snapshot["' not in branch
+    assert 'frame_metrics["' not in branch
+    report_fields = {
+        field.name for field in fields(_load_s2a_helper()._owners()[4].FrontRESV015DeploymentCompositionReport)
+    }
+    assert {"baseline", "repair"} <= report_fields
+    assert "per_frame_policy_actions" not in report_fields
     print(
-        "[T-formal-entry/T-legacy-isolation] dedicated runner method does not call v002 sequence or training paths",
+        "[T-formal-entry/T-runtime-gateway/T-legacy-isolation] evaluator depends on one public runtime gateway",
         flush=True,
     )
 
 
 def test_t_inference_mode_freezes_and_restores_normalizers() -> None:
-    owner = _load_s2a_helper()._owners()[-1]
+    owner = _load_s2a_helper()._owners()[2]
 
     class _MutatingNormalizer(torch.nn.Module):
         def __init__(self) -> None:
@@ -329,17 +400,18 @@ def test_t_inference_mode_freezes_and_restores_normalizers() -> None:
         privileged_obs_normalizer=normalizers[2],
         teacher_obs_normalizer=normalizers[3],
     )
-    before = owner._frontres_v015_training_state_fingerprint(runner)
-    with owner._frontres_v015_deployment_inference_mode(runner):
+    gateway = owner.FrontRESV015DeploymentRuntimeGateway(runner, None, runner.alg.policy)
+    before = gateway.training_state_fingerprint()
+    with gateway.inference_mode():
         assert all(not module.training for module in normalizers)
         for module in normalizers:
             module(torch.ones(1, 1))
     assert all(module.training for module in normalizers)
     assert all(int(module.updates.item()) == 0 for module in normalizers)
-    assert owner._frontres_v015_training_state_fingerprint(runner) == before
+    assert gateway.training_state_fingerprint() == before
 
     try:
-        with owner._frontres_v015_deployment_inference_mode(runner):
+        with gateway.inference_mode():
             raise RuntimeError("deliberate")
     except RuntimeError as exc:
         assert str(exc) == "deliberate"
@@ -348,7 +420,7 @@ def test_t_inference_mode_freezes_and_restores_normalizers() -> None:
     assert all(module.training for module in normalizers)
 
     normalizers[0](torch.ones(1, 1))
-    after = owner._frontres_v015_training_state_fingerprint(runner)
+    after = gateway.training_state_fingerprint()
     assert after["prefix_normalizer"] != before["prefix_normalizer"]
     print(
         "[T-inference-mode/T-normalizer-zero-write/T-exception-restore] "

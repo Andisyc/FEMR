@@ -164,8 +164,7 @@ class G1FlatKLDistillationRunnerCfg(RslRlOnPolicyRunnerCfg):
 #   q_ref_start_idx  = 232   (current-frame q_ref_pos offset in 800-dim obs)
 #   num_frontres_obs = 320   (command[58×5] + anchor_ori[6×5] = ref-only subset)
 #   num_task_corrections = 6  ([Δpos(3), Δrpy(3)] task-space SE3 output)
-#   max_delta_pos = 0.3      (tanh clip, metres)
-#   max_delta_rpy = 0.3      (tanh clip, radians ≈ 17°)
+#   task-space output is direct full-6D Delta SE(3); no tanh or per-family scale
 #   lambda_reg_init = 0.005  (regularisation weight, matched to r_delta magnitude)
 #   learning_rate   = 3e-5   (fixed schedule, avoids adaptive lr deadlock)
 #

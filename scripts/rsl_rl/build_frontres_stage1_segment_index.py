@@ -2,22 +2,19 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 from pathlib import Path
 import sys
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = ROOT / "source" / "rsl_rl" / "rsl_rl" / "frontres" / "frontres_segment_cache_indexer.py"
-spec = importlib.util.spec_from_file_location("frontres_segment_cache_indexer_stage1_index_only", MODULE_PATH)
-if spec is None or spec.loader is None:
-    raise RuntimeError(f"Could not load FrontRES indexer from {MODULE_PATH}")
-indexer = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = indexer
-spec.loader.exec_module(indexer)
+SOURCE_ROOT = ROOT / "source" / "rsl_rl"
+if str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
 
-build_amass_segment_index = indexer.build_amass_segment_index
-write_amass_segment_index = indexer.write_amass_segment_index
+from rsl_rl.frontres.frontres_segment_cache_indexer import (  # noqa: E402
+    build_amass_segment_index,
+    write_amass_segment_index,
+)
 
 
 def _limit(value: str) -> int | None:

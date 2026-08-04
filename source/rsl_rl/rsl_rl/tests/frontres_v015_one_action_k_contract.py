@@ -30,9 +30,10 @@ def _load(name: str, path: Path):
 def _package(name: str) -> types.ModuleType:
     existing = sys.modules.get(name)
     if isinstance(existing, types.ModuleType):
+        existing.__path__ = [str(RSL_ROOT.joinpath(*name.split(".")[1:]))]
         return existing
     module = types.ModuleType(name)
-    module.__path__ = []
+    module.__path__ = [str(RSL_ROOT.joinpath(*name.split(".")[1:]))]
     sys.modules[name] = module
     return module
 
@@ -43,6 +44,8 @@ def _load_owners():
 
     rsl_rl_pkg = sys.modules["rsl_rl"]
     frontres_pkg = sys.modules["rsl_rl.frontres"]
+    rsl_rl_pkg.__path__ = [str(RSL_ROOT)]
+    frontres_pkg.__path__ = [str(RSL_ROOT / "frontres")]
     runners_pkg = _package("rsl_rl.runners")
     algorithms_pkg = _package("rsl_rl.algorithms")
     modules_pkg = _package("rsl_rl.modules")
@@ -58,14 +61,11 @@ def _load_owners():
     ppo_module.compute_frontres_segment_ppo_loss = lambda *_args, **_kwargs: (_ for _ in ()).throw(
         AssertionError("Step 2B must not enter PPO")
     )
-    ppo_module.install_frontres_v004_projected_gradients = lambda *_args, **_kwargs: (_ for _ in ()).throw(
-        AssertionError("Step 2B must not install PPO gradients")
+    ppo_module.install_frontres_v005_scalar_gradients = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("one-action K collection must not install PPO gradients")
     )
-    ppo_module.project_frontres_v004_actual_parameter_delta = lambda *_args, **_kwargs: (_ for _ in ()).throw(
-        AssertionError("Step 2B must not commit PPO parameter deltas")
-    )
-    ppo_module.step_frontres_v004_optimizer_with_actor_authority = lambda *_args, **_kwargs: (_ for _ in ()).throw(
-        AssertionError("Step 2B must not enter optimizer authority")
+    ppo_module.step_frontres_v005_scalar_optimizer = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("one-action K collection must not enter optimizer authority")
     )
     sys.modules[ppo_module.__name__] = ppo_module
     algorithms_pkg.frontres_segment_ppo = ppo_module
@@ -75,22 +75,10 @@ def _load_owners():
         is_frontres=True,
         is_task_space_mode=True,
     )
-    warmup = types.ModuleType("rsl_rl.frontres.frontres_segment_warmup")
-    def warmup_phase(*_args, **kwargs):
-        iteration = int(kwargs.get("iteration", 0))
-        critic = int(kwargs.get("critic_warmup_iterations", 0))
-        actor = int(kwargs.get("actor_warmup_iterations", 0))
-        if iteration < critic:
-            return SimpleNamespace(name="critic_only", phase_iteration=iteration, actor_loss_weight=0.0)
-        if iteration < critic + actor:
-            phase_iteration = iteration - critic
-            return SimpleNamespace(
-                name="actor_warmup", phase_iteration=phase_iteration, actor_loss_weight=(phase_iteration + 1) / actor
-            )
-        return SimpleNamespace(name="joint", phase_iteration=max(0, iteration - critic - actor), actor_loss_weight=1.0)
-
-    warmup.frontres_segment_warmup_phase = warmup_phase
-    sys.modules[warmup.__name__] = warmup
+    warmup = _load(
+        "rsl_rl.frontres.frontres_segment_warmup",
+        RSL_ROOT / "frontres" / "frontres_segment_warmup.py",
+    )
     frontres_pkg.frontres_segment_warmup = warmup
 
     training_setup = types.ModuleType("rsl_rl.runners.frontres_training_setup")
@@ -115,6 +103,13 @@ def _load_owners():
         RSL_ROOT / "frontres" / "frontres_balance.py",
     )
     frontres_pkg.frontres_balance = balance
+    interfaces = sys.modules.get("rsl_rl.frontres.frontres_interfaces")
+    if interfaces is None:
+        interfaces = _load(
+            "rsl_rl.frontres.frontres_interfaces",
+            RSL_ROOT / "frontres" / "frontres_interfaces.py",
+        )
+    frontres_pkg.frontres_interfaces = interfaces
     rollout = _load(
         "rsl_rl.runners.frontres_rollout_step",
         RSL_ROOT / "runners" / "frontres_rollout_step.py",
@@ -132,8 +127,6 @@ class _FakePolicy:
     num_task_corrections = 6
     num_frontres_obs = 158
     num_actor_obs = 928
-    max_delta_pos = 1.0
-    max_delta_rpy = 1.0
 
     def __init__(self, command) -> None:
         self.command = command
@@ -291,7 +284,7 @@ def _capture(
     env, command, pair_layout, request = _configure_fake_env(helper, commands, hooks, setup, horizons=horizons)
     policy = _FakePolicy(command)
     alg = _FakeAlg(policy)
-    alg.frontres_v015_formal_transaction_enabled = quality_route is not None
+    alg.frontres_formal_transaction_enabled = quality_route is not None
     apply_calls: list[torch.Tensor] = []
 
     def apply_frontres_task_corrections(actions, n_train, **_kwargs):
@@ -330,8 +323,9 @@ def _capture(
         ref_vel_estimator_obs=None,
     )
     physics_offset = 0
-    original_physics = live_probe._capture_physics_frame
-    original_lean = live_probe._capture_v015_quality_lateral_lean_frame
+    execution_owner = sys.modules["rsl_rl.runners.frontres_segment_one_action_k"]
+    original_physics = execution_owner.capture_frontres_physics_frame
+    original_lean = execution_owner.capture_frontres_quality_lateral_lean_frame
 
     def capture_physics(_runner, _layout):
         nonlocal physics_offset
@@ -339,11 +333,15 @@ def _capture(
         physics_offset += 1
         return frame
 
-    live_probe._capture_physics_frame = capture_physics
-    live_probe._capture_v015_quality_lateral_lean_frame = lambda _runner, _layout: (
+    execution_owner.capture_frontres_physics_frame = capture_physics
+    execution_owner.capture_frontres_quality_lateral_lean_frame = lambda _runner, _layout: (
         torch.full((2,), 0.03),
         torch.full((2,), 0.01),
     )
+    stage3_owner = sys.modules["rsl_rl.runners.frontres_stage3_engine"]
+    transaction = stage3_owner.frontres_stage3_transaction_aggregate(runner)
+    transaction.begin_collection()
+    transaction.bind_collection_context(route="sentinel", sample=object(), batch=object())
     try:
         evidence = live_probe.collect_frontres_v015_one_action_k_evidence(
             runner,
@@ -351,8 +349,9 @@ def _capture(
             pair_layout=pair_layout,
         )
     finally:
-        live_probe._capture_physics_frame = original_physics
-        live_probe._capture_v015_quality_lateral_lean_frame = original_lean
+        transaction.abort()
+        execution_owner.capture_frontres_physics_frame = original_physics
+        execution_owner.capture_frontres_quality_lateral_lean_frame = original_lean
     return SimpleNamespace(
         evidence=evidence,
         env=env,
@@ -388,7 +387,7 @@ def test_t_quality_deterministic_proposal(live_probe, helper, commands, hooks, s
     assert zero.alg.act_calls == policy.alg.act_calls == 1
     assert torch.count_nonzero(zero.evidence.policy_actions) == 0
     raw_mean = torch.arange(4 * 6, dtype=torch.float32).reshape(4, 6) / 10.0
-    torch.testing.assert_close(policy.evidence.policy_actions, torch.tanh(raw_mean[:2]))
+    torch.testing.assert_close(policy.evidence.policy_actions, raw_mean[:2])
     assert zero.evidence.actor_forward_count == policy.evidence.actor_forward_count == 1
     assert zero.evidence.later_femr_action_count == policy.evidence.later_femr_action_count == 0
     print("[T-quality-proposal] zero/HSL-policy boundary uses one deterministic 6D proposal and no later FEMR action")
@@ -430,6 +429,7 @@ def test_t_action_count_and_frozen(live_probe, helper, commands, hooks, setup) -
     sealed = result.command.frontres_local_scenario_snapshot(torch.arange(4))
     replay = result.command.set_frontres_local_scenario(
         current_root_artifact_t=sealed["current_root_artifact_t"],
+        clean_reference_t=sealed["clean_reference_t"],
         intent_q29=sealed["intent_q29"],
         clean_continuation=sealed["clean_continuation"],
         expected_support=sealed["expected_support"],
@@ -513,7 +513,7 @@ def test_t_continuation_and_row(live_probe, helper, commands, hooks, setup) -> N
     print("[T-continuation/T-row] one-policy-row-per-Repair; GMT=C[q29,dq29,root] only", flush=True)
 
 
-def test_t_phase_exempt_zmp_remains_na_in_aggregate(live_probe, helper, commands, hooks, setup) -> None:
+def test_t_phase_exempt_zmp_preserves_raw_evidence(live_probe, helper, commands, hooks, setup) -> None:
     result = _capture(live_probe, helper, commands, hooks, setup, horizons=(2, 2), physics_mode="tie")
     evidence = result.evidence
     expected = evidence.physics_expected_support_steps.clone()
@@ -522,9 +522,8 @@ def test_t_phase_exempt_zmp_remains_na_in_aggregate(live_probe, helper, commands
     repaired_zmp = evidence.physics_zmp_repaired_steps.clone()
     noisy_zmp = evidence.physics_zmp_noisy_steps.clone()
 
-    # Row 0 only loads support on the transition frame. That raw ZMP sample is
-    # valid sensor evidence, but the phase recovery rule excludes it from the
-    # scored ZMP envelope, so its aggregate margin must remain N/A.
+    # Row 0 only loads support on the transition frame. The collector owns the
+    # immutable raw sample and expected phase; v007 owns later applicability.
     expected[:, 0] = False
     expected[1, 0, 0] = True
     repaired_contact[:, 0] = expected[:, 0]
@@ -542,52 +541,12 @@ def test_t_phase_exempt_zmp_remains_na_in_aggregate(live_probe, helper, commands
         physics_zmp_noisy_steps=noisy_zmp,
     )
     transition_only.validate()
-
-    storage = sys.modules["rsl_rl.frontres.frontres_segment_storage"]
-    facts = storage.pair_frontres_v015_gain_facts(transition_only)
-    gain = _load(
-        "rsl_rl.frontres.frontres_gain",
-        RSL_ROOT / "frontres" / "frontres_gain.py",
-    )
-    sys.modules["rsl_rl.frontres"].frontres_gain = gain
-    gain_input = gain.FrontRESIntentPhysicsGainInput(
-        intent_q29=facts.intent_q29,
-        repaired_q29=facts.repaired_q29,
-        noisy_q29=facts.noisy_q29,
-        intent_q29_provenance=facts.intent_q29_provenance,
-        intent_q29_source=facts.intent_q29_source,
-        repair_action_steps=facts.policy_actions,
-        intent_valid_mask=facts.intent_valid_mask,
-        repaired_success=facts.repaired_success,
-        noisy_success=facts.noisy_success,
-        repaired_survival=facts.repaired_survival,
-        noisy_survival=facts.noisy_survival,
-        effective_horizon_k=facts.horizon_k,
-        repaired_zmp_margin=facts.repaired_zmp_margin,
-        noisy_zmp_margin=facts.noisy_zmp_margin,
-        repaired_contact=facts.repaired_contact,
-        noisy_contact=facts.noisy_contact,
-        repaired_contact_violation=facts.repaired_contact_violation,
-        noisy_contact_violation=facts.noisy_contact_violation,
-        repaired_zmp_violation=facts.repaired_zmp_violation,
-        noisy_zmp_violation=facts.noisy_zmp_violation,
-        expected_support_steps=facts.expected_support_steps,
-        repaired_contact_steps=facts.repaired_contact_steps,
-        noisy_contact_steps=facts.noisy_contact_steps,
-        repaired_zmp_margin_steps=facts.repaired_zmp_margin_steps,
-        noisy_zmp_margin_steps=facts.noisy_zmp_margin_steps,
-        physics_pair_valid_mask=facts.physics_pair_valid_mask,
-    )
-    gain_result = gain.compute_intent_physics_local_repair_gain(
-        gain_input,
-        config=gain.FrontRESIntentPhysicsGainConfig(),
-    )
-    returned = storage.build_frontres_v015_gain_return_evidence(facts, gain_result)
-    assert not bool(returned.zmp_applicable_repaired[0])
-    assert not bool(returned.zmp_applicable_noisy[0])
-    assert torch.isnan(returned.repaired_zmp_margin[0])
-    assert torch.isnan(returned.noisy_zmp_margin[0])
-    print("[T-phase-zmp-aggregate] recovery-exempt raw ZMP remains aggregate N/A", flush=True)
+    assert not bool(transition_only.physics_expected_support_steps[0, 0].any())
+    assert bool(transition_only.physics_expected_support_steps[1, 0, 0])
+    assert torch.isnan(transition_only.physics_zmp_repaired_steps[0, 0])
+    torch.testing.assert_close(transition_only.physics_zmp_repaired_steps[1, 0], torch.tensor(0.2))
+    torch.testing.assert_close(transition_only.physics_zmp_noisy_steps[1, 0], torch.tensor(0.1))
+    print("[T-phase-zmp-raw] collector preserves raw ZMP and expected phase for v007", flush=True)
 
 
 def test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, commands, hooks, setup) -> None:
@@ -609,6 +568,7 @@ def test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, comma
     sealed = unequal.command.frontres_local_scenario_snapshot(torch.arange(4))
     unequal.command.set_frontres_local_scenario(
         current_root_artifact_t=sealed["current_root_artifact_t"],
+        clean_reference_t=sealed["clean_reference_t"],
         intent_q29=sealed["intent_q29"],
         clean_continuation=sealed["clean_continuation"],
         expected_support=sealed["expected_support"],
@@ -807,7 +767,7 @@ def main() -> None:
     test_t_quality_deterministic_proposal(live_probe, helper, commands, hooks, setup)
     test_t_quality_lateral_lean_is_actual_robot_only(live_probe)
     test_t_continuation_and_row(live_probe, helper, commands, hooks, setup)
-    test_t_phase_exempt_zmp_remains_na_in_aggregate(live_probe, helper, commands, hooks, setup)
+    test_t_phase_exempt_zmp_preserves_raw_evidence(live_probe, helper, commands, hooks, setup)
     test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, commands, hooks, setup)
     test_t_k_metamorphic_and_legacy_reject(live_probe, helper, commands, hooks, setup)
     print("frontres_v015_one_action_k_contract: ok", flush=True)

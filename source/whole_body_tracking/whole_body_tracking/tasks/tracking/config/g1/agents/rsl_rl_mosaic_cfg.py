@@ -828,9 +828,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
                                            # Tune range: 0.03-0.08 (effect is narrow).
         noise_std_type         = "scalar",
         # ── Task-space SE(3) correction mode ─────────────────────────────────
-        num_task_corrections   = 6,        # bounded correction proposal = [Δpos(3), Δrpy(3)]
-        max_delta_pos          = 0.3,      # tanh clip (metres)
-        max_delta_rpy          = 0.4,      # tanh clip (rad); needed to repair RobotBridge rp eps up to 0.35
+        num_task_corrections   = 6,        # direct correction proposal = [Δpos(3), Δrpy(3)]
         # ── GMT (frozen) ─────────────────────────────────────────────────────
         gmt_checkpoint_path    = gmt_checkpoint_path_,
         init_critic_from_gmt   = False,

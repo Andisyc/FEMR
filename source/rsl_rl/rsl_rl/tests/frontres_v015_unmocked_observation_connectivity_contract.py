@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""CPU-only S2 contract for the unmocked v015 observation-to-update route."""
+"""CPU-only S2 contract for the unmocked v015 observation-to-policy route."""
 
 from __future__ import annotations
 
 import importlib.util
 import sys
+import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,9 +25,10 @@ from rsl_rl.modules.front_residual_actor_critic import FrontRESActorCritic
 
 ACTOR_PARSE = FrontRESActorCritic._parse_observations
 GMT_DIRECT = FrontRESActorCritic._run_gmt_direct
-TRANSACTION_TEST = TEST_ROOT / "frontres_v015_transaction_route_contract.py"
 CURRENT_COMMAND_TEST = TEST_ROOT / "frontres_v015_current_gmt_command_contract.py"
+TWO_ROLE_TEST = TEST_ROOT / "frontres_v015_two_role_reset_contract.py"
 ACTOR_CONTEXT_TEST = TEST_ROOT / "frontres_future_intent_actor_context_contract.py"
+ONE_ACTION_OWNER = RSL_SOURCE / "rsl_rl" / "runners" / "frontres_segment_one_action_k.py"
 
 
 def _expect_error(error_type, fn) -> None:
@@ -77,8 +79,6 @@ class _SemanticPolicy(torch.nn.Module):
     num_actor_obs = 928
     num_frontres_obs = 158
     num_task_corrections = 6
-    max_delta_pos = 1.0
-    max_delta_rpy = 1.0
     gmt_policy_obs_dim = 770
     gmt_actor_input_dim = 770
 
@@ -151,8 +151,8 @@ class _SemanticAlg:
         self.act_calls = 0
         self.frontres_future_offsets = (1, 2)
         self.frontres_future_intent_layout_version = "frontres-v015-future-intent-q29-v1"
-        self.frontres_v015_formal_transaction_enabled = True
-        self.frontres_v015_local_sentinel_only = True
+        self.frontres_formal_transaction_enabled = True
+        self.frontres_local_sentinel_only = True
         self.frontres_training_objective = "segment_replay_hrl"
         self.frontres_segment_replay_enabled = True
         self.frontres_segment_advantage_normalization = "grouped_scale_only"
@@ -251,10 +251,9 @@ class _SemanticEnv:
 
 
 def _build_fixture():
-    formal = _load("frontres_v015_r5_transaction_helper", TRANSACTION_TEST)
-    candidate_contract, owners, live_sampler, _live_update_loop = formal._load_owners()
-    _gain_contract, _one_action, helper, commands, hooks, setup, live_probe, _storage, ppo = owners
     current_helper = _load("frontres_v015_r5_current_command_helper", CURRENT_COMMAND_TEST)
+    helper = _load("frontres_v015_r5_two_role_helper", TWO_ROLE_TEST)
+    commands, hooks, setup = helper._load_owners()
     command, request = current_helper._sealed_role_command(helper, commands, hooks, setup)
     command.cfg = SimpleNamespace(motion_horizon=1, command_velocity=True)
     env_ids = torch.arange(8, dtype=torch.long)
@@ -266,6 +265,7 @@ def _build_fixture():
     command.clear_frontres_local_scenario()
     command.set_frontres_local_scenario(
         current_root_artifact_t=sealed["current_root_artifact_t"],
+        clean_reference_t=sealed["clean_reference_t"],
         intent_q29=sealed["intent_q29"],
         clean_continuation=repeat_to_k(sealed["clean_continuation"]),
         expected_support=repeat_to_k(sealed["expected_support"]),
@@ -286,7 +286,7 @@ def _build_fixture():
 
     layout = resolve_frontres_future_intent_layout((1, 2), "frontres-v015-future-intent-q29-v1")
     policy = _SemanticPolicy(command)
-    optimizer = formal._TrackingSGD(policy.parameters())
+    optimizer = torch.optim.SGD(policy.parameters(), lr=1.0e-3)
     alg = _SemanticAlg(policy, optimizer)
     prefix_mean = torch.zeros(1, 158)
     prefix_std = torch.full((1, 158), 2.0)
@@ -327,31 +327,42 @@ def _build_fixture():
         command._frontres_quat_correction[:, 0] = 1.0
 
     runner._apply_frontres_task_corrections = apply_corrections
-    pair_layout = SimpleNamespace(n_train=4, n_base=4, n_candidate=0, n_clean=0)
-    live_probe.FrontRESSegmentPPOBatch = ppo.FrontRESSegmentPPOBatch
+    rsl_rl = sys.modules["rsl_rl"]
+    runners = types.ModuleType("rsl_rl.runners")
+    runners.__path__ = [str(RSL_SOURCE / "rsl_rl" / "runners")]
+    sys.modules["rsl_rl.runners"] = runners
+    rsl_rl.runners = runners
+    algorithms = types.ModuleType("rsl_rl.algorithms")
+    algorithms.__path__ = [str(RSL_SOURCE / "rsl_rl" / "algorithms")]
+    sys.modules["rsl_rl.algorithms"] = algorithms
+    rsl_rl.algorithms = algorithms
+    one_action = _load("rsl_rl.runners.frontres_segment_one_action_k", ONE_ACTION_OWNER)
+    runtime_types = sys.modules["rsl_rl.runners.frontres_segment_runtime_types"]
+    runtime_types.open_frontres_checkpoint_transaction_barrier(runner)
+    runtime_types.bind_frontres_collection_context(
+        runner,
+        route="training",
+        sample=SimpleNamespace(identity="unmocked-observation"),
+        batch=runner._frontres_segment_live_current_batch,
+    )
     return SimpleNamespace(
-        formal=formal,
-        live_probe=live_probe,
-        live_sampler=live_sampler,
+        one_action=one_action,
+        runtime_types=runtime_types,
         runner=runner,
         command=command,
         request=request,
-        pair_layout=pair_layout,
         policy=policy,
         optimizer=optimizer,
         env=env,
     )
 
 
-def test_t_unmocked_observation_to_exact_one_update() -> None:
+def test_t_unmocked_observation_to_policy_authority() -> None:
     fixture = _build_fixture()
-    live_probe = fixture.live_probe
+    one_action = fixture.one_action
     runner = fixture.runner
-    snapshot = fixture.live_sampler.capture_frontres_frozen_policy_snapshot(
-        runner, transaction_id="tx-v015-r5-s2"
-    )
 
-    observations = live_probe._read_live_observations(runner)
+    observations = one_action._read_live_observations(runner)
     assert tuple(observations.obs.shape) == (8, 928)
     raw = fixture.env.raw_observations[0]
     current = fixture.env.current_commands[0]
@@ -361,7 +372,7 @@ def test_t_unmocked_observation_to_exact_one_update() -> None:
     expected_tail = torch.cat([intent[:, 1], intent[:, 2]], dim=-1) / 2.0
     torch.testing.assert_close(observations.obs[:, :58], expected_tail)
     assert runner.obs_normalizer.calls and tuple(runner.obs_normalizer.calls[0].shape) == (8, 770)
-    assert runner._frontres_v015_observation_route_trace == {
+    assert dict(fixture.runtime_types.frontres_observation_trace(runner)) == {
         "role_row_count": 8,
         "current_command_dim": 0,
         "raw_observation_dim": 870,
@@ -374,148 +385,21 @@ def test_t_unmocked_observation_to_exact_one_update() -> None:
         "post_advance_gmt_read_count": 0,
     }
 
-    # Regression: ordinary formal training must refresh the same command trace
-    # as the sentinel before the transaction request is sealed.
-    runner.alg.frontres_v015_local_sentinel_only = False
-    runner.alg.frontres_segment_live_train_enabled = True
-    runner.alg.frontres_segment_live_update_steps = 1
-    runner.alg.frontres_segment_critic_warmup_iterations = 1
-    runner.alg.frontres_segment_actor_warmup_iterations = 1
-    runner.current_learning_iteration = 2
-    original_physics = live_probe._capture_physics_frame
-
-    def semantic_physics(_runner, _layout):
-        return (
-            torch.tensor([0.4, 0.3, 0.2, 0.1]),
-            torch.tensor([0.2, 0.3, 0.1, 0.1]),
-            torch.ones(4, 2),
-            torch.ones(4, 2),
-            torch.tensor([[1.0, 0.0], [1.0, 1.0], [1.0, 0.0], [1.0, 1.0]]),
-        )
-
-    live_probe._capture_physics_frame = semantic_physics
-    try:
-        evidence = live_probe.collect_frontres_v015_gain_return_priority_evidence(
-            runner,
-            observations,
-            pair_layout=fixture.pair_layout,
-        )
-    finally:
-        live_probe._capture_physics_frame = original_physics
-    assert fixture.policy.actor_inputs and tuple(fixture.policy.actor_inputs[0].shape) == (8, 158)
-    assert evidence.one_action.actor_forward_count == 1
-    assert evidence.one_action.later_femr_action_count == 0
+    actions = runner.alg.act(observations.obs, observations.privileged_obs)
+    assert tuple(actions.shape) == (8, 6)
     assert runner.alg.act_calls == 1
-    assert runner._frontres_v015_observation_route_trace["current_command_dim"] == 58
-    assert runner._frontres_v015_observation_route_trace["gmt_input_dim"] == 770
-
-    continuation = fixture.command._frontres_local_scenario_clean_continuation.detach().clone()
-    horizon = fixture.command._frontres_local_scenario_horizon_k.detach().clone()
-    assert int(torch.unique(horizon).numel()) == 1
-    active_k = int(horizon[0].item())
-    assert active_k == 8
-    assert len(fixture.policy.gmt_policy.inputs) == int(horizon.max().item())
-    assert runner._frontres_v015_observation_route_trace["post_advance_gmt_read_count"] == int(horizon.max().item())
-    for offset, gmt_input in enumerate(fixture.policy.gmt_policy.inputs):
-        valid = horizon > offset
-        expected_command = continuation[:, offset, :58] / 10.0
-        torch.testing.assert_close(gmt_input[valid, :58], expected_command[valid])
-
-    metadata_kwargs = {
-        "transaction_id": snapshot.transaction_id,
-        "policy_snapshot_id": snapshot.policy_snapshot_id,
-        "motion_ids": ("motion-a", "motion-a", "motion-b", "motion-b"),
-        "start_frames": torch.tensor([12, 12, 24, 24], dtype=torch.long),
-        "segment_ids": torch.tensor([101, 101, 202, 202], dtype=torch.long),
-        "source_index": torch.tensor([0, 0, 1, 1], dtype=torch.long),
-        "trial_index": torch.tensor([0, 1, 0, 1], dtype=torch.long),
-    }
-    candidate = live_probe.build_frontres_v015_grouped_candidate_batch(evidence, **metadata_kwargs)
-    expected_critic_rows = torch.arange(8 * 289, dtype=torch.float32).reshape(8, 289)[:4] / 1000.0
-    torch.testing.assert_close(evidence.one_action.policy_privileged_observations, expected_critic_rows)
-    torch.testing.assert_close(candidate.privileged_observations, expected_critic_rows)
-    metadata = candidate.transaction_metadata
-    plan = fixture.live_sampler.FrontRESV015FormalTransactionPlan(
-        snapshot=snapshot,
-        motion_ids=metadata.motion_ids,
-        start_frames=metadata.start_frames,
-        segment_ids=metadata.segment_ids,
-        source_index=metadata.source_index,
-        trial_index=metadata.trial_index,
-        horizon_k=metadata.horizon_k,
-        scenario_ids=metadata.scenario_ids,
-        noisy_segment_hashes=metadata.noisy_segment_hashes,
-        x_t_identities=metadata.x_t_identities,
-        intent_q29_provenance=metadata.intent_q29_provenance,
-        intent_q29_source=metadata.intent_q29_source,
-    )
-    request = live_probe.FrontRESV015FormalTransactionRequest(
-        plan=plan,
-        candidate_batches=(candidate,),
-        diagnostic_reports=(
-            live_probe.build_frontres_v015_local_evaluation_report(
-                evidence,
-                transaction_id=plan.transaction_id,
-            ),
-        ),
-        curriculum_fingerprint=live_probe._v015_resolve_curriculum_identity(runner).schedule_fingerprint,
-        k_stage_index=live_probe._v015_resolve_curriculum_identity(runner).stage_index,
-        active_k=live_probe._v015_resolve_curriculum_identity(runner).active_k,
-        active_m=live_probe._v015_resolve_curriculum_identity(runner).active_m,
-        k_stage_iteration=live_probe._v015_resolve_curriculum_identity(runner).stage_iteration,
-        training_iteration=live_probe._v015_resolve_curriculum_identity(runner).absolute_iteration,
-        warmup_phase_name=live_probe._v015_resolve_curriculum_identity(runner).phase.name,
-        warmup_actor_loss_weight=live_probe._v015_resolve_curriculum_identity(runner).phase.actor_loss_weight,
-    )
-    result = live_probe.run_frontres_v015_formal_transaction_update(runner, request)
-    assert fixture.policy.critic_inputs and tuple(fixture.policy.critic_inputs[-1].shape) == (4, 289)
-    torch.testing.assert_close(fixture.policy.critic_inputs[-1], expected_critic_rows)
-    assert tuple(fixture.policy.actor_inputs[-1].shape) == (4, 158)
-    assert fixture.optimizer.step_count == 1
-    assert result.optimizer_step_delta == 1
-    assert result.update_invocation_count == 1
-    assert result.policy_attempt_count == 4
-    assert result.ppo_result.grouped_attempt_mass_shares == (0.25, 0.25, 0.25, 0.25)
+    assert fixture.policy.actor_inputs and tuple(fixture.policy.actor_inputs[-1].shape) == (8, 158)
+    parsed = fixture.policy._parse_observations(observations.obs)
+    gmt_action = fixture.policy._run_gmt_direct(*parsed)
+    assert tuple(gmt_action.shape) == (8, 3)
+    assert fixture.policy.gmt_policy.inputs and tuple(fixture.policy.gmt_policy.inputs[-1].shape) == (8, 770)
     print(
-        "[T-command-connect/T-history-layout/T-role-tail/T-normalizer/T-consumer/"
-        "T-one-action/T-clean-C-order/T-exact-one-update] "
-        "58/290/870 + 58 -> 928 -> 158/770; K uses current C; attempts=4; step_delta=1",
+        "[T-command-connect/T-role-tail/T-normalizer/T-consumer/T-one-action] "
+        "58/290/870 + 58 -> 928 -> FEMR 158 / frozen GMT 770; actor_calls=1",
         flush=True,
     )
 
 
-def test_t_critic_observation_route_fails_closed() -> None:
-    live_probe = _build_fixture().live_probe
-    request = SimpleNamespace(policy_evaluator=None, privileged_observations=None)
-    alg = SimpleNamespace()
-    missing = SimpleNamespace(
-        observations=torch.zeros(4, 928),
-        privileged_observations=None,
-    )
-    _expect_error(
-        RuntimeError,
-        lambda: live_probe._v015_formal_policy_evaluator(request, alg, missing),
-    )
-    request_only = SimpleNamespace(
-        policy_evaluator=None,
-        privileged_observations=torch.zeros(4, 289),
-    )
-    _expect_error(
-        RuntimeError,
-        lambda: live_probe._v015_formal_policy_evaluator(request_only, alg, missing),
-    )
-    wrong_rows = SimpleNamespace(
-        observations=torch.zeros(4, 928),
-        privileged_observations=torch.zeros(3, 289),
-    )
-    _expect_error(
-        ValueError,
-        lambda: live_probe._v015_formal_policy_evaluator(request, alg, wrong_rows),
-    )
-    print("[T-missing-reject/T-shape-reject] v015 formal critic route fails closed before loss", flush=True)
-
-
 if __name__ == "__main__":
-    test_t_unmocked_observation_to_exact_one_update()
-    test_t_critic_observation_route_fails_closed()
+    test_t_unmocked_observation_to_policy_authority()
     print("frontres_v015_unmocked_observation_connectivity_contract: ok", flush=True)

@@ -14,37 +14,35 @@ from types import SimpleNamespace
 
 import rsl_rl
 from rsl_rl.algorithms import PPO, Distillation, MOSAIC, FrontRESUnified
-from rsl_rl.frontres.frontres_action_cone import FrontRESActionCone
 from rsl_rl.runners.frontres_checkpointing import (
-    capture_v015_hsl_fresh_reload_shadow,
-    load_v015_hsl_initializer,
+    capture_frontres_hsl_fresh_reload_shadow,
+    load_frontres_hsl_initializer,
     load_runner,
     record_frontres_checkpoint_probe,
     save_runner,
-    verify_v015_hsl_fresh_reload,
+    verify_frontres_hsl_fresh_reload,
 )
 from rsl_rl.runners.frontres_episode_bookkeeping import update_episode_bookkeeping
 from rsl_rl.frontres.frontres_executability import FrontRESExecutabilityScorer
 from rsl_rl.runners.frontres_dr_sweep_eval import evaluate_frontres_dr_sweep as run_frontres_dr_sweep_eval
 from rsl_rl.runners.frontres_rollout_step import prepare_frontres_rollout_step
-from rsl_rl.runners.frontres_segment_runner_boundary import FrontRESSegmentRunnerBoundary
-from rsl_rl.runners.frontres_segment_live_probe import (
-    run_frontres_v015_local_identity_sentinel as run_frontres_v015_local_identity_sentinel_helper,
-    run_frontres_segment_live_probe as run_frontres_segment_live_probe_helper,
-    run_frontres_segment_single_update,
+from rsl_rl.runners.frontres_segment_runner_boundary import FrontRESSegmentRunnerBoundary, FrontRESStartupLifecycle
+from rsl_rl.runners.frontres_segment_formal_transaction import (
+    run_frontres_local_identity_sentinel as run_frontres_local_identity_sentinel_helper,
 )
+from rsl_rl.runners.frontres_segment_legacy_probe import (
+    run_frontres_segment_live_probe as run_frontres_segment_live_probe_helper,
+)
+from rsl_rl.runners.frontres_segment_live_policy import run_frontres_segment_single_update
 from rsl_rl.runners.frontres_segment_live_update_loop import (
     run_frontres_segment_live_update_loop as run_frontres_segment_live_update_loop_helper,
-    run_frontres_v015_formal_training_update_loop as run_frontres_v015_formal_training_update_loop_helper,
-    run_frontres_v015_formal_transaction_update_loop as run_frontres_v015_formal_transaction_update_loop_helper,
+    run_frontres_formal_training_update_loop as run_frontres_formal_training_update_loop_helper,
+    run_frontres_formal_transaction_update_loop as run_frontres_formal_transaction_update_loop_helper,
 )
 from rsl_rl.runners.frontres_segment_live_sampler import initialize_frontres_segment_live_sampler
 from rsl_rl.runners.frontres_segment_live_training import (
-    finalize_frontres_v015_local_sentinel_checkpoint as finalize_frontres_v015_local_sentinel_checkpoint_helper,
-    run_frontres_segment_offline_eval as run_frontres_segment_offline_eval_helper,
-    run_frontres_segment_sequence_offline_eval as run_frontres_segment_sequence_offline_eval_helper,
+    finalize_frontres_local_sentinel_checkpoint as finalize_frontres_local_sentinel_checkpoint_helper,
     run_frontres_segment_live_training_loop,
-    run_frontres_segment_periodic_eval as run_frontres_segment_periodic_eval_helper,
 )
 from rsl_rl.frontres.task_space_correction import apply_frontres_task_corrections
 from rsl_rl.runners.frontres_runtime import (
@@ -269,6 +267,9 @@ class OnPolicyRunner:
             raise ValueError(f"Training type not found for algorithm {self.alg_cfg['class_name']}.")
         self._apply_frontres_specialist_mode()
         self._frontres_segment_replay_boundary = FrontRESSegmentRunnerBoundary.from_train_cfg(self.cfg)
+        self._frontres_startup_lifecycle = (
+            FrontRESStartupLifecycle() if self._frontres_segment_replay_boundary.requested else None
+        )
         self._frontres_hsl_proposal_context_enabled = bool(
             self.training_type == "frontres"
             and self.cfg.get("frontres_stage1_exit_after_warmup", False)
@@ -280,7 +281,7 @@ class OnPolicyRunner:
         )
         if self._frontres_hsl_proposal_context_enabled and (
             self._frontres_segment_replay_boundary.requested
-            or bool(self.alg_cfg.get("frontres_v015_formal_transaction_enabled", False))
+            or bool(self.alg_cfg.get("frontres_formal_transaction_enabled", False))
         ):
             raise ValueError(
                 "proposal-only Stage-1 HSL cannot mix with Segment Replay or a Stage-3 formal transaction"
@@ -290,9 +291,9 @@ class OnPolicyRunner:
             frontres_segment_sentinel_log = self._frontres_segment_replay_boundary.sentinel_log()
             if frontres_segment_sentinel_log is not None:
                 print(frontres_segment_sentinel_log, flush=True)
-            frontres_v015_sentinel_log = self._frontres_segment_replay_boundary.v015_sentinel_log()
-            if frontres_v015_sentinel_log is not None:
-                print(frontres_v015_sentinel_log, flush=True)
+            frontres_local_sentinel_log = self._frontres_segment_replay_boundary.local_sentinel_log()
+            if frontres_local_sentinel_log is not None:
+                print(frontres_local_sentinel_log, flush=True)
             frontres_segment_probe_log = self._frontres_segment_replay_boundary.probe_log()
             if frontres_segment_probe_log is not None:
                 print(frontres_segment_probe_log, flush=True)
@@ -373,7 +374,7 @@ class OnPolicyRunner:
         self._frontres_future_intent_layout_version: str | None = None
         self._frontres_future_intent_actor_context_dim = 0
         v015_formal_layout_requested = bool(
-            self.alg_cfg.get("frontres_v015_formal_transaction_enabled", False)
+            self.alg_cfg.get("frontres_formal_transaction_enabled", False)
         )
         # Deployment eval 只复用 v015 layout/checkpoint identity, 不请求 Segment sampler.
         if self.training_type == "frontres" and (
@@ -396,12 +397,18 @@ class OnPolicyRunner:
             self._frontres_future_intent_layout_version = layout.version
             self._frontres_future_intent_actor_context_dim = layout.actor_tail_dim
             configured_prefix = int(self.policy_cfg.get("num_frontres_obs", 0) or 0)
-            authority = resolve_frontres_v015_observation_authority(
-                environment_obs_dim=num_obs,
-                configured_frontres_prefix_dim=configured_prefix,
-                actor_tail_dim=self._frontres_future_intent_actor_context_dim,
-                gmt_suffix_dim=FRONTRES_V015_GMT_SUFFIX_DIM,
-            )
+            def resolve_authority():
+                return resolve_frontres_v015_observation_authority(
+                    environment_obs_dim=num_obs,
+                    configured_frontres_prefix_dim=configured_prefix,
+                    actor_tail_dim=self._frontres_future_intent_actor_context_dim,
+                    gmt_suffix_dim=FRONTRES_V015_GMT_SUFFIX_DIM,
+                )
+
+            if self._frontres_startup_lifecycle is not None:
+                authority = self._frontres_startup_lifecycle.resolve_layout(resolve_authority)
+            else:
+                authority = resolve_authority()
             num_actor_obs = authority.combined_obs_dim
             self.policy_cfg["num_frontres_obs"] = authority.frontres_visible_dim
             print(
@@ -463,7 +470,6 @@ class OnPolicyRunner:
             device=self.device,
             **self.alg_cfg,
             multi_gpu_cfg=self.multi_gpu_cfg,)
-        self._frontres_action_cone = FrontRESActionCone(self.cfg, self.alg)
         self._frontres_executability = FrontRESExecutabilityScorer(self.cfg, self.alg, self.device)
         self._frontres_segment_sampler = None
         if self.training_type == "frontres":
@@ -656,10 +662,10 @@ class OnPolicyRunner:
         self,
         init_at_random_ep_len: bool = True,
     ) -> dict[str, object]:
-        return run_frontres_segment_live_probe_helper(
-            self,
-            init_at_random_ep_len=init_at_random_ep_len,
+        operation = lambda: run_frontres_segment_live_probe_helper(
+            self, init_at_random_ep_len=init_at_random_ep_len
         )
+        return self._dispatch_frontres_startup_once("live_probe", operation)
 
     def run_frontres_segment_live_update_loop(
         self,
@@ -667,64 +673,63 @@ class OnPolicyRunner:
         *,
         runner_learn: bool = False,
     ) -> dict[str, float | int]:
-        return run_frontres_segment_live_update_loop_helper(
+        operation = lambda: run_frontres_segment_live_update_loop_helper(
             self,
             init_at_random_ep_len=init_at_random_ep_len,
             runner_learn=runner_learn,
         )
+        return self._dispatch_frontres_startup_once("live_update_loop", operation)
 
-    def run_frontres_v015_formal_transaction(self) -> object:
+    def run_frontres_formal_transaction(self, provider) -> object:
         """Run one injected v015 request through the exact-one update owner."""
 
-        return run_frontres_v015_formal_transaction_update_loop_helper(self)
+        return run_frontres_formal_transaction_update_loop_helper(self, provider)
 
-    def run_frontres_v015_formal_training_transaction(
+    def frontres_stage3_collection_batch(self):
+        """Expose the active engine's typed collection payload to observation adapters."""
+
+        engine = getattr(self, "_frontres_stage3_engine", None)
+        transaction = getattr(engine, "transaction", None)
+        return getattr(transaction, "collection_batch", None)
+
+    def run_frontres_formal_training_transaction(
         self,
         init_at_random_ep_len: bool = True,
     ) -> object:
         """Collect and commit one complete ordinary Stage-3 transaction."""
 
-        return run_frontres_v015_formal_training_update_loop_helper(
+        return run_frontres_formal_training_update_loop_helper(
             self,
             init_at_random_ep_len=init_at_random_ep_len,
         )
 
-    def run_frontres_v015_local_identity_sentinel(
+    def run_frontres_local_identity_sentinel(
         self,
         init_at_random_ep_len: bool = True,
     ) -> object:
         """Run only the explicit v015 local-scenario sentinel, never a legacy live update path."""
 
-        return run_frontres_v015_local_identity_sentinel_helper(
-            self,
-            init_at_random_ep_len=init_at_random_ep_len,
+        operation = lambda: run_frontres_local_identity_sentinel_helper(
+            self, init_at_random_ep_len=init_at_random_ep_len
         )
+        return self._dispatch_frontres_startup_once("local_sentinel", operation)
 
-    def finalize_frontres_v015_local_sentinel_checkpoint(self, result: object) -> str:
-        """Save the exact checkpoint-v6 adjacent to one completed local sentinel."""
+    def finalize_frontres_local_sentinel_checkpoint(self, result: object) -> str:
+        """Save the exact checkpoint-v9 adjacent to one completed local sentinel."""
 
-        return finalize_frontres_v015_local_sentinel_checkpoint_helper(self, result)
+        return finalize_frontres_local_sentinel_checkpoint_helper(self, result)
 
     def learn_frontres_segment_live(
         self,
         num_learning_iterations: int,
         init_at_random_ep_len: bool = True,
     ) -> None:
-        run_frontres_segment_live_training_loop(
+        operation = lambda: run_frontres_segment_live_training_loop(
             self,
             num_learning_iterations=num_learning_iterations,
             init_at_random_ep_len=init_at_random_ep_len,
         )
-
-    def run_frontres_segment_periodic_eval(self, *, iteration: int, train_summary: dict) -> dict[str, float]:
-        return run_frontres_segment_periodic_eval_helper(self, iteration=iteration, train_summary=train_summary)
-
-    def run_frontres_segment_offline_eval(self, *, num_eval_segments: int, rollout_steps: int) -> dict[str, float]:
-        return run_frontres_segment_offline_eval_helper(
-            self,
-            num_eval_segments=num_eval_segments,
-            rollout_steps=rollout_steps,
-        )
+        self._dispatch_frontres_startup_once("formal_train", operation)
 
     def run_frontres_policy_quality_eval(
         self,
@@ -737,13 +742,14 @@ class OnPolicyRunner:
         # QUALITY-ID-01: thin connector uses a lazy import so old modes never import quality evaluation.
         from rsl_rl.runners.frontres_policy_quality_eval import run_frontres_policy_quality_eval
 
-        return run_frontres_policy_quality_eval(
+        operation = lambda: run_frontres_policy_quality_eval(
             self,
             manifest_path=manifest_path,
             hsl_checkpoint_path=hsl_checkpoint_path,
             policy_checkpoint_path=policy_checkpoint_path,
             result_path=result_path,
         )
+        return self._dispatch_frontres_startup_once("policy_quality", operation)
 
     def run_frontres_policy_quality_q2d_eval(
         self,
@@ -757,34 +763,20 @@ class OnPolicyRunner:
         from rsl_rl.runners.frontres_policy_quality_eval import build_frontres_policy_quality_eval_request
         from rsl_rl.runners.frontres_policy_quality_q2d_eval import run_frontres_policy_quality_q2d_scale_eval
 
-        request = build_frontres_policy_quality_eval_request(
-            manifest_path=manifest_path,
-            hsl_checkpoint_path=hsl_checkpoint_path,
-            policy_checkpoint_path=policy_checkpoint_path,
-            result_path=result_path,
-        )
-        return run_frontres_policy_quality_q2d_scale_eval(
-            self,
-            request=request,
-            result_path=result_path,
-        )
+        def operation():
+            request = build_frontres_policy_quality_eval_request(
+                manifest_path=manifest_path,
+                hsl_checkpoint_path=hsl_checkpoint_path,
+                policy_checkpoint_path=policy_checkpoint_path,
+                result_path=result_path,
+            )
+            return run_frontres_policy_quality_q2d_scale_eval(
+                self,
+                request=request,
+                result_path=result_path,
+            )
 
-    def run_frontres_segment_sequence_offline_eval(
-        self,
-        *,
-        num_eval_sequences: int,
-        rollout_steps: int,
-        max_preroll_steps: int | None = None,
-        sampler_seed: int | None = None,
-    ) -> dict[str, float]:
-        # FRS3-EVAL-003: keep runner API thin and delegate sequence eval ownership.
-        return run_frontres_segment_sequence_offline_eval_helper(
-            self,
-            num_eval_sequences=num_eval_sequences,
-            rollout_steps=rollout_steps,
-            max_preroll_steps=max_preroll_steps,
-            sampler_seed=sampler_seed,
-        )
+        return self._dispatch_frontres_startup_once("policy_quality_q2d", operation)
 
     def run_frontres_v015_deployment_composition_eval(self, *, config):
         """Thin formal connector for the isolated v015 deployment evaluator."""
@@ -1203,7 +1195,7 @@ class OnPolicyRunner:
                         and bool(self.cfg.get("frontres_hsl_rollout_label_enabled", False))
                     ):
                         raise RuntimeError(
-                "FRS-TRAIN-v011 forbids frontres_hsl_rollout_label_enabled on every active Stage-3 route"
+                "FRS-TRAIN-v014 forbids frontres_hsl_rollout_label_enabled on every active Stage-3 route"
                         )
                     
                     # ------------------- Policy Rollout -------------------
@@ -1424,19 +1416,30 @@ class OnPolicyRunner:
     def save(self, path: str, infos=None):
         return save_runner(self, path, infos=infos)
 
-    def _capture_v015_hsl_fresh_reload_shadow(self):
-        return capture_v015_hsl_fresh_reload_shadow(self)
+    def _capture_frontres_hsl_fresh_reload_shadow(self):
+        return capture_frontres_hsl_fresh_reload_shadow(self)
 
-    def _verify_v015_hsl_fresh_reload(self, shadow, **kwargs):
-        return verify_v015_hsl_fresh_reload(shadow, **kwargs)
+    def _verify_frontres_hsl_fresh_reload(self, shadow, **kwargs):
+        return verify_frontres_hsl_fresh_reload(shadow, **kwargs)
 
     def load(self, path: str, load_optimizer: bool = True, load_critic: bool = True):
-        return load_runner(self, path, load_optimizer=load_optimizer, load_critic=load_critic)
+        operation = lambda: load_runner(self, path, load_optimizer=load_optimizer, load_critic=load_critic)
+        if self._frontres_startup_lifecycle is None:
+            return operation()
+        return self._frontres_startup_lifecycle.load("resume", operation)
 
-    def load_frontres_v015_hsl_initializer(self, path: str):
-        """Initialize only the v015 Stage-3 actor boundary from strict HSL-v1."""
+    def load_frontres_hsl_initializer(self, path: str):
+        """Initialize only the v015 Stage-3 actor boundary from strict HSL-v2."""
+        operation = lambda: load_frontres_hsl_initializer(self, path)
+        if self._frontres_startup_lifecycle is None:
+            return operation()
+        return self._frontres_startup_lifecycle.load("hsl", operation)
 
-        return load_v015_hsl_initializer(self, path)
+    def _dispatch_frontres_startup_once(self, mode: str, operation):
+        lifecycle = self._frontres_startup_lifecycle
+        if lifecycle is None:
+            return operation()
+        return lifecycle.dispatch_once(mode, operation)
 
     def get_inference_policy(self, device=None):
         return get_inference_policy_runner(self, device=device)

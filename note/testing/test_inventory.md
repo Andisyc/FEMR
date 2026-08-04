@@ -1,15 +1,112 @@
 # FEMR Current Test Inventory
 
-Updated: 2026-07-29
+Updated: 2026-08-04
+
+## DP10 Future Motion Context Offline Readiness E-FI-119
+
+- `frontres_future_intent_actor_context_contract.py` fixes the only valid
+  future offsets to `(1,2)` and rejects `(1,3)` under the active layout version;
+- TEST-04/05/10/16 focused contracts pass for role alignment, 928/158/770
+  authority, direct policy distribution and checkpoint-v9 persistence;
+- `frontres_v015_unmocked_observation_connectivity_contract.py` uses the real
+  observation reader and proves `870D + 58D -> 928D -> 158D / 770D` with one
+  actor call; `frontres_v015_transaction_route_contract.py` independently
+  proves the current formal exact-one transaction;
+- the final deterministic aggregate reports `49/49`.
+
+This is offline Phase A evidence only. It does not prove simulator, training,
+live, policy-quality or deployment behavior.
+
+## DP09 Actor And Critic Warmup Offline Readiness E-FI-118
+
+- `frontres_segment_warmup_contract.py`: formal phase identity is exactly
+  `critic_only -> actor_ramp -> joint`, with unchanged linear weights and K/M/DR
+  durations.
+- `frontres_v015_transaction_route_contract.py`: K16/M3 and K32/M4 reuse one
+  Critic and update it; seeded Actor/std parameters and Adam state remain exact
+  in critic-only. Actor-ramp identity reaches final transaction telemetry.
+- `frontres_v015_checkpoint_resume_contract.py`: checkpoint-v9 stores and
+  reloads `actor_ramp`; old `actor_warmup` rejects before mutation.
+- `frontres_interface_refactor_contract.py`: typed request accepts
+  `actor_ramp` and rejects the retired phase label.
+- The 49-target deterministic aggregate passes. This is offline Phase A
+  evidence, not simulator/live or policy-quality evidence.
+
+## DP07 Repair Gain Diagnostics Projection E-FI-116
+
+TEST-18 was rerun after extending the existing immutable local report and
+formal telemetry serializer. The exact FRS-GAIN-v007 decomposition, fixed
+scale/beta identity and semantic phase-ZMP N/A now survive the official fake
+transaction row permutation unchanged. Gain is not recomputed, missing
+required Contact/Intent evidence rejects, and diagnostics do not mutate
+training state. The focused Gain/step1/transaction contracts and the 49-target
+aggregate pass. This is offline Phase A evidence, not simulator or quality
+evidence.
+
+## TRAIN-v014 Direct Full-6D Closure E-FI-114
+
+The active HSL/Stage-3 action is one finite direct `[B,6]` value. Focused
+HSL/action/log-prob/storage/one-action-K/checkpoint contracts and the 49-target
+aggregate pass. HSL-v2/checkpoint-v9 are strict; HSL-v1/checkpoint-v8 and
+legacy 12D slicing reject before mutation. This remains offline evidence and
+does not authorize Phase B or live execution.
+
+## Human-Confirmed TRAIN-v013 Module Test Closure E-FI-110
+
+All 18 confirmed Module Test Cards were executed at S0/S1 plus module-owned
+S3. Result: `18 passed / 0 partial / 0 blocked`. The card questions and
+independent answers were unchanged. TEST-10 exposed one executable-test
+translation error: three assertions expected the superseded
+`FRS-TRAIN-v012` error identity while production correctly rejected under
+`FRS-TRAIN-v013`. Only those expected identity strings were corrected; the
+full HSL fixture then passed.
+
+This closure did not run the 49-target aggregate, Formal Runtime Audit Phase A
+or B, simulator, training, live execution, policy-quality evaluation or
+deployment composition. The detailed card-to-fact ledger is
+`note/testing/frontres_module_test_execution_2026-08-03.md`. The next gate is
+human review of Formal Runtime Audit Phase A; module PASS is not connectivity
+evidence.
+
+## TRAIN-v013 Module-Test Closure E-FI-109
+
+TRAIN-v013 changed the curriculum and persistence oracle. E-FI-105 remains
+valid for 15 unchanged cards; TEST-02 Training Config, TEST-06 Perturbation
+Data and TEST-16 Checkpointing were updated from the active Contract and rerun.
+Current historical E-FI-109 status is `18 passed / 0 partial / 0 blocked`, with
+active aggregate `49/49` and a separate Phase A pass. E-FI-110 supersedes only
+the module-card execution evidence; it does not erase or re-execute that
+separate Phase A record.
+
+The required revised cases cover explicit per-K DRStageSpec and lower-DR
+restart, d_cap four-class 20/30/40/10 sampling with no feedback/resample, and
+checkpoint-v8 full state with v7/g_K pre-mutation rejection.
+
+## Historical Module Test Atlas Closure E-FI-105
+
+The 18 human-confirmed active-generation cards were rerun independently of the
+broad regression suite. Result: `18 passed / 0 partial / 0 blocked`.
+
+- canonical card status: `note/architecture/testing/05_frontres_module_test_atlas.data.json`;
+- claim/test/fact/limitation ledger:
+  `note/testing/frontres_module_test_execution_2026-08-03.md`;
+- that v012 module readiness no longer admits formal-runtime audit after v013 activation.
+
+The active aggregate is secondary regression evidence and reports 49/49. The
+retired v002/composite adaptive sampler contract remains a historical file and
+is excluded from active aggregation.
 
 ## Main Entries
 
 | Test | Tier | Current ownership |
 | --- | --- | --- |
-| `frontres_segment_all_contract_suite.py` | S0-S3 aggregate | Runs current Segment/observation/checkpoint/PPO/eval/quality-identity contracts. |
+| `frontres_segment_all_contract_suite.py` | active S0-S3 aggregate | Secondary 49-target regression runner. Its passing result does not replace the 18 independently answered Module Test Cards. |
+| `frontres_gain_v007_contract.py` | S1 | Clean anchor, fixed scales, K evidence, family aggregation, Recovery-Aware pressure, N/A/fail-closed behavior, baseline reuse, permutation and beta-cost ordering. |
+| `frontres_v017_step1_contract.py` | S1/S2 | Sealed Clean/Noisy/M-Repair evidence -> v007 Gain -> grouped scalar PPO-v005 -> atomic local report, plus active legacy-local-evaluator rejection. |
+| `frontres_v015_checkpoint_resume_contract.py` | S3 | Real temporary checkpoint-v9 atomic roundtrip with direct-action plus full DR/RNG/receipt state and pre-mutation v8/v7/`g_K`/mixed/partial/tamper rejection. |
 | `frontres_policy_quality_manifest_contract.py` | S1 | Immutable Q1 manifest, canonical hash, permutation, schema fail-closed, and checkpoint/sampler isolation. |
 | `frontres_policy_quality_q2_report_contract.py` | S1/S2 | Q2 exact 8-motion x 2-seed coverage, per-item zero noise floors and route deltas, inferred shared Repair weight, pre-cost Style+Physics decomposition, failure-owner classification, permutation invariance, identity/role/Gain fail-closed behavior, and separation of technical validity from negative scientific outcomes. |
-| `frontres_hsl_v007_s1_contract.py` | S1/S2/S3 | v007 proposal carrier and formal `(1,2)` `928/158/770` actor-only HSL; strict HSL v1 persistence and pre-mutation rejection; bounded-smoke config/telemetry schema; exact normalized 158D reload plus bounded CUDA/CPU 6D proposal tolerance with small-differential acceptance and large-drift rejection; critic/optimizer/Stage-3 HSL isolation. |
+| `frontres_hsl_v007_s1_contract.py` | S1/S2/S3 | v007 proposal carrier and formal `(1,2)` `928/158/770` actor-only HSL; exact current anti-DR full-6D target preserves both `dz` signs without axis clamp; strict HSL-v2 direct-6D persistence and HSL-v1 pre-mutation rejection; exact normalized 158D reload plus CUDA/CPU numerical tolerance; critic/optimizer/Stage-3 HSL isolation. |
 | `frontres_hsl_v007_s2_connectivity_contract.py` | S2 | CPU-only fake local-scenario path: q29 -> normalizer -> Stage-1 actor -> current target, then v015 zero-writer -> actual storage -> batch -> zero HSL loss. |
 | `frontres_v015_two_role_reset_contract.py` | Step 2A S1 | Deterministic fake reset: Repair/Noisy-only layout, Clean `x_t` physical reset, immutable artifact/q29/C/K/hash carrier across retry, legacy-role rejection, and Step-2B future-route fail-closed boundary. |
 | `frontres_hsl_rollout_target_contract.py` | S1 | Regression: retired Stage-3 rollout-derived HSL label fails before transition write. |
@@ -27,31 +124,30 @@ Updated: 2026-07-29
 | `frontres_policy_quality_atlas_contract.py` | S0/S1 | Eight causal quality owners and source links; QUALITY-ID-01 additionally owns B4 reset-to-route role identity instrumentation. |
 | `frontres_segment_stage3_pseudo_suite.py` | S2 | Cheap formal Stage 3 route. |
 | `frontres_full6_no_active_mask_contract.py` | S0 | Rejects action-mask reintroduction on formal full-6D paths. |
-| `frontres_task_space_correction_contract.py` | S1 | Per-row contact-consistent XY scaling and dynamic `dz` lower/upper bounds. |
+| `frontres_task_space_correction_contract.py` | active S1 | Hand-computed zero/dx/droll world-frame current-only correction, future immutability, row permutation, no scaling/clamping, and non-finite pre-mutation rejection. |
 | `frontres_observation_layout_contract.py` | S1/S3 | 100D prefix + 770D GMT suffix + checkpoint stats. |
 | `frontres_balance_obs_cfg_contract.py` | S0/S1 | Balance/ZMP observation config. |
 | `frontres_balance_offline_connectivity_contract.py` | S2 | Balance observation reaches FrontRES actor path. |
 | `frontres_contact_wrench_zmp_contract.py` | S1/S2; S4 at E-FI-84; capacity live-confirmed at E-FI-86 | Contact-wrench ZMP adapter and formal one-action-K connector: exact ground-filter identity, pre-reset raw-view lifecycle, 256 raw contacts per foot/env (`2048` at 8 env), exact-saturation fail-closed, variable per-foot contact slots padded to a masked common axis without changing evidence, finite golden ZMP, foot/row permutation, missing-evidence fail-closed, and live-confirmed real PhysX population through iteration 2000. |
 | `frontres_segment_cache_builder_contract.py` | S1/S2 | Stage 1 cache construction and resume semantics. |
-| `frontres_segment_sampler_contract.py` | S1 / Step 2-S1a | Priority, state, legacy trial planning, 8/16/32/64 horizons, and a pure multi-Segment all-policy transaction layout with `M_s >= 2`; it does not prove a frozen parameter snapshot or runner/storage connectivity. |
+| `frontres_segment_sampler_contract.py` | S1 / Step 2-S1a | Priority/state compatibility plus the active sealed TRAIN-v014 exact-K/exact-M layout; the active path must not consult the legacy state-driven budget. It does not prove live runner/storage connectivity. |
 | `frontres_fixed_noisy_segment_lifecycle_contract.py` | S1 | One immutable Noisy sequence per `source_index`, M-row hash reuse, external-mutation isolation, closure/no-rematerialization, K + H coverage, and Clean-payload rejection; it does not prove command/actor routing. |
 | `frontres_segment_motion_command_reference_contract.py` | S1/S2 | Canonical 65D tape materialization/install, fixed current reference and K cursor, read-only H context, and rejection of random/static mixed reference fallback. |
 | `frontres_fixed_noisy_actor_context_contract.py` | S1/S2 | `[B, |H|*65]` Noisy H context is joined to the real actor input and old actor layouts fail closed. |
-| `frontres_segment_live_sampler_contract.py` | S1/S2 | Formal sampling, fixed-tape/hash reuse, S1b real-policy fingerprint binding, and real sealed-metadata delivery into the S2 accumulator and candidate PPO adapter; rejects a foreign snapshot ID and in-place policy mutation. |
-| `frontres_segment_live_probe_contract.py` | S1/S2 | Fixed-tape and S1b metadata reach Clean reset/storage/candidate PPO adapter; S2 accepts one complete multi-Segment/M-policy carrier, rejects early/mixed/non-policy input, and proves one actual fixture optimizer step while not invoking the PPO loss. |
+| `frontres_segment_live_sampler_contract.py` | historical v002 S1/S2 | Characterizes retired adaptive search roles, v002 Gain evidence, and composite perturbation. Active v017 correctly rejects this route; it is not part of the active aggregate. |
+| `frontres_segment_live_probe_contract.py` | S1/S2 | Characterizes the legacy facade while exercising extracted reset/storage/one-action-K/rollout/reporting owners: fixed-tape and S1b metadata reach Clean reset/storage/candidate PPO adapter; complete multi-Segment/M-policy carrier accepts and early/mixed/non-policy input rejects. |
 | `frontres_segment_live_probe_ppo_contract.py` | S1/S2 | Policy/search row eligibility before PPO. |
 | `frontres_segment_storage_contract.py` | S1/S2 | Full-6D PPO tuple and per-row K returns; storage preserves immutable S1b metadata and explicit row identity at the candidate PPO adapter. |
 | `frontres_segment_algorithm_contract.py` | S1/S2 | PPO formula, KL, ratio, detach, permutation, full-6D gradients. |
 | `frontres_segment_grouped_ppo_contract.py` | Step 3 S1/S2 offline | Hand-computed nested motion/Segment/attempt/valid-step reduction, row permutation, sign-preserving group scale, no-amplification, missing/misaligned/partial metadata failure, static loss isolation, and storage-to-loss metadata delivery. |
-| `frontres_actual_policy_distribution_contract.py` | S1 | Actual actor raw Gaussian mean, one bounded transform, inverse/Jacobian log-prob identity. |
+| `frontres_actual_policy_distribution_contract.py` | S1 | Actual actor raw Gaussian mean/sample, direct 6D action identity, ordinary Normal log-prob and zero action-transform Jacobian. |
 | `frontres_segment_live_single_update_contract.py` | S2 | Optimizer order, adaptive LR, post-KL, rollback, diagnostics. |
 | `frontres_segment_warmup_contract.py` | S1/S2 | DP-09 phase values and actor/critic gradient boundaries. |
 | `frontres_frozen_gmt_contract.py` | S1/S2 | GMT freeze, optimizer exclusion, and bitwise no-update boundary. |
-| `frontres_formal_runtime_audit_contract.py` | S1/S2 | Phase B flag, stable AUDIT labels, v002 raw/K/quality/step-sum fields, policy-row Gain-step slicing, formal-owner hook connectivity, and silent-off behavior. |
+| `frontres_formal_runtime_audit_contract.py` | S1/S2 | Phase B flag, active v017/v007/v005/v014 two-Segment x exact-M voting weights, exact-one update, checkpoint-v9 direct-action identity, formal-owner hook connectivity, active K isolation, invalid identity/mass rejection and silent-off behavior. |
 | `frontres_segment_checkpoint_contract.py` | S3 | Detached helper persistence compatibility tests; not the formal `OnPolicyRunner` owner. |
-| `frontres_segment_live_sampler_contract.py` | S3 | Formal `frontres_checkpointing.py` save/load, sampler persistence, Gain identity match/mismatch/missing-resume rejection. |
-| `frontres_segment_sequence_eval_contract.py` | S2 | Sequence grouping, reset/preroll/eval boundary, aggregation. |
-| `frontres_segment_live_training_pseudo_contract.py` | S2 | Periodic eval fresh sampling and state isolation. |
+| `frontres_segment_live_sampler_contract.py` | historical v002 S3 | Historical sampler persistence and retired Gain identity characterization; excluded from active v017 aggregation. |
+| `frontres_segment_live_training_pseudo_contract.py` | S2 | Training-loop diagnostics/checkpoint behavior and proof that no evaluator is embedded in training. |
 | `frontres_segment_diagnostics_contract.py` | S1/S2 | Motion quality, K masks, saturation, canonical Gain decomposition, legacy-score isolation, and `UNCONFIRMED`. |
 | `frontres_segment_live_sentinel_contract.py` | S4 boundary | Minimal real-runtime contract entry. |
 
@@ -80,11 +176,13 @@ regression assets but cannot prove v015 semantics.
 | `frontres_v015_gain_consumer_contract.py` | S1 complete, `E-FI-11`/`E-FI-13` | Candidate-only post-t q29/I[t] -> v003 Gain -> one-row return/advantage plus actual K evidence-step count and immutable scenario-keyed priority evidence; invalid rows and v002/legacy fallback fail closed. |
 | `frontres_v015_evaluation_isolation_contract.py` | S1 complete, `E-FI-12` | Sealed v003 candidate carrier -> q29 intent/physics/cost/total local-K report; missing valid rows remain NaN rather than zero; legacy v002 evaluators reject v015 before capture; deployment-composition protocol has no return/priority/PPO feedback. |
 | `frontres_v015_grouped_candidate_adapter_contract.py` | S1/S2 current, `E-FI-85` | Sealed v006 carrier -> immutable local transaction metadata -> grouped candidate batch; explicit Repair/Noisy applicability covers all four combinations, paired ZMP is finite iff both apply, PPO consumes Repair only, and legacy/partial/mixed rows fail closed. |
-| `frontres_v015_transaction_route_contract.py` | S2 complete, `E-FI-90`/`E-FI-91` current | CPU fake sealed transaction reaches v006 grouped PPO and the algorithm-owned exact-one optimizer/actual-commit boundary; historical Adam momentum cannot move Actor/std under critic-only or no-direction statuses, permitted post-Adam deltas are reprojected through PPO-v004 KKT, the diagnostics-owned validator fails malformed telemetry closed, role applicability remains explicit, and legacy/HSL/partial paths reject. |
-| `frontres_v015_checkpoint_resume_contract.py` | S3 complete, `E-FI-15` | CPU fake checkpoint save/load preserves exact q29 H/prefix-normalizer/grouped identity, rejects old/mismatched/tampered layouts before mutation, and allows only idle or committed-receipt transaction state; a valid v015 Stage-3 envelope may retain completed-HSL history, but legacy HSL remains reject-only. |
-| `frontres_v015_deployment_composition_s1_contract.py` | S1 complete, `E-FI-28`, `E-FI-87` | Structured Clean-source/Noisy-carrier identity, canonical persistent-corruption hash, row-aligned action/Contact/phase-ZMP/survival/lean report, N/A/applicability fail-closed, no-feedback boundary, and legacy rejection. |
+| `frontres_interface_refactor_contract.py` | S1/S2 current, `E-FI-93`/`E-FI-94`/`E-FI-95`/`E-FI-96` | Typed identity/928-158-770/2-Segment x M ports and unique Stage-3 engine; structurally rejects semantic bodies in compatibility facades, production file-path loading and hidden dependency cycles, and verifies dedicated scenario, evidence/storage, projection/diagnostic, transaction, telemetry, persistence and evaluator owners. |
+| `frontres_contract_imports.py` | contract infrastructure, `E-FI-93` | Supplies lightweight real package paths to isolated contracts so normal owner imports are tested without importing the simulator-facing runner facade. |
+| `frontres_v015_transaction_route_contract.py` | combined S1/S2 regression, current at `E-FI-110` | CPU fake sealed v017 transaction preserves two Segment sources, exact-M Repair rows, scalar GAIN-v007/grouped PPO-v005, one optimizer step and one committed receipt; partial/mixed/legacy/HSL paths reject. E-FI-110 uses only its module assertions and does not treat this combined file as formal-route proof. |
+| `frontres_v015_checkpoint_resume_contract.py` | S3 current, `E-FI-114` | Temporary checkpoint-v9 roundtrip preserves TRAIN-v014 direct action, K/M/DR stage, d_cap/progress, q29 H/prefix-normalizer, optimizer/sampler/RNG and committed receipt; v8/v7, g_K, mixed, partial and tampered payloads reject before mutation. |
+| `frontres_v015_deployment_composition_s1_contract.py` | S1 complete, `E-FI-28`, `E-FI-87`, `E-FI-98` | Structured Clean-source/Noisy-carrier identity, canonical persistent-corruption hash, same-state Baseline/Repair report, exact-zero Baseline action, row-aligned Contact/phase-ZMP/survival/lean, N/A/applicability fail-closed, no-feedback boundary, and legacy rejection. |
 | `frontres_v015_deployment_carrier_s2a_contract.py` | S1/S2 complete, `E-FI-29` | Sealed request -> immutable command q29/dq29 sequence -> current `[B,58]` plus dense H `[B,H+1,29]`; frame/cursor/order/identity/provenance/row alignment, no clamp/mixed reference, and actor/GMT/training isolation. |
-| `frontres_v015_deployment_composition_s2b_contract.py` | S2 complete, `E-FI-30`, `E-FI-87` | Clean frame-0 state + sealed Noisy carrier -> 928D -> per-frame 6D FEMR -> frozen GMT -> timing-aware Contact/phase-ZMP/survival/lean -> atomic policy-only JSON; training fingerprints unchanged. |
+| `frontres_v015_deployment_composition_s2b_contract.py` | S2 complete, `E-FI-30`, `E-FI-87`, `E-FI-98` | Canonical route-start/RNG snapshot -> Baseline restore with zero FEMR -> Repair restore with per-frame 6D FEMR -> frozen GMT -> paired atomic JSON through the public runtime Gateway; training fingerprints unchanged. |
 | `frontres_v015_deployment_live_cli_s4s0_contract.py` | S2 interface complete, `E-FI-31`, `E-FI-87`; S4 pending | Absolute post-fix checkpoint, Clean source, Noisy carrier, CUDA, frame-0/episode-length config, zero-update dispatch and final quality sentinel are fail-closed; real simulator values remain S4-only. |
 | Planned controlled-carrier contract | S1/S2 missing, G4 | Ordinary Clean/reference `.npz` plus fixed protocol materializes once, seals source/protocol/carrier hashes, exposes no metadata to actor, and never resamples across branches. |
 | Planned paired composition contract | S1/S2 missing, G6 | Same carrier/reset/GMT identity reaches No-FEMR baseline and FEMR repair branches; report stays no-feedback. |
@@ -101,8 +199,7 @@ regression assets but cannot prove v015 semantics.
 | `frontres_segment_live_update_loop_contract.py` | S2 | Update-loop diagnostics classify one transaction as `single` and multiple transactions as `aggregate`. |
 | Extend `frontres_segment_live_probe_contract.py` | S1/S2 | Clean-target pairing, mixed-K decomposition, generic-reward isolation. |
 | Extend `frontres_segment_storage_contract.py` | S1/S2 | Accepted total Gain reaches per-row returns. |
-| `frontres_segment_live_sampler_contract.py` | S1/S2 | Formal Gain source/component propagation, missing/non-finite Gain rejection, legacy-score isolation at evidence boundary, priority/state diagnostic isolation, and single-owner connectivity. |
-| Extend periodic/sequence eval contracts | S2 | Periodic fresh-batch/state isolation plus sequence item/per-motion/aggregate canonical Gain routing are covered; S4 remains open. |
+| `frontres_segment_live_sampler_contract.py` | historical v002 S1/S2 | Historical Gain/source and priority-state characterization; active v017 uses sealed exact-M transaction contracts instead. |
 | Extend diagnostics contract | S1/S2 | Raw values and separate gains print; missing values are `UNCONFIRMED`. |
 | Short live Gain sentinel | S4 | Real components are populated, diverse, and non-stale. |
 
@@ -113,9 +210,9 @@ regression assets but cannot prove v015 semantics.
   are covered.
 - Executed-action Repair Cost and Clean no-op diagnostics are covered by S1/S2
   tests; paired-K aggregation and storage connector are covered offline.
-- Step 6A/6B evidence-owner and sampler decision migration are covered offline
-  by E11/E12; periodic eval migration is covered by E15; sequence and final
-  cross-consumer offline closure are covered by E16.
+- Step 6A/6B evidence-owner and sampler decision migration are historical v002
+  coverage. Their periodic/offline/sequence consumers are retired and cannot
+  prove the current three-capability Evaluation boundary.
 - S4 live Gain sentinel is still required.
 - Formal runtime identity equality for Cards 15/16/17 and aggregate
 classification for Card 22 remain an S4 evidence gap; local identity

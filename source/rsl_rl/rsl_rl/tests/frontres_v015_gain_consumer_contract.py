@@ -106,7 +106,8 @@ def _capture_consumer(one_action, helper, commands, hooks, setup, live_probe, *,
         ref_vel_estimator_obs=None,
     )
     physics_offset = 0
-    original_physics = live_probe._capture_physics_frame
+    execution_owner = sys.modules["rsl_rl.runners.frontres_segment_one_action_k"]
+    original_physics = execution_owner.capture_frontres_physics_frame
 
     def capture_physics(_runner, _layout):
         nonlocal physics_offset
@@ -114,7 +115,7 @@ def _capture_consumer(one_action, helper, commands, hooks, setup, live_probe, *,
         physics_offset += 1
         return frame
 
-    live_probe._capture_physics_frame = capture_physics
+    execution_owner.capture_frontres_physics_frame = capture_physics
     try:
         result = live_probe.collect_frontres_v015_gain_return_priority_evidence(
             runner,
@@ -122,7 +123,7 @@ def _capture_consumer(one_action, helper, commands, hooks, setup, live_probe, *,
             pair_layout=pair_layout,
         )
     finally:
-        live_probe._capture_physics_frame = original_physics
+        execution_owner.capture_frontres_physics_frame = original_physics
     return SimpleNamespace(
         result=result,
         runner=runner,

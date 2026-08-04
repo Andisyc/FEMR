@@ -10,7 +10,7 @@ const viewerPath = path.resolve(here, "architecture_atlas.html");
 const viewer = fs.readFileSync(viewerPath, "utf8");
 const scriptMatch = viewer.match(/<script type="module">([\s\S]*?)<\/script>/);
 if (!scriptMatch) throw new Error("viewer module script not found");
-const parseableScript = scriptMatch[1].replace(/^\s*import rough[^;]+;\s*$/m, "const rough = {};");
+const parseableScript = scriptMatch[1].replace(/^\s*import .*$/gm, "");
 new vm.Script(parseableScript, { filename: "architecture_atlas.inline.mjs" });
 
 if (data.layout !== "repository_reading_atlas") {

@@ -18,6 +18,7 @@ if str(RSL_SOURCE) not in sys.path:
     sys.path.insert(0, str(RSL_SOURCE))
 
 frontres_stub = types.ModuleType("rsl_rl.frontres")
+frontres_stub.__path__ = [str(RSL_SOURCE / "rsl_rl" / "frontres")]
 runtime_diagnostics_stub = types.ModuleType("rsl_rl.frontres.runtime_diagnostics")
 runtime_diagnostics_stub.maybe_print_frontres_restore_debug = lambda *args, **kwargs: None
 sys.modules.setdefault("rsl_rl.frontres", frontres_stub)
@@ -25,6 +26,7 @@ sys.modules.setdefault("rsl_rl.frontres.runtime_diagnostics", runtime_diagnostic
 spec = importlib.util.spec_from_file_location("frontres_runtime_under_test", FRONTRES_RUNTIME)
 frontres_runtime = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
+sys.modules[spec.name] = frontres_runtime
 spec.loader.exec_module(frontres_runtime)
 apply_obs_normalizer = frontres_runtime.apply_obs_normalizer
 from rsl_rl.modules.front_residual_actor_critic import FrontRESActorCritic, _gmt_observation_route_messages

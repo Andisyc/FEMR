@@ -134,8 +134,9 @@ fi
 
 if [[ "${VALIDATE_AFTER_BUILD}" == "1" ]]; then
   VALIDATE_CMD=(
+    env "PYTHONPATH=${PWD}/source/rsl_rl${PYTHONPATH:+:${PYTHONPATH}}"
     "${VALIDATION_PYTHON_BIN}"
-    source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_validator.py
+    -m rsl_rl.frontres.frontres_segment_cache_validator
     "${CACHE_DIR}"
     --expect-mode "${VALIDATION_EXPECT_MODE}"
     --min-segments "${VALIDATION_MIN_SEGMENTS}"

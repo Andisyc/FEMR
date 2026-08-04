@@ -88,6 +88,22 @@ class FakeStage1Env:
     def frontres_loaded_motion_paths(self) -> list[str]:
         return list(self.loaded_motion_paths)
 
+    def materialize_frontres_clean_segment_artifact(self, *, segment):
+        frames = torch.arange(
+            int(segment.start_frame) + 1,
+            int(segment.start_frame) + int(segment.horizon_k) + 1,
+            dtype=torch.float32,
+        )
+        continuation = frames[:, None].repeat(1, 65)
+        support = torch.tensor([[1.0, 1.0]], dtype=torch.float32).repeat(int(segment.horizon_k), 1)
+        envelope = frames[:, None].repeat(1, 6)
+        return {
+            "source_identity": str(segment.motion_rel_path),
+            "clean_continuation": continuation,
+            "expected_support": support,
+            "expected_support_envelope": envelope,
+        }
+
     def prepare_frontres_clean_segment(self, *, segment, env_ids: torch.Tensor):
         ids = env_ids.detach().cpu().tolist()
         self.prepare_calls.append((int(segment.segment_id), int(segment.start_frame), ids))

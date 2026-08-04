@@ -1,6 +1,6 @@
 # FEMR Current Impact Rules
 
-Updated: 2026-07-27
+Updated: 2026-08-03
 
 Report every change as:
 
@@ -9,14 +9,21 @@ changed owner -> expanded semantic objects -> required S tiers/T kinds
 -> observed evidence -> unconfirmed boundary
 ```
 
+An active contract or Design Inspector change invalidates the affected Module
+Test Card evidence until the unchanged card is rerun. A historical test may
+characterize retained code, but it cannot satisfy an active-generation card.
+A broad aggregate pass cannot replace an independent card oracle.
+
 ## Gain Component Or Scale Change
 
-Expand to: Clean/Noisy/Repaired pairing, mixed K, live probe, Segment return,
-sampler priority, periodic eval, sequence eval, diagnostics, and checkpoint if
-state/scales persist.
+Expand to: executed Clean/Noisy/M-Repair baseline reuse, mixed K, live probe,
+Segment return, grouped equal-mass PPO, active held-out evaluation, diagnostics,
+and checkpoint if state/scales persist.
 
-Required: S1 hand-computed components and signs; S2 formula identity across
-training/sampler/eval; S3 persistence when applicable; S4 populated live data.
+Required: S1 hand-computed Clean-conditioned remaining problems, family
+aggregation, signed improvement, recovery pressure, beta-cost ordering and
+permutation; S2 formula identity across training/evaluation; S3 persistence
+when applicable; S4 populated live data.
 
 ## Raw Contact Or Contact-Wrench ZMP Change
 

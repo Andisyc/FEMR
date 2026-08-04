@@ -99,25 +99,33 @@ must use one representation.
 - `commands.py::MultiMotionCommand.refresh_frontres_reference_cache_current_frame()`:
   command-owned cache installation for reset/legacy advance; duplicate local
   installation remains fail-closed because Step 2B owns local continuation.
-- `frontres_segment_sampler.py`: global/replay/review source selection,
-  priority, segment state, trial planning, and `8/16/32/64` horizon assignment.
+- `frontres_segment_sampler.py`: stateful source selection, priority, budget
+  and persistence only. `frontres_segment_planning.py` owns row/transaction
+  planning; `frontres_local_scenario.py` owns active immutable v015 scenarios;
+  `frontres_segment_legacy_scenario.py` isolates the retired fixed-Noisy tape.
 
-The sampler owns row expansion and rollout budget. Under v015, each local
-scenario seals x_t, one current root artifact, future q29 intent, and a Clean
-continuation. Policy rows may become PPO rows; search/counterfactual rows remain
-replay evidence. K measures one first action only and is integrated only when
-its frozen-FEMR lifecycle reaches reset, rollout, return, sampler update, and
-live diagnostics.
+K still measures one first action and reaches reset, rollout, return, sampler
+update and diagnostics through these public owners.
 
 ## 7. Formal Stage 3 Runner Route
 
-- `frontres_segment_live_sampler.py`: current trial/quartet assembly; v015
-  requires two-role local-scenario assembly.
-- `frontres_segment_live_probe.py`: reset, per-row K rollout, paired score
-  capture, valid-policy gate, Segment storage write, and evidence summary.
+- `frontres_segment_live_sampler.py`: Segment selection/materialization and
+  compatibility assembly only.
+- `frontres_segment_transaction.py`: frozen-policy identity, exact-M plan and
+  transaction accumulator.
+- `frontres_segment_sampler_reporting.py`: read-only evidence projection and
+  sampler reporting.
+- `frontres_segment_live_probe.py`: import-only compatibility facade for the
+  frozen host hook. Reset, one-action-K, Physics, storage/Gain, policy update,
+  formal transaction and reporting live in named runner owners.
 - `frontres_segment_live_update_loop.py`: repeated probe/update orchestration.
-- `frontres_segment_live_training.py`: formal training loop, checkpoint cadence,
-  periodic evaluation, and offline sequence-evaluation entry.
+- `frontres_segment_live_training.py`: formal iteration, checkpoint cadence and
+  console orchestration.
+- `frontres_segment_training_telemetry.py`: committed transaction telemetry.
+- `frontres_segment_training_evaluation.py`: isolated legacy periodic/offline
+  evaluation.
+- `frontres_checkpoint_quality.py`: strict read-only HSL-v1/Stage3-v6 quality
+  artifact inspection; mutable persistence stays in `frontres_checkpointing.py`.
 - `on_policy_runner.py`: thin dispatch surface to these helpers.
 
 Step 4B adds a deliberately separate CPU fake path:
@@ -131,13 +139,15 @@ OnPolicyRunner.run_frontres_v015_formal_transaction()
 -> exactly one explicit optimizer step
 ```
 
-`frontres_segment_live_sampler.py` owns that plan/accumulator and
-`frontres_segment_live_probe.py` owns the one update. The generic `learn`,
+`frontres_segment_transaction.py` owns that plan/accumulator;
+`frontres_segment_ppo.py` owns grouped loss, while
+`frontres_constraint_projection.py` owns projected and actual Adam Actor/std
+authority. The generic `learn`,
 live-training loop, checkpoint route, and simulator do not dispatch it.
 
 Step 4C adds a fake-S3 persistence boundary without changing that dispatch:
 `frontres_segment_live_update_loop.py` opens a `collecting` barrier before the
-injected provider; `frontres_segment_live_probe.py` publishes only a committed
+injected provider; the formal transaction owner publishes only a committed
 exact-one-update receipt; and `frontres_checkpointing.py` owns the versioned
 q29 H/prefix-normalizer/grouped-loss identity. In-flight work cannot be saved
 or resumed, and a committed resume restarts idle without raw scenario or batch
@@ -149,33 +159,29 @@ tuple.
 
 ## 8. Repair Quality And Gain
 
-The active v015 design is:
+The active v015/v016 design is:
 
 ```text
-intent_gain  = internal_fidelity(Repaired | I_noisy)
-             - internal_fidelity(Noisy | I_noisy)
-physics_gain = physics_quality(Repaired)       - physics_quality(Noisy)
-gain_total   = w_intent * intent_gain + w_physics * physics_gain
-             - w_repair * repair_cost
+y_I = paired_intent_improvement - full_6D_repair_cost
+return_K = y_I
+actor constraints = expected/actual Contact + loaded-support phase-ZMP + survival
 ```
 
-- `frontres_gain.py`: required v003 paired Intent/Physics/Repair component
-  owner and named scales/weights. Intent uses root-invariant 29DoF articulated
-  fidelity rather than full Clean global motion. Physics includes paired success/survival,
-  ZMP/support margin, and a documented foot-height contact proxy. Repair Cost
-  uses executed full-6D actions with per-row K/done masks and optional Clean
-  no-op diagnostics; missing runtime inputs remain `UNCONFIRMED`.
-- `frontres_segment_live_probe.py`: captures the post-override executed
-  full-6D transition action steps and paired K-step Gain; formal policy rows
-  use `gain_total`/`gain_steps` for storage returns, and missing formal Gain
-  evidence rejects the legacy score fallback.
+- `frontres_gain.py`: FRS-GAIN-v006 scalar Intent-minus-repair target and
+  physical-unit Contact/phase-ZMP/survival residual owner. Physics never folds
+  back into the scalar Critic target.
+- `frontres_segment_one_action_k.py` and `frontres_segment_physics.py`: capture
+  executed full-6D action and frozen-GMT K-step Physics evidence.
+- `frontres_segment_evidence.py`: immutable paired facts, scalar return and
+  row-aligned raw constraint carrier; missing evidence fails closed rather than
+  becoming zero.
 - `frontres_executability.py`: legacy family-specific executability evidence;
   it is excluded from the active PPO, sampler, diagnostics, and evaluation
   route and is no longer a formal Gain owner.
 - `frontres_segment_reward.py`: legacy/general score-window API retained only
   for compatibility; it is excluded from the active Gain route.
-- `contracts/active/reward/FRS-GAIN-v003-intent-physics-local-repair.md`:
-  accepted intent/physics/repair semantics.
+- `contracts/active/reward/FRS-GAIN-v006-loaded-support-zmp-applicability.md`:
+  accepted scalar/vector authority and loaded-support applicability semantics.
 
 Generic environment reward, teleoperation reward, velocity-command reward, and
 unrelated task reward are excluded from the active Gain route by design. The
@@ -185,27 +191,31 @@ and evaluation, but the 2026-07-13 Step 6C audit found that diagnostics and
   offline formal route. `reward_accum` remains only as explicitly labeled raw
   debug input; it is not an accepted evaluation metric.
 
-Training and evaluation must share component functions, units, signs, scales,
-and K-step aggregation. Current code still implements v002 Clean-global Style,
-the 65D tape route, and quartet roles; those paths are v015 contract-mismatch
-until later gates migrate or isolate them.
+Training and evaluation share component functions, units, signs and K-step
+aggregation. Legacy v002 Clean-global/quartet evaluators remain isolated and
+reject active v015 layouts before capture.
 
 ## 9. Storage, PPO, And Priority
 
-- `frontres_segment_storage.py`: independent Stage 3 PPO tuple, per-row K
-  returns/done/valid masks, plus the v015 immutable local metadata adapter. It
-  seals transaction/snapshot/motion/Segment/trial with scenario/hash/`x_t`/q29/K/
-  evidence identity; the legacy `to_ppo_batch()` explicitly rejects that v015
-  carrier.
+- `frontres_segment_storage.py`: compatibility-only import surface.
+- `frontres_segment_storage_records.py`: PPO tuple and immutable row records.
+- `frontres_segment_evidence.py`: one-action-K paired facts, v006 return and
+  Contact/phase-ZMP/survival constraint evidence.
+- `frontres_segment_grouped_adapter.py`: sealed v015 row metadata to grouped
+  candidate conversion.
+- `frontres_segment_rollout_storage.py`: mutable per-row K return/advantage
+  storage. Together these owners seal transaction/snapshot/motion/Segment/trial
+  with scenario/hash/`x_t`/q29/K/evidence identity; legacy adapters reject the
+  v015 carrier.
 - `frontres_segment_live_sampler.py`: fake-S2 expected-row plan validates the
   full multi-Segment x M identity before any update and aggregates only candidate
   adapter shards.
-- `frontres_segment_live_probe.py`: fake-S2 validates q29/HSL/normalization
-  isolation, calls unchanged grouped v003 PPO once, and requires one explicit
-  optimizer counter increment. This is not the generic formal training route.
-- `frontres_segment_ppo.py`: direct full-6D clipped surrogate, exact old/new
-  distribution KL, post-update trust-region diagnostics, optimizer step, and
-  sign-preserving scale-only advantage scaling.
+- named formal runner owners validate q29/HSL/normalization isolation and
+  require one explicit optimizer counter increment; the live-probe facade owns
+  no update behavior.
+- `frontres_segment_ppo.py`: PPO-v004 grouped scalar-Intent loss and constraint
+  surrogates. `frontres_constraint_projection.py` owns projection, recovery,
+  actual Adam candidate delta and commit/restore postconditions.
 - `frontres_segment_sampler.py`: rollout-evidence priority and persistent replay
   state. `frontres_segment_live_sampler.py` must migrate to the shared
   `FRS-GAIN-v003` result at the evidence boundary. Existing v002 consumer
@@ -222,6 +232,15 @@ resume, simulator, and live runtime remain separate gates.
 
 ## 10. Checkpoint, Evaluation, And Diagnostics
 
+- `frontres_segment_diagnostics.py`: compatibility-only import surface.
+- `frontres_local_evaluation.py`: v015 local/composition evaluation reports.
+- `frontres_update_diagnostics.py`: actual-update/KKT validation.
+- `frontres_segment_reporting.py`: generic and legacy scalar/log formatting.
+- `frontres_policy_quality_interfaces.py` and
+  `frontres_policy_quality_state.py`: stable request/result ports and
+  route-start state/RNG capture-restore, consumed without evaluator/formal-owner
+  reverse imports.
+
 - `frontres_checkpointing.py`: formal `OnPolicyRunner` Stage 2/GMT/FrontRES
   policy, normalizer, optimizer, sampler, and Gain-identity save/load owner;
   under v015 fake-S3 it additionally owns exact q29 H/prefix-normalizer/
@@ -236,11 +255,11 @@ start frame, perturbation family/strength, reset/preroll status, survival,
 paired gain, motion quality, and full-6D action evidence. Missing evidence is
 `UNCONFIRMED`, never zero.
 
-The live train diagnostic route now consumes the canonical Gain decomposition
-through `frontres_segment_live_probe.py` ->
-`frontres_segment_live_update_loop.py` ->
-`frontres_segment_diagnostics.py`; legacy score scalars are isolated from this
-route. Periodic evaluation now uses
+The live train diagnostic route consumes immutable transaction evidence through
+the named formal/update owners -> `frontres_segment_live_update_loop.py` ->
+`frontres_update_diagnostics.py` and `frontres_segment_reporting.py`;
+the live-probe and diagnostics compatibility facades own no behavior. Legacy
+score scalars are isolated from this route. Periodic evaluation now uses
 `frontres_segment_live_training.py` -> `_capture_paired_gain` and is
 `implemented-not-integrated` for S4; sequence evaluation now shares the same
 owner for item/per-motion/aggregate summaries, with S4 population unconfirmed.

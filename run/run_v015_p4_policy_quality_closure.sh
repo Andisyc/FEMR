@@ -28,7 +28,6 @@ export PATH="${MOSAIC_BIN:-/hdd1/cyx/miniconda3/envs/mosaic/bin}:${PATH}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-3}"
 export CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"
 export FEMR_LOG_ROOT="${FEMR_LOG_ROOT:-${ROOT}}"
-export PERIODIC_EVAL_ENABLED=0
 
 MODEL201="${P4_MODEL201:-${ROOT}/g1_flat_frontres_stage3_segment_hrl/2026-07-24_15-56-00_G5_S4_BOUND_V015/model_201.pt}"
 HSL="${P4_HSL_CHECKPOINT:-${ROOT}/g1_flat_frontres_stage1_hsl/2026-07-21_17-06-12_G2_S4_BOUND_HSL/model_warmup.pt}"

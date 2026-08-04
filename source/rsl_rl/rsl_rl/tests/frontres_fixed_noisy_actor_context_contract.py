@@ -25,6 +25,9 @@ def _load_runtime():
     modules = _package("rsl_rl.modules")
     frontres = _package("rsl_rl.frontres")
     runners = _package("rsl_rl.runners")
+    rsl_rl.__path__ = [str(SOURCE_ROOT / "rsl_rl")]
+    frontres.__path__ = [str(SOURCE_ROOT / "rsl_rl" / "frontres")]
+    runners.__path__ = [str(SOURCE_ROOT / "rsl_rl" / "runners")]
     rsl_rl.modules = modules
     rsl_rl.frontres = frontres
     rsl_rl.runners = runners

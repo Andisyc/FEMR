@@ -1,0 +1,135 @@
+<style>
+  .clean-paper { background:#fbfaf4; border:1px solid #e5e0d4; border-radius:8px; overflow-x:auto; }
+  .clean-paper svg { display:block; min-width:1320px; width:100%; background:linear-gradient(rgba(31,41,51,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(31,41,51,.025) 1px,transparent 1px),#fbfaf4; background-size:24px 24px; }
+  .clean-note { background:#fffdf6; border:1px solid #e5e0d4; border-radius:6px; color:#4b463d; font:500 14px/1.6 "Avenir Next","PingFang SC",Arial,sans-serif; margin:16px 0; padding:12px 16px; }
+  .rule-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:16px; }
+  .rule-cell { background:#fffdf6; border:1px solid #e5e0d4; border-radius:6px; padding:12px 14px; }
+  .rule-cell strong { color:#3f3a32; display:block; margin-bottom:4px; }
+  @media(max-width:850px){.rule-grid{grid-template-columns:1fr}}
+</style>
+
+<h2>模块归属图：去除交叉箭头</h2>
+<p class="subtitle">主图只保留 semantic data。前向与 Rollout、证据与学习分成两行；生命周期控制不混入数据连线。</p>
+
+<div class="clean-note">
+  <strong>连线纪律：</strong>箭头只连接相邻模块边界；分支只在 Critic Target / Actor Constraints 处出现；参数回写用输出块表达，不画跨越全图的反馈线。
+</div>
+
+<div class="clean-paper">
+  <svg viewBox="0 0 1680 900" style="font-family:Avenir Next,PingFang SC,Arial,sans-serif">
+    <defs>
+      <marker id="c-gray" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#64748b"/></marker>
+      <marker id="c-blue" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#2563eb"/></marker>
+      <marker id="c-teal" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#0f766e"/></marker>
+      <marker id="c-green" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#65a30d"/></marker>
+      <marker id="c-red" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#dc2626"/></marker>
+    </defs>
+
+    <text x="28" y="36" font-size="15" font-weight="700" fill="#57534e">FORWARD &amp; ROLLOUT</text>
+
+    <rect x="28" y="72" width="230" height="112" rx="5" fill="#eff6ff" stroke="#2563eb" stroke-width="2.5"/>
+    <text x="143" y="108" text-anchor="middle" font-size="19" font-weight="700" fill="#1e3a8a">Segment 数据</text>
+    <text x="143" y="136" text-anchor="middle" font-size="12.5" fill="#334155">reset / reference / q29</text>
+    <text x="143" y="163" text-anchor="middle" font-size="11.5" font-family="SFMono-Regular,Menlo,monospace" fill="#1d4ed8">dataset + sampler</text>
+
+    <rect x="28" y="224" width="230" height="112" rx="5" fill="#f8fafc" stroke="#64748b" stroke-width="2.5" stroke-dasharray="7 5"/>
+    <text x="143" y="260" text-anchor="middle" font-size="19" font-weight="700" fill="#334155">MOSAIC Env</text>
+    <text x="143" y="288" text-anchor="middle" font-size="12.5" fill="#475569">raw obs / sensor state</text>
+    <text x="143" y="315" text-anchor="middle" font-size="11.5" fill="#64748b">external adapter</text>
+
+    <rect x="350" y="148" width="250" height="112" rx="5" fill="#ecfdf5" stroke="#0f766e" stroke-width="2.5"/>
+    <text x="475" y="184" text-anchor="middle" font-size="19" font-weight="700" fill="#134e4a">观测构造</text>
+    <text x="475" y="212" text-anchor="middle" font-size="12.5" fill="#334155">raw obs + q29 → 928D</text>
+    <text x="475" y="239" text-anchor="middle" font-size="11.5" font-family="SFMono-Regular,Menlo,monospace" fill="#0f766e">runtime + layout</text>
+
+    <rect x="692" y="148" width="250" height="112" rx="5" fill="#ecfdf5" stroke="#0f766e" stroke-width="2.5"/>
+    <text x="817" y="184" text-anchor="middle" font-size="19" font-weight="700" fill="#134e4a">Actor / Critic 前向</text>
+    <text x="817" y="212" text-anchor="middle" font-size="12.5" fill="#334155">6D action + scalar value</text>
+    <text x="817" y="239" text-anchor="middle" font-size="11.5" font-family="SFMono-Regular,Menlo,monospace" fill="#0f766e">actor_critic</text>
+
+    <rect x="1034" y="148" width="250" height="112" rx="5" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2.5"/>
+    <text x="1159" y="184" text-anchor="middle" font-size="19" font-weight="700" fill="#4c1d95">Rollout Adapter</text>
+    <text x="1159" y="212" text-anchor="middle" font-size="12.5" fill="#334155">one action + frozen GMT K-step</text>
+    <text x="1159" y="239" text-anchor="middle" font-size="11.5" font-family="SFMono-Regular,Menlo,monospace" fill="#6d28d9">one_action_k</text>
+
+    <rect x="1376" y="148" width="250" height="112" rx="5" fill="#f8fafc" stroke="#64748b" stroke-width="2.5" stroke-dasharray="7 5"/>
+    <text x="1501" y="184" text-anchor="middle" font-size="19" font-weight="700" fill="#334155">MOSAIC Env Step</text>
+    <text x="1501" y="212" text-anchor="middle" font-size="12.5" fill="#475569">next state + sensor facts</text>
+    <text x="1501" y="239" text-anchor="middle" font-size="11.5" fill="#64748b">external adapter</text>
+
+    <path d="M258 128H308V180H340" fill="none" stroke="#2563eb" stroke-width="2.2" marker-end="url(#c-blue)"/>
+    <text x="292" y="113" text-anchor="middle" font-size="11.5" fill="#1d4ed8">q29</text>
+    <path d="M258 280H308V228H340" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#c-gray)"/>
+    <text x="292" y="297" text-anchor="middle" font-size="11.5" fill="#64748b">raw obs</text>
+    <path d="M600 204H682" stroke="#0f766e" stroke-width="2.2" marker-end="url(#c-teal)"/>
+    <text x="641" y="190" text-anchor="middle" font-size="11.5" fill="#0f766e">928D</text>
+    <path d="M942 204H1024" stroke="#0f766e" stroke-width="2.2" marker-end="url(#c-teal)"/>
+    <text x="983" y="190" text-anchor="middle" font-size="11.5" fill="#0f766e">6D action</text>
+    <path d="M1284 204H1366" stroke="#7c3aed" stroke-width="2.2" marker-end="url(#c-gray)"/>
+    <text x="1325" y="190" text-anchor="middle" font-size="11.5" fill="#6d28d9">GMT action</text>
+
+    <path d="M1501 260V358" stroke="#65a30d" stroke-width="2.3" marker-end="url(#c-green)"/>
+    <text x="1518" y="315" font-size="11.5" fill="#4d7c0f">K-step facts</text>
+
+    <text x="28" y="410" font-size="15" font-weight="700" fill="#57534e">EVIDENCE &amp; LEARNING</text>
+
+    <rect x="1376" y="430" width="250" height="112" rx="5" fill="#f7fee7" stroke="#65a30d" stroke-width="2.5"/>
+    <text x="1501" y="466" text-anchor="middle" font-size="19" font-weight="700" fill="#365314">执行证据组装</text>
+    <text x="1501" y="494" text-anchor="middle" font-size="12.5" fill="#334155">Repair / Noisy paired evidence</text>
+    <text x="1501" y="521" text-anchor="middle" font-size="11.5" font-family="SFMono-Regular,Menlo,monospace" fill="#4d7c0f">segment_evidence</text>
+
+    <rect x="1034" y="390" width="250" height="112" rx="5" fill="#f7fee7" stroke="#65a30d" stroke-width="2.5"/>
+    <text x="1159" y="426" text-anchor="middle" font-size="19" font-weight="700" fill="#365314">Critic Target</text>
+    <text x="1159" y="454" text-anchor="middle" font-size="12.5" fill="#334155">Intent improvement - cost</text>
+    <text x="1159" y="481" text-anchor="middle" font-size="11.5" font-family="SFMono-Regular,Menlo,monospace" fill="#4d7c0f">frontres_gain</text>
+
+    <rect x="1034" y="550" width="250" height="112" rx="5" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2.5"/>
+    <text x="1159" y="586" text-anchor="middle" font-size="19" font-weight="700" fill="#4c1d95">Actor Constraints</text>
+    <text x="1159" y="614" text-anchor="middle" font-size="12.5" fill="#334155">Contact / phase-ZMP / survival</text>
+    <text x="1159" y="641" text-anchor="middle" font-size="11.5" fill="#6d28d9">constraint facts</text>
+
+    <rect x="692" y="470" width="250" height="112" rx="5" fill="#eff6ff" stroke="#2563eb" stroke-width="2.5"/>
+    <text x="817" y="506" text-anchor="middle" font-size="19" font-weight="700" fill="#1e3a8a">Transaction Storage</text>
+    <text x="817" y="534" text-anchor="middle" font-size="12.5" fill="#334155">row + target + constraints</text>
+    <text x="817" y="561" text-anchor="middle" font-size="11.5" font-family="SFMono-Regular,Menlo,monospace" fill="#1d4ed8">storage + grouped_adapter</text>
+
+    <rect x="350" y="470" width="250" height="112" rx="5" fill="#fef2f2" stroke="#dc2626" stroke-width="2.5"/>
+    <text x="475" y="506" text-anchor="middle" font-size="19" font-weight="700" fill="#7f1d1d">PPO Loss 与更新</text>
+    <text x="475" y="534" text-anchor="middle" font-size="12.5" fill="#334155">Critic + projected Actor</text>
+    <text x="475" y="561" text-anchor="middle" font-size="11.5" font-family="SFMono-Regular,Menlo,monospace" fill="#991b1b">ppo + projection</text>
+
+    <rect x="28" y="470" width="230" height="112" rx="5" fill="#fffdf6" stroke="#64748b" stroke-width="2.5"/>
+    <text x="143" y="506" text-anchor="middle" font-size="19" font-weight="700" fill="#334155">参数与存档</text>
+    <text x="143" y="534" text-anchor="middle" font-size="12.5" fill="#57534e">updated model + checkpoint</text>
+    <text x="143" y="561" text-anchor="middle" font-size="11.5" font-family="SFMono-Regular,Menlo,monospace" fill="#475569">checkpointing</text>
+
+    <path d="M1376 466H1324V446H1294" fill="none" stroke="#65a30d" stroke-width="2.2" marker-end="url(#c-green)"/>
+    <path d="M1376 506H1324V606H1294" fill="none" stroke="#7c3aed" stroke-width="2.2" marker-end="url(#c-gray)"/>
+    <path d="M1034 446H984V506H952" fill="none" stroke="#65a30d" stroke-width="2.2" marker-end="url(#c-green)"/>
+    <path d="M1034 606H984V546H952" fill="none" stroke="#7c3aed" stroke-width="2.2" marker-end="url(#c-gray)"/>
+    <path d="M692 526H610" stroke="#2563eb" stroke-width="2.2" marker-end="url(#c-blue)"/>
+    <path d="M350 526H268" stroke="#dc2626" stroke-width="2.2" marker-end="url(#c-red)"/>
+
+    <rect x="350" y="708" width="932" height="108" rx="5" fill="#fffdf6" stroke="#dc2626" stroke-width="2.5"/>
+    <text x="816" y="744" text-anchor="middle" font-size="19" font-weight="700" fill="#7f1d1d">训练主循环 · frontres_stage3_engine.py</text>
+    <text x="816" y="774" text-anchor="middle" font-size="13" fill="#57534e">依次调用 prepare → collect → seal → exact update → commit，只拥有生命周期，不生产 observation、target 或 gradient</text>
+    <text x="816" y="798" text-anchor="middle" font-size="11.5" fill="#78716c">其 public ports 在模块详情中检查，不在数据图上重复画控制箭头</text>
+
+    <text x="28" y="870" font-size="12.5" fill="#8a8174">参数更新将在下一次 forward 被消费；该事实保留在模块说明中，避免用跨图反馈线破坏可读性</text>
+  </svg>
+</div>
+
+<h3 style="margin-top:22px">防止单文件继续膨胀</h3>
+<div class="rule-grid">
+  <div class="rule-cell"><strong>责任映射到 Symbol</strong>内部责任绑定 class/function，而不是只绑定文件名。</div>
+  <div class="rule-cell"><strong>Public Port 白名单</strong>跨模块只能调用声明接口，禁止 import 私有 symbol。</div>
+  <div class="rule-cell"><strong>重复 Owner 触发审查</strong>一个文件出现在多个独立责任块时，必须拆分或证明内聚性。</div>
+  <div class="rule-cell"><strong>自动复杂度门禁</strong>检查超大函数、public symbol 数、fan-out 和文件增长趋势。</div>
+</div>
+
+<div class="options" style="margin-top:22px">
+  <div class="option" data-choice="clean-ownership-flow" onclick="toggleSelect(this)">
+    <div class="letter">R2</div>
+    <div class="content"><h3>采用无交叉的两行模块图</h3><p>主图只呈现相邻 semantic-data 依赖；控制关系和参数反馈移入模块详情。</p></div>
+  </div>
+</div>

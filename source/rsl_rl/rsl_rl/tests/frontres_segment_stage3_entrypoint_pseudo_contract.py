@@ -30,11 +30,14 @@ MOSAIC_CFG_PATH = (
 
 def _load_stage_preset():
     rsl_rl = types.ModuleType("rsl_rl")
-    rsl_rl.__path__ = []
+    rsl_rl.__path__ = [str(SOURCE_ROOT / "rsl_rl")]
     frontres = types.ModuleType("rsl_rl.frontres")
-    frontres.__path__ = []
+    frontres.__path__ = [str(SOURCE_ROOT / "rsl_rl" / "frontres")]
     sys.modules["rsl_rl"] = rsl_rl
     sys.modules["rsl_rl.frontres"] = frontres
+    probe = types.ModuleType("rsl_rl.frontres.frontres_formal_runtime_probe")
+    probe.emit_formal_runtime_probe = lambda *args, **kwargs: None
+    sys.modules[probe.__name__] = probe
     warmup_path = ROOT / "source" / "rsl_rl" / "rsl_rl" / "frontres" / "frontres_segment_warmup.py"
     warmup_spec = importlib.util.spec_from_file_location("rsl_rl.frontres.frontres_segment_warmup", warmup_path)
     assert warmup_spec is not None and warmup_spec.loader is not None
@@ -82,9 +85,8 @@ def _alg_cfg() -> SimpleNamespace:
         frontres_segment_live_storage_write_only=False,
         frontres_segment_live_single_update_only=False,
         frontres_segment_live_update_loop_only=False,
-        frontres_segment_sequence_offline_eval_only=False,
         frontres_segment_live_train_enabled=False,
-        frontres_v015_formal_transaction_enabled=False,
+        frontres_formal_transaction_enabled=False,
         frontres_segment_live_update_steps=4,
         frontres_segment_critic_warmup_iterations=0,
         frontres_segment_actor_warmup_iterations=0,
@@ -136,14 +138,13 @@ def _args(**overrides) -> SimpleNamespace:
         "frontres_segment_live_storage_write_only": False,
         "frontres_segment_live_single_update_only": False,
         "frontres_segment_live_update_loop_only": False,
-        "frontres_segment_sequence_offline_eval_only": False,
         "frontres_segment_live_update_steps": 6,
         "frontres_segment_critic_warmup_iterations": 200,
         "frontres_segment_actor_warmup_iterations": 500,
-        "frontres_segment_k_curriculum": "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625",
+        "frontres_segment_k_curriculum": "8:2:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381,16:3:300:300:900:lower-k16:0.6:linear-joint-v1:900:2.381,32:4:400:300:625:lower-k32:0.7:linear-joint-v1:625:2.381",
         "frontres_formal_runtime_audit": False,
         "frontres_v015_future_offsets": "1,2",
-        "frontres_v015_hsl_initializer_checkpoint": "/tmp/frontres-v015-hsl-proposal-v1.pt",
+        "frontres_v015_hsl_initializer_checkpoint": "/tmp/frontres-v017-hsl-proposal-v2.pt",
         "frontres_segment_ppo_schedule": None,
         "frontres_segment_ppo_lr": None,
         "experiment_name": None,
@@ -171,7 +172,6 @@ def _probe_stage3_config(name: str, agent_cfg: SimpleNamespace) -> None:
         f"storage={alg.frontres_segment_live_storage_write_only} "
         f"single_update={alg.frontres_segment_live_single_update_only} "
         f"update_loop={alg.frontres_segment_live_update_loop_only} "
-        f"sequence_eval={alg.frontres_segment_sequence_offline_eval_only} "
         f"update_steps={alg.frontres_segment_live_update_steps} "
         f"hsl_init={alg.frontres_hsl_init_enabled} "
         f"task_corrections={policy.num_task_corrections}",
@@ -205,16 +205,16 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
     assert alg.frontres_segment_critic_warmup_iterations == 200
     assert alg.frontres_segment_actor_warmup_iterations == 500
     assert alg.frontres_segment_k_curriculum == (
-        (8, 2, 200, 500, 1300),
-        (16, 3, 300, 300, 900),
-        (32, 4, 400, 300, 625),
+        (8, 2, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
+        (16, 3, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
+        (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-joint-v1", 625, 2.381),
     )
     assert alg.frontres_formal_runtime_audit is True
     assert alg.frontres_hsl_init_enabled is False
     assert alg.frontres_hsl_rollout_label_enabled is False
     assert alg.lambda_supervised == 0.0
     assert alg.lambda_supervised_min == 0.0
-    assert alg.frontres_v015_formal_transaction_enabled is True
+    assert alg.frontres_formal_transaction_enabled is True
     assert alg.frontres_future_offsets == (1, 2)
     assert alg.frontres_future_intent_layout_version == "frontres-v015-future-intent-q29-v1"
     assert alg.frontres_segment_k == 8
@@ -249,7 +249,7 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
     except ValueError as exc:
         assert "frontres_v015_hsl_initializer_checkpoint" in str(exc)
     else:
-        raise AssertionError("ordinary Stage-3 training must require an explicit HSL-v1 initializer")
+        raise AssertionError("ordinary Stage-3 training must require an explicit HSL-v2 initializer")
 
     missing_schedule = _agent_cfg()
     try:
@@ -261,6 +261,37 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
         assert "frontres_segment_k_curriculum" in str(exc)
     else:
         raise AssertionError("ordinary Stage-3 training must require an explicit v009 K curriculum")
+
+
+def test_stage3_rejects_noncanonical_future_offsets_before_config_mutation() -> None:
+    agent_cfg = _agent_cfg()
+    before = vars(agent_cfg.algorithm).copy()
+    try:
+        _apply_frontres_stage_preset(
+            agent_cfg,
+            _args(frontres_v015_future_offsets="1,3"),
+        )
+    except ValueError as exc:
+        assert "exactly '1,2'" in str(exc)
+    else:
+        raise AssertionError("Stage-3 must reject noncanonical future offsets")
+    assert vars(agent_cfg.algorithm) == before
+
+
+def test_retired_optimizer_flags_reject_before_stage3_config_mutation() -> None:
+    for field in (
+        "frontres_segment_live_single_update_only",
+        "frontres_segment_live_update_loop_only",
+    ):
+        agent_cfg = _agent_cfg()
+        before = vars(agent_cfg.algorithm).copy()
+        try:
+            _apply_frontres_stage_preset(agent_cfg, _args(**{field: True}))
+        except ValueError as exc:
+            assert "FRS-PPO-v005 rejects retired Stage-3" in str(exc)
+        else:
+            raise AssertionError(f"retired Stage-3 flag must reject: {field}")
+        assert vars(agent_cfg.algorithm) == before
 
 
 def test_stage2_hsl_warmup_constructs_proposal_only_6d_policy() -> None:
@@ -280,40 +311,7 @@ def test_default_frontres_policy_config_is_proposal_only_6d() -> None:
     assert "num_task_corrections   = 6" in config
     assert "task_conf_dim" not in config
     assert "frontres_split_acceptance_head" not in config
-    assert "bounded correction proposal = [Δpos(3), Δrpy(3)]" in config
-
-
-def test_stage3_sentinel_zeroes_iterations_and_disables_live_train() -> None:
-    agent_cfg = _agent_cfg()
-
-    _apply_frontres_stage_preset(
-        agent_cfg,
-        _args(frontres_segment_live_single_update_only=True, frontres_segment_live_update_steps=3),
-    )
-    _probe_stage3_config("stage3_single_update_sentinel", agent_cfg)
-
-    alg = agent_cfg.algorithm
-    assert agent_cfg.max_iterations == 0
-    assert alg.frontres_segment_live_runner_enabled is True
-    assert alg.frontres_segment_live_train_enabled is False
-    assert alg.frontres_segment_live_single_update_only is True
-    assert alg.frontres_segment_live_update_steps == 3
-
-
-def test_stage3_sequence_eval_zeroes_iterations_and_disables_live_train() -> None:
-    agent_cfg = _agent_cfg()
-
-    _apply_frontres_stage_preset(
-        agent_cfg,
-        _args(frontres_segment_sequence_offline_eval_only=True),
-    )
-    _probe_stage3_config("stage3_sequence_eval", agent_cfg)
-
-    alg = agent_cfg.algorithm
-    assert agent_cfg.max_iterations == 0
-    assert alg.frontres_segment_live_runner_enabled is True
-    assert alg.frontres_segment_live_train_enabled is False
-    assert alg.frontres_segment_sequence_offline_eval_only is True
+    assert "direct correction proposal = [Δpos(3), Δrpy(3)]" in config
 
 
 def test_stage3_ppo_schedule_override_is_explicit_parse_arg() -> None:
@@ -383,7 +381,7 @@ def test_stage3_rejects_multiple_live_sentinel_modes() -> None:
     try:
         _apply_frontres_stage_preset(
             agent_cfg,
-            _args(frontres_segment_live_probe_only=True, frontres_segment_live_update_loop_only=True),
+            _args(frontres_segment_live_probe_only=True, frontres_segment_live_storage_write_only=True),
         )
     except ValueError as exc:
         _probe_exception("rejects_multiple_live_sentinel_modes", exc)
@@ -432,27 +430,24 @@ def test_train_dispatch_orders_stage3_live_path_before_legacy_learn() -> None:
     train = TRAIN_PATH.read_text()
     live_train = "runner.learn_frontres_segment_live("
     legacy_learn = "runner.learn(num_learning_iterations=agent_cfg.max_iterations"
-    update_loop = "runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)"
     probe = "runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)"
-    sequence_eval = "runner.run_frontres_segment_sequence_offline_eval("
 
     print(
         "[probe step6] train_dispatch_order: "
         f"probe_before_legacy={train.index(probe) < train.index(legacy_learn)} "
-        f"update_loop_before_legacy={train.index(update_loop) < train.index(legacy_learn)} "
-        f"sequence_eval_before_legacy={train.index(sequence_eval) < train.index(legacy_learn)} "
         f"live_train_before_legacy={train.index(live_train) < train.index(legacy_learn)}",
         flush=True,
     )
     assert train.index(probe) < train.index(legacy_learn)
-    assert train.index(update_loop) < train.index(legacy_learn)
-    assert train.index(sequence_eval) < train.index(legacy_learn)
+    assert "runner.run_frontres_segment_live_update_loop(" not in train
+    assert "or args_cli.frontres_segment_live_single_update_only" not in train
+    assert "run_frontres_segment_sequence_offline_eval" not in train
     assert train.index(live_train) < train.index(legacy_learn)
 
 
 def test_stage3_hsl_initializer_dispatch_is_explicit_and_formal_training_opens() -> None:
     train = TRAIN_PATH.read_text()
-    initializer_call = "runner.load_frontres_v015_hsl_initializer(hsl_initializer)"
+    initializer_call = "runner.load_frontres_hsl_initializer(hsl_initializer)"
     resume_branch = "if agent_cfg.resume:"
     live_train = "runner.learn_frontres_segment_live("
     assert initializer_call in train
@@ -462,10 +457,14 @@ def test_stage3_hsl_initializer_dispatch_is_explicit_and_formal_training_opens()
 
     runner_source = (ROOT / "source" / "rsl_rl" / "rsl_rl" / "runners" / "on_policy_runner.py").read_text()
     training_source = (ROOT / "source" / "rsl_rl" / "rsl_rl" / "runners" / "frontres_segment_live_training.py").read_text()
-    assert "def load_frontres_v015_hsl_initializer(self, path: str):" in runner_source
-    assert "return load_v015_hsl_initializer(self, path)" in runner_source
-    assert "def run_frontres_v015_formal_training_transaction(" in runner_source
-    assert "result = runner.run_frontres_v015_formal_training_transaction(" in training_source
+    assert "def load_frontres_hsl_initializer(self, path: str):" in runner_source
+    assert "operation = lambda: load_frontres_hsl_initializer(self, path)" in runner_source
+    assert 'return self._frontres_startup_lifecycle.load("hsl", operation)' in runner_source
+    assert "def resolve_authority():" in runner_source
+    assert "resolve_frontres_v015_observation_authority(" in runner_source
+    assert "self._frontres_startup_lifecycle.resolve_layout(resolve_authority)" in runner_source
+    assert "def run_frontres_formal_training_transaction(" in runner_source
+    assert "result = runner.run_frontres_formal_training_transaction(" in training_source
     assert training_source.index("if formal_v015:") < training_source.index("runner.run_frontres_segment_live_update_loop(")
     assert live_train in train
     print(
@@ -476,10 +475,10 @@ def test_stage3_hsl_initializer_dispatch_is_explicit_and_formal_training_opens()
 
 if __name__ == "__main__":
     test_stage3_default_enters_live_train_config_without_zeroing_iterations()
+    test_stage3_rejects_noncanonical_future_offsets_before_config_mutation()
+    test_retired_optimizer_flags_reject_before_stage3_config_mutation()
     test_stage2_hsl_warmup_constructs_proposal_only_6d_policy()
     test_default_frontres_policy_config_is_proposal_only_6d()
-    test_stage3_sentinel_zeroes_iterations_and_disables_live_train()
-    test_stage3_sequence_eval_zeroes_iterations_and_disables_live_train()
     test_stage3_ppo_schedule_override_is_explicit_parse_arg()
     test_stage3_ppo_schedule_override_rejects_non_stage3()
     test_stage3_ppo_lr_override_is_explicit_parse_arg()

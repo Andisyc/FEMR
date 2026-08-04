@@ -7,12 +7,12 @@ from types import ModuleType, SimpleNamespace
 
 import torch
 from torch import nn
+from frontres_contract_imports import install_frontres_contract_packages
 
 
 ROOT = Path(__file__).resolve().parents[4]
 SOURCE_ROOT = ROOT / "source" / "rsl_rl" / "rsl_rl"
-sys.modules.setdefault("rsl_rl", ModuleType("rsl_rl"))
-sys.modules.setdefault("rsl_rl.frontres", ModuleType("rsl_rl.frontres"))
+install_frontres_contract_packages(SOURCE_ROOT)
 
 
 def _load(name: str, path: Path):
@@ -29,8 +29,12 @@ manifest_module = _load(
     SOURCE_ROOT / "frontres" / "frontres_policy_quality_manifest.py",
 )
 quality = _load(
-    "frontres_policy_quality_eval",
+    "rsl_rl.runners.frontres_policy_quality_eval",
     SOURCE_ROOT / "runners" / "frontres_policy_quality_eval.py",
+)
+legacy_quality = _load(
+    "rsl_rl.runners.frontres_policy_quality_legacy",
+    SOURCE_ROOT / "runners" / "frontres_policy_quality_legacy.py",
 )
 
 
@@ -121,27 +125,23 @@ def test_three_routes_share_state_and_reuse_canonical_hooks() -> None:
     )
     actor_template = nn.Linear(4, 6, bias=False)
     normalizer_template = _Normalizer()
-    hsl = quality.FrozenFrontRESTaskActor.from_checkpoint_payload(
+    hsl = legacy_quality.FrozenFrontRESTaskActor.from_checkpoint_payload(
         route="hsl",
         checkpoint_identity="model_200:sha-hsl",
         checkpoint_payload=_payload(0.10, poison="hsl"),
         actor_template=actor_template,
         normalizer_template=normalizer_template,
         observation_identity=observation_identity,
-        max_delta_pos=0.4,
-        max_delta_rpy=0.4,
     )
-    policy = quality.FrozenFrontRESTaskActor.from_checkpoint_payload(
+    policy = legacy_quality.FrozenFrontRESTaskActor.from_checkpoint_payload(
         route="policy",
         checkpoint_identity="model_701:sha-policy",
         checkpoint_payload=_payload(0.20, poison="policy"),
         actor_template=actor_template,
         normalizer_template=normalizer_template,
         observation_identity=observation_identity,
-        max_delta_pos=0.4,
-        max_delta_rpy=0.4,
     )
-    zero = quality.ZeroFrontRESTaskActor(observation_identity)
+    zero = legacy_quality.ZeroFrontRESTaskActor(observation_identity)
     assert all(
         not parameter.requires_grad
         for adapter in (hsl, policy)
@@ -169,7 +169,7 @@ def test_three_routes_share_state_and_reuse_canonical_hooks() -> None:
         return {"steps": counters["step"]}
 
     isolation = {"optimizer": "fixed", "sampler": "fixed", "warmup": "fixed"}
-    results = quality.run_frontres_policy_quality_counterfactuals(
+    results = legacy_quality.run_frontres_policy_quality_counterfactuals(
         runner,
         snapshot=snapshot,
         comparison_signature=comparison_signature,
@@ -191,7 +191,9 @@ def test_three_routes_share_state_and_reuse_canonical_hooks() -> None:
     assert all(tuple(result.actions.shape) == (2, 2, 6) for result in results)
     assert bool((results[0].actions == 0).all())
     assert not torch.equal(results[1].actions, results[2].actions)
-    assert all(float(result.actions.abs().max()) <= 0.4 for result in results)
+    torch.testing.assert_close(results[0].actions, torch.zeros_like(results[0].actions))
+    torch.testing.assert_close(results[2].actions, 2.0 * results[1].actions)
+    assert float(results[2].actions.abs().max()) > 0.4
     assert len(applied) == 6 and counters == {"step": 6, "gain": 3, "execution": 3}
     print(
         "[quality counterfactual trace] "
@@ -206,7 +208,7 @@ def test_three_routes_share_state_and_reuse_canonical_hooks() -> None:
         bad_isolation["optimizer"] = "mutated"
 
     try:
-        quality.run_frontres_policy_quality_counterfactuals(
+        legacy_quality.run_frontres_policy_quality_counterfactuals(
             runner,
             snapshot=snapshot,
             comparison_signature=comparison_signature,
@@ -230,7 +232,7 @@ def test_three_routes_share_state_and_reuse_canonical_hooks() -> None:
 def test_layout_source_and_isolation_fail_closed() -> None:
     assert "supervised_target" not in (SOURCE_ROOT / "runners" / "frontres_policy_quality_eval.py").read_text()
     identity = quality.FrontRESPolicyQualityObservationIdentity(4, 4, "norm-a")
-    zero = quality.ZeroFrontRESTaskActor(identity)
+    zero = legacy_quality.ZeroFrontRESTaskActor(identity)
     try:
         zero.action(torch.zeros(2, 5))
     except ValueError as exc:
@@ -241,15 +243,13 @@ def test_layout_source_and_isolation_fail_closed() -> None:
     payload = _payload(0.1, poison="ignored")
     del payload["obs_norm_state_dict"]
     try:
-        quality.FrozenFrontRESTaskActor.from_checkpoint_payload(
+        legacy_quality.FrozenFrontRESTaskActor.from_checkpoint_payload(
             route="hsl",
             checkpoint_identity="model_200",
             checkpoint_payload=payload,
             actor_template=nn.Linear(4, 6, bias=False),
             normalizer_template=_Normalizer(),
             observation_identity=identity,
-            max_delta_pos=0.4,
-            max_delta_rpy=0.4,
         )
     except ValueError as exc:
         assert "obs_norm_state_dict" in str(exc)

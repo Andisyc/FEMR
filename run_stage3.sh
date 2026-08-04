@@ -27,10 +27,7 @@ UPDATE_STEPS="${5:-${UPDATE_STEPS:-4}}"
 MODE="${6:-${MODE:-train}}"
 EXTRA_TRAIN_ARGS=("${@:7}")
 
-# B4: Online eval. Use run_eval.sh for sequence/offline eval.
-
-PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"
-PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
+# B4: Evaluation runs independently from the training process.
 
 # B5: PPO safety knobs for direct Delta SE Stage 3.
 
@@ -44,11 +41,11 @@ LOG_PROJECT_NAME="${LOG_PROJECT_NAME:-FEMR}"
 RUN_NAME="${RUN_NAME:-FEMR_STAGE3_SEGMENT_HRL}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
 FRONTRES_V015_FUTURE_OFFSETS="${FRONTRES_V015_FUTURE_OFFSETS:-1,2}"
-FRONTRES_V015_K_CURRICULUM="${FRONTRES_V015_K_CURRICULUM:-8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625}"
+FRONTRES_V015_K_CURRICULUM="${FRONTRES_V015_K_CURRICULUM:-}"
 FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"
 
-if [[ "${MODE}" == "train" && "${FRONTRES_V015_K_CURRICULUM}" != "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625" ]]; then
-  echo "FRS-TRAIN-v011 requires the frozen K8/M2,K16/M3,K32/M4 schedule" >&2
+if [[ "${MODE}" == "train" && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
+  echo "FRS-TRAIN-v013 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
   exit 4
 fi
 
@@ -69,8 +66,6 @@ export WANDB_DIR="${WANDB_DIR:-/hdd1/cyx/FEMR}"
 export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-/hdd1/cyx/FEMR/.wandb_cache}"
 export CACHE_DIR
 export SHARD_CACHE_SIZE
-export PERIODIC_EVAL_ENABLED
-export PERIODIC_EVAL_INTERVAL
 export LOG_PROJECT_NAME
 export RUN_NAME
 export NPROC_PER_NODE
@@ -115,8 +110,6 @@ echo "[FrontRES Stage3] motion=${MOTION_PATH}"
 echo "[FrontRES Stage3] num_envs=${NUM_ENVS}"
 echo "[FrontRES Stage3] max_iters=${MAX_ITERS}"
 echo "[FrontRES Stage3] update_steps=${UPDATE_STEPS}"
-echo "[FrontRES Stage3] periodic_eval=${PERIODIC_EVAL_ENABLED}"
-echo "[FrontRES Stage3] eval_interval=${PERIODIC_EVAL_INTERVAL}"
 echo "[FrontRES Stage3] ppo_schedule=${FRONTRES_SEGMENT_PPO_SCHEDULE}"
 echo "[FrontRES Stage3] ppo_lr=${FRONTRES_SEGMENT_PPO_LR}"
 echo "[FrontRES Stage3] log=${LOG_PATH}"

@@ -11,20 +11,21 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
-import importlib.util
 import os
+import random
 from pathlib import Path
 import shutil
-import sys
 from types import SimpleNamespace
 from typing import Any, Literal, Mapping
 
 import torch
+import numpy as np
 
 from rsl_rl.modules import FrontRESActorCritic, ResidualActorCritic
 from rsl_rl.modules.frontres_observation_layout import (
     FRONTRES_FUTURE_INTENT_DIM,
     FRONTRES_FUTURE_INTENT_LAYOUT_VERSION,
+    FRONTRES_FUTURE_INTENT_OFFSETS,
     FRONTRES_V015_GMT_SUFFIX_DIM,
     FrontRESFutureIntentLayout,
     compose_frontres_obs_norm_state,
@@ -32,453 +33,94 @@ from rsl_rl.modules.frontres_observation_layout import (
     frontres_extra_norm_stats_for_save,
     resolve_frontres_v015_observation_authority,
 )
-_FORMAL_AUDIT_SPEC = importlib.util.spec_from_file_location(
-    "frontres_formal_runtime_audit_checkpoint", Path(__file__).resolve().with_name("frontres_formal_runtime_audit.py")
+from rsl_rl.frontres.frontres_segment_warmup import (
+    FRONTRES_V011_MAX_ABSOLUTE_ITERATION,
+    FRONTRES_V011_REVIEW_BOUNDARIES,
+    FRONTRES_V011_SELECTED_SEGMENT_COUNT,
+    frontres_k_stage_schedule_tuple,
+    frontres_v013_dr_stage_fingerprint,
+    require_frontres_v013_campaign_schedule,
+    resolve_frontres_k_stage_identity,
 )
-_FORMAL_AUDIT_MODULE = importlib.util.module_from_spec(_FORMAL_AUDIT_SPEC)
-assert _FORMAL_AUDIT_SPEC.loader is not None
-_FORMAL_AUDIT_SPEC.loader.exec_module(_FORMAL_AUDIT_MODULE)
-print_checkpoint_payload_audit = _FORMAL_AUDIT_MODULE.print_checkpoint_payload_audit
-emit_formal_runtime_probe = _FORMAL_AUDIT_MODULE.emit_formal_runtime_probe
-configure_formal_runtime_probe = _FORMAL_AUDIT_MODULE.configure_formal_runtime_probe
-
-_K_STAGE_SPEC = importlib.util.spec_from_file_location(
-    "frontres_k_stage_checkpoint_module",
-    Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_warmup.py",
+from rsl_rl.runners.frontres_checkpoint_quality import (
+    EMPIRICAL_NORMALIZER_STATE_KEYS as _EMPIRICAL_NORMALIZER_STATE_KEYS,
+    FRONTRES_ACTIVE_CHECKPOINT_FORMAT as _V015_CHECKPOINT_FORMAT,
+    FRONTRES_ACTIVE_CHECKPOINT_IDENTITY_KEY as _V015_CHECKPOINT_IDENTITY_KEY,
+    FRONTRES_ACTIVE_GROUPED_CANDIDATE_LAYOUT as _V015_GROUPED_CANDIDATE_LAYOUT,
+    FRONTRES_HSL_CHECKPOINT_FORMAT as _V015_HSL_CHECKPOINT_FORMAT,
+    FRONTRES_HSL_CHECKPOINT_IDENTITY_KEY as _V015_HSL_CHECKPOINT_IDENTITY_KEY,
+    FRONTRES_HSL_PREFIX_NORM_KEY as _V015_HSL_PREFIX_NORM_KEY,
+    FRONTRES_HSL_TOP_LEVEL_KEYS as _V015_HSL_TOP_LEVEL_KEYS,
+    FrontRESActiveQualityCheckpointIdentity,
+    frontres_v015_clone_tensor_state as _v015_clone_tensor_state,
+    frontres_v015_committed_transaction_receipt as _v015_committed_transaction_receipt,
+    frontres_v015_file_sha256 as _v015_file_sha256,
+    frontres_v015_state_dict_fingerprint as _v015_state_dict_fingerprint,
+    frontres_v015_tensor_fingerprint as _v015_tensor_fingerprint,
+    inspect_frontres_quality_checkpoint,
+    load_frontres_checkpoint_mapping,
+    validate_frontres_v015_normalizer_state as _validate_v015_normalizer_state,
 )
-if _K_STAGE_SPEC is None or _K_STAGE_SPEC.loader is None:
-        raise RuntimeError("Could not load FRS-TRAIN-v011 K x M stage owner")
-_K_STAGE_MODULE = importlib.util.module_from_spec(_K_STAGE_SPEC)
-sys.modules[_K_STAGE_SPEC.name] = _K_STAGE_MODULE
-_K_STAGE_SPEC.loader.exec_module(_K_STAGE_MODULE)
-frontres_k_stage_schedule_tuple = _K_STAGE_MODULE.frontres_k_stage_schedule_tuple
-resolve_frontres_k_stage_identity = _K_STAGE_MODULE.resolve_frontres_k_stage_identity
-_require_frontres_v011_campaign_schedule = _K_STAGE_MODULE.require_frontres_v011_campaign_schedule
-
-
-def require_frontres_v011_campaign_schedule(schedule: object) -> None:
-    """Normalize schedule-identity failures to the checkpoint API error type."""
-
-    try:
-        _require_frontres_v011_campaign_schedule(schedule)
-    except ValueError as exc:
-        raise RuntimeError(str(exc)) from exc
-FRONTRES_V011_MAX_ABSOLUTE_ITERATION = _K_STAGE_MODULE.FRONTRES_V011_MAX_ABSOLUTE_ITERATION
-FRONTRES_V011_REVIEW_BOUNDARIES = _K_STAGE_MODULE.FRONTRES_V011_REVIEW_BOUNDARIES
-FRONTRES_V011_SELECTED_SEGMENT_COUNT = _K_STAGE_MODULE.FRONTRES_V011_SELECTED_SEGMENT_COUNT
-
-
-_FRONTRES_GAIN_CONFIG_FIELDS = (
-    ("style_weight", "frontres_gain_style_weight", 1.0),
-    ("physics_weight", "frontres_gain_physics_weight", 1.0),
-    ("repair_weight", "frontres_gain_repair_weight", 0.15),
-    ("mpjpe_scale", "frontres_gain_mpjpe_scale", 0.10),
-    ("velocity_scale", "frontres_gain_velocity_scale", 1.0),
-    ("acceleration_scale", "frontres_gain_acceleration_scale", 1.0),
-    ("root_orientation_scale", "frontres_gain_root_orientation_scale", 1.0),
-    ("repair_norm_scale", "frontres_gain_repair_norm_scale", 1.0),
-    ("repair_temporal_scale", "frontres_gain_repair_temporal_scale", 1.0),
+from rsl_rl.runners.frontres_checkpoint_legacy import (
+    frontres_legacy_gain_config_payload,
+    reject_legacy_frontres_hsl_checkpoint,
+    validate_frontres_legacy_gain_config_resume,
 )
 
-_V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-_V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v6"
+from rsl_rl.runners.frontres_formal_runtime_audit import (
+    configure_formal_runtime_probe,
+    emit_formal_runtime_probe,
+    print_checkpoint_payload_audit,
+)
+from rsl_rl.runners.frontres_stage3_engine import frontres_stage3_transaction_aggregate
+
+
 _V015_PHYSICS_EVIDENCE_IDENTITY = {
     "zmp_estimator_id": "contact-wrench-zmp-v1",
     "support_envelope_id": "clean-foot-pose-oriented-box-v1",
     "actual_contact_id": "contact-sensor-net-normal-force-threshold-v1",
     "expected_phase_id": "clean-foot-height-phase-v1",
 }
-_V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
-_V015_TRANSACTION_STATE_ATTR = "_frontres_v015_checkpoint_transaction_state"
-_V015_LAST_RECEIPT_ATTR = "_frontres_v015_last_committed_transaction_receipt"
-_V015_HSL_CHECKPOINT_IDENTITY_KEY = "frontres_v015_hsl_checkpoint_identity"
-_V015_HSL_CHECKPOINT_FORMAT = "frontres-v015-hsl-proposal-v1"
-_V015_HSL_PREFIX_NORM_KEY = "frontres_prefix_norm_state_dict"
-_V015_HSL_TOP_LEVEL_KEYS = {
-    _V015_HSL_CHECKPOINT_IDENTITY_KEY,
-    "model_state_dict",
-    _V015_HSL_PREFIX_NORM_KEY,
-}
-_EMPIRICAL_NORMALIZER_STATE_KEYS = {"_mean", "_var", "_std", "count"}
 
 
-def _v015_tensor_fingerprint(*values: torch.Tensor) -> str:
-    """返回 detached checkpoint tensor 的值敏感 identity."""
-
-    digest = hashlib.sha256()
-    for value in values:
-        if not isinstance(value, torch.Tensor):
-            raise TypeError("v015 checkpoint normalizer identity requires tensors")
-        cpu = value.detach().to(device="cpu").contiguous()
-        digest.update(str(tuple(cpu.shape)).encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(str(cpu.dtype).encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(cpu.numpy().tobytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _v015_state_dict_fingerprint(state: Mapping[str, torch.Tensor], *, label: str) -> str:
-    """Return one key/order/value-sensitive fingerprint for a tensor state dict."""
-
-    if not isinstance(state, Mapping) or not state:
-        raise RuntimeError(f"{label} must be a nonempty tensor state dict")
-    digest = hashlib.sha256()
-    for name in sorted(state):
-        value = state[name]
-        if not isinstance(name, str) or not isinstance(value, torch.Tensor):
-            raise RuntimeError(f"{label} must contain only named tensors")
-        cpu = value.detach().to(device="cpu").contiguous()
-        if torch.is_floating_point(cpu) and not bool(torch.isfinite(cpu).all().item()):
-            raise RuntimeError(f"{label} contains non-finite tensor {name}")
-        digest.update(name.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(str(tuple(cpu.shape)).encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(str(cpu.dtype).encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(cpu.numpy().tobytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _v015_clone_tensor_state(state: Mapping[str, torch.Tensor], *, label: str) -> dict[str, torch.Tensor]:
-    _v015_state_dict_fingerprint(state, label=label)
-    return {name: value.detach().clone() for name, value in state.items()}
-
-
-def _validate_v015_normalizer_state(
-    state: Mapping[str, torch.Tensor],
-    *,
-    dim: int,
-    label: str,
-) -> Mapping[str, torch.Tensor]:
-    if not isinstance(state, Mapping) or set(state) != _EMPIRICAL_NORMALIZER_STATE_KEYS:
-        raise RuntimeError(f"{label} has an unexpected state schema")
-    for name in ("_mean", "_var", "_std"):
-        value = state[name]
-        if (
-            not isinstance(value, torch.Tensor)
-            or tuple(value.shape) != (1, int(dim))
-            or not torch.is_floating_point(value)
-            or not bool(torch.isfinite(value).all().item())
-        ):
-            raise RuntimeError(f"{label} {name} must be finite [1,{int(dim)}]")
-    if bool((state["_var"] < 0).any().item()) or bool((state["_std"] <= 0).any().item()):
-        raise RuntimeError(f"{label} variance/std state is invalid")
-    count = state["count"]
-    if not isinstance(count, torch.Tensor) or count.numel() != 1 or int(count.item()) < 0:
-        raise RuntimeError(f"{label} count must be a nonnegative scalar")
-    return state
-
-
-def _v015_file_sha256(path: str | os.PathLike[str]) -> str:
-    """Hash the exact frozen GMT artifact bound to an HSL checkpoint."""
-
-    artifact = Path(path).expanduser().resolve()
-    if not artifact.is_file():
-        raise RuntimeError(f"proposal-only HSL requires an existing GMT checkpoint artifact: {artifact}")
-    digest = hashlib.sha256()
-    with artifact.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-@dataclass(frozen=True)
-class FrontRESV015QualityCheckpointIdentity:
-    """Read-only identity receipt for one strict policy-quality checkpoint."""
-
-    route: Literal["hsl", "policy"]
-    format: str
-    file_sha256: str
-    method_contract_id: str
-    training_contract_id: str
-    gain_contract_id: str | None
-    ppo_contract_id: str | None
-    future_intent_layout: tuple[tuple[str, object], ...]
-    action_kind: str
-    action_dim: int
-    normalizer_key: str
-    actor_fingerprint: str
-    distribution_key: str
-    distribution_fingerprint: str
-    normalizer_fingerprint: str
-
-
-def _v015_quality_expected_layout() -> dict[str, object]:
+def _frontres_v013_rng_state() -> dict[str, Any]:
+    numpy_state = np.random.get_state()
     return {
-        "layout_version": FRONTRES_FUTURE_INTENT_LAYOUT_VERSION,
-        "future_offsets": (1, 2),
-        "intent_dim": 29,
-        "actor_tail_dim": 58,
-        "environment_obs_dim": 870,
-        "current_frontres_prefix_dim": 100,
-        "actor_dim": 928,
-        "prefix_dim": 158,
-        "gmt_dim": 770,
+        "python": random.getstate(),
+        "numpy": {
+            "bit_generator": str(numpy_state[0]),
+            "keys": torch.as_tensor(numpy_state[1].copy(), dtype=torch.int64),
+            "position": int(numpy_state[2]),
+            "has_gauss": int(numpy_state[3]),
+            "cached_gaussian": float(numpy_state[4]),
+        },
+        "torch_cpu": torch.get_rng_state().clone(),
+        "torch_cuda": tuple(state.clone().cpu() for state in torch.cuda.get_rng_state_all()) if torch.cuda.is_available() else (),
     }
 
 
-def _v015_quality_require_sha256(value: object, *, label: str) -> str:
-    if not isinstance(value, str) or len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
-        raise RuntimeError(f"{label} must be a lowercase SHA-256 fingerprint")
-    return value
-
-
-def _v015_quality_model_identity(
-    checkpoint: Mapping[str, Any],
-    *,
-    label: str,
-) -> tuple[str, str, str]:
-    model_state = checkpoint.get("model_state_dict")
-    if not isinstance(model_state, Mapping):
-        raise RuntimeError(f"{label} requires model_state_dict")
-    actor_state = model_state.get("residual_actor")
-    if not isinstance(actor_state, Mapping) or not actor_state:
-        raise RuntimeError(f"{label} requires residual_actor state")
-    actor_fingerprint = _v015_state_dict_fingerprint(actor_state, label=f"{label} residual actor")
-    distribution_keys = tuple(name for name in ("std", "log_std") if name in model_state)
-    if len(distribution_keys) != 1:
-        raise RuntimeError(f"{label} requires exactly one std or log_std tensor")
-    distribution_key = distribution_keys[0]
-    distribution = model_state[distribution_key]
-    if (
-        not isinstance(distribution, torch.Tensor)
-        or tuple(distribution.shape) != (6,)
-        or not bool(torch.isfinite(distribution).all().item())
-    ):
-        raise RuntimeError(f"{label} requires finite full-6D distribution identity")
-    if not any(
-        isinstance(value, torch.Tensor) and value.ndim > 0 and int(value.shape[0]) == 6
-        for value in actor_state.values()
-    ):
-        raise RuntimeError(f"{label} residual actor has no full-6D output identity")
-    return actor_fingerprint, distribution_key, _v015_tensor_fingerprint(distribution)
-
-
-def _inspect_frontres_v015_hsl_quality_payload(
-    checkpoint: Mapping[str, Any],
-    *,
-    file_sha256: str,
-) -> FrontRESV015QualityCheckpointIdentity:
-    if set(checkpoint) != _V015_HSL_TOP_LEVEL_KEYS:
-        raise RuntimeError("quality HSL requires the exact proposal-only HSL payload")
-    identity = checkpoint.get(_V015_HSL_CHECKPOINT_IDENTITY_KEY)
-    required_identity = {
-        "format",
-        "method_contract_id",
-        "training_contract_id",
-        "objective",
-        "future_intent_layout",
-        "action",
-        "gmt",
-        "payload",
-    }
-    if not isinstance(identity, Mapping) or set(identity) != required_identity:
-        raise RuntimeError("quality HSL identity is missing, legacy, or malformed")
-    if (
-        identity["format"] != _V015_HSL_CHECKPOINT_FORMAT
-        or identity["method_contract_id"] != "FRS-METHOD-v015"
-        or identity["training_contract_id"] != "FRS-TRAIN-v007"
-        or identity["objective"] != "proposal_only_current_antidr_delta_se3"
-        or identity["future_intent_layout"] != _v015_quality_expected_layout()
-        or identity["action"] != {"kind": "delta_se3", "dim": 6}
-    ):
-        raise RuntimeError("quality HSL has an incompatible v015 layout or action identity")
-    gmt = identity["gmt"]
-    if (
-        not isinstance(gmt, Mapping)
-        or set(gmt) != {"checkpoint_sha256", "normalizer_dim", "normalizer_fingerprint"}
-        or int(gmt.get("normalizer_dim", -1)) != 770
-    ):
-        raise RuntimeError("quality HSL GMT identity is malformed")
-    _v015_quality_require_sha256(gmt["checkpoint_sha256"], label="quality HSL GMT checkpoint")
-    _v015_quality_require_sha256(gmt["normalizer_fingerprint"], label="quality HSL GMT normalizer")
-    actor_fingerprint, distribution_key, distribution_fingerprint = _v015_quality_model_identity(
-        checkpoint, label="quality HSL"
+def _restore_frontres_v013_rng_state(payload: Mapping[str, Any]) -> None:
+    numpy_state = payload["numpy"]
+    random.setstate(tuple(payload["python"]))
+    np.random.set_state(
+        (
+            str(numpy_state["bit_generator"]),
+            torch.as_tensor(numpy_state["keys"], dtype=torch.int64).cpu().numpy().astype(np.uint32),
+            int(numpy_state["position"]),
+            int(numpy_state["has_gauss"]),
+            float(numpy_state["cached_gaussian"]),
+        )
     )
-    prefix_state = checkpoint.get(_V015_HSL_PREFIX_NORM_KEY)
-    _validate_v015_normalizer_state(prefix_state, dim=158, label="quality HSL prefix normalizer")
-    prefix_fingerprint = _v015_state_dict_fingerprint(prefix_state, label="quality HSL prefix normalizer")
-    payload_identity = identity["payload"]
-    required_payload = {
-        "top_level_keys",
-        "model_keys",
-        "residual_actor_fingerprint",
-        "distribution_key",
-        "distribution_fingerprint",
-        "prefix_normalizer_keys",
-        "prefix_normalizer_fingerprint",
-    }
-    if (
-        not isinstance(payload_identity, Mapping)
-        or set(payload_identity) != required_payload
-        or tuple(payload_identity["top_level_keys"]) != tuple(sorted(_V015_HSL_TOP_LEVEL_KEYS))
-        or tuple(payload_identity["model_keys"]) != tuple(sorted(("residual_actor", distribution_key)))
-        or tuple(payload_identity["prefix_normalizer_keys"])
-        != tuple(sorted(_EMPIRICAL_NORMALIZER_STATE_KEYS))
-        or payload_identity["residual_actor_fingerprint"] != actor_fingerprint
-        or payload_identity["distribution_key"] != distribution_key
-        or payload_identity["distribution_fingerprint"] != distribution_fingerprint
-        or payload_identity["prefix_normalizer_fingerprint"] != prefix_fingerprint
-    ):
-        raise RuntimeError("quality HSL payload fingerprint mismatch")
-    return FrontRESV015QualityCheckpointIdentity(
-        route="hsl",
-        format=_V015_HSL_CHECKPOINT_FORMAT,
-        file_sha256=file_sha256,
-        method_contract_id="FRS-METHOD-v015",
-        training_contract_id="FRS-TRAIN-v007",
-        gain_contract_id=None,
-        ppo_contract_id=None,
-        future_intent_layout=tuple(_v015_quality_expected_layout().items()),
-        action_kind="delta_se3",
-        action_dim=6,
-        normalizer_key=_V015_HSL_PREFIX_NORM_KEY,
-        actor_fingerprint=actor_fingerprint,
-        distribution_key=distribution_key,
-        distribution_fingerprint=distribution_fingerprint,
-        normalizer_fingerprint=prefix_fingerprint,
-    )
-
-
-def _inspect_frontres_v015_policy_quality_payload(
-    checkpoint: Mapping[str, Any],
-    *,
-    file_sha256: str,
-) -> FrontRESV015QualityCheckpointIdentity:
-    identity = checkpoint.get(_V015_CHECKPOINT_IDENTITY_KEY)
-    if not isinstance(identity, Mapping):
-        raise RuntimeError("quality policy requires the strict Stage-3 v015 checkpoint identity")
-    if (
-        identity.get("format") != _V015_CHECKPOINT_FORMAT
-        or identity.get("method_contract_id") != "FRS-METHOD-v016"
-        or identity.get("training_contract_id") != "FRS-TRAIN-v011"
-        or identity.get("gain_contract_id") != "FRS-GAIN-v006"
-        or identity.get("optimization_contract_id") != "FRS-PPO-v004"
-        or identity.get("future_intent_layout") != _v015_quality_expected_layout()
-    ):
-        raise RuntimeError("quality policy has an incompatible v015 contract or layout identity")
-    if identity.get("grouped_loss") != {
-        "advantage_normalization": "grouped_scale_only",
-        "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
-        "policy_rows_per_attempt": 1,
-    }:
-        raise RuntimeError("quality policy has an incompatible grouped-loss identity")
-    if identity.get("constraint_solver") != {
-        "family_order": ("contact", "zmp", "survival"),
-        "contact_budget_foot_seconds": 0.0,
-        "zmp_budget_metre_seconds": 0.0,
-        "contact_scale_foot_seconds": 1.0,
-        "zmp_scale_metre_seconds": 0.05,
-        "survival_scale_seconds": 1.0,
-        "constraint_grad_epsilon": 1.0e-10,
-        "projection_tolerance": 1.0e-8,
-        "persistent_dual_state": False,
-    }:
-        raise RuntimeError("quality policy has an incompatible v006 constraint solver identity")
-    curriculum = identity.get("curriculum")
-    if not isinstance(curriculum, Mapping):
-        raise RuntimeError("quality policy has no FRS-TRAIN-v011 curriculum identity")
-    schedule = curriculum.get("schedule")
-    require_frontres_v011_campaign_schedule(schedule if isinstance(schedule, (tuple, list)) else ())
-    iteration = int(curriculum.get("absolute_iteration", -1))
-    expected = resolve_frontres_k_stage_identity(
-        schedule=schedule if isinstance(schedule, (tuple, list)) else (),
-        committed_update_iteration=iteration,
-        max_horizon_k=max((int(row[0]) for row in schedule), default=0) if isinstance(schedule, (tuple, list)) else 0,
-    )
-    expected_payload = {
-        "schedule": frontres_k_stage_schedule_tuple(schedule),
-        "schedule_fingerprint": expected.schedule_fingerprint,
-        "k_stage_index": expected.stage_index,
-        "active_k": expected.active_k,
-        "active_m": expected.active_m,
-        "selected_segment_count": FRONTRES_V011_SELECTED_SEGMENT_COUNT,
-        "policy_row_count": FRONTRES_V011_SELECTED_SEGMENT_COUNT * expected.active_m,
-        "role_row_count": 2 * FRONTRES_V011_SELECTED_SEGMENT_COUNT * expected.active_m,
-        "maximum_absolute_iteration": FRONTRES_V011_MAX_ABSOLUTE_ITERATION,
-        "checkpoint_review_boundaries": FRONTRES_V011_REVIEW_BOUNDARIES,
-        "stage_iteration": expected.stage_iteration,
-        "absolute_iteration": expected.absolute_iteration,
-        "phase": expected.phase.name,
-        "phase_iteration": expected.phase.phase_iteration,
-        "actor_loss_weight": expected.phase.actor_loss_weight,
-    }
-    if dict(curriculum) != expected_payload:
-        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v011 curriculum identity")
-    transaction = identity.get("transaction")
-    if not isinstance(transaction, Mapping) or str(transaction.get("state", "")) not in {"idle", "committed"}:
-        raise RuntimeError("quality policy rejects partial or malformed transaction identity")
-    if transaction["state"] == "idle" and set(transaction) != {"state"}:
-        raise RuntimeError("quality policy idle transaction identity is malformed")
-    if transaction["state"] == "committed":
-        if set(transaction) != {"state", "receipt"}:
-            raise RuntimeError("quality policy committed transaction identity is malformed")
-        _v015_committed_transaction_receipt(transaction)
-    normalizer_identity = identity.get("normalizer")
-    if (
-        not isinstance(normalizer_identity, Mapping)
-        or set(normalizer_identity)
-        != {"mode", "prefix_layout_version", "prefix_dim", "combined_dim", "prefix_stats_fingerprint"}
-        or normalizer_identity.get("mode") != "empirical_prefix_plus_frozen_gmt"
-        or normalizer_identity.get("prefix_layout_version") != FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
-        or int(normalizer_identity.get("prefix_dim", -1)) != 158
-        or int(normalizer_identity.get("combined_dim", -1)) != 928
-    ):
-        raise RuntimeError("quality policy normalizer identity is incompatible or padded")
-    obs_norm = checkpoint.get("obs_norm_state_dict")
-    _validate_v015_normalizer_state(obs_norm, dim=928, label="quality policy observation normalizer")
-    prefix_fingerprint = _v015_tensor_fingerprint(obs_norm["_mean"][..., :158], obs_norm["_std"][..., :158])
-    if normalizer_identity["prefix_stats_fingerprint"] != prefix_fingerprint:
-        raise RuntimeError("quality policy prefix normalizer fingerprint mismatch")
-    actor_fingerprint, distribution_key, distribution_fingerprint = _v015_quality_model_identity(
-        checkpoint, label="quality policy"
-    )
-    return FrontRESV015QualityCheckpointIdentity(
-        route="policy",
-        format=_V015_CHECKPOINT_FORMAT,
-        file_sha256=file_sha256,
-        method_contract_id="FRS-METHOD-v016",
-        training_contract_id="FRS-TRAIN-v011",
-        gain_contract_id="FRS-GAIN-v006",
-        ppo_contract_id="FRS-PPO-v004",
-        future_intent_layout=tuple(_v015_quality_expected_layout().items()),
-        action_kind="delta_se3",
-        action_dim=6,
-        normalizer_key="obs_norm_state_dict",
-        actor_fingerprint=actor_fingerprint,
-        distribution_key=distribution_key,
-        distribution_fingerprint=distribution_fingerprint,
-        normalizer_fingerprint=prefix_fingerprint,
-    )
-
-
-def inspect_frontres_v015_quality_checkpoint(
-    checkpoint_path: str | os.PathLike[str],
-    *,
-    route: Literal["hsl", "policy"],
-) -> FrontRESV015QualityCheckpointIdentity:
-    """Validate one quality artifact without restoring any mutable runner state."""
-
-    if route not in {"hsl", "policy"}:
-        raise ValueError("v015 quality checkpoint route must be hsl or policy")
-    path = Path(checkpoint_path).expanduser().resolve()
-    if not path.is_file():
-        raise FileNotFoundError(f"v015 quality checkpoint does not exist: {path}")
-    file_sha256 = _v015_file_sha256(path)
-    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
-    if not isinstance(checkpoint, Mapping):
-        raise RuntimeError("v015 quality checkpoint payload must be a mapping")
-    if route == "hsl":
-        return _inspect_frontres_v015_hsl_quality_payload(checkpoint, file_sha256=file_sha256)
-    return _inspect_frontres_v015_policy_quality_payload(checkpoint, file_sha256=file_sha256)
+    torch.set_rng_state(torch.as_tensor(payload["torch_cpu"], dtype=torch.uint8).cpu())
+    cuda_states = tuple(payload.get("torch_cuda", ()))
+    if cuda_states and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all([torch.as_tensor(state, dtype=torch.uint8).cpu() for state in cuda_states])
+_V015_TRANSACTION_STATE_ATTR = "_frontres_checkpoint_transaction_state"
+_V015_LAST_RECEIPT_ATTR = "_frontres_last_committed_transaction_receipt"
 
 
 @contextmanager
-def frontres_v015_quality_route_actor(
+def frontres_quality_route_actor(
     runner: Any,
     checkpoint_path: str | os.PathLike[str],
     *,
@@ -492,7 +134,7 @@ def frontres_v015_quality_route_actor(
     layouts. The caller must still restore the environment scenario per route.
     """
 
-    identity = inspect_frontres_v015_quality_checkpoint(checkpoint_path, route=route)
+    identity = inspect_frontres_quality_checkpoint(checkpoint_path, route=route)
     if identity.file_sha256 != str(expected_file_sha256):
         raise RuntimeError("v015 quality route checkpoint changed after request sealing")
     policy = getattr(getattr(runner, "alg", None), "policy", None)
@@ -512,7 +154,7 @@ def frontres_v015_quality_route_actor(
     actor_training = bool(actor.training)
     prefix_training = bool(prefix_normalizer.training) if prefix_normalizer is not None else False
 
-    checkpoint = torch.load(Path(checkpoint_path).expanduser().resolve(), map_location="cpu", weights_only=False)
+    checkpoint = load_frontres_checkpoint_mapping(checkpoint_path, map_location="cpu")
     try:
         if route == "hsl":
             validated = _validate_v015_hsl_checkpoint_resume(
@@ -521,7 +163,7 @@ def frontres_v015_quality_route_actor(
                 stage3_initializer=True,
             )
             if validated is None:
-                raise RuntimeError("v015 quality HSL route requires strict HSL-v1 identity")
+                raise RuntimeError("v015 quality HSL route requires strict HSL-v2 identity")
             actor.load_state_dict(validated["actor_state"], strict=True)
             distribution.data.copy_(
                 validated["distribution"].to(device=distribution.device, dtype=distribution.dtype)
@@ -582,8 +224,8 @@ def _uses_v015_hsl_checkpoint_identity(runner: Any) -> bool:
     )
 
 
-def capture_v015_hsl_fresh_reload_shadow(runner: Any) -> Any:
-    """Capture an independent pre-warmup owner for the bounded HSL reload sentinel."""
+def capture_frontres_hsl_fresh_reload_shadow(runner: Any) -> Any:
+    """Capture an independent pre-warmup owner for the direct HSL reload sentinel."""
 
     if not _uses_v015_hsl_checkpoint_identity(runner):
         raise RuntimeError("G2-S4 fresh reload requires the active proposal-only HSL route")
@@ -597,8 +239,6 @@ def capture_v015_hsl_fresh_reload_shadow(runner: Any) -> Any:
         total_output_dim=int(policy.total_output_dim),
         num_actor_obs=int(policy.num_actor_obs),
         num_frontres_obs=int(policy.num_frontres_obs),
-        max_delta_pos=float(policy.max_delta_pos),
-        max_delta_rpy=float(policy.max_delta_rpy),
     )
     setattr(shadow_policy, distribution_key, distribution.detach().to(device="cpu").clone())
     shadow = SimpleNamespace(
@@ -625,22 +265,18 @@ def capture_v015_hsl_fresh_reload_shadow(runner: Any) -> Any:
     return shadow
 
 
-def _v015_hsl_bounded_proposal(policy: Any, actor_input: torch.Tensor) -> torch.Tensor:
+def _frontres_hsl_direct_proposal(policy: Any, actor_input: torch.Tensor) -> torch.Tensor:
     if not isinstance(actor_input, torch.Tensor) or actor_input.ndim != 2 or actor_input.shape[-1] != 158:
         raise RuntimeError("G2-S4 fresh reload requires normalized FEMR input [B,158]")
     raw = policy.residual_actor(actor_input)
     if not isinstance(raw, torch.Tensor) or tuple(raw.shape) != (int(actor_input.shape[0]), 6):
         raise RuntimeError("G2-S4 fresh reload requires a full-6D residual actor output")
-    return torch.cat(
-        [
-            torch.tanh(raw[:, :3]) * float(policy.max_delta_pos),
-            torch.tanh(raw[:, 3:6]) * float(policy.max_delta_rpy),
-        ],
-        dim=-1,
-    )
+    if not bool(torch.isfinite(raw).all().item()):
+        raise RuntimeError("G2-S4 fresh reload requires a finite full-6D proposal")
+    return raw
 
 
-def verify_v015_hsl_fresh_reload(
+def verify_frontres_hsl_fresh_reload(
     shadow: Any,
     *,
     checkpoint_path: str,
@@ -648,7 +284,7 @@ def verify_v015_hsl_fresh_reload(
     source_actor_input: torch.Tensor,
     source_proposal: torch.Tensor,
 ) -> dict[str, Any]:
-    """Strictly reload HSL v1 and compare its CPU proposal to the live-device output."""
+    """Strictly reload HSL v2 and compare its CPU proposal to the live-device output."""
 
     if not isinstance(combined_obs, torch.Tensor) or combined_obs.ndim != 2 or combined_obs.shape[-1] != 928:
         raise RuntimeError("G2-S4 fresh reload requires the real combined observation [B,928]")
@@ -659,7 +295,7 @@ def verify_v015_hsl_fresh_reload(
     shadow._frontres_extra_normalizer.eval()
     with torch.inference_mode():
         before_input = shadow._frontres_extra_normalizer(combined_cpu[:, :158])
-        before_proposal = _v015_hsl_bounded_proposal(shadow.alg.policy, before_input)
+        before_proposal = _frontres_hsl_direct_proposal(shadow.alg.policy, before_input)
     if torch.equal(before_proposal, source_proposal_cpu):
         raise RuntimeError("G2-S4 fresh reload shadow did not differ before checkpoint load")
 
@@ -667,7 +303,7 @@ def verify_v015_hsl_fresh_reload(
     shadow._frontres_extra_normalizer.eval()
     with torch.inference_mode():
         fresh_input = shadow._frontres_extra_normalizer(combined_cpu[:, :158])
-        fresh_proposal = _v015_hsl_bounded_proposal(shadow.alg.policy, fresh_input)
+        fresh_proposal = _frontres_hsl_direct_proposal(shadow.alg.policy, fresh_input)
     input_equal = torch.equal(fresh_input, source_input_cpu)
     proposal_bitwise_equal = torch.equal(fresh_proposal, source_proposal_cpu)
     proposal_rtol = 1.0e-5
@@ -732,27 +368,27 @@ def _v015_hsl_prefix_normalizer_state(runner: Any) -> dict[str, torch.Tensor]:
     return _v015_clone_tensor_state(state, label="proposal-only HSL prefix normalizer")
 
 
-def _v015_hsl_gmt_identity(runner: Any) -> dict[str, Any]:
+def _v015_frozen_gmt_identity(runner: Any) -> dict[str, Any]:
     policy = getattr(getattr(runner, "alg", None), "policy", None)
     if int(getattr(policy, "gmt_policy_obs_dim", 0) or 0) != FRONTRES_V015_GMT_SUFFIX_DIM:
-        raise RuntimeError("proposal-only HSL requires the frozen GMT 770D observation identity")
+        raise RuntimeError("FrontRES checkpoint requires the frozen GMT 770D observation identity")
     normalizer = getattr(policy, "gmt_normalizer", None)
     if not isinstance(normalizer, torch.nn.Module):
-        raise RuntimeError("proposal-only HSL requires the frozen GMT normalizer")
+        raise RuntimeError("FrontRES checkpoint requires the frozen GMT normalizer")
     state = _validate_v015_normalizer_state(
         normalizer.state_dict(),
         dim=FRONTRES_V015_GMT_SUFFIX_DIM,
-        label="proposal-only HSL GMT normalizer",
+        label="frozen GMT normalizer",
     )
     policy_cfg = getattr(runner, "policy_cfg", None)
     gmt_path = policy_cfg.get("gmt_checkpoint_path") if isinstance(policy_cfg, Mapping) else None
     if not isinstance(gmt_path, (str, os.PathLike)):
-        raise RuntimeError("proposal-only HSL requires gmt_checkpoint_path in the policy config")
+        raise RuntimeError("FrontRES checkpoint requires gmt_checkpoint_path in the policy config")
     return {
         "checkpoint_sha256": _v015_file_sha256(gmt_path),
         "normalizer_dim": FRONTRES_V015_GMT_SUFFIX_DIM,
         "normalizer_fingerprint": _v015_state_dict_fingerprint(
-            state, label="proposal-only HSL GMT normalizer"
+            state, label="frozen GMT normalizer"
         ),
     }
 
@@ -763,7 +399,7 @@ def _uses_v015_formal_checkpoint_identity(runner: Any) -> bool:
     layout = getattr(runner, "_frontres_future_intent_layout", None)
     alg = getattr(runner, "alg", None)
     return isinstance(layout, FrontRESFutureIntentLayout) and bool(
-        getattr(alg, "frontres_v015_formal_transaction_enabled", False)
+        getattr(alg, "frontres_formal_transaction_enabled", False)
     )
 
 
@@ -776,9 +412,9 @@ def _v015_checkpoint_layout_fields(runner: Any) -> dict[str, int | str | tuple[i
     layout.validate()
     if layout.version != FRONTRES_FUTURE_INTENT_LAYOUT_VERSION:
         raise RuntimeError("v015 checkpoint identity has an incompatible future-intent layout version")
-    if tuple(layout.future_offsets) != (1, 2):
+    if tuple(layout.future_offsets) != FRONTRES_FUTURE_INTENT_OFFSETS:
         raise RuntimeError(
-            "v015 checkpoint identity requires future_offsets=(1, 2), "
+            f"v015 checkpoint identity requires future_offsets={FRONTRES_FUTURE_INTENT_OFFSETS}, "
             f"got {tuple(layout.future_offsets)}"
         )
     policy = getattr(getattr(runner, "alg", None), "policy", None)
@@ -880,12 +516,16 @@ def _build_v015_hsl_checkpoint_payload(runner: Any) -> dict[str, Any]:
     }
     identity = {
         "format": _V015_HSL_CHECKPOINT_FORMAT,
-        "method_contract_id": "FRS-METHOD-v015",
-        "training_contract_id": "FRS-TRAIN-v007",
+        "method_contract_id": "FRS-METHOD-v017",
+        "training_contract_id": "FRS-TRAIN-v014",
         "objective": "proposal_only_current_antidr_delta_se3",
         "future_intent_layout": fields,
-        "action": {"kind": "delta_se3", "dim": 6},
-        "gmt": _v015_hsl_gmt_identity(runner),
+        "action": {
+            "kind": "delta_se3",
+            "dim": 6,
+            "semantics": "direct-world-full6-v1",
+        },
+        "gmt": _v015_frozen_gmt_identity(runner),
         "payload": payload_identity,
     }
     return {
@@ -959,17 +599,21 @@ def _validate_v015_hsl_checkpoint_resume(
         raise RuntimeError("proposal-only HSL checkpoint identity is missing, legacy, or malformed")
     if (
         identity["format"] != _V015_HSL_CHECKPOINT_FORMAT
-        or identity["method_contract_id"] != "FRS-METHOD-v015"
-        or identity["training_contract_id"] != "FRS-TRAIN-v007"
+        or identity["method_contract_id"] != "FRS-METHOD-v017"
+        or identity["training_contract_id"] != "FRS-TRAIN-v014"
         or identity["objective"] != "proposal_only_current_antidr_delta_se3"
     ):
         raise RuntimeError("proposal-only HSL checkpoint has an incompatible identity")
     fields = _v015_checkpoint_layout_fields(runner)
     if identity["future_intent_layout"] != fields:
         raise RuntimeError("proposal-only HSL checkpoint future-intent layout mismatch")
-    if identity["action"] != {"kind": "delta_se3", "dim": 6}:
+    if identity["action"] != {
+        "kind": "delta_se3",
+        "dim": 6,
+        "semantics": "direct-world-full6-v1",
+    }:
         raise RuntimeError("proposal-only HSL checkpoint action identity mismatch")
-    if identity["gmt"] != _v015_hsl_gmt_identity(runner):
+    if identity["gmt"] != _v015_frozen_gmt_identity(runner):
         raise RuntimeError("proposal-only HSL checkpoint GMT artifact or normalizer identity mismatch")
 
     payload_identity = identity["payload"]
@@ -1075,7 +719,7 @@ def _validate_v015_stage3_hsl_initializer_runtime(runner: Any) -> None:
         raise RuntimeError("v015 HSL initializer requires a FrontRES Stage-3 runner")
     if str(getattr(alg, "frontres_training_objective", "")) != "segment_replay_hrl":
         raise RuntimeError("v015 HSL initializer requires the segment_replay_hrl objective")
-    if not bool(getattr(alg, "frontres_v015_formal_transaction_enabled", False)):
+    if not bool(getattr(alg, "frontres_formal_transaction_enabled", False)):
         raise RuntimeError("v015 HSL initializer requires the formal transaction configuration")
     if str(getattr(alg, "frontres_segment_advantage_normalization", "")) != "grouped_scale_only":
         raise RuntimeError("v015 HSL initializer requires grouped_scale_only configuration")
@@ -1102,14 +746,14 @@ def _validate_v015_stage3_hsl_initializer_runtime(runner: Any) -> None:
         raise RuntimeError("v015 HSL initializer rejects existing transaction state")
 
 
-def load_v015_hsl_initializer(runner: Any, path: str) -> dict[str, Any]:
+def load_frontres_hsl_initializer(runner: Any, path: str) -> dict[str, Any]:
     """Load only actor, 6D distribution, and 158D prefix stats into fresh Stage 3."""
 
     _validate_v015_stage3_hsl_initializer_runtime(runner)
     checkpoint_path = Path(path).expanduser().resolve(strict=True)
     if not checkpoint_path.is_file():
         raise RuntimeError(f"v015 HSL initializer is not a file: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    checkpoint = load_frontres_checkpoint_mapping(checkpoint_path, map_location="cpu")
     validated = _validate_v015_hsl_checkpoint_resume(
         runner,
         checkpoint,
@@ -1132,110 +776,6 @@ def load_v015_hsl_initializer(runner: Any, path: str) -> dict[str, Any]:
         flush=True,
     )
     return receipt
-
-
-def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, Any]:
-    """校验可跨越 v015 checkpoint boundary 的 metadata-only receipt."""
-
-    if str(state.get("state", "")) != "committed":
-        raise RuntimeError("v015 checkpoint transaction must be idle or committed")
-    receipt = state.get("receipt")
-    if not isinstance(receipt, Mapping):
-        raise RuntimeError("v015 committed checkpoint transaction requires a receipt")
-    required = (
-        "method_contract_id",
-        "gain_contract_id",
-        "optimization_contract_id",
-        "training_contract_id",
-        "scalar_target_id",
-        "constraint_schema_id",
-        "projection_schema_id",
-        "transaction_id",
-        "policy_snapshot_id",
-        "plan_identity_hash",
-        "scenario_identity_hash",
-        "expected_policy_row_count",
-        "collected_policy_attempt_count",
-        "valid_policy_row_count",
-        "optimizer_step_before",
-        "optimizer_step_after",
-        "optimizer_step_delta",
-        "curriculum_fingerprint",
-        "k_stage_index",
-        "active_k",
-        "active_m",
-        "selected_segment_count",
-        "policy_row_count",
-        "role_row_count",
-        "k_stage_iteration",
-        "training_iteration",
-    )
-    if set(receipt) != set(required):
-        raise RuntimeError("v015 committed checkpoint receipt has an unexpected field set")
-    result = {name: receipt[name] for name in required}
-    for name in (
-        "method_contract_id",
-        "gain_contract_id",
-        "optimization_contract_id",
-        "training_contract_id",
-        "scalar_target_id",
-        "constraint_schema_id",
-        "projection_schema_id",
-        "transaction_id",
-        "policy_snapshot_id",
-        "plan_identity_hash",
-        "scenario_identity_hash",
-        "curriculum_fingerprint",
-    ):
-        if not isinstance(result[name], str) or not result[name]:
-            raise RuntimeError(f"v015 committed checkpoint receipt has invalid {name}")
-    expected_identity = {
-        "method_contract_id": "FRS-METHOD-v016",
-        "gain_contract_id": "FRS-GAIN-v006",
-        "optimization_contract_id": "FRS-PPO-v004",
-        "training_contract_id": "FRS-TRAIN-v011",
-        "scalar_target_id": "paired-intent-minus-repair-v1",
-        "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
-        "projection_schema_id": "grouped-first-order-constraint-projection-v1",
-    }
-    if any(result[name] != value for name, value in expected_identity.items()):
-        raise RuntimeError("v015 committed checkpoint receipt has legacy contract identity")
-    for name in (
-        "expected_policy_row_count",
-        "collected_policy_attempt_count",
-        "valid_policy_row_count",
-        "optimizer_step_before",
-        "optimizer_step_after",
-        "optimizer_step_delta",
-        "k_stage_index",
-        "active_k",
-        "active_m",
-        "selected_segment_count",
-        "policy_row_count",
-        "role_row_count",
-        "k_stage_iteration",
-        "training_iteration",
-    ):
-        result[name] = int(result[name])
-    if (
-        result["expected_policy_row_count"] <= 0
-        or result["collected_policy_attempt_count"] != result["expected_policy_row_count"]
-        or result["valid_policy_row_count"] <= 0
-        or result["valid_policy_row_count"] > result["collected_policy_attempt_count"]
-        or result["optimizer_step_delta"] != 1
-        or result["optimizer_step_after"] != result["optimizer_step_before"] + 1
-        or len(result["curriculum_fingerprint"]) != 64
-        or result["k_stage_index"] < 0
-        or result["active_k"] <= 0
-        or result["active_m"] < 2
-        or result["selected_segment_count"] != FRONTRES_V011_SELECTED_SEGMENT_COUNT
-        or result["policy_row_count"] != result["selected_segment_count"] * result["active_m"]
-        or result["role_row_count"] != 2 * result["policy_row_count"]
-        or result["k_stage_iteration"] < 0
-        or result["training_iteration"] < 0
-    ):
-        raise RuntimeError("v015 committed checkpoint receipt is not an exact-one completed transaction")
-    return result
 
 
 def _v015_transaction_checkpoint_payload(runner: Any) -> dict[str, Any]:
@@ -1274,10 +814,10 @@ def _v015_transaction_checkpoint_payload(runner: Any) -> dict[str, Any]:
     raise RuntimeError(f"v015 checkpoint transaction has unknown state={phase!r}")
 
 
-def _validate_v011_receipt_curriculum(
+def _validate_v013_receipt_curriculum(
     transaction: Mapping[str, Any],
     *,
-    schedule: tuple[tuple[int, int, int, int, int], ...],
+    schedule: tuple[tuple[object, ...], ...],
     current_iteration: int,
 ) -> None:
     """Bind the last committed update to the stage immediately before save."""
@@ -1287,7 +827,7 @@ def _validate_v011_receipt_curriculum(
     receipt = transaction["receipt"]
     expected_iteration = int(current_iteration) - 1
     if expected_iteration < 0 or int(receipt["training_iteration"]) != expected_iteration:
-        raise RuntimeError("FRS-TRAIN-v011 committed receipt is not adjacent to checkpoint iteration")
+        raise RuntimeError("FRS-TRAIN-v014 committed receipt is not adjacent to checkpoint iteration")
     expected = resolve_frontres_k_stage_identity(
         schedule=schedule,
         committed_update_iteration=expected_iteration,
@@ -1302,8 +842,11 @@ def _validate_v011_receipt_curriculum(
         or int(receipt["policy_row_count"]) != FRONTRES_V011_SELECTED_SEGMENT_COUNT * expected.active_m
         or int(receipt["role_row_count"]) != 2 * FRONTRES_V011_SELECTED_SEGMENT_COUNT * expected.active_m
         or int(receipt["k_stage_iteration"]) != expected.stage_iteration
+        or receipt.get("dr_stage_fingerprint") != expected.dr_stage_fingerprint
+        or float(receipt.get("dr_progress", -1.0)) != expected.dr_progress
+        or float(receipt.get("d_cap", -1.0)) != expected.d_cap
     ):
-        raise RuntimeError("FRS-TRAIN-v011 committed receipt has a mismatched K x M stage identity")
+        raise RuntimeError("FRS-TRAIN-v014 committed receipt has a mismatched K x M x DR stage identity")
 
 
 def _build_v015_checkpoint_identity(
@@ -1356,9 +899,9 @@ def _build_v015_checkpoint_identity(
         }
     iteration = int(getattr(runner, "current_learning_iteration", 0))
     if iteration < 0 or iteration > FRONTRES_V011_MAX_ABSOLUTE_ITERATION:
-        raise RuntimeError("FRS-TRAIN-v011 checkpoint iteration must be within [0,8000]")
+        raise RuntimeError("FRS-TRAIN-v014 checkpoint iteration must be within [0,8000]")
     schedule = tuple(getattr(alg, "frontres_segment_k_curriculum", ()) or ())
-    require_frontres_v011_campaign_schedule(schedule)
+    require_frontres_v013_campaign_schedule(schedule)
     curriculum = resolve_frontres_k_stage_identity(
         schedule=schedule,
         committed_update_iteration=iteration,
@@ -1366,35 +909,32 @@ def _build_v015_checkpoint_identity(
     )
     configured_fingerprint = str(getattr(alg, "frontres_segment_k_curriculum_fingerprint", "") or "")
     if configured_fingerprint and configured_fingerprint != curriculum.schedule_fingerprint:
-        raise RuntimeError("FRS-TRAIN-v011 checkpoint curriculum fingerprint drifted after config resolution")
+        raise RuntimeError("FRS-TRAIN-v014 checkpoint curriculum fingerprint drifted after config resolution")
     schedule_tuple = frontres_k_stage_schedule_tuple(schedule)
     transaction = _v015_transaction_checkpoint_payload(runner)
-    _validate_v011_receipt_curriculum(
+    _validate_v013_receipt_curriculum(
         transaction,
         schedule=schedule_tuple,
         current_iteration=iteration,
     )
     return {
         "format": _V015_CHECKPOINT_FORMAT,
-        "method_contract_id": "FRS-METHOD-v016",
-        "training_contract_id": "FRS-TRAIN-v011",
-        "gain_contract_id": "FRS-GAIN-v006",
-        "optimization_contract_id": "FRS-PPO-v004",
-        "scalar_target_id": "paired-intent-minus-repair-v1",
-        "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
+        "method_contract_id": "FRS-METHOD-v017",
+        "training_contract_id": "FRS-TRAIN-v014",
+        "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
+        "gain_contract_id": "FRS-GAIN-v007",
+        "optimization_contract_id": "FRS-PPO-v005",
+        "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
+        "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "physics_evidence": dict(_V015_PHYSICS_EVIDENCE_IDENTITY),
-        "projection_schema_id": "grouped-first-order-constraint-projection-v1",
-        "constraint_solver": {
-            "family_order": ("contact", "zmp", "survival"),
-            "contact_budget_foot_seconds": 0.0,
-            "zmp_budget_metre_seconds": 0.0,
-            "contact_scale_foot_seconds": 1.0,
-            "zmp_scale_metre_seconds": 0.05,
-            "survival_scale_seconds": 1.0,
-            "constraint_grad_epsilon": 1.0e-10,
-            "projection_tolerance": 1.0e-8,
-            "persistent_dual_state": False,
+        "grouped_schema_id": "grouped-all-attempt-scalar-v1",
+        "action": {
+            "kind": "delta_se3",
+            "dim": 6,
+            "semantics": "direct-world-full6-v1",
         },
+        "gain": {"beta": float(getattr(alg, "frontres_gain_beta", 0.02))},
+        "gmt": _v015_frozen_gmt_identity(runner),
         "future_intent_layout": fields,
         "normalizer": normalizer,
         "grouped_loss": {
@@ -1419,6 +959,9 @@ def _build_v015_checkpoint_identity(
             "phase": curriculum.phase.name,
             "phase_iteration": curriculum.phase.phase_iteration,
             "actor_loss_weight": curriculum.phase.actor_loss_weight,
+            "dr_stage_fingerprint": curriculum.dr_stage_fingerprint,
+            "dr_progress": curriculum.dr_progress,
+            "d_cap": curriculum.d_cap,
         },
     }
 
@@ -1436,16 +979,21 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
         )
     if (
         identity.get("format") != _V015_CHECKPOINT_FORMAT
-        or identity.get("method_contract_id") != "FRS-METHOD-v016"
-        or identity.get("training_contract_id") != "FRS-TRAIN-v011"
-        or identity.get("gain_contract_id") != "FRS-GAIN-v006"
-        or identity.get("optimization_contract_id") != "FRS-PPO-v004"
-        or identity.get("scalar_target_id") != "paired-intent-minus-repair-v1"
-        or identity.get("constraint_schema_id") != "contact-loaded-phase_zmp-survival-physical-v2"
+        or identity.get("method_contract_id") != "FRS-METHOD-v017"
+        or identity.get("training_contract_id") != "FRS-TRAIN-v014"
+        or identity.get("dr_curriculum_schema_id") != "nested-k-dr-four-class-v1"
+        or identity.get("gain_contract_id") != "FRS-GAIN-v007"
+        or identity.get("optimization_contract_id") != "FRS-PPO-v005"
+        or identity.get("scalar_target_id") != "clean-anchored-recovery-aware-gain-v1"
+        or identity.get("physics_schema_id") != "clean-anchored-contact-zmp-survival-v1"
         or identity.get("physics_evidence") != _V015_PHYSICS_EVIDENCE_IDENTITY
-        or identity.get("projection_schema_id") != "grouped-first-order-constraint-projection-v1"
+        or identity.get("grouped_schema_id") != "grouped-all-attempt-scalar-v1"
+        or identity.get("action")
+        != {"kind": "delta_se3", "dim": 6, "semantics": "direct-world-full6-v1"}
     ):
         raise RuntimeError("v015 checkpoint has an incompatible contract or format identity")
+    if identity.get("gmt") != _v015_frozen_gmt_identity(runner):
+        raise RuntimeError("v015 checkpoint frozen GMT artifact, 770D layout, or normalizer identity mismatch")
     model_state = checkpoint.get("model_state_dict")
     if not isinstance(model_state, Mapping) or not isinstance(model_state.get("residual_actor"), Mapping) or not isinstance(
         model_state.get("critic"), Mapping
@@ -1453,6 +1001,14 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
         raise RuntimeError("v015 checkpoint is missing exact actor/Critic state")
     if not isinstance(checkpoint.get("optimizer_state_dict"), Mapping):
         raise RuntimeError("v015 checkpoint is missing optimizer state")
+    rng_state = checkpoint.get("frontres_v013_rng_state")
+    if not isinstance(rng_state, Mapping) or set(rng_state) != {"python", "numpy", "torch_cpu", "torch_cuda"}:
+        raise RuntimeError("FRS-TRAIN-v014 checkpoint is missing complete RNG state")
+    numpy_rng = rng_state.get("numpy")
+    if not isinstance(numpy_rng, Mapping) or set(numpy_rng) != {
+        "bit_generator", "keys", "position", "has_gauss", "cached_gaussian"
+    }:
+        raise RuntimeError("FRS-TRAIN-v014 checkpoint NumPy RNG state is malformed")
     sampler = getattr(runner, "_frontres_segment_sampler", None)
     if sampler is not None and not isinstance(checkpoint.get("frontres_segment_sampler_state_dict"), Mapping):
         raise RuntimeError("v015 checkpoint is missing sampler state")
@@ -1503,34 +1059,26 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
                     and slot_value.shape != runtime_parameter.shape
                 ):
                     raise RuntimeError("v015 checkpoint optimizer slot shape differs from runtime")
-    expected_solver = {
-        "family_order": ("contact", "zmp", "survival"),
-        "contact_budget_foot_seconds": 0.0,
-        "zmp_budget_metre_seconds": 0.0,
-        "contact_scale_foot_seconds": 1.0,
-        "zmp_scale_metre_seconds": 0.05,
-        "survival_scale_seconds": 1.0,
-        "constraint_grad_epsilon": 1.0e-10,
-        "projection_tolerance": 1.0e-8,
-        "persistent_dual_state": False,
-    }
-    if identity.get("constraint_solver") != expected_solver:
-        raise RuntimeError("v015 checkpoint has an incompatible FRS-PPO-v004 solver identity")
+    gain_identity = identity.get("gain")
+    if not isinstance(gain_identity, Mapping) or float(gain_identity.get("beta", float("nan"))) != float(
+        getattr(runner.alg, "frontres_gain_beta", 0.02)
+    ):
+        raise RuntimeError("v015 checkpoint has an incompatible FRS-GAIN-v007 beta identity")
     curriculum = identity.get("curriculum")
     if not isinstance(curriculum, Mapping):
-        raise RuntimeError("FRS-TRAIN-v011 checkpoint curriculum identity is missing")
+        raise RuntimeError("FRS-TRAIN-v014 checkpoint curriculum identity is missing")
     runtime_schedule = tuple(getattr(runner.alg, "frontres_segment_k_curriculum", ()) or ())
-    require_frontres_v011_campaign_schedule(runtime_schedule)
+    require_frontres_v013_campaign_schedule(runtime_schedule)
     runtime_schedule_tuple = frontres_k_stage_schedule_tuple(runtime_schedule)
     if curriculum.get("schedule") != runtime_schedule_tuple:
-        raise RuntimeError("FRS-TRAIN-v011 checkpoint schedule differs from the runtime schedule")
+        raise RuntimeError("FRS-TRAIN-v014 checkpoint schedule differs from the runtime schedule")
     saved_iteration = int(curriculum.get("absolute_iteration", -1))
     if (
         saved_iteration < 0
         or saved_iteration > FRONTRES_V011_MAX_ABSOLUTE_ITERATION
         or int(checkpoint.get("iter", -1)) != saved_iteration
     ):
-        raise RuntimeError("FRS-TRAIN-v011 checkpoint iteration identity is inconsistent")
+        raise RuntimeError("FRS-TRAIN-v014 checkpoint iteration identity is inconsistent")
     expected_curriculum = resolve_frontres_k_stage_identity(
         schedule=runtime_schedule,
         committed_update_iteration=saved_iteration,
@@ -1552,9 +1100,12 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
         "phase": expected_curriculum.phase.name,
         "phase_iteration": expected_curriculum.phase.phase_iteration,
         "actor_loss_weight": expected_curriculum.phase.actor_loss_weight,
+        "dr_stage_fingerprint": expected_curriculum.dr_stage_fingerprint,
+        "dr_progress": expected_curriculum.dr_progress,
+        "d_cap": expected_curriculum.d_cap,
     }
     if dict(curriculum) != expected_curriculum_payload:
-        raise RuntimeError("FRS-TRAIN-v011 checkpoint curriculum stage/phase identity is inconsistent")
+        raise RuntimeError("FRS-TRAIN-v014 checkpoint curriculum stage/phase/DR identity is inconsistent")
     fields = _v015_checkpoint_layout_fields(runner)
     if identity.get("future_intent_layout") != fields:
         raise RuntimeError(
@@ -1615,75 +1166,13 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
             "state": "committed",
             "receipt": _v015_committed_transaction_receipt(transaction),
         }
-        _validate_v011_receipt_curriculum(
+        _validate_v013_receipt_curriculum(
             result["transaction"],
             schedule=runtime_schedule_tuple,
             current_iteration=saved_iteration,
         )
         return result
     raise RuntimeError("v015 checkpoint resume rejects partial, failed, or malformed transactions")
-
-
-def _frontres_gain_config_payload(cfg) -> dict[str, object]:
-    """Serialize the active FRS-GAIN-v002 scales for checkpoint identity."""
-    values = {}
-    for serialized_name, cfg_name, default in _FRONTRES_GAIN_CONFIG_FIELDS:
-        if isinstance(cfg, dict):
-            value = cfg.get(cfg_name, default)
-        else:
-            value = getattr(cfg, cfg_name, default)
-        values[serialized_name] = float(value)
-    return {
-        "contract_id": "FRS-GAIN-v002",
-        "values": values,
-    }
-
-
-def _validate_frontres_gain_config_resume(runner, checkpoint, *, is_full_resume: bool) -> None:
-    """Reject full resume when the active Gain scale identity is absent or mismatched."""
-    if str(getattr(runner, "training_type", "")) != "frontres":
-        return
-    checkpoint_config = checkpoint.get("frontres_gain_config")
-    if checkpoint_config is None:
-        if is_full_resume:
-            raise RuntimeError(
-                "full FrontRES resume requires frontres_gain_config in the checkpoint; "
-                "refusing to resume with ambiguous Gain scales"
-            )
-        print(
-            "[Runner] WARNING: checkpoint has no frontres_gain_config; "
-            "using current config for Stage 2 -> Stage 3 initialization.",
-            flush=True,
-        )
-        return
-    expected = _frontres_gain_config_payload(getattr(runner, "cfg", None))
-    if checkpoint_config != expected:
-        raise RuntimeError(
-            "FrontRES Gain config mismatch on resume: "
-            f"checkpoint={checkpoint_config!r} current={expected!r}"
-        )
-    print("[Runner] Verified FRS-GAIN-v002 config identity on checkpoint resume.", flush=True)
-
-
-def reject_legacy_frontres_hsl_checkpoint(runner, checkpoint: dict) -> None:
-    """Reject a legacy Stage-1 HSL payload before any v015 state restoration.
-
-    Status: active reject-only boundary. The accepted proposal-only identity is
-    validated by `_validate_v015_hsl_checkpoint_resume`; legacy warmup markers
-    remain forbidden on every v015 q29 route.
-    """
-
-    layout = getattr(runner, "_frontres_future_intent_layout", None)
-    context_dim = int(getattr(runner, "_frontres_future_intent_actor_context_dim", 0) or 0)
-    if layout is None and context_dim <= 0:
-        return
-    if not isinstance(checkpoint, dict):
-        raise RuntimeError("v015 checkpoint payload must be a mapping before HSL identity validation")
-    if bool(checkpoint.get("frontres_warmup_complete", False)):
-        raise RuntimeError(
-            "FRS-TRAIN-v007 rejects a legacy HSL warmup checkpoint on the v015 q29 actor layout; "
-            "a separately authorized persistence step must define a new checkpoint identity"
-        )
 
 
 # Full-resume diagnostic helper; uncomment with the probe prints below when needed.
@@ -1903,9 +1392,11 @@ def save_runner(self, path: str, infos=None):
         saved_dict["frontres_segment_k_curriculum"] = frontres_k_stage_schedule_tuple(
             tuple(getattr(self.alg, "frontres_segment_k_curriculum", ()) or ())
         )
+        saved_dict["frontres_v013_rng_state"] = _frontres_v013_rng_state()
 
-    # Persist adaptive DR state so resume picks up at the correct scale.
-    if hasattr(self, '_dr_scale'):
+    # Legacy adaptive DR is never part of the active TRAIN-v014 payload.
+    _is_v013_formal = bool(getattr(self.alg, "frontres_formal_transaction_enabled", False))
+    if not _is_v013_formal and hasattr(self, '_dr_scale'):
         saved_dict["dr_scale"] = self._dr_scale
     if hasattr(self, '_dr_prev_error'):
         saved_dict["dr_prev_error"] = self._dr_prev_error
@@ -1939,7 +1430,7 @@ def save_runner(self, path: str, infos=None):
     if hasattr(self, '_frontres_warmup_complete'):
         saved_dict["frontres_warmup_complete"] = bool(self._frontres_warmup_complete)
     if str(getattr(self, "training_type", "")) == "frontres" and not _uses_v015_formal_checkpoint_identity(self):
-        saved_dict["frontres_gain_config"] = _frontres_gain_config_payload(getattr(self, "cfg", None))
+        saved_dict["frontres_gain_config"] = frontres_legacy_gain_config_payload(getattr(self, "cfg", None))
     segment_sampler = getattr(self, "_frontres_segment_sampler", None)
     if segment_sampler is not None and hasattr(segment_sampler, "state_dict"):
         saved_dict["frontres_segment_sampler_state_dict"] = segment_sampler.state_dict()
@@ -1976,6 +1467,11 @@ def save_runner(self, path: str, infos=None):
 
     # B3: v015 不做 compatibility conversion, 仅保存精确 layout/normalizer identity 和 completed-or-idle receipt.
     if _uses_v015_formal_checkpoint_identity(self):
+        for key in tuple(saved_dict):
+            if key in {"dr_scale", "dr_prev_error", "frontres_boundary_ema", "last_frontres_boundary_stats"} or key.startswith(
+                ("frontres_gmt_frontier_", "frontres_exec_floor_")
+            ):
+                saved_dict.pop(key)
         saved_dict[_V015_CHECKPOINT_IDENTITY_KEY] = _build_v015_checkpoint_identity(
             self,
             obs_norm_state=obs_norm_state,
@@ -1998,8 +1494,18 @@ def save_runner(self, path: str, infos=None):
     # Result: E69 LIVE PASS. model_221 保存 model/optimizer/normalizer/sampler/
     # Gain config/warmup payload, 与恢复后的 absolute iter 221 一致.
     print_checkpoint_payload_audit(self, path=path, payload=saved_dict)
-    # save model
-    torch.save(saved_dict, path)
+    # Formal v8 checkpoints publish atomically: a failed serialization cannot
+    # replace the last committed artifact.
+    if _uses_v015_formal_checkpoint_identity(self):
+        temp_path = f"{path}.tmp-{os.getpid()}"
+        try:
+            torch.save(saved_dict, temp_path)
+            os.replace(temp_path, path)
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+    else:
+        torch.save(saved_dict, path)
 
     # upload model to external logging service
     logger_type = str(getattr(self, "logger_type", getattr(self, "cfg", {}).get("logger", "")) or "").lower()
@@ -2034,7 +1540,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     configure_formal_runtime_probe(
         bool(getattr(getattr(self, "alg", None), "frontres_formal_runtime_audit", False))
     )
-    loaded_dict = torch.load(path, weights_only=False)
+    loaded_dict = load_frontres_checkpoint_mapping(path, map_location="cpu")
     hsl_resume = _validate_v015_hsl_checkpoint_resume(self, loaded_dict)
     if hsl_resume is not None:
         return _restore_v015_hsl_checkpoint(self, hsl_resume, path=path)
@@ -2062,20 +1568,14 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     # learned E(s)=R_feasible_oracle-R_noisy and should be transferred into RL.
     # load_optimizer 参数仍可从外部显式覆盖（例如强制跳过优化器加载）。
     is_full_resume: bool = self.cfg.get('is_full_resume', True)
-    eval_only = bool(
-        getattr(self.alg, "frontres_segment_offline_eval_only", False)
-        or getattr(self.alg, "frontres_segment_sequence_offline_eval_only", False)
-        or self.cfg.get("frontres_segment_offline_eval_only", False)
-        or self.cfg.get("frontres_segment_sequence_offline_eval_only", False)
-    )
     if not is_full_resume:
         load_optimizer = False   # 权重迁移模式：强制跳过优化器，从零初始化 Adam
         load_critic = self._frontres_warmup_complete
     if v015_resume_identity is None:
-        _validate_frontres_gain_config_resume(self, loaded_dict, is_full_resume=is_full_resume)
+        validate_frontres_legacy_gain_config_resume(self, loaded_dict, is_full_resume=is_full_resume)
     else:
         print(
-            "[Runner] Verified FRS-GAIN-v006 and FRS-TRAIN-v011 through the v015 checkpoint identity; "
+            "[Runner] Verified FRS-GAIN-v007 and FRS-TRAIN-v014 through the checkpoint-v9 identity; "
             "legacy scalar Gain metadata is excluded from the active v015 owner.",
             flush=True,
         )
@@ -2091,7 +1591,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     # )
     print(f"[Runner] is_full_resume={is_full_resume} → "
           f"load_optimizer={load_optimizer}, load_critic={load_critic}, "
-          f"reset_noise_std={not is_full_resume}, eval_only={eval_only}")
+          f"reset_noise_std={not is_full_resume}")
 
     # Check if using ResidualActorCritic (special handling)
     if isinstance(self.alg.policy, (ResidualActorCritic, FrontRESActorCritic)):
@@ -2264,7 +1764,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
         )
         if saved_schedule != runtime_schedule:
             raise ValueError(
-                "FRS-TRAIN-v011 K x M schedule changed across full resume: "
+                "FRS-TRAIN-v014 K x M x DR schedule changed across full resume: "
                 f"checkpoint={saved_schedule}, runtime={runtime_schedule}."
             )
     if resumed_training:
@@ -2289,7 +1789,8 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
             setattr(self, _V015_LAST_RECEIPT_ATTR, dict(transaction["receipt"]))
         elif hasattr(self, _V015_LAST_RECEIPT_ATTR):
             delattr(self, _V015_LAST_RECEIPT_ATTR)
-        setattr(self, _V015_TRANSACTION_STATE_ATTR, {"state": "idle"})
+        frontres_stage3_transaction_aggregate(self).abort()
+        _restore_frontres_v013_rng_state(loaded_dict["frontres_v013_rng_state"])
 
     # is_full_resume=True:  保留 checkpoint 中已自然适应的 std（断点续训）
     # is_full_resume=False: 重置为 init_noise_std（Stage1→Stage2 冷启动）
@@ -2337,7 +1838,14 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     # is_full_resume=False (Stage1→Stage2冷启动): 忽略 checkpoint dr_scale，
     #   改用 cfg 中的 dr_scale_init（默认 1.0），确保 Stage2 从 Stage1 训练强度出发，
     #   避免 dr_scale=0 时 Stage1 修正策略作用于干净参考导致的即时崩溃。
-    if is_full_resume:
+    if v015_resume_identity is not None:
+        for _attr in tuple(vars(self)):
+            if _attr in {"_dr_scale", "_dr_prev_error", "_frontres_boundary_ema", "_last_frontres_boundary_stats"} or _attr.startswith(
+                ("_frontres_gmt_frontier_", "_frontres_exec_floor_")
+            ):
+                delattr(self, _attr)
+        print("[Runner] TRAIN-v014 restored explicit per-K DR identity; legacy adaptive DR state excluded")
+    elif is_full_resume:
         self._dr_scale      = loaded_dict.get("dr_scale",      0.0)
         self._dr_prev_error = loaded_dict.get("dr_prev_error", 0.0)
         if "frontres_boundary_ema" in loaded_dict:

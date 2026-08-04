@@ -12,6 +12,8 @@ from types import SimpleNamespace
 
 import torch
 
+from frontres_contract_imports import install_frontres_contract_packages
+
 
 REPO = Path(__file__).resolve().parents[4]
 RSL_ROOT = REPO / "source" / "rsl_rl"
@@ -104,6 +106,7 @@ def _install_isaac_stubs() -> None:
 
 def _load_modules():
     _install_isaac_stubs()
+    install_frontres_contract_packages(RSL_ROOT / "rsl_rl")
     commands = _load(
         "whole_body_tracking.whole_body_tracking.tasks.tracking.mdp.commands",
         COMMANDS_PATH,
@@ -179,6 +182,25 @@ class _RootOnlyPerturber:
         raise AssertionError("v015 q29 intent must not consume the joint perturbation owner")
 
 
+class _AxisPerturber(_RootOnlyPerturber):
+    """Independent hand-answer perturber used only at the materializer boundary."""
+
+    def apply_perturbations(self, root_pos: torch.Tensor, *_feet: torch.Tensor) -> torch.Tensor:
+        self.root_calls += 1
+        return root_pos.clone()
+
+    def apply_quat_perturbation(self, root_quat: torch.Tensor) -> torch.Tensor:
+        del root_quat
+        self.quat_calls += 1
+        angle = float(self.scale[0]) * float(self.cfg.sign)
+        half = torch.tensor(0.5 * angle, dtype=torch.float32, device=self.device)
+        result = torch.zeros(1, 4, dtype=torch.float32, device=self.device)
+        result[:, 0] = torch.cos(half)
+        component = 1 if self.cfg.axis == "roll" else 2
+        result[:, component] = torch.sin(half)
+        return result
+
+
 def _command(commands_module):
     command = object.__new__(commands_module.MultiMotionCommand)
     command.num_envs = 1
@@ -208,6 +230,7 @@ def _scenario_parts(live_sampler, command, *, x_t_identity: str = "motion-0:fram
     payload = _materialize(command)
     materialization = sampler.FrontRESLocalScenarioMaterialization(
         current_root_artifact_t=payload["current_root_artifact_t"],
+        clean_reference_t=payload["clean_reference_t"],
         intent_q29=payload["intent_q29"],
         clean_continuation=payload["clean_continuation"][:horizon_k],
         expected_support=payload["expected_support"][:horizon_k],
@@ -263,6 +286,50 @@ def test_t_schema() -> None:
         f"continuation={tuple(scenario.clean_continuation.shape)}",
         flush=True,
     )
+
+
+def test_single_axis_artifacts_have_hand_computed_root_and_unchanged_q29() -> None:
+    commands, _live_sampler, _hooks = _load_modules()
+    expected_q29 = torch.stack(
+        [20.0 + torch.arange(29), 30.0 + torch.arange(29), 40.0 + torch.arange(29)]
+    )
+    for axis, sign, component in (("roll", 1.0, 1), ("pitch", -1.0, 2)):
+        command = _command(commands)
+        command.perturber = _AxisPerturber(
+            SimpleNamespace(axis=axis, sign=sign),
+            1,
+            command.device,
+        )
+        payload = _materialize(command)
+        artifact = payload["current_root_artifact_t"]
+        torch.testing.assert_close(artifact[:3], torch.tensor([2.0, 3.0, 4.0]))
+        expected_quat = torch.zeros(4)
+        expected_quat[0] = torch.cos(torch.tensor(0.125))
+        expected_quat[component] = sign * torch.sin(torch.tensor(0.125))
+        torch.testing.assert_close(artifact[3:], expected_quat)
+        torch.testing.assert_close(payload["intent_q29"], expected_q29)
+
+
+def test_composite_family_rejects_before_materialization() -> None:
+    commands, _live_sampler, hooks = _load_modules()
+    command = _command(commands)
+    adapter = object.__new__(hooks.FrontRESStage1EnvAdapter)
+    adapter.command = command
+    adapter._motion_index_for_key = lambda _motion_id: 0
+    adapter._frame_index_for_values = lambda frame, _motion_index: int(frame)
+    before_instances = len(_RootOnlyPerturber.instances)
+    _expect_error(
+        ValueError,
+        lambda: adapter.materialize_frontres_local_scenario(
+            motion_id="motion-0",
+            start_frame=2,
+            horizon_k=3,
+            intent_horizon=2,
+            perturbation_family="local_rp+yaw",
+            perturbation_strength=0.25,
+        ),
+    )
+    assert len(_RootOnlyPerturber.instances) == before_instances
 
 
 def test_t_invariant() -> None:
@@ -445,6 +512,7 @@ def test_t_metamorphic() -> None:
         adapter.calls.append(dict(kwargs))
         return {
             "current_root_artifact_t": materialization.current_root_artifact_t.detach().clone(),
+            "clean_reference_t": materialization.clean_reference_t.detach().clone(),
             "intent_q29": materialization.intent_q29.detach().clone(),
             "clean_continuation": materialization.clean_continuation.detach().clone(),
             "expected_support": materialization.expected_support.detach().clone(),
@@ -532,6 +600,7 @@ def test_t_fixed_heldout_manifest_item() -> None:
         horizon_k = int(kwargs["horizon_k"])
         return {
             "current_root_artifact_t": materialization.current_root_artifact_t.detach().clone(),
+            "clean_reference_t": materialization.clean_reference_t.detach().clone(),
             "intent_q29": materialization.intent_q29.detach().clone(),
             "clean_continuation": torch.arange(
                 horizon_k * 65,
@@ -619,6 +688,8 @@ def test_t_fixed_heldout_manifest_item() -> None:
 
 def main() -> None:
     test_t_schema()
+    test_single_axis_artifacts_have_hand_computed_root_and_unchanged_q29()
+    test_composite_family_rejects_before_materialization()
     test_t_invariant()
     test_t_noisy_q29_owner()
     test_t_noisy_q29_route()

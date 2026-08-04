@@ -19,6 +19,7 @@ spec.loader.exec_module(sampler_module)
 FrontRESSegmentRolloutEvidence = sampler_module.FrontRESSegmentRolloutEvidence
 FrontRESSegmentRolloutBudget = sampler_module.FrontRESSegmentRolloutBudget
 FrontRESSegmentSampler = sampler_module.FrontRESSegmentSampler
+FrontRESSegmentCandidate = sampler_module.FrontRESSegmentCandidate
 FrontRESSegmentState = sampler_module.FrontRESSegmentState
 FrontRESSegmentTrialPlan = sampler_module.FrontRESSegmentTrialPlan
 FrontRESFrozenPolicyTransactionPlan = sampler_module.FrontRESFrozenPolicyTransactionPlan
@@ -440,14 +441,23 @@ def test_v009_frozen_transaction_overrides_legacy_per_segment_k() -> None:
             raise AssertionError("v009 active K outside the formal horizon must reject")
 
 
-def test_v011_frozen_transaction_uses_exact_m_and_ignores_sampler_trial_state() -> None:
+def test_v013_frozen_transaction_uses_exact_m_without_legacy_budget_owner() -> None:
     sampler = _sampler_with_all_budget_states()
     before = sampler.state_dict()
+    legacy_calls = 0
+    legacy_owner = sampler.plan_rollout_budget
+
+    def reject_legacy_budget(*args, **kwargs):
+        nonlocal legacy_calls
+        legacy_calls += 1
+        raise AssertionError("TRAIN-v013 exact K/M must not call the state-driven budget owner")
+
+    sampler.plan_rollout_budget = reject_legacy_budget
     for horizon_k, attempts_m in ((8, 2), (16, 3), (32, 4)):
         plan = sampler.plan_frozen_policy_transaction(
             torch.tensor([1, 2]),
-            transaction_id=f"txn-v011-k{horizon_k}-m{attempts_m}",
-            policy_snapshot_id=f"snapshot-v011-k{horizon_k}-m{attempts_m}",
+            transaction_id=f"txn-v013-k{horizon_k}-m{attempts_m}",
+            policy_snapshot_id=f"snapshot-v013-k{horizon_k}-m{attempts_m}",
             max_horizon_k=32,
             active_horizon_k=horizon_k,
             exact_policy_attempts=attempts_m,
@@ -458,6 +468,9 @@ def test_v011_frozen_transaction_uses_exact_m_and_ignores_sampler_trial_state() 
         assert plan.trial_index.tolist() == list(range(attempts_m)) * 2
         assert plan.horizon_k.tolist() == [horizon_k] * (2 * attempts_m)
         assert plan.exact_policy_attempts == attempts_m
+        assert plan.base_horizon_k.tolist() == [horizon_k, horizon_k]
+    sampler.plan_rollout_budget = legacy_owner
+    assert legacy_calls == 0
     after = sampler.state_dict()
     for name in before:
         if isinstance(before[name], torch.Tensor):
@@ -551,6 +564,83 @@ def test_sampler_invalid_and_state_dict_restore() -> None:
     assert restored.invalid_reasons[0] == "bad reset"
 
 
+def _transaction_candidates(order: tuple[int, ...] = (0, 1, 2, 3)) -> tuple[object, ...]:
+    frames = {0: 0, 1: 10, 2: 40, 3: 90}
+    return tuple(
+        FrontRESSegmentCandidate(segment_id=value, motion_id="motion-a", start_frame=frames[value])
+        for value in order
+    )
+
+
+def test_transaction_segment_selection_is_distinct_exact_m_and_rng_resumable() -> None:
+    sampler = FrontRESSegmentSampler(4, seed=211)
+    selected = sampler.sample_transaction_segments(_transaction_candidates(), segment_count=2)
+    assert int(selected.numel()) == 2
+    assert int(torch.unique(selected).numel()) == 2
+    plan = sampler.plan_frozen_policy_transaction(
+        selected,
+        transaction_id="txn-test-08",
+        policy_snapshot_id="snapshot-test-08",
+        active_horizon_k=16,
+        max_horizon_k=32,
+        exact_policy_attempts=3,
+    )
+    assert int(plan.segment_ids.numel()) == 6
+    assert plan.base_trial_count.tolist() == [3, 3]
+
+    saved = sampler.state_dict()
+    continuation = [
+        sampler.sample_transaction_segments(_transaction_candidates(), segment_count=2).tolist()
+        for _ in range(8)
+    ]
+    restored = FrontRESSegmentSampler(4, seed=999)
+    restored.load_state_dict(saved)
+    resumed = [
+        restored.sample_transaction_segments(_transaction_candidates(), segment_count=2).tolist()
+        for _ in range(8)
+    ]
+    assert resumed == continuation
+
+
+def test_transaction_segment_soft_early_preference_preserves_late_reachability_and_identity_weights() -> None:
+    draws = 3000
+    first = FrontRESSegmentSampler(4, seed=307)
+    reordered = FrontRESSegmentSampler(4, seed=307)
+    counts_first = {value: 0 for value in range(4)}
+    counts_reordered = {value: 0 for value in range(4)}
+    for _ in range(draws):
+        for value in first.sample_transaction_segments(_transaction_candidates(), segment_count=2).tolist():
+            counts_first[int(value)] += 1
+        for value in reordered.sample_transaction_segments(
+            _transaction_candidates((2, 0, 3, 1)),
+            segment_count=2,
+        ).tolist():
+            counts_reordered[int(value)] += 1
+
+    assert counts_first[0] > counts_first[1] > counts_first[2] > counts_first[3] > 0
+    assert counts_reordered[0] > counts_reordered[1] > counts_reordered[2] > counts_reordered[3] > 0
+    for identity in range(4):
+        assert abs(counts_first[identity] - counts_reordered[identity]) < 180
+
+
+def test_transaction_segment_selection_rejects_insufficient_or_duplicate_candidates() -> None:
+    sampler = FrontRESSegmentSampler(4, seed=401)
+    invalid_sets = (
+        _transaction_candidates((0,)),
+        (
+            FrontRESSegmentCandidate(segment_id=0, motion_id="motion-a", start_frame=0),
+            FrontRESSegmentCandidate(segment_id=0, motion_id="motion-a", start_frame=10),
+        ),
+    )
+    for candidates in invalid_sets:
+        try:
+            sampler.sample_transaction_segments(candidates, segment_count=2)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid transaction candidate set must fail closed")
+
+
 def main() -> None:
     test_sampler_global_sampling_visits_unseen_segments()
     test_sampler_replays_useful_unsolved_segments()
@@ -565,11 +655,14 @@ def main() -> None:
     test_sampler_trial_plan_expands_policy_first_roles()
     test_sampler_frozen_policy_transaction_plan_keeps_all_attempts_policy_sampled()
     test_v009_frozen_transaction_overrides_legacy_per_segment_k()
-    test_v011_frozen_transaction_uses_exact_m_and_ignores_sampler_trial_state()
+    test_v013_frozen_transaction_uses_exact_m_without_legacy_budget_owner()
     test_sampler_frozen_policy_transaction_plan_enforces_multiple_segments_and_attempts()
     test_sampler_rollout_row_sampling_respects_fixed_env_budget()
     test_sampler_review_and_staleness_keep_coverage()
     test_sampler_invalid_and_state_dict_restore()
+    test_transaction_segment_selection_is_distinct_exact_m_and_rng_resumable()
+    test_transaction_segment_soft_early_preference_preserves_late_reachability_and_identity_weights()
+    test_transaction_segment_selection_rejects_insufficient_or_duplicate_candidates()
     print("result: PASS")
 
 

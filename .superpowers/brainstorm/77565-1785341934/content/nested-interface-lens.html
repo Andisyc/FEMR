@@ -1,0 +1,108 @@
+<style>
+  .nest-paper { background:#fbfaf4; border:1px solid #e5e0d4; border-radius:8px; overflow-x:auto; margin:14px 0; }
+  .nest-paper svg { display:block; min-width:1240px; width:100%; background:linear-gradient(rgba(31,41,51,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(31,41,51,.025) 1px,transparent 1px),#fbfaf4; background-size:24px 24px; }
+  .nest-note { background:#fffdf6; border:1px solid #e5e0d4; border-radius:6px; color:#4b463d; font:500 14px/1.6 "Avenir Next","PingFang SC",Arial,sans-serif; padding:12px 16px; }
+</style>
+
+<h2>用分层 Lens 表达嵌套接口与网络更新</h2>
+<p class="subtitle">同一模块使用稳定 ID 和颜色。主图不展示下一层内部调用；点击接口后只展开该接口拥有的子图。</p>
+
+<div class="nest-note">
+  一张图只能忠实表达一种关系：L0 表达 runtime interface calls，L1 表达接口内部职责，L2 表达 type inheritance / composition。
+</div>
+
+<div class="nest-paper">
+  <svg viewBox="0 0 1540 330" style="font-family:Avenir Next,PingFang SC,Arial,sans-serif">
+    <defs><marker id="n0" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#64748b"/></marker></defs>
+    <text x="28" y="34" font-size="15" font-weight="700" fill="#57534e">L0 · TRAINING MAIN LOOP PUBLIC SURFACE</text>
+    <rect x="28" y="88" width="250" height="126" rx="5" fill="#fef2f2" stroke="#dc2626" stroke-width="3"/>
+    <text x="153" y="126" text-anchor="middle" font-size="19" font-weight="700" fill="#7f1d1d">Stage3Engine</text>
+    <text x="153" y="154" text-anchor="middle" font-size="12.5" fill="#334155">run_transaction()</text>
+    <text x="153" y="184" text-anchor="middle" font-size="11.5" font-family="SFMono-Regular,Menlo,monospace" fill="#991b1b">frontres_stage3_engine.py</text>
+    <rect x="334" y="88" width="250" height="126" rx="5" fill="#fffdf6" stroke="#64748b" stroke-width="2"/>
+    <text x="459" y="126" text-anchor="middle" font-size="19" font-weight="700" fill="#334155">ModePort</text>
+    <text x="459" y="154" text-anchor="middle" font-size="12.5" fill="#57534e">验证 formal route</text>
+    <text x="459" y="184" text-anchor="middle" font-size="11.5" fill="#78716c">FrontRESModePort</text>
+    <rect x="640" y="88" width="250" height="126" rx="5" fill="#eff6ff" stroke="#2563eb" stroke-width="3"/>
+    <text x="765" y="126" text-anchor="middle" font-size="19" font-weight="700" fill="#1e3a8a">Lifecycle + Provider</text>
+    <text x="765" y="154" text-anchor="middle" font-size="12.5" fill="#334155">collect sealed Stage3Request</text>
+    <text x="765" y="184" text-anchor="middle" font-size="11.5" fill="#1d4ed8">TransactionLifecyclePort</text>
+    <rect x="946" y="88" width="250" height="126" rx="5" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
+    <text x="1071" y="126" text-anchor="middle" font-size="19" font-weight="700" fill="#7f1d1d">ExactUpdatePort</text>
+    <text x="1071" y="154" text-anchor="middle" font-size="12.5" fill="#334155">commit grouped update</text>
+    <text x="1071" y="184" text-anchor="middle" font-size="11.5" fill="#991b1b">optimizer step authority</text>
+    <rect x="1252" y="88" width="250" height="126" rx="5" fill="#fffdf6" stroke="#64748b" stroke-width="2"/>
+    <text x="1377" y="126" text-anchor="middle" font-size="19" font-weight="700" fill="#334155">CommittedUpdate</text>
+    <text x="1377" y="154" text-anchor="middle" font-size="12.5" fill="#57534e">receipt + checkpoint trigger</text>
+    <text x="1377" y="184" text-anchor="middle" font-size="11.5" fill="#78716c">validated result view</text>
+    <path d="M278 151H324M584 151H630M890 151H936M1196 151H1242" stroke="#64748b" stroke-width="2.2" marker-end="url(#n0)"/>
+    <text x="765" y="264" text-anchor="middle" font-size="12.5" fill="#1d4ed8">选择 Lifecycle + Provider 后展开 L1</text>
+    <path d="M765 224V246" stroke="#2563eb" stroke-width="2" marker-end="url(#n0)"/>
+  </svg>
+</div>
+
+<div class="nest-paper">
+  <svg viewBox="0 0 1540 420" style="font-family:Avenir Next,PingFang SC,Arial,sans-serif">
+    <defs><marker id="n1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#64748b"/></marker></defs>
+    <text x="28" y="34" font-size="15" font-weight="700" fill="#57534e">L1A · TRANSACTION PROVIDER INTERNAL ROUTE</text>
+    <rect x="28" y="82" width="210" height="108" rx="5" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+    <text x="133" y="118" text-anchor="middle" font-size="18" font-weight="700" fill="#1e3a8a">数据准备</text><text x="133" y="146" text-anchor="middle" font-size="12.5" fill="#334155">scenario + reset</text><text x="133" y="172" text-anchor="middle" font-size="11" fill="#1d4ed8">Data Module</text>
+    <rect x="284" y="82" width="210" height="108" rx="5" fill="#ecfdf5" stroke="#0f766e" stroke-width="2"/>
+    <text x="389" y="118" text-anchor="middle" font-size="18" font-weight="700" fill="#134e4a">观测构造</text><text x="389" y="146" text-anchor="middle" font-size="12.5" fill="#334155">Env obs + q29</text><text x="389" y="172" text-anchor="middle" font-size="11" fill="#0f766e">Observation Module</text>
+    <rect x="540" y="70" width="220" height="132" rx="5" fill="#ecfdf5" stroke="#0f766e" stroke-width="3"/>
+    <text x="650" y="108" text-anchor="middle" font-size="18" font-weight="700" fill="#134e4a">Network Forward</text><text x="650" y="136" text-anchor="middle" font-size="12.5" fill="#334155">Actor action + Critic value</text><text x="650" y="164" text-anchor="middle" font-size="11" font-family="SFMono-Regular,Menlo,monospace" fill="#0f766e">FrontRESActorCritic</text><text x="650" y="185" text-anchor="middle" font-size="10.5" fill="#64748b">stable module ID: NET-01</text>
+    <rect x="806" y="82" width="210" height="108" rx="5" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+    <text x="911" y="118" text-anchor="middle" font-size="18" font-weight="700" fill="#4c1d95">Rollout</text><text x="911" y="146" text-anchor="middle" font-size="12.5" fill="#334155">one-action-K</text><text x="911" y="172" text-anchor="middle" font-size="11" fill="#6d28d9">Rollout Module</text>
+    <rect x="1062" y="82" width="210" height="108" rx="5" fill="#f7fee7" stroke="#65a30d" stroke-width="2"/>
+    <text x="1167" y="118" text-anchor="middle" font-size="18" font-weight="700" fill="#365314">证据组装</text><text x="1167" y="146" text-anchor="middle" font-size="12.5" fill="#334155">target + constraints</text><text x="1167" y="172" text-anchor="middle" font-size="11" fill="#4d7c0f">Evidence Module</text>
+    <rect x="1318" y="82" width="194" height="108" rx="5" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+    <text x="1415" y="118" text-anchor="middle" font-size="18" font-weight="700" fill="#1e3a8a">Storage</text><text x="1415" y="146" text-anchor="middle" font-size="12.5" fill="#334155">sealed request rows</text><text x="1415" y="172" text-anchor="middle" font-size="11" fill="#1d4ed8">Storage Module</text>
+    <path d="M238 136H274M494 136H530M760 136H796M1016 136H1052M1272 136H1308" stroke="#64748b" stroke-width="2" marker-end="url(#n1)"/>
+
+    <text x="28" y="270" font-size="15" font-weight="700" fill="#57534e">L1B · EXACT UPDATE INTERNAL ROUTE</text>
+    <rect x="284" y="302" width="210" height="90" rx="5" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+    <text x="389" y="337" text-anchor="middle" font-size="18" font-weight="700" fill="#1e3a8a">Grouped Batch</text><text x="389" y="365" text-anchor="middle" font-size="12.5" fill="#334155">sealed rows</text>
+    <rect x="540" y="290" width="220" height="114" rx="5" fill="#ecfdf5" stroke="#0f766e" stroke-width="3"/>
+    <text x="650" y="325" text-anchor="middle" font-size="18" font-weight="700" fill="#134e4a">Policy Re-evaluation</text><text x="650" y="353" text-anchor="middle" font-size="12.5" fill="#334155">log_prob + value</text><text x="650" y="380" text-anchor="middle" font-size="10.5" fill="#64748b">same NET-01</text>
+    <rect x="806" y="302" width="210" height="90" rx="5" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
+    <text x="911" y="337" text-anchor="middle" font-size="18" font-weight="700" fill="#7f1d1d">Loss + Projection</text><text x="911" y="365" text-anchor="middle" font-size="12.5" fill="#334155">Actor / Critic grads</text>
+    <rect x="1062" y="302" width="210" height="90" rx="5" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
+    <text x="1167" y="337" text-anchor="middle" font-size="18" font-weight="700" fill="#7f1d1d">Optimizer Step</text><text x="1167" y="365" text-anchor="middle" font-size="12.5" fill="#334155">exact-one mutation</text>
+    <rect x="1318" y="290" width="194" height="114" rx="5" fill="#ecfdf5" stroke="#0f766e" stroke-width="3"/>
+    <text x="1415" y="325" text-anchor="middle" font-size="18" font-weight="700" fill="#134e4a">Network Parameters</text><text x="1415" y="353" text-anchor="middle" font-size="12.5" fill="#334155">Actor + Critic updated</text><text x="1415" y="380" text-anchor="middle" font-size="10.5" fill="#64748b">same NET-01</text>
+    <path d="M494 347H530M760 347H796M1016 347H1052M1272 347H1308" stroke="#64748b" stroke-width="2" marker-end="url(#n1)"/>
+  </svg>
+</div>
+
+<div class="nest-paper">
+  <svg viewBox="0 0 1540 500" style="font-family:Avenir Next,PingFang SC,Arial,sans-serif">
+    <defs><marker id="n2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#64748b"/></marker></defs>
+    <text x="28" y="34" font-size="15" font-weight="700" fill="#57534e">L2 · TYPE / COMPOSITION LENS</text>
+    <rect x="40" y="80" width="280" height="108" rx="5" fill="#fef2f2" stroke="#dc2626" stroke-width="2.5"/>
+    <text x="180" y="118" text-anchor="middle" font-size="19" font-weight="700" fill="#7f1d1d">FrontRESStage3Engine</text><text x="180" y="148" text-anchor="middle" font-size="12.5" fill="#334155">has-a FrontRESStage3Backend</text>
+    <rect x="410" y="80" width="300" height="108" rx="5" fill="#fffdf6" stroke="#64748b" stroke-width="2.5"/>
+    <text x="560" y="118" text-anchor="middle" font-size="19" font-weight="700" fill="#334155">FrontRESStage3Backend</text><text x="560" y="148" text-anchor="middle" font-size="12.5" fill="#57534e">runtime_checkable Protocol</text>
+    <path d="M320 134H400" stroke="#64748b" stroke-width="2" marker-end="url(#n2)"/>
+    <text x="360" y="120" text-anchor="middle" font-size="11" fill="#64748b">composition</text>
+    <rect x="790" y="48" width="220" height="82" rx="5" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/><text x="900" y="82" text-anchor="middle" font-size="16" font-weight="700" fill="#1e3a8a">LifecyclePort</text><text x="900" y="108" text-anchor="middle" font-size="11.5" fill="#334155">collect / abort / close</text>
+    <rect x="790" y="146" width="220" height="82" rx="5" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/><text x="900" y="180" text-anchor="middle" font-size="16" font-weight="700" fill="#7f1d1d">ExactUpdatePort</text><text x="900" y="206" text-anchor="middle" font-size="11.5" fill="#334155">count / commit</text>
+    <rect x="790" y="244" width="220" height="82" rx="5" fill="#fffdf6" stroke="#64748b" stroke-width="2"/><text x="900" y="278" text-anchor="middle" font-size="16" font-weight="700" fill="#334155">ModePort</text><text x="900" y="304" text-anchor="middle" font-size="11.5" fill="#57534e">route guards</text>
+    <path d="M710 112H760V89H780M710 134H760V187H780M710 156H760V285H780" fill="none" stroke="#64748b" stroke-width="1.8" marker-end="url(#n2)"/>
+    <text x="737" y="98" text-anchor="middle" font-size="10.5" fill="#64748b">Protocol inheritance</text>
+
+    <rect x="40" y="326" width="300" height="110" rx="5" fill="#ecfdf5" stroke="#0f766e" stroke-width="2.5"/>
+    <text x="190" y="364" text-anchor="middle" font-size="19" font-weight="700" fill="#134e4a">FrontRESActorCritic</text><text x="190" y="394" text-anchor="middle" font-size="12.5" fill="#334155">inherits nn.Module</text><text x="190" y="418" text-anchor="middle" font-size="11" fill="#64748b">NET-01</text>
+    <rect x="430" y="340" width="220" height="82" rx="5" fill="#ecfdf5" stroke="#0f766e" stroke-width="2"/><text x="540" y="374" text-anchor="middle" font-size="16" font-weight="700" fill="#134e4a">Residual Actor</text><text x="540" y="400" text-anchor="middle" font-size="11.5" fill="#334155">trainable</text>
+    <rect x="700" y="340" width="220" height="82" rx="5" fill="#f7fee7" stroke="#65a30d" stroke-width="2"/><text x="810" y="374" text-anchor="middle" font-size="16" font-weight="700" fill="#365314">Scalar Critic</text><text x="810" y="400" text-anchor="middle" font-size="11.5" fill="#334155">trainable</text>
+    <rect x="970" y="340" width="220" height="82" rx="5" fill="#f8fafc" stroke="#64748b" stroke-width="2"/><text x="1080" y="374" text-anchor="middle" font-size="16" font-weight="700" fill="#334155">GMT ActorCritic</text><text x="1080" y="400" text-anchor="middle" font-size="11.5" fill="#57534e">composed + frozen</text>
+    <rect x="1240" y="340" width="220" height="82" rx="5" fill="#f8fafc" stroke="#64748b" stroke-width="2"/><text x="1350" y="374" text-anchor="middle" font-size="16" font-weight="700" fill="#334155">GMT Normalizer</text><text x="1350" y="400" text-anchor="middle" font-size="11.5" fill="#57534e">composed + frozen</text>
+    <path d="M340 381H420M650 381H690M920 381H960M1190 381H1230" stroke="#64748b" stroke-width="1.8" marker-end="url(#n2)"/>
+  </svg>
+</div>
+
+<div class="options" style="margin-top:22px">
+  <div class="option" data-choice="nested-lens-architecture" onclick="toggleSelect(this)">
+    <div class="letter">N</div>
+    <div class="content"><h3>采用 Call Spine + Module Lens + Type Lens</h3><p>主图忠实显示训练循环实际看到的接口；内部调用、网络更新和继承关系按选择逐层展开。</p></div>
+  </div>
+</div>

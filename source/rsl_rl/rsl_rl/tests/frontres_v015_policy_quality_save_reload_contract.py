@@ -63,12 +63,12 @@ def _state_signature(runner, checkpointing) -> str:
         ).encode("ascii")
     )
     _update_state_digest(digest, runner.alg.optimizer.state_dict())
-    _update_state_digest(digest, runner._frontres_v015_checkpoint_transaction_state)
+    _update_state_digest(digest, runner._frontres_checkpoint_transaction_state)
     _update_state_digest(digest, runner._frontres_segment_sampler.state_dict())
     _update_state_digest(
-        digest, getattr(runner, "_frontres_v015_last_committed_transaction_receipt", None)
+        digest, getattr(runner, "_frontres_last_committed_transaction_receipt", None)
     )
-    digest.update(str(runner.alg.optimizer.frontres_v015_step_count).encode("ascii"))
+    digest.update(str(runner.alg.optimizer.frontres_step_count).encode("ascii"))
     digest.update(str(bool(getattr(runner, "_frontres_warmup_complete", False))).encode("ascii"))
     return digest.hexdigest()
 
@@ -96,7 +96,7 @@ def test_real_save_fresh_reload_to_atomic_quality_report() -> None:
         (1, 2), hsl_layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
     )
     assert callable(
-        getattr(hsl_checkpointing, "frontres_v015_quality_route_actor", None)
+        getattr(hsl_checkpointing, "frontres_quality_route_actor", None)
     )
 
     with tempfile.TemporaryDirectory() as directory:
@@ -159,14 +159,14 @@ def test_real_save_fresh_reload_to_atomic_quality_report() -> None:
         source_snapshot = checkpoint_contract._wire_inference_carrier(source, intent)
         pre_update = checkpoint_contract._fresh_inference_trace(source, stage3_runtime, raw_obs)
         request = checkpoint_contract._bind_semantic_transaction(source, transaction_template)
-        update = transaction_template.owners[6].run_frontres_v015_formal_transaction_update(
+        update = transaction_template.owners[6].run_frontres_formal_transaction_update(
             source, request
         )
-        committed = copy.deepcopy(source._frontres_v015_checkpoint_transaction_state)
+        committed = copy.deepcopy(source._frontres_checkpoint_transaction_state)
         assert committed["state"] == "committed"
         assert committed["receipt"]["transaction_id"] == update.transaction_id
         assert committed["receipt"]["optimizer_step_delta"] == 1
-        assert source.alg.optimizer.frontres_v015_step_count == 1
+        assert source.alg.optimizer.frontres_step_count == 1
         source.current_learning_iteration += 1
         stage3_before = checkpoint_contract._fresh_inference_trace(source, stage3_runtime, raw_obs)
         assert not torch.equal(pre_update["proposal"], stage3_before["proposal"])
@@ -233,7 +233,7 @@ def test_real_save_fresh_reload_to_atomic_quality_report() -> None:
             policy_checkpoint_path=str(policy_path),
             result_path=str(report_path),
         )
-        assert strict_request.hsl_checkpoint.format == "frontres-v015-hsl-proposal-v1"
+        assert strict_request.hsl_checkpoint.format == "frontres-v017-hsl-proposal-v2"
         assert strict_request.policy_checkpoint.format == "frontres-v015-checkpoint-v6"
         policy_layout = dict(strict_request.policy_checkpoint.future_intent_layout)
         assert policy_layout["actor_dim"] == 928
@@ -244,7 +244,7 @@ def test_real_save_fresh_reload_to_atomic_quality_report() -> None:
             hsl_source._frontres_extra_normalizer
         )
         source_state_before_routes = _state_signature(source, quality_checkpointing)
-        with stage3_checkpointing.frontres_v015_quality_route_actor(
+        with stage3_checkpointing.frontres_quality_route_actor(
             source,
             hsl_path,
             route="hsl",
@@ -257,7 +257,7 @@ def test_real_save_fresh_reload_to_atomic_quality_report() -> None:
                 hsl_route["proposal"], hsl_after["proposal"], rtol=0.0, atol=0.0
             )
         assert _state_signature(source, quality_checkpointing) == source_state_before_routes
-        with stage3_checkpointing.frontres_v015_quality_route_actor(
+        with stage3_checkpointing.frontres_quality_route_actor(
             source,
             policy_path,
             route="policy",
@@ -348,7 +348,7 @@ def test_real_save_fresh_reload_to_atomic_quality_report() -> None:
         )
         assert report_routes[1]["policy_actions"] == hsl_after["proposal"][:1].tolist()
         assert report_routes[2]["policy_actions"] == stage3_after["proposal"][:1].tolist()
-        assert fresh._frontres_v015_last_committed_transaction_receipt == committed["receipt"]
+        assert fresh._frontres_last_committed_transaction_receipt == committed["receipt"]
 
     print(
         "[G5-S3/T-commit/T-save/T-fresh-runner/T-928-158-770/T-q29/"

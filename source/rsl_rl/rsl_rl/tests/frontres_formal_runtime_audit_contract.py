@@ -4,16 +4,16 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
-import json
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import parse_qs, urlparse
 
 import torch
 from torch import nn
+from frontres_contract_imports import install_frontres_contract_packages
 
 
 ROOT = Path(__file__).resolve().parents[4]
+install_frontres_contract_packages(ROOT / "source" / "rsl_rl" / "rsl_rl")
 AUDIT_PATH = ROOT / "source" / "rsl_rl" / "rsl_rl" / "runners" / "frontres_formal_runtime_audit.py"
 TERMINATIONS_PATH = (
     ROOT
@@ -29,6 +29,12 @@ spec = importlib.util.spec_from_file_location("frontres_formal_runtime_audit_con
 audit = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(audit)
+
+SCHEDULE = (
+    (8, 2, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
+    (16, 3, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
+    (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-joint-v1", 625, 2.381),
+)
 
 
 def _runner(enabled: bool = True) -> SimpleNamespace:
@@ -53,8 +59,6 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
         live_storage_write_only=False,
         live_single_update_only=False,
         live_update_loop_only=False,
-        offline_eval_only=False,
-        sequence_offline_eval_only=False,
     )
     return SimpleNamespace(
         alg=alg,
@@ -83,74 +87,32 @@ def test_return_audit_uses_policy_gain_rows_only() -> None:
 
 def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     runner = _runner()
-    sample = SimpleNamespace(
-        segment_ids=torch.tensor([3, 4]),
-        source_index=torch.tensor([0, 1]),
-        horizon_k=torch.tensor([8, 16]),
-    )
-    batch = SimpleNamespace(frontres_segment_trial_role=("policy", "search"))
-    capture = SimpleNamespace(
-        transition_obs=torch.ones(2, 870),
-        transition_actions=torch.ones(2, 6),
-        transition_means=torch.zeros(2, 6),
-        transition_sigmas=torch.ones(2, 6) * 0.01,
-        transition_perturbation_rp=torch.tensor([[0.1, -0.1], [0.2, -0.2]]),
-        survival_steps=torch.tensor([4.0, 3.0]),
-        horizon_k=torch.tensor([4, 4]),
-        gain_steps=torch.tensor([[0.1, 0.0], [0.1, 0.0]]),
-        survival_gain_steps=torch.tensor([[0.1, 0.0], [0.1, 0.0]]),
-        n_train=1,
-        n_candidate=1,
-        n_base=0,
-        n_clean=0,
-    )
-    storage = SimpleNamespace(
-        actions=torch.ones(2, 6),
-        old_means=torch.zeros(2, 6),
-        old_sigmas=torch.ones(2, 6) * 0.01,
-        rewards=torch.tensor([0.4, -0.2]),
-        returns=torch.tensor([0.2, -0.1]),
-        advantages=torch.tensor([0.1, -0.3]),
-        valid_mask=torch.tensor([True, False]),
-    )
     result = SimpleNamespace(
-        warmup_phase="critic_only",
-        warmup_phase_iteration=3,
-        actor_loss_weight=0.0,
-        valid_count=1,
-        total_loss=torch.tensor(0.5),
-        param_grad_norm=0.3,
-        param_delta_l2=0.2,
-        distribution_kl_mean=0.001,
-        post_update_distribution_kl_mean=0.002,
-        trust_region_accepted=1,
+        transaction_id="tx-v017",
+        policy_snapshot_id="pi-old-v017",
+        segment_count=2,
+        source_count=2,
+        policy_attempt_count=4,
+        valid_row_count=4,
+        optimizer_step_delta=1,
+        update_invocation_count=1,
+        diagnostics={
+            "method_contract_id": "FRS-METHOD-v017",
+            "gain_contract_id": "FRS-GAIN-v007",
+            "optimization_contract_id": "FRS-PPO-v005",
+            "training_contract_id": "FRS-TRAIN-v014",
+            "selected_segment_count": 2,
+            "active_m": 2,
+            "policy_row_count": 4,
+            "grouped_motion_mass_shares": (0.5, 0.5),
+            "grouped_segment_mass_shares": (0.5, 0.5),
+            "grouped_attempt_mass_shares": (0.25, 0.25, 0.25, 0.25),
+        },
     )
-    summary = {
-        "segment_reset_success_frac": 1.0,
-        "ppo_valid_count": 1,
-        "motion_delta_se_norm": 0.125,
-        "trial_role_counts": {"policy": 1, "candidate": 1},
-        "perturbation_family_counts": {"local_rp": 2},
-        "perturbation_strength_min": 0.25,
-        "perturbation_strength_mean": 0.5,
-        "perturbation_strength_max": 0.75,
-        "gain_style_mean": 0.3,
-        "gain_physics_mean": 0.2,
-        "gain_physics_survival_quality_repaired_per_sample": [1.0],
-        "gain_physics_survival_quality_noisy_per_sample": [0.8],
-        "gain_physics_survival_per_sample": [0.2],
-        "gain_physics_survival_mean": 0.2,
-        "gain_repair_cost_mean": 0.1,
-        "gain_total_mean": 0.4,
-        "sampler_update_priority_before_mean": 0.5,
-        "sampler_update_priority_after_mean": 0.6,
-    }
     stream = io.StringIO()
     with contextlib.redirect_stdout(stream):
         audit.print_formal_route_audit(runner, num_learning_iterations=1)
-        audit.print_sampler_audit(runner, update_step=0, sample=sample, batch=batch, summary=summary)
-        audit.print_rollout_storage_audit(runner, capture=capture, summary=summary, storage_batch=storage)
-        audit.print_ppo_audit(runner, result=result)
+        audit.print_segment_replay_transaction_audit(runner, result=result)
         audit.print_checkpoint_payload_audit(
             runner,
             path="/tmp/model_4.pt",
@@ -160,24 +122,20 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                 "optimizer_state_dict": {},
                 "obs_norm_state_dict": {},
                 "frontres_segment_sampler_state_dict": {},
-                "frontres_segment_k_curriculum": (
-                    (8, 2, 200, 500, 1300),
-                    (16, 3, 300, 300, 900),
-                    (32, 4, 400, 300, 625),
-                ),
+                "frontres_segment_k_curriculum": SCHEDULE,
                 "frontres_v015_checkpoint_identity": {
-                    "format": "frontres-v015-checkpoint-v6",
-                    "method_contract_id": "FRS-METHOD-v016",
-                    "gain_contract_id": "FRS-GAIN-v006",
-                    "optimization_contract_id": "FRS-PPO-v004",
-                    "training_contract_id": "FRS-TRAIN-v011",
-                    "constraint_solver": {"persistent_dual_state": False},
+                    "format": "frontres-v017-checkpoint-v9",
+                    "method_contract_id": "FRS-METHOD-v017",
+                    "gain_contract_id": "FRS-GAIN-v007",
+                    "optimization_contract_id": "FRS-PPO-v005",
+                    "training_contract_id": "FRS-TRAIN-v014",
+                    "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
+                    "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
+                    "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
+                    "grouped_schema_id": "grouped-all-attempt-scalar-v1",
+                    "gain": {"beta": 0.02},
                     "curriculum": {
-                        "schedule": (
-                            (8, 2, 200, 500, 1300),
-                            (16, 3, 300, 300, 900),
-                            (32, 4, 400, 300, 625),
-                        ),
+                        "schedule": SCHEDULE,
                         "schedule_fingerprint": "f" * 64,
                         "k_stage_index": 1,
                         "active_k": 16,
@@ -192,11 +150,11 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
         )
     output = stream.getvalue()
     for label in (
-        "AUDIT-ROUTE-01", "AUDIT-PERTURB-01", "AUDIT-PERTURB-02", "AUDIT-SEGDATA-01",
-        "AUDIT-SAMPLER-01", "AUDIT-KPLAN-01", "AUDIT-KROLLOUT-01", "AUDIT-OBS-01",
-        "AUDIT-ACTION-01", "AUDIT-APPLY-01", "AUDIT-GMT-01", "AUDIT-PAIR-01",
-        "AUDIT-PAIR-EVIDENCE-01", "AUDIT-GAIN-01", "AUDIT-RETURN-01", "AUDIT-HSL-LOAD-01",
-        "AUDIT-WARMUP-01", "AUDIT-PPO-01", "AUDIT-PERSIST-01", "AUDIT-DIAG-01",
+        "AUDIT-ROUTE-01",
+        "AUDIT-PERTURB-01",
+        "AUDIT-HSL-LOAD-01",
+        "AUDIT-SEGMENT-REPLAY-01",
+        "AUDIT-PERSIST-01",
     ):
         assert output.count(f"[{label}]") == 1
     assert "alternate_modes=0" in output
@@ -204,47 +162,36 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     assert "perturbation_channels=rp" in output
     assert "dr_scale=1.25" in output
     assert "max_horizon_k=64" in output
-    assert "shape=(2, 870)" in output
-    assert "prefix100=shape=(2, 100)" in output
-    assert "suffix770=shape=(2, 770)" in output
-    assert "shape=(2, 6)" in output
-    assert "sigma=shape=(2, 6)" in output
-    assert "perturb_rp=shape=(2, 2)" in output
-    perturb_line = next(line for line in output.splitlines() if line.startswith("[AUDIT-PERTURB-02]"))
-    assert "family_counts={'local_rp': 2}" in perturb_line
-    assert "strength_min=0.25" in perturb_line
-    assert "strength_mean=0.5" in perturb_line
-    assert "strength_max=0.75" in perturb_line
-    assert "missing" not in perturb_line
-    assert "reset_success_frac=1.0" in output
-    assert "delta_norm=0.125" in output
-    gain_line = next(line for line in output.splitlines() if line.startswith("[AUDIT-GAIN-01]"))
-    assert "contract=FRS-GAIN-v002" in gain_line
-    assert "raw_survival_steps=shape=(1,)" in gain_line
-    assert "effective_horizon_k=shape=(1,)" in gain_line
-    assert "survival_quality_repaired=[1.0]" in gain_line
-    assert "survival_quality_noisy=[0.8]" in gain_line
-    assert "physics_survival_gain=[0.2]" in gain_line
-    assert "final_survival_gain_mean=0.2" in gain_line
-    assert "survival_gain_sum_abs_error=" in gain_line
-    sum_error = float(gain_line.split("survival_gain_sum_abs_error=", 1)[1].split()[0])
-    assert sum_error < 1e-5
-    return_line = next(line for line in output.splitlines() if line.startswith("[AUDIT-RETURN-01]"))
-    assert "survival_gain_steps=shape=(2, 1)" in return_line
-    assert "survival_gain_step_sum=shape=(1,)" in return_line
-    assert "roles={'policy': 1, 'candidate': 1}" in output
-    assert "rewards=shape=(2,)" in output
-    for label in ("AUDIT-KROLLOUT-01", "AUDIT-APPLY-01", "AUDIT-PAIR-01", "AUDIT-RETURN-01"):
-        line = next(line for line in output.splitlines() if line.startswith(f"[{label}]"))
-        assert "missing" not in line, line
-    assert "gmt_trainable=0 gmt_in_optimizer=0" in output
-    assert "curriculum=((8, 2, 200, 500, 1300), (16, 3, 300, 300, 900), (32, 4, 400, 300, 625))" in output
+    transaction_line = next(line for line in output.splitlines() if line.startswith("[AUDIT-SEGMENT-REPLAY-01]"))
+    assert "segments=2" in transaction_line
+    assert "attempts_per_segment=2" in transaction_line
+    assert "policy_rows=4" in transaction_line and "valid_rows=4" in transaction_line
+    assert "segment_voting_weights=count=2,head=(0.5, 0.5)" in transaction_line
+    assert "attempt_voting_weights=count=4,head=(0.25, 0.25, 0.25, 0.25)" in transaction_line
+    assert "optimizer_step_delta=1" in transaction_line and "update_invocations=1" in transaction_line
+    assert "FRS-METHOD-v017/FRS-GAIN-v007/FRS-PPO-v005/FRS-TRAIN-v014" in transaction_line
+    assert "FRS-GAIN-v002" not in output and "shape=(2, 870)" not in output
+    assert "lower-k8" in output and "active_k=16" in output
     assert "active_k=16" in output
 
+    for changed in (
+        {"optimization_contract_id": "FRS-PPO-v004"},
+        {"grouped_attempt_mass_shares": (0.5, 0.5)},
+        {"grouped_attempt_mass_shares": (0.7, 0.1, 0.1, 0.1)},
+    ):
+        invalid = SimpleNamespace(**vars(result))
+        invalid.diagnostics = {**result.diagnostics, **changed}
+        try:
+            audit.print_segment_replay_transaction_audit(runner, result=invalid)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError(f"active Segment Replay audit accepted invalid facts: {changed}")
 
-def test_checkpoint_audit_rejects_missing_or_mixed_v011_curriculum() -> None:
+
+def test_checkpoint_audit_rejects_missing_or_mixed_v013_curriculum() -> None:
     runner = _runner()
-    schedule = ((8, 2, 200, 500, 1300), (16, 3, 300, 300, 900), (32, 4, 400, 300, 625))
+    schedule = SCHEDULE
     base = {
         "iter": 4,
         "model_state_dict": {},
@@ -253,12 +200,16 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v011_curriculum() -> None:
         "frontres_segment_sampler_state_dict": {},
         "frontres_segment_k_curriculum": schedule,
         "frontres_v015_checkpoint_identity": {
-            "format": "frontres-v015-checkpoint-v6",
-            "method_contract_id": "FRS-METHOD-v016",
-            "gain_contract_id": "FRS-GAIN-v006",
-            "optimization_contract_id": "FRS-PPO-v004",
-            "training_contract_id": "FRS-TRAIN-v011",
-            "constraint_solver": {"persistent_dual_state": False},
+            "format": "frontres-v017-checkpoint-v9",
+            "method_contract_id": "FRS-METHOD-v017",
+            "gain_contract_id": "FRS-GAIN-v007",
+            "optimization_contract_id": "FRS-PPO-v005",
+            "training_contract_id": "FRS-TRAIN-v014",
+            "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
+            "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
+            "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
+            "grouped_schema_id": "grouped-all-attempt-scalar-v1",
+            "gain": {"beta": 0.02},
             "curriculum": {"schedule": schedule, "active_k": 16},
         },
     }
@@ -281,7 +232,7 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v011_curriculum() -> None:
         except AssertionError:
             pass
         else:
-            raise AssertionError("formal audit accepted missing or mixed v011 curriculum")
+            raise AssertionError("formal audit accepted missing or mixed v013 curriculum")
 
 
 def test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners() -> None:
@@ -289,14 +240,12 @@ def test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners() -> None:
     stream = io.StringIO()
     with contextlib.redirect_stdout(stream):
         audit.print_formal_route_audit(runner, num_learning_iterations=1)
+        audit.print_segment_replay_transaction_audit(runner, result=SimpleNamespace())
     assert stream.getvalue() == ""
 
     expected_hooks = {
         "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py": "print_formal_route_audit(",
-        "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py": "print_sampler_audit(",
-        "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py": "print_rollout_storage_audit(",
-        "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py#reset": "print_reset_lifecycle_audit(",
-        "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py#ppo": "print_ppo_audit(",
+        "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py": "print_segment_replay_transaction_audit(",
         "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py": "print_checkpoint_payload_audit(",
         "scripts/rsl_rl/train.py": "--frontres_formal_runtime_audit",
     }
@@ -312,6 +261,22 @@ def test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners() -> None:
     perturb_probe = train_source.index('"[AUDIT-PERTURB-01] "')
     assert max_horizon_set < perturb_probe, "AUDIT-PERTURB-01 must print the finalized horizon preset"
     assert "cache_horizon_k=batch.horizon_k" in dataset_source
+
+
+def test_active_k_audit_ids_exclude_legacy_state_driven_sampler() -> None:
+    audit_source = AUDIT_PATH.read_text()
+    sampler_source = (
+        ROOT / "source" / "rsl_rl" / "rsl_rl" / "frontres" / "frontres_segment_sampler.py"
+    ).read_text()
+    warmup_source = (
+        ROOT / "source" / "rsl_rl" / "rsl_rl" / "frontres" / "frontres_segment_warmup.py"
+    ).read_text()
+
+    assert '"AUDIT-KPLAN-01"' not in audit_source
+    assert '"AUDIT-KPLAN-01"' in warmup_source
+    assert '"AUDIT-LEGACY-KPLAN-01"' in sampler_source
+    assert '"AUDIT-LEGACY-KROLLOUT-01"' in sampler_source
+    assert "formal TRAIN-v013 直接消费 sealed K/M" in sampler_source
 
 
 def test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow() -> None:
@@ -439,124 +404,14 @@ def test_termination_term_snapshot_preserves_term_and_role_identity() -> None:
     assert snapshot["anchor_ori"] == {"policy": 0, "candidate": 2, "noisy": 0, "clean": 1}
 
 
-def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
-    atlas_path = ROOT / "note" / "architecture" / "runtime" / "04_stage3_formal_runtime_audit.data.json"
-    atlas = json.loads(atlas_path.read_text())
-    atlas_text = json.dumps(atlas, ensure_ascii=False)
-    atlas_entry = (ROOT / "note" / "architecture" / "04_stage3_formal_runtime_audit.html").read_text()
-    assert 'window.location.protocol === "file:"' in atlas_entry
-    assert "http://127.0.0.1:8765/04_stage3_formal_runtime_audit.html" in atlas_entry
-    checklist = (ROOT / "note" / "frontres_core" / "checklists" / "modification_checklist.md").read_text()
-    audit_ids = [
-        "AUDIT-ROUTE-01", "AUDIT-PERTURB-01", "AUDIT-PERTURB-02", "AUDIT-SEGDATA-01",
-        "AUDIT-SAMPLER-01", "AUDIT-KPLAN-01", "AUDIT-KROLLOUT-01", "AUDIT-RESET-LIFECYCLE-01",
-        "AUDIT-ANCHOR-Z-01",
-        "AUDIT-OBS-01",
-        "AUDIT-ACTION-01", "AUDIT-APPLY-01", "AUDIT-GMT-01", "AUDIT-PAIR-01",
-        "AUDIT-PAIR-EVIDENCE-01", "AUDIT-GAIN-01", "AUDIT-RETURN-01", "AUDIT-HSL-LOAD-01",
-        "AUDIT-WARMUP-01", "AUDIT-PPO-01", "AUDIT-PERSIST-01", "AUDIT-DIAG-01",
-    ]
-    audit_source = AUDIT_PATH.read_text()
-    termination_source = TERMINATIONS_PATH.read_text()
-    for audit_id in audit_ids:
-        assert audit_id in atlas_text
-        assert audit_id in checklist
-        owner_source = termination_source if audit_id == "AUDIT-ANCHOR-Z-01" else audit_source
-        assert audit_id in owner_source
-    assert atlas["layout"] == "repository_reading_atlas"
-    assert atlas["runtimeOrder"] == audit_ids
-    modules = {
-        module["id"]: module
-        for system in atlas["systems"]
-        for module in system["modules"]
-    }
-    assert len(modules) == 22
-    why_here_texts: list[str] = []
-    for audit_id in audit_ids:
-        module = modules[audit_id]
-        assert module["cardKind"] == "runtime_probe"
-        assert module["title"].startswith("Probe ")
-        assert module["probe"]["owner"]
-        assert module["probe"]["insertion"]
-        assert module["probe"]["capture"]
-        assert module["probe"]["failIf"]
-        assert len(module["probeSteps"]) == len(module["mainRoute"])
-        assert all(
-            step["location"] and step["capture"] and step["whyHere"] and step["failureOwner"]
-            for step in module["probeSteps"]
-        )
-        why_here_texts.extend(step["whyHere"] for step in module["probeSteps"])
-        assert any(str(value).startswith("Design:") for value in module["objects"])
-        assert module["gap"]
-        assert len(module["mainRoute"]) == len(module["mainRouteTitles"])
-        owner_path = ROOT / module["files"][0]["path"]
-        assert owner_path.exists(), f"Atlas owner path does not exist: {owner_path}"
-        owner_text = owner_path.read_text()
-        owner_lines = owner_text.splitlines()
-        assert audit_id in owner_text, f"{audit_id} is not inserted at Atlas owner {owner_path}"
-        if audit_id == "AUDIT-RESET-LIFECYCLE-01":
-            assert "quartet reset is live-aligned" in owner_text
-        elif audit_id == "AUDIT-ANCHOR-Z-01":
-            assert "all quartet anchor_pos=0" in owner_text
-        else:
-            has_pending = "Result: PENDING_LIVE." in owner_text
-            has_runtime_evidence = "Result: E" in owner_text and "LIVE" in owner_text
-            assert has_pending or has_runtime_evidence, (
-                f"{audit_id} owner lacks an explicit pending or runtime-evidence result"
-            )
-        for block_id in ("B1", "B2", "B3"):
-            assert f"# {block_id}:" in owner_text, f"{audit_id} owner lacks human-readable {block_id} comments"
-        for step_index, step in enumerate(module["probeSteps"], start=1):
-            assert step["sourceHref"].startswith("/open-source?path=")
-            assert f"line={step['sourceLine']}" in step["sourceHref"]
-            query = parse_qs(urlparse(step["sourceHref"]).query)
-            assert query.get("path") == [module["files"][0]["path"]], (
-                f"Atlas source link path drift: {query.get('path')} != {module['files'][0]['path']}"
-            )
-            linked_path = ROOT / query["path"][0]
-            assert linked_path.is_file(), f"Atlas source link target does not exist: {linked_path}"
-            source_line = int(step["sourceLine"])
-            assert 1 <= source_line <= len(owner_lines)
-            assert f"# B{step_index}:" in owner_lines[source_line - 1], (
-                f"{audit_id} B{step_index} source line drifted: "
-                f"{module['files'][0]['path']}:{source_line}"
-            )
-    assert modules["AUDIT-PPO-01"]["gap"].startswith("runtime-observed:")
-    assert "valid=13/14/16/16" in modules["AUDIT-PPO-01"]["gap"]
-    assert "E70" in modules["AUDIT-PPO-01"]["gap"]
-    assert "E-FI-89" in modules["AUDIT-PERSIST-01"]["gap"]
-    assert "checkpoint-v6" in modules["AUDIT-PERSIST-01"]["gap"]
-    assert "accepted trust" in modules["AUDIT-PPO-01"]["gap"]
-    assert "frozen GMT" in modules["AUDIT-PPO-01"]["gap"]
-    assert "M3/M4 persistence remains pending" in modules["AUDIT-PERSIST-01"]["gap"]
-    assert len(why_here_texts) == 66
-    assert len(set(why_here_texts)) == 66, "whyHere must not be a shared template across probe boundaries"
-
-    assert "result = (error > threshold) | torch.isnan(error)" in termination_source
-    assert "return result" in termination_source
-    for field in (
-        "reference_z=role_reference_z",
-        "robot_z=",
-        "signed_error=",
-        "abs_error=",
-        "threshold=float(threshold)",
-        "clean_reference_z=",
-        "raw_reference_z=",
-        "correction_z=",
-        "time_steps=",
-        "motion_indices=",
-    ):
-        assert field in termination_source
-
-
 if __name__ == "__main__":
     test_return_audit_uses_policy_gain_rows_only()
     test_structured_phase_b_snapshots_cover_all_formal_boundaries()
-    test_checkpoint_audit_rejects_missing_or_mixed_v011_curriculum()
+    test_checkpoint_audit_rejects_missing_or_mixed_v013_curriculum()
     test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners()
+    test_active_k_audit_ids_exclude_legacy_state_driven_sampler()
     test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow()
     test_reset_lifecycle_audit_is_role_aware_and_separates_timeout_from_termination()
     test_reset_pair_root_error_removes_per_environment_world_origins()
     test_termination_term_snapshot_preserves_term_and_role_identity()
-    test_runtime_audit_atlas_source_comments_and_checklist_share_ids()
     print("frontres_formal_runtime_audit_contract: ok")

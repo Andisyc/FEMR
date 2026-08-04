@@ -3,28 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import math
 import os
 from pathlib import Path
-import sys
 from statistics import median
 from typing import Any
 
-try:
-    from .frontres_policy_quality_manifest import FrontRESPolicyQualityManifest
-except ImportError:
-    # Keep the offline reporter runnable without importing the simulator-heavy
-    # rsl_rl.frontres package initializer.
-    _manifest_path = Path(__file__).with_name("frontres_policy_quality_manifest.py")
-    _manifest_spec = importlib.util.spec_from_file_location("frontres_policy_quality_manifest", _manifest_path)
-    if _manifest_spec is None or _manifest_spec.loader is None:
-        raise RuntimeError(f"cannot load policy-quality manifest owner: {_manifest_path}")
-    _manifest_module = importlib.util.module_from_spec(_manifest_spec)
-    sys.modules[_manifest_spec.name] = _manifest_module
-    _manifest_spec.loader.exec_module(_manifest_module)
-    FrontRESPolicyQualityManifest = _manifest_module.FrontRESPolicyQualityManifest
+from rsl_rl.frontres.frontres_policy_quality_manifest import FrontRESPolicyQualityManifest
 
 
 _RESULT_SCHEMA = "frontres_policy_quality_result_v1"

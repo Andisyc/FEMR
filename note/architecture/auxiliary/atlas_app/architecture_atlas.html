@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MOSAIC Architecture Atlas</title>
+  <link rel="stylesheet" href="./node_modules/katex/dist/katex.min.css" />
   <script>
     // Source links require the local Atlas server; direct file opens must join
     // the same HTTP origin before rendering any repository-reading card.
@@ -34,6 +35,74 @@
       -webkit-font-smoothing: antialiased;
       text-rendering: geometricPrecision;
       letter-spacing: 0;
+    }
+
+    .atlas-equation {
+      align-items: center;
+      box-sizing: border-box;
+      color: #243140;
+      display: flex;
+      height: 100%;
+      overflow: visible;
+      width: 100%;
+    }
+
+    .atlas-equation .katex-display {
+      margin: 0;
+      text-align: left;
+    }
+
+    .atlas-equation-fallback {
+      color: #9b3f32;
+      font-family: var(--font-code);
+      font-size: 15px;
+      white-space: nowrap;
+    }
+
+    .atlas-detail-table {
+      border-collapse: collapse;
+      color: #34414e;
+      font-family: var(--font-body);
+      font-size: 14px;
+      line-height: 1.35;
+      table-layout: fixed;
+      width: 100%;
+    }
+
+    .atlas-detail-table th,
+    .atlas-detail-table td {
+      border: 1px solid rgba(86, 99, 112, 0.24);
+      box-sizing: border-box;
+      padding: 9px 12px;
+      text-align: left;
+      vertical-align: middle;
+      word-break: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .atlas-detail-table th {
+      background: rgba(255, 255, 255, 0.76);
+      color: #26313d;
+      font-weight: 720;
+    }
+
+    .atlas-detail-table tbody tr:nth-child(even) td {
+      background: rgba(255, 255, 255, 0.42);
+    }
+
+    .atlas-detail-table th:first-child,
+    .atlas-detail-table td:first-child {
+      width: 21%;
+    }
+
+    .atlas-detail-table th:nth-child(2),
+    .atlas-detail-table td:nth-child(2) {
+      width: 59%;
+    }
+
+    .atlas-detail-table th:last-child,
+    .atlas-detail-table td:last-child {
+      width: 20%;
     }
 
     header {
@@ -198,9 +267,13 @@
 
   <script type="module">
     import rough from "./node_modules/roughjs/bundled/rough.esm.js";
+    import katex from "./node_modules/katex/dist/katex.mjs";
+    import { renderModuleInspector } from "./layouts/module_inspector.js";
+    import { renderCodeQualityEvidenceAtlas } from "./layouts/code_quality_evidence.js";
 
     const params = new URLSearchParams(window.location.search);
     const dataUrl = params.get("data") || "../../concept/03_frontres_concept_tabs.data.json";
+    const viewMode = params.get("view") || "";
     const source = document.getElementById("source");
     const status = document.getElementById("status");
     const svg = document.getElementById("diagram");
@@ -222,6 +295,7 @@
     let canvasHeight = 980;
     let zoom = 1;
     let autoFitWidth = true;
+    let activeInspectorCardId = null;
     let isPanning = false;
     let panStartX = 0;
     let panStartY = 0;
@@ -297,6 +371,68 @@
       el.textContent = text;
       svg.appendChild(el);
       return el;
+    }
+
+    function addLatex(latex, x, y, width, options = {}) {
+      const height = options.height || 42;
+      const foreignObject = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
+      foreignObject.setAttribute("x", x);
+      foreignObject.setAttribute("y", y);
+      foreignObject.setAttribute("width", width);
+      foreignObject.setAttribute("height", height);
+
+      const container = document.createElementNS("http://www.w3.org/1999/xhtml", "div");
+      container.setAttribute("class", "atlas-equation");
+      container.style.fontSize = `${options.size || 18}px`;
+      try {
+        katex.render(latex, container, {
+          displayMode: true,
+          strict: false,
+          throwOnError: true,
+        });
+      } catch (error) {
+        console.error(`[Atlas LaTeX] ${error.message}`, { latex });
+        container.setAttribute("class", "atlas-equation atlas-equation-fallback");
+        container.textContent = latex;
+      }
+      foreignObject.appendChild(container);
+      svg.appendChild(foreignObject);
+      return foreignObject;
+    }
+
+    function addDetailTable(tableData, x, y, width, height) {
+      const foreignObject = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
+      foreignObject.setAttribute("x", x);
+      foreignObject.setAttribute("y", y);
+      foreignObject.setAttribute("width", width);
+      foreignObject.setAttribute("height", height);
+
+      const table = document.createElementNS("http://www.w3.org/1999/xhtml", "table");
+      table.setAttribute("class", "atlas-detail-table");
+      const head = document.createElementNS("http://www.w3.org/1999/xhtml", "thead");
+      const headRow = document.createElementNS("http://www.w3.org/1999/xhtml", "tr");
+      (tableData.columns || []).forEach((label) => {
+        const cell = document.createElementNS("http://www.w3.org/1999/xhtml", "th");
+        cell.textContent = label;
+        headRow.appendChild(cell);
+      });
+      head.appendChild(headRow);
+      table.appendChild(head);
+
+      const body = document.createElementNS("http://www.w3.org/1999/xhtml", "tbody");
+      (tableData.rows || []).forEach((row) => {
+        const rowElement = document.createElementNS("http://www.w3.org/1999/xhtml", "tr");
+        row.forEach((value) => {
+          const cell = document.createElementNS("http://www.w3.org/1999/xhtml", "td");
+          cell.textContent = value;
+          rowElement.appendChild(cell);
+        });
+        body.appendChild(rowElement);
+      });
+      table.appendChild(body);
+      foreignObject.appendChild(table);
+      svg.appendChild(foreignObject);
+      return foreignObject;
     }
 
     function textUnits(text) {
@@ -1115,120 +1251,261 @@
       return box;
     }
 
-    function designTableTextLayout(text, width, options = {}) {
-      const preferredSize = options.preferredSize || 17;
-      const minSize = options.minSize || 15.5;
-      const preferredMaxLines = options.preferredMaxLines || 3;
-      let size = preferredSize;
-      // textUnits() counts CJK glyphs as 1.85 units; retain a small safety margin for real browser glyph widths.
-      let charWidth = size / 1.8;
-      let lineCount = measuredLineCount(text, width, { charWidth });
-      while (lineCount > preferredMaxLines && size > minSize) {
-        size = Math.max(minSize, size - 0.5);
-        charWidth = size / 1.8;
-        lineCount = measuredLineCount(text, width, { charWidth });
+    function renderInspector(data) {
+      const moduleCards = Array.isArray(data.cards) ? data.cards : [];
+      const stageCards = Array.isArray(data.stageCards) ? data.stageCards : [];
+      const cards = [...stageCards, ...moduleCards];
+      const defaultSteps = Array.isArray(data.transaction?.steps) ? data.transaction.steps : [];
+      const width = 1680;
+      const left = 44;
+      const contentWidth = width - left * 2;
+      const rc = rough.svg(svg);
+      if (!cards.length || !defaultSteps.length) {
+        setCanvas(width, 1040);
+        drawHeader(data, data.subtitle, width);
+        addText(`${data.spineName || "Inspector"} 数据为空`, left, 188, { size: 20, weight: 720, fill: "#9b3f32" });
+        return;
       }
-      return {
-        size,
-        charWidth,
-        lineHeight: Math.ceil(size * 1.55),
-        lineCount: Math.max(1, lineCount),
-      };
-    }
+      if (!activeInspectorCardId || !cards.some((card) => card.designId === activeInspectorCardId)) {
+        activeInspectorCardId = cards[0].designId;
+      }
+      const activeCard = cards.find((card) => card.designId === activeInspectorCardId) || cards[0];
+      const inspectorTransaction = activeCard.transaction || data.transaction || {};
+      const steps = Array.isArray(inspectorTransaction.steps) ? inspectorTransaction.steps : defaultSteps;
+      const highlightSteps = new Set(activeCard.highlightSteps || []);
+      const activeColor = activeCard.color || "#64748b";
 
-    function renderDesignPointTable(data) {
-      const groups = Array.isArray(data.groups) ? data.groups : [];
-      const width = 1360;
-      const left = 54;
-      const gap = 24;
-      const questionWidth = 500;
-      const pointWidth = width - left * 2 - gap - questionWidth;
-      const headerHeight = 48;
-      const rowGap = 14;
-      const groupTitleHeight = 42;
-      const groupGap = 30;
-      const groupLayouts = groups.map((group) => {
-        const rows = Array.isArray(group.rows) ? group.rows : [];
-        const rowLayouts = rows.map((row) => {
-          const question = designTableTextLayout(row.question || "", questionWidth - 48, {
-            preferredSize: 17,
-            minSize: 16,
-            preferredMaxLines: 2,
-          });
-          const point = designTableTextLayout(row.point || "", pointWidth - 48, {
-            preferredSize: 17.5,
-            minSize: 16,
-            preferredMaxLines: 3,
-          });
-          const contentHeight = Math.max(
-            question.lineCount * question.lineHeight,
-            point.lineCount * point.lineHeight,
-          );
-          return { row, question, point, height: Math.max(84, 46 + contentHeight) };
-        });
-        return { parent: group.parent || "", rows: rowLayouts };
-      });
-      const tableHeight = groupLayouts.reduce((sum, group) => (
-        sum
-        + groupTitleHeight
-        + group.rows.reduce((rowSum, row) => rowSum + row.height, 0)
-        + rowGap * Math.max(0, group.rows.length - 1)
-      ), 0) + groupGap * Math.max(0, groupLayouts.length - 1);
-      const height = 26 + 92 + 48 + headerHeight + tableHeight + 112;
+      const selectorTop = 130;
+      const selectorColumns = 5;
+      const selectorRows = Math.ceil(cards.length / selectorColumns);
+      const selectorGap = 14;
+      const selectorWidth = (contentWidth - selectorGap * (selectorColumns - 1)) / selectorColumns;
+      const selectorHeight = 68;
+      const transactionTop = selectorTop + selectorRows * (selectorHeight + 12) + 24;
+      const detailRows = Array.isArray(activeCard.details) ? activeCard.details : [];
+      const showsExecution = data.layout === "module_test_inspector";
+      const executionLabels = { passed: "已通过", partial: "部分覆盖", blocked: "阻塞", ready: "当前阶段" };
+      const executionColors = { passed: "#26734d", partial: "#9a6718", blocked: "#a33f32" };
+      const executionLabel = executionLabels[activeCard.executionStatus] || "尚未执行";
+      const executionColor = executionColors[activeCard.executionStatus] || "#66717c";
+      const executionPrefix = activeCard.cardKind === "stage-reading" ? "阶段状态" : "测试结果";
+      const detailHeaderHeight = showsExecution ? 116 : 64;
+      const detailTextWidth = Math.min(contentWidth - 88, 1120);
+      const detailTextOptions = { charWidth: 7.4 };
+    const detailFormulaHeight = 76;
+      const detailFormulaGap = 4;
+      const detailTableFor = (row) => (
+        row?.table && Array.isArray(row.table.columns) && Array.isArray(row.table.rows)
+          ? row.table
+          : null
+      );
+      const detailTableHeightFor = (table) => table ? 48 + table.rows.length * 58 : 0;
+      const detailFormulasFor = (row) => {
+        if (Array.isArray(row?.latex)) return row.latex.filter((formula) => typeof formula === "string" && formula.trim());
+        if (typeof row?.latex === "string" && row.latex.trim()) return [row.latex];
+        return [];
+      };
+      const detailRowHeightFor = (detail) => {
+        const row = typeof detail === "string" ? { text: detail } : detail;
+        const textLines = measuredLineCount(row?.text || "", detailTextWidth, detailTextOptions);
+        const table = detailTableFor(row);
+        const formulas = detailFormulasFor(row);
+        const headingHeight = row?.heading ? 25 : 0;
+        const tableHeight = table ? 12 + detailTableHeightFor(table) : 0;
+        const formulaHeight = formulas.length
+          ? 10 + formulas.length * detailFormulaHeight + (formulas.length - 1) * detailFormulaGap
+          : 0;
+        return 32 + headingHeight + textLines * 20 + tableHeight + formulaHeight;
+      };
+      const detailTop = transactionTop + 360;
+      const detailHeight = detailHeaderHeight + detailRows.reduce(
+        (sum, detail) => sum + detailRowHeightFor(detail),
+        0,
+      );
+      const height = Math.max(1040, detailTop + detailHeight + 54);
+
       setCanvas(width, height);
-      const rc = drawHeader(data, "", width);
-      const tableTop = rc.headerBottom + 48;
-      const tableWidth = questionWidth + gap + pointWidth;
-      const questionHeaderFill = "rgba(246, 232, 206, 0.82)";
-      const pointHeaderFill = "rgba(216, 233, 243, 0.84)";
-      const groupFill = "rgba(229, 239, 232, 0.76)";
-      const questionCellFill = "rgba(255, 250, 240, 0.78)";
-      const pointCellFill = "rgba(239, 247, 251, 0.82)";
-      const tableHeadingFont = '"Kaiti SC", "STKaiti", "KaiTi", "Songti SC", serif';
-      const tableBodyFont = '"Kaiti SC", "STKaiti", "Songti SC", "STSong", serif';
-      svg.appendChild(rc.rectangle(left, tableTop, questionWidth, headerHeight, {
-        stroke: "#b99a71", strokeWidth: 1.0, roughness: 0.55, bowing: 0.3, fill: questionHeaderFill, fillStyle: "solid",
-      }));
-      svg.appendChild(rc.rectangle(left + questionWidth + gap, tableTop, pointWidth, headerHeight, {
-        stroke: "#7898ad", strokeWidth: 1.0, roughness: 0.55, bowing: 0.3, fill: pointHeaderFill, fillStyle: "solid",
-      }));
-      addText("设计问题", left + 24, tableTop + 31, { size: 18, weight: 680, fill: "#765638", family: tableHeadingFont });
-      addText("设计点", left + questionWidth + gap + 24, tableTop + 31, { size: 18, weight: 680, fill: "#2e5b75", family: tableHeadingFont });
-      let rowY = tableTop + headerHeight + 22;
-      groupLayouts.forEach((group, groupIndex) => {
-        svg.appendChild(rc.rectangle(left, rowY, tableWidth, groupTitleHeight, {
-          stroke: "#91a999", strokeWidth: 0.9, roughness: 0.45, bowing: 0.25,
-          fill: groupFill, fillStyle: "solid",
-        }));
-        addText(group.parent, left + 22, rowY + 28, { size: 17, weight: 680, fill: "#406150", family: tableHeadingFont });
-        rowY += groupTitleHeight + 14;
-        group.rows.forEach((layout) => {
-          const rowHeight = layout.height;
-          svg.appendChild(rc.rectangle(left, rowY, questionWidth, rowHeight, {
-            stroke: "#d9c6aa", strokeWidth: 0.9, roughness: 0.45, bowing: 0.25, fill: questionCellFill, fillStyle: "solid",
-          }));
-          svg.appendChild(rc.rectangle(left + questionWidth + gap, rowY, pointWidth, rowHeight, {
-            stroke: "#a9c2cf", strokeWidth: 0.9, roughness: 0.45, bowing: 0.25, fill: pointCellFill, fillStyle: "solid",
-          }));
-          wrapText(layout.row.question || "", left + 24, rowY + 34, questionWidth - 48, {
-            size: layout.question.size,
-            lineHeight: layout.question.lineHeight,
-            charWidth: layout.question.charWidth,
-            weight: 540,
-            fill: "#4d4033",
-            family: tableBodyFont,
-          });
-          wrapText(layout.row.point || "", left + questionWidth + gap + 24, rowY + 34, pointWidth - 48, {
-            size: layout.point.size,
-            lineHeight: layout.point.lineHeight,
-            charWidth: layout.point.charWidth,
-            weight: 580,
-            fill: "#29465c",
-            family: tableBodyFont,
-          });
-          rowY += rowHeight + rowGap;
+      drawHeader(data, data.subtitle, width);
+
+      cards.forEach((card, index) => {
+        const column = index % selectorColumns;
+        const row = Math.floor(index / selectorColumns);
+        const x = left + column * (selectorWidth + selectorGap);
+        const y = selectorTop + row * (selectorHeight + 12);
+        const selected = card.designId === activeCard.designId;
+        const color = card.color || "#64748b";
+        drawCard(rc, x, y, selectorWidth, selectorHeight, color, {
+          stroke: selected ? color : colorWithAlpha(color, 0.5),
+          strokeWidth: selected ? 2.3 : 0.9,
+          roughness: selected ? 1.0 : 0.45,
+          bowing: 0.3,
+          fill: selected ? colorWithAlpha(color, 0.18) : "rgba(255,255,255,0.68)",
         });
-        if (groupIndex < groupLayouts.length - 1) rowY += groupGap - rowGap;
+        addText(`${card.designId} / ${card.blockId}`, x + 13, y + 20, {
+          size: 10.8, weight: 700, code: true, fill: color,
+        });
+        wrapText(card.title, x + 13, y + 44, selectorWidth - 26, {
+          size: 16.5, lineHeight: 19, charWidth: 8.0, maxLines: 1, weight: 760, fill: "#26313d",
+        });
+
+        const hit = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        hit.setAttribute("x", x);
+        hit.setAttribute("y", y);
+        hit.setAttribute("width", selectorWidth);
+        hit.setAttribute("height", selectorHeight);
+        hit.setAttribute("fill", "transparent");
+        hit.setAttribute("pointer-events", "all");
+        hit.setAttribute("role", "button");
+        hit.setAttribute("data-inspector-kind", card.cardKind || "module-test");
+        hit.setAttribute("tabindex", "0");
+        hit.setAttribute("aria-label", `查看 ${card.title} 的 Inspector 卡片`);
+        hit.style.cursor = "pointer";
+        const selectCard = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          activeInspectorCardId = card.designId;
+          render(data);
+        };
+        hit.addEventListener("mousedown", (event) => event.stopPropagation());
+        hit.addEventListener("click", selectCard);
+        hit.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") selectCard(event);
+        });
+        svg.appendChild(hit);
+      });
+
+      const phaseTitles = inspectorTransaction.phaseTitles || {};
+      const phaseDefinitions = [
+        { id: "pre", title: phaseTitles.pre || "进入 Transaction", y: transactionTop },
+        { id: "collection", title: phaseTitles.collection || "收集与执行", y: transactionTop + 144 },
+        { id: "update", title: phaseTitles.update || "提交与更新", y: transactionTop + 258 },
+      ];
+      const phaseLabelWidth = 126;
+      const stepGap = 13;
+      const stepHeight = 76;
+
+      const drawPhase = (phase) => {
+        const phaseSteps = steps.filter((step) => step.phase === phase.id);
+        const startX = left + phaseLabelWidth;
+        const availableWidth = contentWidth - phaseLabelWidth;
+        const stepWidth = Math.min(248, (availableWidth - stepGap * (phaseSteps.length - 1)) / phaseSteps.length);
+        addText(phase.title, left, phase.y + 36, {
+          size: 15, weight: 760, display: true, fill: "#485563",
+        });
+        phaseSteps.forEach((step, index) => {
+          const globalIndex = steps.findIndex((item) => item.id === step.id) + 1;
+          const x = startX + index * (stepWidth + stepGap);
+          const selected = highlightSteps.has(step.id);
+          const stroke = selected ? activeColor : "#aeb7c1";
+          drawCard(rc, x, phase.y, stepWidth, stepHeight, stroke, {
+            stroke,
+            strokeWidth: selected ? 2.2 : 0.85,
+            roughness: selected ? 0.95 : 0.35,
+            bowing: 0.28,
+            fill: selected ? colorWithAlpha(activeColor, 0.18) : "rgba(247,248,249,0.82)",
+          });
+          addText(String(globalIndex).padStart(2, "0"), x + 12, phase.y + 18, {
+            size: 10.5, weight: 760, code: true, fill: selected ? activeColor : "#8d98a4",
+          });
+          wrapText(step.label, x + 12, phase.y + 41, stepWidth - 24, {
+            size: phaseSteps.length >= 7 ? 12.9 : 14.0,
+            lineHeight: 16,
+            charWidth: phaseSteps.length >= 7 ? 6.5 : 7.0,
+            maxLines: 2,
+            weight: selected ? 760 : 600,
+            fill: selected ? "#26313d" : "#626e7a",
+          });
+          const hit = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          hit.setAttribute("x", x);
+          hit.setAttribute("y", phase.y);
+          hit.setAttribute("width", stepWidth);
+          hit.setAttribute("height", stepHeight);
+          hit.setAttribute("fill", "transparent");
+          hit.setAttribute("pointer-events", "all");
+          const tooltip = document.createElementNS("http://www.w3.org/2000/svg", "title");
+          tooltip.textContent = step.detail;
+          hit.appendChild(tooltip);
+          svg.appendChild(hit);
+          if (index < phaseSteps.length - 1) {
+            addText("→", x + stepWidth + 1, phase.y + 44, {
+              size: 15, weight: 700, fill: "#89939e",
+            });
+          }
+        });
+      };
+      phaseDefinitions.forEach(drawPhase);
+      addText("↓", width - 72, phaseDefinitions[0].y + 99, { size: 18, weight: 760, fill: "#89939e" });
+      addText("↓", width - 72, phaseDefinitions[1].y + 99, { size: 18, weight: 760, fill: "#89939e" });
+
+      svg.appendChild(rc.rectangle(left, detailTop, contentWidth, detailHeight, {
+        stroke: activeColor,
+        strokeWidth: 1.2,
+        roughness: 0.5,
+        bowing: 0.25,
+        fill: colorWithAlpha(activeColor, 0.075),
+        fillStyle: "solid",
+      }));
+      addText(activeCard.title, left + 22, detailTop + 34, {
+        size: 20, weight: 780, display: true, fill: activeColor,
+      });
+      if (showsExecution) {
+        addText(`${executionPrefix}：${executionLabel}`, left + 22, detailTop + 62, {
+          size: 14.5, weight: 760, display: true, fill: executionColor,
+        });
+        wrapText(activeCard.executionSummary || "尚无执行记录。", left + 22, detailTop + 88, contentWidth - 44, {
+          size: 13.5, lineHeight: 18, charWidth: 7.0, maxLines: 2, weight: 560, fill: "#4f5b67",
+        });
+      }
+      let detailOffset = 0;
+      detailRows.forEach((detail, index) => {
+        const row = typeof detail === "string" ? { text: detail } : detail;
+        const rowTop = detailTop + detailHeaderHeight + detailOffset;
+        const rowHeight = detailRowHeightFor(detail);
+        const rowY = rowTop + 20;
+        addText(String(index + 1), left + 22, rowY, {
+          size: 11.5, weight: 760, code: true, fill: activeColor,
+        });
+        let bodyY = rowY;
+        if (row.heading) {
+          addText(row.heading, left + 64, rowY, {
+            size: 17, weight: 760, display: true, fill: "#26313d",
+          });
+          bodyY += 27;
+        }
+        const textLines = wrapText(row.text, left + 64, bodyY, detailTextWidth, {
+          size: 15.5, lineHeight: 20, charWidth: 7.4, weight: 570, fill: "#34414e",
+        });
+        const table = detailTableFor(row);
+        let contentY = bodyY + textLines * 20 + 6;
+        if (table) {
+          const tableHeight = detailTableHeightFor(table);
+          addDetailTable(table, left + 64, contentY + 6, detailTextWidth, tableHeight);
+          contentY += tableHeight + 12;
+        }
+        const formulas = detailFormulasFor(row);
+        let formulaY = contentY;
+        formulas.forEach((formula) => {
+          addLatex(formula, left + 64, formulaY, detailTextWidth, {
+            height: detailFormulaHeight,
+            size: 18,
+          });
+          formulaY += detailFormulaHeight + detailFormulaGap;
+        });
+        if (index < detailRows.length - 1) {
+          const separator = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          separator.setAttribute("x1", left + 20);
+          separator.setAttribute("x2", left + contentWidth - 20);
+          separator.setAttribute("y1", rowTop + rowHeight);
+          separator.setAttribute("y2", rowTop + rowHeight);
+          separator.setAttribute("stroke", colorWithAlpha(activeColor, 0.22));
+          separator.setAttribute("stroke-width", "1");
+          svg.appendChild(separator);
+        }
+        detailOffset += rowHeight;
+      });
+
+      addText(activeCard.footerText || data.footerText || "按钮选择设计点；中间链路显示作用位置；下方阅读卡列出细节设计决定。", left, height - 24, {
+        size: 13, weight: 620, fill: "#687481",
       });
     }
 
@@ -1538,12 +1815,36 @@
 
     function render(data) {
       clearSvg();
-      title.textContent = data.title || "MOSAIC Architecture Atlas";
+      const moduleInspectorActive = Boolean(data.moduleInspector) && viewMode !== "repository_reading";
+      title.textContent = moduleInspectorActive
+        ? data.moduleInspector?.title || data.title || "MOSAIC Architecture Atlas"
+        : data.title || "MOSAIC Architecture Atlas";
       const layout = data.layout || "tabs";
-      if (layout === "repo_tree") {
+      if (layout === "code_quality_evidence_atlas") {
+        renderCodeQualityEvidenceAtlas(data, {
+          svg,
+          rough,
+          setCanvas,
+          addText,
+          wrapText,
+          measuredLineCount,
+          colorWithAlpha,
+          rerender: () => render(data),
+        });
+      } else if (moduleInspectorActive) {
+        renderModuleInspector(data, {
+          svg,
+          rough,
+          setCanvas,
+          addText,
+          wrapText,
+          colorWithAlpha,
+          rerender: () => render(data),
+        });
+      } else if (layout === "repo_tree") {
         renderRepoTree(data);
-      } else if (layout === "design_point_table") {
-        renderDesignPointTable(data);
+      } else if (layout === "design_transaction_inspector" || layout === "module_test_inspector") {
+        renderInspector(data);
       } else if (layout === "repository_reading_atlas") {
         renderRepositoryReadingAtlas(data);
       } else if (layout === "flow_tree") {
@@ -1553,9 +1854,15 @@
       } else {
         renderTabs(data);
       }
-      if (layout === "repository_reading_atlas" && autoFitWidth) {
+      if (moduleInspectorActive && autoFitWidth) {
+        requestAnimationFrame(() => {
+          fitWidth();
+          stage.scrollLeft = 0;
+          stage.scrollTop = 0;
+        });
+      } else if ((layout === "repository_reading_atlas" || layout === "design_transaction_inspector" || layout === "module_test_inspector") && autoFitWidth) {
         autoFitWidth = false;
-        zoom = clampZoom(data.defaultZoom || 0.65);
+        zoom = clampZoom(data.defaultZoom || ((layout === "design_transaction_inspector" || layout === "module_test_inspector") ? 0.8 : 0.65));
         requestAnimationFrame(() => {
           applyZoom();
           stage.scrollLeft = 0;
@@ -1578,7 +1885,9 @@
       source.value = serialized;
       render(data);
       setStatus(`loaded ${new Date().toLocaleTimeString()}`);
-      hint.innerHTML = `Edit <code>${dataUrl.replace("./", "")}</code> in VSCode. Hide this editor for full-width review. Drag the canvas to pan; use zoom controls or trackpad scroll for large maps.`;
+      hint.innerHTML = data.moduleInspector && viewMode !== "repository_reading"
+        ? `Module Inspector reads one owner registry from <code>${dataUrl.replace("./", "")}</code>. Select a module to highlight its Training Main Loop stage and inspect its function chain.`
+        : `Edit <code>${dataUrl.replace("./", "")}</code> in VSCode. Hide this editor for full-width review. Drag the canvas to pan; use zoom controls or trackpad scroll for large maps.`;
     }
 
     function renderEditor() {

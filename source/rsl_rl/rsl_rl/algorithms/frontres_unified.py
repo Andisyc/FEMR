@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional
-import importlib.util
 import math
-from pathlib import Path
-import sys
 
 import torch
 import torch.nn as nn
@@ -13,33 +10,24 @@ import torch.optim as optim
 
 from rsl_rl.modules import ActorCritic, FrontRESActorCritic, ResidualActorCritic
 from rsl_rl.storage import RolloutStorage
+from rsl_rl.modules.frontres_observation_layout import (
+    FRONTRES_FUTURE_INTENT_LAYOUT_VERSION,
+    resolve_frontres_future_intent_layout,
+)
+from rsl_rl.frontres.frontres_segment_warmup import (
+    frontres_k_stage_schedule_fingerprint,
+    frontres_k_stage_schedule_tuple,
+    normalize_frontres_k_stage_schedule,
+    require_frontres_v013_campaign_schedule,
+)
 
 
-def _frontres_v011_schedule_owners():
-    try:
-        from rsl_rl.frontres.frontres_segment_warmup import (
-            frontres_k_stage_schedule_fingerprint,
-            frontres_k_stage_schedule_tuple,
-            normalize_frontres_k_stage_schedule,
-            require_frontres_v011_campaign_schedule,
-        )
-    except (ModuleNotFoundError, ImportError):
-        path = Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_warmup.py"
-        spec = importlib.util.spec_from_file_location("frontres_v011_schedule_unified", path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError(f"Could not load FRS-TRAIN-v011 schedule owner from {path}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
-        frontres_k_stage_schedule_fingerprint = module.frontres_k_stage_schedule_fingerprint
-        frontres_k_stage_schedule_tuple = module.frontres_k_stage_schedule_tuple
-        normalize_frontres_k_stage_schedule = module.normalize_frontres_k_stage_schedule
-        require_frontres_v011_campaign_schedule = module.require_frontres_v011_campaign_schedule
+def _frontres_v013_schedule_owners():
     return (
         normalize_frontres_k_stage_schedule,
         frontres_k_stage_schedule_tuple,
         frontres_k_stage_schedule_fingerprint,
-        require_frontres_v011_campaign_schedule,
+        require_frontres_v013_campaign_schedule,
     )
 
 
@@ -54,17 +42,18 @@ def validate_frontres_v015_stage3_supervision_config(
     offsets = tuple(int(value) for value in (future_offsets or ()))
     if not offsets:
         return
+    resolve_frontres_future_intent_layout(offsets, FRONTRES_FUTURE_INTENT_LAYOUT_VERSION)
     if abs(float(lambda_supervised)) > 1.0e-12 or abs(float(lambda_supervised_min)) > 1.0e-12:
         raise ValueError(
-                "FRS-TRAIN-v011 requires lambda_supervised=0 and lambda_supervised_min=0 "
+                "FRS-TRAIN-v014 requires lambda_supervised=0 and lambda_supervised_min=0 "
             "for the v015 future-intent Stage-3 route; HSL is initialization-only"
         )
 
 
-class FrontRESV015TrackedAdam(optim.Adam):
+class FrontRESTrackedAdam(optim.Adam):
     """Count every real v015 optimizer step in persisted optimizer state."""
 
-    _STEP_COUNT_KEY = "frontres_v015_step_count"
+    _STEP_COUNT_KEY = "frontres_step_count"
 
     def __init__(self, params, *args, **kwargs):
         super().__init__(params, *args, **kwargs)
@@ -72,7 +61,7 @@ class FrontRESV015TrackedAdam(optim.Adam):
             group[self._STEP_COUNT_KEY] = 0
 
     @property
-    def frontres_v015_step_count(self) -> int:
+    def frontres_step_count(self) -> int:
         counts = []
         for group in self.param_groups:
             value = group.get(self._STEP_COUNT_KEY)
@@ -85,7 +74,7 @@ class FrontRESV015TrackedAdam(optim.Adam):
 
     def step(self, closure=None):
         result = super().step(closure=closure)
-        next_count = self.frontres_v015_step_count + 1
+        next_count = self.frontres_step_count + 1
         for group in self.param_groups:
             group[self._STEP_COUNT_KEY] = next_count
         return result
@@ -149,22 +138,18 @@ class FrontRESUnified:
         frontres_segment_replay_enabled: bool = False,
         frontres_segment_live_runner_enabled: bool = False,
         frontres_segment_live_sentinel_only: bool = False,
-        frontres_v015_local_sentinel_only: bool = False,
+        frontres_local_sentinel_only: bool = False,
         frontres_segment_live_probe_only: bool = False,
         frontres_segment_live_storage_write_only: bool = False,
         frontres_segment_live_single_update_only: bool = False,
         frontres_segment_live_update_loop_only: bool = False,
-        frontres_segment_offline_eval_only: bool = False,
-        frontres_segment_sequence_offline_eval_only: bool = False,
         frontres_segment_live_train_enabled: bool = False,
-        frontres_v015_formal_transaction_enabled: bool = False,
+        frontres_formal_transaction_enabled: bool = False,
         frontres_segment_live_update_steps: int = 4,
         frontres_segment_critic_warmup_iterations: int = 0,
         frontres_segment_actor_warmup_iterations: int = 0,
-        frontres_segment_k_curriculum: tuple[tuple[int, int, int, int, int], ...] = (),
+        frontres_segment_k_curriculum: tuple[tuple[object, ...], ...] = (),
         frontres_formal_runtime_audit: bool = False,
-        frontres_segment_periodic_eval_enabled: bool = False,
-        frontres_segment_periodic_eval_interval: int = 100,
         frontres_segment_live_fail_on_invalid_update: bool = True,
         frontres_segment_live_min_valid_count: int = 1,
         frontres_segment_live_fail_on_nonfinite: bool = True,
@@ -175,6 +160,7 @@ class FrontRESUnified:
         frontres_future_intent_layout_version: str = "frontres-v015-future-intent-q29-v1",
         frontres_segment_max_horizon_k: int = 64,
         frontres_segment_advantage_normalization: str = "scale_only",
+        frontres_gain_beta: float = 0.02,
         frontres_segment_cache_dir: str = "",
         frontres_segment_shard_cache_size: int = 8,
         frontres_segment_include_boundary_diagnostic: bool = False,
@@ -228,7 +214,7 @@ class FrontRESUnified:
         self.policy = policy.to(self.device)
 
         trainable_params = self._collect_trainable_params(policy)
-        optimizer_type = FrontRESV015TrackedAdam if frontres_v015_formal_transaction_enabled else optim.Adam
+        optimizer_type = FrontRESTrackedAdam if frontres_formal_transaction_enabled else optim.Adam
         self.optimizer = optimizer_type(trainable_params, lr=learning_rate)
 
         self.storage: RolloutStorage = None
@@ -271,49 +257,44 @@ class FrontRESUnified:
         self.frontres_segment_replay_enabled = bool(frontres_segment_replay_enabled)
         self.frontres_segment_live_runner_enabled = bool(frontres_segment_live_runner_enabled)
         self.frontres_segment_live_sentinel_only = bool(frontres_segment_live_sentinel_only)
-        self.frontres_v015_local_sentinel_only = bool(frontres_v015_local_sentinel_only)
+        self.frontres_local_sentinel_only = bool(frontres_local_sentinel_only)
         self.frontres_segment_live_probe_only = bool(frontres_segment_live_probe_only)
         self.frontres_segment_live_storage_write_only = bool(frontres_segment_live_storage_write_only)
         self.frontres_segment_live_single_update_only = bool(frontres_segment_live_single_update_only)
         self.frontres_segment_live_update_loop_only = bool(frontres_segment_live_update_loop_only)
-        self.frontres_segment_offline_eval_only = bool(frontres_segment_offline_eval_only)
-        self.frontres_segment_sequence_offline_eval_only = bool(frontres_segment_sequence_offline_eval_only)
         self.frontres_segment_live_train_enabled = bool(frontres_segment_live_train_enabled)
-        self.frontres_v015_formal_transaction_enabled = bool(frontres_v015_formal_transaction_enabled)
-        self.frontres_method_contract_id = "FRS-METHOD-v016"
-        self.frontres_gain_contract_id = "FRS-GAIN-v006"
-        self.frontres_optimization_contract_id = "FRS-PPO-v004"
-        self.frontres_training_contract_id = "FRS-TRAIN-v011"
-        self.frontres_scalar_target_id = "paired-intent-minus-repair-v1"
-        self.frontres_constraint_schema_id = "contact-loaded-phase_zmp-survival-physical-v2"
-        self.frontres_projection_schema_id = "grouped-first-order-constraint-projection-v1"
+        self.frontres_formal_transaction_enabled = bool(frontres_formal_transaction_enabled)
+        self.frontres_method_contract_id = "FRS-METHOD-v017"
+        self.frontres_gain_contract_id = "FRS-GAIN-v007"
+        self.frontres_optimization_contract_id = "FRS-PPO-v005"
+        self.frontres_training_contract_id = "FRS-TRAIN-v014"
+        self.frontres_dr_curriculum_schema_id = "nested-k-dr-four-class-v1"
+        self.frontres_scalar_target_id = "clean-anchored-recovery-aware-gain-v1"
+        self.frontres_physics_schema_id = "clean-anchored-contact-zmp-survival-v1"
+        self.frontres_grouped_schema_id = "grouped-all-attempt-scalar-v1"
         self.frontres_segment_live_update_steps = max(1, int(frontres_segment_live_update_steps))
         self.frontres_segment_critic_warmup_iterations = max(0, int(frontres_segment_critic_warmup_iterations))
         self.frontres_segment_actor_warmup_iterations = max(0, int(frontres_segment_actor_warmup_iterations))
-        self.frontres_segment_k_curriculum = tuple(
-            tuple(int(value) for value in row) for row in frontres_segment_k_curriculum
-        )
+        self.frontres_segment_k_curriculum = tuple(tuple(row) for row in frontres_segment_k_curriculum)
         self.frontres_segment_k_curriculum_fingerprint = ""
         if self.frontres_segment_k_curriculum:
             (
                 normalize_frontres_k_stage_schedule,
                 frontres_k_stage_schedule_tuple,
                 frontres_k_stage_schedule_fingerprint,
-                require_frontres_v011_campaign_schedule,
-            ) = _frontres_v011_schedule_owners()
+                require_frontres_v013_campaign_schedule,
+            ) = _frontres_v013_schedule_owners()
             normalized_k_schedule = normalize_frontres_k_stage_schedule(
                 self.frontres_segment_k_curriculum,
                 max_horizon_k=int(frontres_segment_max_horizon_k),
             )
-            if self.frontres_v015_formal_transaction_enabled:
-                normalized_k_schedule = require_frontres_v011_campaign_schedule(normalized_k_schedule)
+            if self.frontres_formal_transaction_enabled:
+                normalized_k_schedule = require_frontres_v013_campaign_schedule(normalized_k_schedule)
             self.frontres_segment_k_curriculum = frontres_k_stage_schedule_tuple(normalized_k_schedule)
             self.frontres_segment_k_curriculum_fingerprint = frontres_k_stage_schedule_fingerprint(
                 normalized_k_schedule
             )
         self.frontres_formal_runtime_audit = bool(frontres_formal_runtime_audit)
-        self.frontres_segment_periodic_eval_enabled = bool(frontres_segment_periodic_eval_enabled)
-        self.frontres_segment_periodic_eval_interval = max(1, int(frontres_segment_periodic_eval_interval))
         self.frontres_segment_live_fail_on_invalid_update = bool(frontres_segment_live_fail_on_invalid_update)
         self.frontres_segment_live_min_valid_count = max(0, int(frontres_segment_live_min_valid_count))
         self.frontres_segment_live_fail_on_nonfinite = bool(frontres_segment_live_fail_on_nonfinite)
@@ -332,14 +313,19 @@ class FrontRESUnified:
             int(frontres_segment_max_horizon_k),
         )
         self.frontres_segment_advantage_normalization = str(frontres_segment_advantage_normalization).lower()
+        self.frontres_gain_beta = float(frontres_gain_beta)
+        if not math.isfinite(self.frontres_gain_beta) or self.frontres_gain_beta < 0.0:
+            raise ValueError("FRS-GAIN-v007 beta must be finite and non-negative")
         if self.frontres_segment_advantage_normalization not in ("none", "scale_only", "standard", "grouped_scale_only"):
             raise ValueError(
                 "frontres_segment_advantage_normalization must be one of "
                 "'none', 'scale_only', 'standard', or 'grouped_scale_only'"
             )
-        if self.frontres_v015_formal_transaction_enabled:
+        if self.frontres_formal_transaction_enabled:
+            if self.frontres_gain_beta != 0.02:
+                raise ValueError("FRS-GAIN-v007 formal route requires the frozen beta_init=0.02")
             if not self.frontres_segment_k_curriculum:
-                raise ValueError("FRS-TRAIN-v011 formal transaction requires an explicit K x M curriculum")
+                raise ValueError("FRS-TRAIN-v014 formal transaction requires an explicit K x M x DR curriculum")
             if self.frontres_segment_advantage_normalization != "grouped_scale_only":
                 raise ValueError("v015 formal transaction requires grouped_scale_only normalization")
             if (
@@ -349,9 +335,9 @@ class FrontRESUnified:
                 or self.frontres_hsl_rollout_label_enabled
             ):
                 raise ValueError("v015 formal transaction rejects HSL and Stage-3 supervised targets")
-        if self.frontres_v015_local_sentinel_only:
-            if not self.frontres_v015_formal_transaction_enabled:
-                raise ValueError("v015 local sentinel requires frontres_v015_formal_transaction_enabled=True")
+        if self.frontres_local_sentinel_only:
+            if not self.frontres_formal_transaction_enabled:
+                raise ValueError("v015 local sentinel requires frontres_formal_transaction_enabled=True")
             if any(
                 (
                     self.frontres_segment_live_sentinel_only,
@@ -359,8 +345,6 @@ class FrontRESUnified:
                     self.frontres_segment_live_storage_write_only,
                     self.frontres_segment_live_single_update_only,
                     self.frontres_segment_live_update_loop_only,
-                    self.frontres_segment_offline_eval_only,
-                    self.frontres_segment_sequence_offline_eval_only,
                     self.frontres_segment_live_train_enabled,
                 )
             ):
@@ -382,7 +366,7 @@ class FrontRESUnified:
                     "segment_replay_hrl is recognized, but live runner integration is disabled. "
                     "Use Step 4-7 toy contract tests until the live Stage 3 connector is integrated."
                 )
-            if self.frontres_v015_local_sentinel_only:
+            if self.frontres_local_sentinel_only:
                 print(
                     "[FrontRESUnified] v015 local identity sentinel initialized; "
                     "the dedicated formal route is opt-in and no legacy live mode is active.",
@@ -416,18 +400,6 @@ class FrontRESUnified:
                 print(
                     "[FrontRESUnified] Segment Replay HRL live update-loop probe initialized; "
                     f"runner will execute {self.frontres_segment_live_update_steps} PPO optimizer steps and exit.",
-                    flush=True,
-                )
-            elif self.frontres_segment_offline_eval_only:
-                print(
-                    "[FrontRESUnified] Segment Replay HRL offline eval initialized; "
-                    "runner will load checkpoint, evaluate sampled segments, and exit.",
-                    flush=True,
-                )
-            elif self.frontres_segment_sequence_offline_eval_only:
-                print(
-                    "[FrontRESUnified] Segment Replay HRL sequence eval initialized; "
-                    "runner will load checkpoint, preroll unique motions from frame 0, evaluate sampled segments, and exit.",
                     flush=True,
                 )
             elif self.frontres_segment_live_train_enabled:
@@ -684,7 +656,6 @@ class FrontRESUnified:
                 or self.frontres_segment_live_storage_write_only
                 or self.frontres_segment_live_single_update_only
                 or self.frontres_segment_live_update_loop_only
-                or self.frontres_segment_sequence_offline_eval_only
                 or self.frontres_segment_live_train_enabled
             )
         ):
@@ -955,20 +926,13 @@ class FrontRESUnified:
             return (values * weights).sum() / weights.sum().clamp(min=1e-6)
 
         if self.policy.num_task_corrections > 0:
-            proposal = torch.cat(
-                [
-                    torch.tanh(raw_pred[:, :3]) * self.policy.max_delta_pos,
-                    torch.tanh(raw_pred[:, 3:6]) * self.policy.max_delta_rpy,
-                ],
-                dim=-1,
-            )
-            target = torch.cat(
-                [
-                    target[:, :3].clamp(-self.policy.max_delta_pos, self.policy.max_delta_pos),
-                    target[:, 3:6].clamp(-self.policy.max_delta_rpy, self.policy.max_delta_rpy),
-                ],
-                dim=-1,
-            )
+            if raw_pred.ndim != 2 or int(raw_pred.shape[-1]) != 6:
+                raise ValueError(
+                    "task-space FrontRES supervision requires exact direct [B,6] actor output, "
+                    f"got {tuple(raw_pred.shape)}"
+                )
+            proposal = raw_pred
+            target = target[:, :6]
         else:
             proposal = raw_pred[:, : target.shape[-1]]
 

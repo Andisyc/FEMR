@@ -1,0 +1,446 @@
+{
+  "layout": "design_transaction_inspector",
+  "defaultZoom": 0.8,
+  "title": "FrontRES Design Inspector",
+  "subtitle": "Clean-anchored Recovery-Aware 设计核验：TRAIN-v014 direct full-6D action 与双层 K-DR Curriculum 已确认并激活",
+  "cards": [
+    {
+      "designId": "FRS-DP-01",
+      "blockId": "M-02",
+      "title": "Perturbation Data",
+      "color": "#ad6b3d",
+      "responsibility": "每个 Segment 只在 t 使用一份固定的 Noisy root artifact；同一 Segment 的所有尝试复用它，后续 K 步不再注入新扰动。",
+      "details": [
+        {
+          "heading": "1. 扰动对象",
+          "text": "只扰动 Segment 起点 t 的 root reference，当前启用单一 local_rp，即 root roll/pitch 类 artifact。不组合多种扰动。扰动类型只决定训练样本，不限制 Actor 的 full-6D 修复输出。"
+        },
+        {
+          "heading": "2. 扰动时序",
+          "text": "每个 Segment 只在 t 生成一次 Noisy artifact。后续 K 步不再追加新扰动。K 步用于观察这一次 Repair 的长期执行后果，不是连续扰动过程。"
+        },
+        {
+          "heading": "3. 固定情境",
+          "text": "同一 Segment 的 zero-action Noisy rollout 与全部 M 个 Repair rollout 必须复用同一扰动类型、强度、artifact 和 noisy_segment_hash。Reset 不能重采样。Clean rollout 不施加扰动。"
+        },
+        {
+          "heading": "4. GMT 扰动边界与 Probing",
+          "text": "2.381 是当前 GMT、机器人和扰动定义下已经测得的最大可靠扰动边界。当前训练可直接配置这个已知值；更换 GMT、机器人或扰动尺度后，也可先用 frozen GMT 的 Noisy-only survival sweep 离线重新测量。Probing 只负责取得训练上限，不训练 FrontRES、不生成每个 K 的 g_K，也不在线控制 DR。"
+        },
+        {
+          "heading": "5. DR 与 K 的关系",
+          "text": "每个 K 都有自己的一轮 DR Curriculum：K8 从较低 DR 推进到较高 DR；切换 K16 后，DR 回到较低但仍有修复信号的水平，Critic 重新校准，再提高 DR；K32 同样重新开始。这里重置的是训练难度，不是 Actor、Critic 或已学能力。"
+        },
+        {
+          "heading": "6. Segment 选择",
+          "text": "Segment 原则上随机选择。只有当恢复 x_t 需要从动作开头 preroll 时，才软性偏向靠前、恢复成本较低的 Segment。所有有效 Segment 始终保留非零采样概率；能够从缓存直接恢复 x_t 的 Segment 不因起始帧靠后而被降权。"
+        },
+        {
+          "heading": "7. 四类训练分布",
+          "text": "四档是扰动强度分类：Easy 保持低难度修复和 Demo 质量；Medium 提供明显且通常可修复的普通学习样本；Hard 接近当前可修复前沿；Broken tail 越过前沿，只少量暴露失败边界。它不同于 Safe / Repairable / Broken / Harmful 这套实际执行结果分类，二者不能混用。",
+          "table": {
+            "columns": ["训练分布", "强度区间与权重", "训练作用"],
+            "rows": [
+              ["Easy", "0 到 0.25 d_cap；20%", "轻微扰动，保持基础修复与 Demo 质量"],
+              ["Medium", "0.25 d_cap 到 0.70 d_cap；30%", "明显但通常可修复，提供普通学习信号"],
+              ["Hard", "0.70 d_cap 到 d_cap；40%", "接近可修复前沿，提供主要困难恢复证据"],
+              ["Broken tail", "d_cap 到 min(1.10 d_cap, 2.381)；10%", "略微越过前沿，暴露失败边界但不能主导训练"]
+            ]
+          }
+        },
+        {
+          "heading": "8. 为什么恢复四档",
+          "text": "d_cap 是当前 K 阶段按显式 committed progress 逐步接近 frozen GMT 边界的强度上限，不是从 survival 在线估计的 g_K。四档分别承担保持基础修复、普通学习、前沿学习和失败边界暴露。训练始终保留四类覆盖，不把全部样本替换成最大扰动；一个 sealed Segment 只采样一次档位与强度，Noisy 和全部 Repair 复用，Gain 与 PPO 不反向控制该分布。"
+        }
+      ],
+      "highlightSteps": ["seal-scenarios", "gmt-execute-k"],
+      "chips": []
+    },
+    {
+      "designId": "FRS-DP-02",
+      "blockId": "SR-01",
+      "title": "Segment Replay",
+      "color": "#47749f",
+      "responsibility": "一个 Transaction 原子封存多个 Segment 的全部 exact M 次尝试，完整收集后只提交一次 grouped PPO update；当前 TRAIN-v014 campaign 取最小跨情境实例 N_segment=2。",
+      "details": [
+        {
+          "heading": "Transaction：完整收集后原子提交",
+          "text": "先冻结旧策略与全部 scenario，再收集所有 Segment x M attempts；收集期间禁止 optimizer update。只有全部尝试完整封存后，才恰好执行一次 grouped PPO update。缺失、混合或中途更新都不能提交。"
+        },
+        {
+          "heading": "Segment 数量：方法允许 N_segment > 1，当前取 2",
+          "text": "一个 Segment 只能提供单一动作情境内的排序；两个 Segment 是产生跨情境信用的最小实例。更多 Segment 在概念上成立，但 rollout 与环境成本随 N_segment 线性增长，因此当前 TRAIN-v014 campaign 固定 N_segment=2，而不是把 2 当作理论定律。"
+        },
+        {
+          "heading": "每个 Segment 单独封存一个 scenario",
+          "text": "每个 Segment 都有自己的固定局部情境；不同 Segment 不共享或混合 artifact、future Intent、Clean continuation、K 与 scenario identity。"
+        },
+        {
+          "heading": "同一 Segment 的尝试从相同 x_t 开始",
+          "text": "M 次尝试都恢复到同一个 Clean replay state x_t，使结果差异主要来自 FEMR 动作。x_t 只恢复动力学，不代表 actor 观察 Clean reference。"
+        },
+        {
+          "heading": "exact M 次尝试只改变一次 Repair 动作",
+          "text": "同一 Segment 内的首帧 artifact、future Intent、Clean continuation、K、hash 与冻结 pi_old 全部不变；只有 t 时刻的 full-6D Delta SE(3) 不同，从而暴露当前策略一次修复的可达范围。"
+        },
+        {
+          "heading": "全部有效尝试共同进入 PPO",
+          "text": "先让每条动作序列拥有相同发言权，再让每个 Segment 拥有相同发言权，最后让同一 Segment 的每次有效尝试拥有相同发言权。发言权相同不代表分数相同；每次尝试自己的 G_total 与 advantage 决定它推动还是反对该动作。不能因为某组数据行更多就压倒其他组，也不使用 winner-only、argmax 或 best-of-M 权重。"
+        },
+        {
+          "heading": "Gain 评分，Segment Replay 组织排序",
+          "text": "Recovery-Aware 的 Intent/Physics 关系由每次尝试的 Gain 定义；Segment Replay 不重新定义分数。它只保证每次有效尝试都参与学习，并防止行数更多的动作、Segment 或尝试组自动获得更大影响力。"
+        },
+        {
+          "heading": "当前一次更新封存 2 x M 条 policy row",
+          "text": "封存 2 x M 条 policy row 后只执行一次 grouped scalar update。当前 N_segment=2；若未来采用一般 N_segment，则相同原子提交规则自然扩展为 N_segment x M。"
+        }
+      ],
+      "highlightSteps": ["select-segments", "seal-scenarios", "restore-xt", "sample-attempts", "seal-policy-rows", "grouped-update"],
+      "chips": []
+    },
+    {
+      "designId": "FRS-DP-03",
+      "blockId": "M-06",
+      "title": "K-step Curriculum",
+      "color": "#6c4d91",
+      "responsibility": "先学习短期修复，再逐渐要求同一个首帧 Repair 在更长时间内保持有效；K 延长后果评价，M 增加同一 Segment 的尝试数。",
+      "details": [
+        {
+          "heading": "训练顺序：K8/M2 → K16/M3 → K32/M4",
+          "text": "全局 schedule 固定为 K8/M2、K16/M3、K32/M4。K8 先评价一次 Repair 在 8 步内的结果；K16 和 K32 再逐渐检查更长期的后果。对应的 M 从 2 增加到 3、4，表示每个 Segment 分别尝试 2、3、4 种一次性修复。"
+        },
+        {
+          "heading": "K 延长后果，M 增加候选",
+          "text": "K 决定一次 Repair 的后果要观察多久；M 决定同一情境要尝试多少种 Repair。更长 K 会暴露更复杂的动力学后果，因此同步增加 M，让 Segment Replay 看见更多当前可达候选。"
+        },
+        {
+          "heading": "K64 当前不启用",
+          "text": "K64 当前未激活。当前 curriculum 最长训练到 K=32；K64 会进一步增加执行成本和长期 rollout 不确定性，因此尚未进入当前训练身份。"
+        },
+        {
+          "heading": "同一 Transaction 使用相同 K/M",
+          "text": "一次 Transaction 中的两个 Segment 必须处在同一 curriculum 阶段，不能一个使用 K8/M2、另一个使用 K16/M3，否则 grouped PPO 会混合不同的后果范围和尝试结构。"
+        },
+        {
+          "heading": "K 不是未来输入帧数",
+          "text": "FrontRES 仍只观察 H=2 帧未来 Intent，并在 t 时刻只输出一次 Repair。随后 FrontRES 冻结，GMT 执行 K 步；K 只表示检查这次动作后果的 executable-evidence horizon。"
+        },
+        {
+          "heading": "一个 attempt 始终只有一条 PPO row",
+          "text": "GMT 虽然执行 K 步，但这些步骤都在评价同一个 FrontRES 动作。因此 1 attempt = 1 Repair action = 1 PPO policy row；K 不是 PPO row 数，也不是连续 Repair 次数。"
+        },
+        {
+          "heading": "每个 Segment 使用 1 Clean + 1 Noisy + M Repair",
+          "text": "每个 sealed Segment 的语义 evaluator set 固定为一次 Clean、一次 zero-action Noisy 和 M 次 Repair。只有 M 条 Repair policy row 进入 PPO；这些 rollout 在运行时串行还是并行、占用多少 env，属于工程编排，不再写成方法公式。"
+        },
+        {
+          "heading": "双层 Curriculum：外层推进 K，内层重新推进 DR",
+          "text": "必须先完整封存当前 Transaction、执行 exact-one update 并提交训练状态，才能切换 K/M。每个 K 都拥有一轮独立的 DR Curriculum：K8 从较低 DR 逐步提高；切换到 K16 后，DR 回到较低但仍有明确修复信号的水平，冻结 Actor/std 并重新校准同一 Critic；校准后再提高 DR。K32 同理。这里重置的是 DR 训练难度，不是 Actor、Critic 或已学能力；2.381 仍只是最终参考上限，不是每个 K 的毕业条件。"
+        }
+      ],
+      "highlightSteps": ["resolve-km", "gmt-execute-k", "commit-state"],
+      "chips": []
+    },
+    {
+      "designId": "FRS-DP-04",
+      "blockId": "M-04",
+      "title": "FrontRES 6D Repair",
+      "color": "#377e67",
+      "responsibility": "FrontRES 每个 attempt 只在 t 基于可部署输入输出一次 full-6D Delta SE(3) 修复；K 步内不再产生新的 FrontRES 动作。",
+      "details": [
+        "每个 attempt 只在首帧 t 采样一次 FrontRES 动作。",
+        "动作始终为 full-6D Delta SE(3)：dx、dy、dz、droll、dpitch、dyaw。",
+        "平移与旋转都解释为 world-frame residual；四元数组合顺序由实现统一负责，不作为独立方法设计点。",
+        "K 步执行期间不再产生新的 FrontRES 动作。",
+        "逐帧部署采用 no-feedback composition：每帧 Delta SE(3) 只修复 sealed Noisy/deployment stream 的当前 reference；机器人动力学状态继续演化，但上一帧 repaired reference 不写回下一帧 actor 输入，也不替换下一帧 Noisy reference。",
+        "specialist_mode=rp 只限制扰动分布，不激活 action mask。",
+        "full-6D 输出不使用按扰动类型设置的 mask、per-axis scale、tanh、clip 或 clamp。向上 dz 不做硬裁剪，而由 HSL 初始方向、Clean-anchored K-step 后果与 full-6D repair cost 共同抑制；这是软偏向，不冒充绝对禁止。",
+        "rho、confidence、acceptance、第二个 actor 与第二个 Critic 均不属于当前接口。"
+      ],
+      "highlightSteps": ["frontres-action"],
+      "chips": []
+    },
+    {
+      "designId": "FRS-DP-05",
+      "blockId": "M-10",
+      "title": "Frozen GMT",
+      "color": "#437f86",
+      "responsibility": "首帧修复确定后冻结 FrontRES；冻结的 GMT 独立执行同一条 Clean continuation，留下这次修复的 K-step 可执行后果。",
+      "details": [
+        "首帧 Delta SE(3) 确定后，FrontRES 在整个 K-step horizon 内冻结。",
+        "GMT policy 与 GMT checkpoint 始终冻结，不参与 Stage-3 更新。",
+        "GMT 只读取原有 770D observation suffix。",
+        "GMT 沿同一条 Clean continuation[t+1:t+K] 执行修复后的参考。",
+        "Clean continuation 只供 GMT 与 Physics evaluator 使用，不回流为 actor future。",
+        "FrontRES 不替代 GMT，也不学习新的 tracker。"
+      ],
+      "highlightSteps": ["gmt-execute-k"],
+      "chips": []
+    },
+    {
+      "designId": "FRS-DP-06",
+      "blockId": "Q-PAIR",
+      "title": "Paired Rollouts",
+      "color": "#a05e4f",
+      "responsibility": "同一 scenario 只执行一次 Clean Rollout 和一次固定 zero-action Noisy Rollout，并以它们共同评价 M 个 Repair rollout 的一次修复可达边界。",
+      "details": [
+        {
+          "heading": "Clean Rollout：定义正确动作",
+          "text": "Clean Rollout 使用未受干扰的参考，从同一个 x_t 执行 K 步。它说明动作原本需要的支撑变化、动态倾斜、phase-ZMP 与目标姿态，是所有 Repair 共同使用的正确动作锚点。"
+        },
+        {
+          "heading": "Noisy Rollout：定义不修复零点",
+          "text": "Noisy Rollout 使用固定的 Noisy reference，但 FEMR 输出为零。它表示相同状态和相同扰动下，如果 FEMR 什么都不做，GMT 会执行成什么样；artifact、施加方式、protocol 与 noisy_segment_hash 全程固定。"
+        },
+        {
+          "heading": "Repair Rollout：记录一次修复的 K-step 后果",
+          "text": "每个 Repair attempt 只在 t 时刻输出一次 full-6D Delta SE(3)，之后 FEMR 冻结，由 GMT 执行 K 步。M 个 Repair 分别给出当前动力学条件下不同修复动作能够到达的候选结果。"
+        },
+        {
+          "heading": "Clean 与 Noisy 只执行一次",
+          "text": "每个 sealed scenario 只执行一次 Clean Rollout。每个 sealed scenario 只执行一次 zero-action Noisy Rollout。两条实际 K-step 结果封存后，只读复用于该 Segment 的全部 M 个 Repair attempt，避免每次尝试重新运行 baseline 而改变比较标准。"
+        },
+        {
+          "heading": "只有 Repair 进入 PPO",
+          "text": "Clean 与 Noisy 不是 Actor 采样出的动作，只负责 evaluator evidence，也不进入 actor input。全部有效 Repair attempt 各产生一条 PPO policy row，并用自己的 G_total 参与更新。"
+        },
+        {
+          "heading": "共享 baseline 减少可避免噪声",
+          "text": "固定并复用 Clean 与 Noisy，可以消除 attempt 间重采样 baseline 造成的额外噪声，但不宣称 simulator 的动力学随机性完全抵消；当前设计容忍剩余 rollout 噪声。"
+        }
+      ],
+      "highlightSteps": ["paired-evidence"],
+      "chips": []
+    },
+    {
+      "designId": "FRS-DP-07",
+      "blockId": "Q-01",
+      "title": "Repair Gain",
+      "color": "#a75555",
+      "responsibility": "Gain 在每次尝试内组合 Intent Gain 与压力加权的 Physics Gain，从而定义 Recovery-Aware；Segment Replay 让同组全部有效 G_total 通过各自 advantage 传递排序信用。",
+      "details": [
+        {
+          "heading": "Intent、Physics 与 Segment Replay",
+          "text": "Gain 分为 Intent Gain 和 Physics Gain；两者在 G_total 中的连续交互定义 Recovery-Aware。Segment Replay 不再定义这种交互；同一 sealed scenario 的全部有效 attempt 都进入 grouped PPO，并由各自 G_total 和共享 Critic baseline 形成排序信用。Critic 预测完整 Recovery-Aware G_total。Contact、support-foot drift、phase-ZMP 与 survival 只经 P_X、G_P、G_total 进入学习，不再同时建立独立 Physics projection。"
+        },
+        {
+          "heading": "Recovery-Aware 分类规则",
+          "text": "仍需额外迈步或持续物理补偿时，Physics 恢复应占主要作用；补偿正在减少但尚未消失时，Intent 改善仍有信用但不能掩盖主要失衡；额外补偿消失而姿态仍持续倾斜时，Intent 开始主导 Demo 质量；稳定状态下新制造的严重失衡必须强惩罚，而轻微 Physics 退化可由显著 Intent 改善接受。"
+        },
+        {
+          "heading": "Clean 锚点与归一化",
+          "text": "Clean 定义正确动作阶段、预期支撑、正常动态倾斜与目标姿态。D_j 是第 j 项相对 Clean 的剩余问题，不是统一几何距离。固定 S_j 把米、弧度、时间或接触事件换成稳定语义单位；它不从当前 Noisy-Clean gap 或 M 个候选重算，避免近零分母放大动力学噪声、恢复比例抹掉绝对失衡程度和候选集合改变排序标准。r_j 不裁剪到 [0,1]，严重状态仍可区分。",
+          "latex": ["r_j(X \\mid \\mathrm{Clean}) = \\frac{D_j(X, \\mathrm{Clean})}{S_j}"]
+        },
+        {
+          "heading": "K-step 时间方向累积",
+          "text": "连续证据仍累积完整 K-step 后果并按有效时间归一化，但固定位置权重 tau_k=k/K 让后段残差更重要，因此能区分正在恢复和正在恶化。[4,3,2,1] 与 [1,2,3,4] 的普通均值同为 2.5，时间方向值分别为 2.0 与 3.0。tau 不是可调参数。Contact 与 survival 保留事件/暴露语义，早期非法接触或失败不能因位置靠前而被弱化；缺失证据也不能缩小分母获益。",
+          "latex": ["D_j^{\\rightarrow}(X,C)=\\frac{\\sum_{k=1}^{K}a_{j,k}\\tau_k e_{j,k}(X,C)}{\\sum_{k=1}^{K}a_{j,k}\\tau_k},\\quad \\tau_k=\\frac{k}{K}"]
+        },
+        {
+          "heading": "Intent 项",
+          "text": "Intent 比较 Noisy/Repair 的实际执行轨迹与 Clean rollout，而不是比较可能数值相同的 q29 reference。水平全局漂移被移除，持续倾斜和相对姿态错误保留；加速度初期只做诊断，避免有限差分噪声进入 Gain。",
+          "table": {
+            "columns": ["项目", "D_j 的物理含义", "固定 S_j"],
+            "rows": [
+              ["Root orientation", "K-step root orientation geodesic error，直接暴露持续侧倾", "0.087 rad（5°）"],
+              ["Joint pose", "执行 q29 相对 Clean rollout 的逐关节 RMS error", "0.087 rad（5°）"],
+              ["Key-body pose", "去除水平全局漂移后的手、脚、躯干位置 error", "0.10 m"],
+              ["Linear velocity", "root-local body linear-velocity error", "0.75 m/s"],
+              ["Angular velocity", "joint/body angular-velocity error", "2.0 rad/s"],
+              ["Root height", "相对 Clean 的 root-height error，识别下沉或悬浮", "0.05 m"]
+            ]
+          }
+        },
+        {
+          "heading": "Physics 项",
+          "text": "Physics 检查 Repair 是否保持 Clean rollout 的预期支撑语义，而不是只奖励不摔倒。持续倾斜但无需额外补偿属于 Intent；额外迈步、拖脚或改变支撑属于 Physics。",
+          "table": {
+            "columns": ["项目", "D_j 的物理含义", "固定 S_j"],
+            "rows": [
+              ["Contact phase", "额外/缺失 Contact 或非法支撑切换占预期 foot-time 的比例", "0.10 exposure"],
+              ["Support-foot drift", "loaded foot 的 slip、drag 或非计划支撑位移", "0.03 m"],
+              ["Phase-ZMP", "loaded-support phase 中超出 Clean-conditioned support/recovery envelope 的平均深度", "0.02 m"],
+              ["Survival", "失败后损失的 K-step horizon 比例", "0.10 horizon fraction"]
+            ]
+          }
+        },
+        {
+          "heading": "组内有限补偿、Recovery 压力与 Total",
+          "text": "Intent 与 Physics 分别先用同一个平滑最差项汇总：每个 z_j 就是一项归一化后的 r_j。严重单项会越来越主导，但所有项目仍参与，避免自由平均掩盖明显坏姿态或支撑错误，也避免 hard max 的突变；1/n 使项目数量不改变同值基线。随后 Noisy-Repair 得到两组改善。lambda 用 Noisy 与 Repair 的平均剩余 Physics 压力，让失衡状态中的 Physics 变化获得更多作用：10→8 与 3→1 都改善 2，但贡献分别为 18 与 4。C_repair 只衡量这一次 full-6D 动作有多大：10 cm 平移和 5°旋转各算一个修复单位，再在同一根号内合并。根号中是平移与旋转，不是 Physics 与 Intent；动作是否改善 Physics/Intent 仍由 Clean-anchored rollout 判断。Clean 指路、Noisy 定零点、Repair 给出后果；M 个总分通过全部 attempt 的 advantage 传递排序信用。",
+          "latex": [
+            "\\mathcal{M}(z_1,\\ldots,z_n)=\\log\\!\\left(\\frac{1}{n}\\sum_{j=1}^{n}e^{z_j}\\right)",
+            "I_X=\\mathcal{M}(\\{r_{I,j}(X\\mid C)\\}_j),\\quad P_X=\\mathcal{M}(\\{r_{P,j}(X\\mid C)\\}_j)",
+            "G_I^{(m)}=I_N-I_R^{(m)},\\quad G_P^{(m)}=P_N-P_R^{(m)}",
+            "\\lambda_{RA}^{(m)}=\\frac{P_N+P_R^{(m)}}{2}",
+            "\\lambda_{RA}^{(m)}G_P^{(m)}=\\frac{P_N^2-(P_R^{(m)})^2}{2}",
+            "C_{\\mathrm{repair}}^{(m)}=\\sqrt{\\left(\\frac{\\lVert\\Delta t^{(m)}\\rVert_2}{0.10\\,\\mathrm m}\\right)^2+\\left(\\frac{\\lVert\\Delta\\theta^{(m)}\\rVert_2}{5^\\circ}\\right)^2}",
+            "G_{\\mathrm{total}}^{(m)}=G_I^{(m)}+\\lambda_{RA}^{(m)}G_P^{(m)}-\\beta C_{\\mathrm{repair}}^{(m)}"
+          ]
+        },
+        {
+          "heading": "β 初值与 live 校准",
+          "text": "首轮 bounded live test 使用 beta_init=0.02。每个 attempt 分开记录无 cost 恢复收益 R、修复代价 C_repair、实际代价 beta×C_repair 和最终 G_total。只有‘恢复收益更高，同时动作也更大’的同 Segment trade-off pair 才能反推临界 beta；恢复更好且动作不更大的候选已经支配另一候选，不用于校准。报告还要显示加入 cost 前后是否改变 attempt 排序。live test 不自动修改 beta；人类可以在两次 bounded calibration 之间调整这一个全局值，确认后跨 Segment 与 K 固定。",
+          "latex": [
+            "R^{(m)}=G_I^{(m)}+\\lambda_{RA}^{(m)}G_P^{(m)}",
+            "\\beta_{\\mathrm{init}}=0.02",
+            "\\beta_{ab}^{\\star}=\\frac{R^{(a)}-R^{(b)}}{C_{\\mathrm{repair}}^{(a)}-C_{\\mathrm{repair}}^{(b)}}>0"
+          ]
+        }
+      ],
+      "highlightSteps": ["build-objectives", "grouped-update"],
+      "chips": []
+    },
+    {
+      "designId": "FRS-DP-08",
+      "blockId": "M-03",
+      "title": "HSL Warmup",
+      "color": "#7a674e",
+      "responsibility": "HSL-v2 只在冷启动的首个 Stage-3 Transaction 前初始化 direct full-6D proposal Actor；此后不再提供训练 target，严格 resume 也不会重新加载 HSL。",
+      "details": [
+        "HSL-v2 只学习 current-frame anti-DR proposal direction，并直接输出有限 6D Delta SE(3)，不经过 tanh、scale、clip、clamp 或 action mask。",
+        "HSL actor 使用与 Stage-3 相同的 deployable 158D FrontRES input。",
+        "HSL-v2 checkpoint 只携带 direct actor、6D Gaussian distribution 与 158D prefix normalizer。",
+        "Critic、optimizer、sampler 与 Transaction state 不进入 HSL payload。",
+        "Clean future 与 legacy quartet/Clean-global label 不进入 HSL。",
+        "HSL 只在 Stage-3 cold start 前初始化一次，之后不再提供 supervised target。",
+        "严格 Stage-3 resume 与 HSL initializer 互斥。"
+      ],
+      "highlightSteps": ["init-hsl"],
+      "chips": []
+    },
+    {
+      "designId": "FRS-DP-09",
+      "blockId": "M-05",
+      "title": "Actor & Critic Warmup",
+      "color": "#725781",
+      "responsibility": "先让 Critic 学会判断 Repair 的好坏，再让 Actor 根据这个判断逐渐学习；每次 K 增长后，Critic 都重新适应新的判断范围。",
+      "details": [
+        {
+          "heading": "Critic Initialize：HSL → HRL 时重新初始化 Critic",
+          "text": "HSL 只初始化 proposal Actor，没有训练 Stage-3 的 scalar Critic。进入 HRL 时，Critic 从头学习 Recovery-Aware G_total；HSL 初始化过的 Actor 保留，不随 Critic 一起重新初始化。"
+        },
+        {
+          "heading": "Critic-only：先冻结 Actor 和 std",
+          "text": "新 Critic 刚开始还不会判断 Repair 好坏。如果此时立即更新 Actor，Actor 会跟随一个尚未校准的判断者乱走。因此先保持 Actor 的动作策略和探索强度不变，只训练 Critic，让它先学会预测当前 K 下的 G_total。"
+        },
+        {
+          "heading": "Actor-ramp：逐渐允许 Actor 学习",
+          "text": "Critic 初步校准后，不立刻让 Actor 全力更新，而是逐渐增加 Actor 更新强度。直白地说，就是从‘只训练裁判’逐渐过渡到‘裁判已经基本可靠，可以开始指导选手’。"
+        },
+        {
+          "heading": "Joint Optimize：Actor 与 Critic 一起训练",
+          "text": "进入正常训练后：Actor 根据 PPO 信号改善 Repair；Critic 继续学习这些新 Repair 对应的 G_total。Critic 不能停止更新，因为 Actor 改变后，动作结果的分布也会改变，Critic 必须持续跟上。"
+        },
+        {
+          "heading": "Recalibrate：每次 K 增长，Critic 重新进入校准",
+          "text": "当 K 从 8 增长到 16 时，我们观察的已经不是‘8 步后的修复结果’，而是‘16 步后的修复结果’。因此先把 DR 降回较低但仍有明确修复信号的水平，冻结 Actor/std，只让同一 Critic 适应更长的后果范围；Critic 校准后再进入 Actor-ramp、Joint Optimize，并在当前 K 内重新提高 DR。K32 重复同样过程。"
+        }
+      ],
+      "highlightSteps": ["resolve-km", "grouped-update", "commit-state"],
+      "chips": []
+    },
+    {
+      "designId": "FRS-DP-10",
+      "blockId": "M-11",
+      "title": "Future Motion Context",
+      "color": "#3c7485",
+      "responsibility": "FEMR 在 t 时刻读取同一条固定 Noisy reference 中 t+1、t+2 两帧的 29D 内部关节 Intent，共 58D。未来 root/global 不进入 FEMR。",
+      "details": [
+        "未来窗口固定为 t+1 与 t+2 两帧。",
+        "每帧只提取 29D 内部关节 Intent，共 58D。",
+        "两帧均来自同一条 sealed Noisy/deployment reference。",
+        "root-only perturbation 使 q29 数值偶然等于 Clean calibration 时，provenance 仍然是 Noisy。",
+        "future root/global、Clean future、noise label 与 perturbation timing 不进入 FEMR。",
+        "FrontRES input 为当前 100D 加 future Intent 58D，共 158D。",
+        "H=2 只辅助当前动作方向消歧；K=8/16/32 仍只评价 executable consequences。",
+        "同一 Segment 的 M 次尝试只读复用这两帧，不重采样或变异。"
+      ],
+      "highlightSteps": ["seal-scenarios", "frontres-action"],
+      "chips": []
+    }
+  ],
+  "transaction": {
+    "steps": [
+      {
+        "id": "init-hsl",
+        "phase": "pre",
+        "label": "用 HSL-v2 初始化 direct 6D Actor",
+        "detail": "只在首次 Stage-3 Transaction 前执行；严格 resume 不会重新加载 HSL"
+      },
+      {
+        "id": "resolve-km",
+        "phase": "pre",
+        "label": "确定 K/M 与训练阶段",
+        "detail": "沿已确认的 K/M curriculum 选择 critic-only、actor-ramp 或 joint"
+      },
+      {
+        "id": "select-segments",
+        "phase": "collection",
+        "label": "选择两个 Segment",
+        "detail": "每个 Transaction 固定包含两个 Segment"
+      },
+      {
+        "id": "seal-scenarios",
+        "phase": "collection",
+        "label": "封存每个 Segment 的 scenario",
+        "detail": "固定 x_t、首帧 Noisy artifact、两帧 Noisy 内部 Intent、Clean continuation、K 与 hash"
+      },
+      {
+        "id": "restore-xt",
+        "phase": "collection",
+        "label": "恢复到同一 Clean replay state x_t",
+        "detail": "Clean x_t 只恢复动力学，不向 FrontRES 提供 Clean reference"
+      },
+      {
+        "id": "sample-attempts",
+        "phase": "collection",
+        "label": "采样 exact M 个修复动作",
+        "detail": "每个 Segment 都从冻结的 pi_old 采样 exact M 个修复动作；收集期间不执行 optimizer update"
+      },
+      {
+        "id": "frontres-action",
+        "phase": "collection",
+        "label": "FrontRES 在 t 仅输出一次 Delta SE(3)",
+        "detail": "完整观测为 928D；FrontRES 读取 158D：当前 100D 加 Noisy q29[t+1] 与 q29[t+2] 共 58D；GMT-only 770D 对其不可见"
+      },
+      {
+        "id": "gmt-execute-k",
+        "phase": "collection",
+        "label": "冻结 FrontRES，由 GMT 执行 K 步",
+        "detail": "FrontRES 不再动作；GMT 只读取 770D suffix 并执行同一条 Clean continuation；K 不是 PPO row 数"
+      },
+      {
+        "id": "paired-evidence",
+        "phase": "collection",
+        "label": "构造 Clean/Noisy/Repair Rollout 证据",
+        "detail": "Clean 锚定动作阶段，Noisy 表示不修复，M 个 Repair rollout 暴露候选修复后果"
+      },
+      {
+        "id": "build-objectives",
+        "phase": "update",
+        "label": "形成 scalar Recovery-Aware Gain",
+        "detail": "Gain 用 Clean-conditioned Intent improvement 与恢复压力加权的 Physics improvement 形成每个 attempt 的 G_total"
+      },
+      {
+        "id": "seal-policy-rows",
+        "phase": "update",
+        "label": "封存 2 x M 条 PPO row",
+        "detail": "每个有效 Repair attempt 对应一条等结构质量 policy row 和自己的 G_total；Clean 与 Noisy 只提供 evaluator evidence"
+      },
+      {
+        "id": "grouped-update",
+        "phase": "update",
+        "label": "完整封存后执行一次 grouped update",
+        "detail": "全部 attempt 的 scalar advantage 共同更新；不选赢家、不再执行独立 Physics projection，optimizer update 数为一"
+      },
+      {
+        "id": "commit-state",
+        "phase": "update",
+        "label": "提交 checkpoint 与训练阶段状态",
+        "detail": "只有已提交的 Transaction 才推进 absolute iteration 与 K/M 进度"
+      }
+    ]
+  }
+}

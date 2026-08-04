@@ -1,1285 +1,560 @@
-"""Shared paired Style/Physics/Repair gain calculations for Segment Replay.
-
-This module is deliberately independent from the environment reward.  It owns
-only the repair-specific quantities that may enter Segment PPO returns,
-sampler evidence, and evaluation summaries.
-"""
+"""Active FRS-GAIN-v007 Clean-anchored Recovery-Aware scalar owner."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-import importlib.util
 import math
-from pathlib import Path
-from typing import Any, Mapping
 
 import torch
 
-_AUDIT_SPEC = importlib.util.spec_from_file_location(
-    "frontres_formal_runtime_probe_gain",
-    Path(__file__).resolve().with_name("frontres_formal_runtime_probe.py"),
-)
-assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
-_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
-_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
-emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
-
-
 @dataclass(frozen=True)
-class FrontRESSegmentGainConfig:
-    """Named scales and weights for the accepted paired gain contract."""
+class FrontRESRecoveryAwareGainConfig:
+    """Fixed semantic units for the active FRS-GAIN-v007 scalar owner."""
 
-    style_weight: float = 1.0
-    physics_weight: float = 1.0
-    repair_weight: float = 0.15
-    mpjpe_scale: float = 0.10
-    velocity_scale: float = 1.0
-    acceleration_scale: float = 1.0
-    root_orientation_scale: float = 1.0
-    repair_norm_scale: float = 1.0
-    repair_temporal_scale: float = 1.0
-
-    @classmethod
-    def from_mapping(cls, cfg: Mapping[str, Any] | Any | None) -> "FrontRESSegmentGainConfig":
-        if isinstance(cfg, Mapping):
-            values = dict(cfg)
-        else:
-            values = {
-                name: getattr(cfg, name)
-                for name in (
-                    "frontres_gain_style_weight",
-                    "frontres_gain_physics_weight",
-                    "frontres_gain_repair_weight",
-                    "frontres_gain_mpjpe_scale",
-                    "frontres_gain_velocity_scale",
-                    "frontres_gain_acceleration_scale",
-                    "frontres_gain_root_orientation_scale",
-                    "frontres_gain_repair_norm_scale",
-                    "frontres_gain_repair_temporal_scale",
-                )
-                if cfg is not None and hasattr(cfg, name)
-            }
-        return cls(
-            style_weight=float(values.get("frontres_gain_style_weight", cls.style_weight)),
-            physics_weight=float(values.get("frontres_gain_physics_weight", cls.physics_weight)),
-            repair_weight=float(values.get("frontres_gain_repair_weight", cls.repair_weight)),
-            mpjpe_scale=float(values.get("frontres_gain_mpjpe_scale", cls.mpjpe_scale)),
-            velocity_scale=float(values.get("frontres_gain_velocity_scale", cls.velocity_scale)),
-            acceleration_scale=float(values.get("frontres_gain_acceleration_scale", cls.acceleration_scale)),
-            root_orientation_scale=float(values.get("frontres_gain_root_orientation_scale", cls.root_orientation_scale)),
-            repair_norm_scale=float(values.get("frontres_gain_repair_norm_scale", cls.repair_norm_scale)),
-            repair_temporal_scale=float(values.get("frontres_gain_repair_temporal_scale", cls.repair_temporal_scale)),
-        )
-
-
-@dataclass(frozen=True)
-class FrontRESSegmentGainResult:
-    """Per-row paired gain and component diagnostics.
-
-    NaN means the component was not observable from the supplied capture.  It
-    is intentionally not converted to zero.
-    """
-
-    style_gain: torch.Tensor
-    physics_gain: torch.Tensor
-    repair_cost: torch.Tensor
-    gain_total: torch.Tensor
-    style_mpjpe_gain: torch.Tensor
-    style_velocity_gain: torch.Tensor
-    style_acceleration_gain: torch.Tensor
-    style_root_orientation_gain: torch.Tensor
-    physics_success_gain: torch.Tensor
-    physics_survival_quality_repaired: torch.Tensor
-    physics_survival_quality_noisy: torch.Tensor
-    physics_survival_gain: torch.Tensor
-    physics_zmp_gain: torch.Tensor
-    physics_contact_gain: torch.Tensor
-    repair_norm: torch.Tensor
-    repair_temporal_change: torch.Tensor
-    repair_clean_norm: torch.Tensor
-    repair_clean_temporal_change: torch.Tensor
-    repair_clean_cost: torch.Tensor
-    audit_transaction_id: str | None = None
-    audit_batch_signature: str | None = None
-    audit_identity_state: str = "UNCONFIRMED"
-
-    @property
-    def available(self) -> torch.Tensor:
-        return torch.isfinite(self.gain_total)
-
-
-@dataclass(frozen=True)
-class FrontRESIntentPhysicsGainConfig:
-    """Fixed physical scales for the active FRS-GAIN-v006 owner.
-
-    This config intentionally has no Clean/global-style fields. It is a pure
-    calculation surface; Step 3B owns configuration routing and consumers.
-    """
-
-    repair_weight: float = 0.15
-    q29_scale: float = 1.0
-    qvel_scale: float = 1.0
-    qacc_scale: float = 1.0
-    repair_norm_scale: float = 1.0
-    repair_temporal_scale: float = 1.0
-    zmp_violation_scale: float = 0.05
+    beta: float = 0.02
+    root_orientation_scale: float = 0.087
+    joint_pose_scale: float = 0.087
+    key_body_pose_scale: float = 0.10
+    root_linear_velocity_scale: float = 0.75
+    root_angular_velocity_scale: float = 2.0
+    root_height_scale: float = 0.05
+    contact_phase_scale: float = 0.10
+    support_foot_drift_scale: float = 0.03
+    phase_zmp_scale: float = 0.02
+    survival_scale: float = 0.10
+    translation_repair_scale: float = 0.10
+    rotation_repair_scale: float = math.radians(5.0)
     contact_timing_tolerance: int = 1
-    zmp_recovery_window: int = 1
-    physics_dt: float = 0.02
-    contact_budget_foot_seconds: float = 0.0
-    zmp_budget_metre_seconds: float = 0.0
-    contact_scale_foot_seconds: float = 1.0
-    zmp_scale_metre_seconds: float = 0.05
-    survival_scale_seconds: float = 1.0
 
-
-_PhysicsCostConfig = FrontRESSegmentGainConfig | FrontRESIntentPhysicsGainConfig
-
-
-@dataclass(frozen=True)
-class FrontRESIntentPhysicsGainInput:
-    """Typed, root-free evidence consumed by the active local-repair Gain.
-
-    intent_q29 is the fixed deployment/Noisy internal-motion target. The type
-    deliberately has no Clean, root, global-position, or actor/PPO fields:
-    those objects cannot enter intent fidelity through this owner.
-    """
-
-    intent_q29: torch.Tensor
-    repaired_q29: torch.Tensor
-    noisy_q29: torch.Tensor
-    intent_q29_provenance: str
-    intent_q29_source: str
-    repair_action_steps: torch.Tensor
-    intent_valid_mask: torch.Tensor | None = None
-    intent_qvel: torch.Tensor | None = None
-    repaired_qvel: torch.Tensor | None = None
-    noisy_qvel: torch.Tensor | None = None
-    intent_qacc: torch.Tensor | None = None
-    repaired_qacc: torch.Tensor | None = None
-    noisy_qacc: torch.Tensor | None = None
-    repaired_success: torch.Tensor | None = None
-    noisy_success: torch.Tensor | None = None
-    repaired_survival: torch.Tensor | None = None
-    noisy_survival: torch.Tensor | None = None
-    effective_horizon_k: torch.Tensor | float | int | None = None
-    repaired_zmp_margin: torch.Tensor | None = None
-    noisy_zmp_margin: torch.Tensor | None = None
-    repaired_contact: torch.Tensor | None = None
-    noisy_contact: torch.Tensor | None = None
-    repaired_contact_violation: torch.Tensor | None = None
-    noisy_contact_violation: torch.Tensor | None = None
-    repaired_zmp_violation: torch.Tensor | None = None
-    noisy_zmp_violation: torch.Tensor | None = None
-    repair_action_valid_steps: torch.Tensor | None = None
-    expected_support_steps: torch.Tensor | None = None
-    repaired_contact_steps: torch.Tensor | None = None
-    noisy_contact_steps: torch.Tensor | None = None
-    repaired_zmp_margin_steps: torch.Tensor | None = None
-    noisy_zmp_margin_steps: torch.Tensor | None = None
-    physics_pair_valid_mask: torch.Tensor | None = None
+    def validate(self) -> None:
+        scales = (
+            self.root_orientation_scale,
+            self.joint_pose_scale,
+            self.key_body_pose_scale,
+            self.root_linear_velocity_scale,
+            self.root_angular_velocity_scale,
+            self.root_height_scale,
+            self.contact_phase_scale,
+            self.support_foot_drift_scale,
+            self.phase_zmp_scale,
+            self.survival_scale,
+            self.translation_repair_scale,
+            self.rotation_repair_scale,
+        )
+        if not math.isfinite(float(self.beta)) or float(self.beta) < 0.0:
+            raise ValueError("FRS-GAIN-v007 beta must be finite and non-negative")
+        if any(not math.isfinite(float(value)) or float(value) <= 0.0 for value in scales):
+            raise ValueError("FRS-GAIN-v007 semantic scales must be finite and positive")
+        if int(self.contact_timing_tolerance) < 0:
+            raise ValueError("FRS-GAIN-v007 contact timing tolerance must be non-negative")
 
 
 @dataclass(frozen=True)
-class FrontRESIntentPhysicsGainResult:
-    """Per-row FRS-GAIN-v006 scalar target and vector constraints.
+class FrontRESRecoveryAwareGainInput:
+    """Executed Clean/Noisy/Repair K evidence for one row per Repair attempt."""
 
-    Optional qvel/qacc and one-action temporal terms remain NaN when they are
-    not observable. They are never silently converted to zero.
-    """
+    clean_joint_pos: torch.Tensor
+    noisy_joint_pos: torch.Tensor
+    repaired_joint_pos: torch.Tensor
+    clean_root_pos: torch.Tensor
+    noisy_root_pos: torch.Tensor
+    repaired_root_pos: torch.Tensor
+    clean_root_quat: torch.Tensor
+    noisy_root_quat: torch.Tensor
+    repaired_root_quat: torch.Tensor
+    clean_key_body_pos: torch.Tensor
+    noisy_key_body_pos: torch.Tensor
+    repaired_key_body_pos: torch.Tensor
+    clean_root_lin_vel: torch.Tensor
+    noisy_root_lin_vel: torch.Tensor
+    repaired_root_lin_vel: torch.Tensor
+    clean_root_ang_vel: torch.Tensor
+    noisy_root_ang_vel: torch.Tensor
+    repaired_root_ang_vel: torch.Tensor
+    clean_foot_pos: torch.Tensor
+    noisy_foot_pos: torch.Tensor
+    repaired_foot_pos: torch.Tensor
+    expected_support: torch.Tensor
+    clean_contact: torch.Tensor
+    noisy_contact: torch.Tensor
+    repaired_contact: torch.Tensor
+    clean_zmp_margin: torch.Tensor
+    noisy_zmp_margin: torch.Tensor
+    repaired_zmp_margin: torch.Tensor
+    clean_survival: torch.Tensor
+    noisy_survival: torch.Tensor
+    repaired_survival: torch.Tensor
+    clean_valid_mask: torch.Tensor
+    noisy_valid_mask: torch.Tensor
+    repaired_valid_mask: torch.Tensor
+    repair_actions: torch.Tensor
 
+
+@dataclass(frozen=True)
+class FrontRESRecoveryAwareGainResult:
+    """Complete scalar ordering and falsifiable per-family diagnostics."""
+
+    intent_remaining_noisy: torch.Tensor
+    intent_remaining_repaired: torch.Tensor
+    physics_remaining_noisy: torch.Tensor
+    physics_remaining_repaired: torch.Tensor
+    intent_channel_noisy: torch.Tensor
+    intent_channel_repaired: torch.Tensor
+    physics_channel_noisy: torch.Tensor
+    physics_channel_repaired: torch.Tensor
+    support_foot_drift_noisy: torch.Tensor
+    support_foot_drift_repaired: torch.Tensor
     intent_gain: torch.Tensor
     physics_gain: torch.Tensor
+    recovery_pressure: torch.Tensor
+    weighted_physics_gain: torch.Tensor
     repair_cost: torch.Tensor
-    gain_total: torch.Tensor
-    intent_q29_noisy_error: torch.Tensor
-    intent_q29_repaired_error: torch.Tensor
-    intent_q29_gain: torch.Tensor
-    intent_qvel_noisy_error: torch.Tensor
-    intent_qvel_repaired_error: torch.Tensor
-    intent_qvel_gain: torch.Tensor
-    intent_qacc_noisy_error: torch.Tensor
-    intent_qacc_repaired_error: torch.Tensor
-    intent_qacc_gain: torch.Tensor
-    physics_success_gain: torch.Tensor
-    physics_survival_quality_repaired: torch.Tensor
-    physics_survival_quality_noisy: torch.Tensor
-    physics_survival_gain: torch.Tensor
-    physics_zmp_gain: torch.Tensor
-    physics_contact_gain: torch.Tensor
-    repair_norm: torch.Tensor
-    repair_temporal_change: torch.Tensor
-    intent_quality_repaired: torch.Tensor
-    intent_quality_noisy: torch.Tensor
-    physics_admissible_repaired: torch.Tensor
-    physics_admissible_noisy: torch.Tensor
-    physics_deficit_repaired: torch.Tensor
-    physics_deficit_noisy: torch.Tensor
-    utility_repaired: torch.Tensor
-    utility_noisy: torch.Tensor
     repair_penalty: torch.Tensor
-    intent_q29_provenance: str
-    intent_q29_source: str
-    contact_constraint_residual: torch.Tensor
-    zmp_constraint_residual: torch.Tensor
-    survival_constraint_residual: torch.Tensor
-    contact_constraint: torch.Tensor
-    zmp_constraint: torch.Tensor
-    survival_constraint: torch.Tensor
-    zmp_applicable_repaired: torch.Tensor
-    zmp_applicable_noisy: torch.Tensor
-    zmp_constraint_applicable: torch.Tensor
-    scalar_target_id: str = "paired-intent-minus-repair-v1"
-    constraint_schema_id: str = "contact-loaded-phase_zmp-survival-physical-v2"
-
-    @property
-    def style_gain(self) -> torch.Tensor:
-        """Compatibility diagnostic alias for root-invariant intent realization."""
-
-        return self.intent_gain
+    cost_free_score: torch.Tensor
+    gain_total: torch.Tensor
+    intent_scales: tuple[float, ...]
+    physics_scales: tuple[float, ...]
+    translation_repair_scale: float
+    rotation_repair_scale: float
+    beta: float
+    scalar_target_id: str = "clean-anchored-recovery-aware-gain-v1"
+    physics_schema_id: str = "clean-anchored-contact-zmp-survival-v1"
 
     @property
     def available(self) -> torch.Tensor:
         return torch.isfinite(self.gain_total)
 
 
-def compute_intent_physics_local_repair_gain(
-    evidence: FrontRESIntentPhysicsGainInput,
+def compute_recovery_aware_gain(
+    evidence: FrontRESRecoveryAwareGainInput,
     *,
-    config: FrontRESIntentPhysicsGainConfig,
-) -> FrontRESIntentPhysicsGainResult:
-    """Compute the active FRS-GAIN-v006 scalar target and Physics constraints.
+    config: FrontRESRecoveryAwareGainConfig,
+) -> FrontRESRecoveryAwareGainResult:
+    """Compute the unique FRS-GAIN-v007 Clean-anchored scalar.
 
-    Both scored branches are compared to the same deployment/Noisy q29 target;
-    direct Repair-vs-Noisy similarity is never an intent component. This pure
-    owner has no rollout, storage, return, PPO, or diagnostic side effect.
+    B1 validates the complete executed evidence. B2 constructs normalized
+    channel and family remaining problems. B3 applies the accepted signed
+    Noisy-to-Repair ordering and full-6D intervention cost.
     """
 
-    _validate_v003_intent_provenance(evidence)
-    intent = _compute_v003_intent_components(evidence, config)
-    batch_size = int(intent["q29_gain"].numel())
-    _validate_v003_physics_batch_size(evidence, batch_size)
-    _validate_full6_repair_actions(evidence.repair_action_steps, batch_size)
+    # B1: Clean/Noisy/Repair 必须共享 K x B identity; 缺失或非有限的必需证据直接失败.
+    config.validate()
+    k_steps, batch_size = _validate_recovery_aware_gain_input(evidence)
+    clean_valid = evidence.clean_valid_mask.bool()
+    noisy_valid = evidence.noisy_valid_mask.bool()
+    repaired_valid = evidence.repaired_valid_mask.bool()
 
-    physics = compute_paired_physics_gain(
-        evidence.repaired_success,
-        evidence.noisy_success,
-        evidence.repaired_survival,
-        evidence.noisy_survival,
+    # B2: 先在固定物理单位内计算每个剩余问题, 再用同一 smooth-worst owner 聚合家族.
+    intent_noisy = _recovery_intent_channels(
+        evidence,
+        role="noisy",
+        clean_valid=clean_valid,
+        role_valid=noisy_valid,
         config=config,
-        effective_horizon_k=evidence.effective_horizon_k,
-        repaired_zmp_margin=evidence.repaired_zmp_margin,
-        noisy_zmp_margin=evidence.noisy_zmp_margin,
-        repaired_contact=evidence.repaired_contact,
-        noisy_contact=evidence.noisy_contact,
     )
-    repair = compute_repair_cost(
-        evidence.repair_action_steps,
+    intent_repaired = _recovery_intent_channels(
+        evidence,
+        role="repaired",
+        clean_valid=clean_valid,
+        role_valid=repaired_valid,
         config=config,
-        valid_steps=evidence.repair_action_valid_steps,
     )
-    like = intent["intent"]
-    physics_gain = _match(physics["physics"], like)
-    repair_cost = _match(repair["cost"], like)
-    raw_physics = (
-        evidence.expected_support_steps,
-        evidence.repaired_contact_steps,
-        evidence.noisy_contact_steps,
-        evidence.repaired_zmp_margin_steps,
-        evidence.noisy_zmp_margin_steps,
-        evidence.physics_pair_valid_mask,
+    physics_noisy = _recovery_physics_channels(
+        evidence,
+        role="noisy",
+        clean_valid=clean_valid,
+        role_valid=noisy_valid,
+        config=config,
     )
-    if not all(isinstance(value, torch.Tensor) for value in raw_physics):
-        raise ValueError("FRS-GAIN-v006 requires ordered Contact/phase-ZMP K evidence")
-    if any(
-        not math.isfinite(float(value)) or float(value) < 0.0
-        for value in (config.contact_budget_foot_seconds, config.zmp_budget_metre_seconds)
-    ) or any(
-        not math.isfinite(float(value)) or float(value) <= 0.0
-        for value in (
-            config.physics_dt,
-            config.contact_scale_foot_seconds,
-            config.zmp_scale_metre_seconds,
-            config.survival_scale_seconds,
-        )
-    ):
-        raise ValueError("FRS-GAIN-v006 physical budgets/scales must be finite and fixed positive where required")
-    repaired_phase = evaluate_phase_conditioned_physics(
-        evidence.expected_support_steps,
-        evidence.repaired_contact_steps,
-        evidence.repaired_zmp_margin_steps,
-        evidence.physics_pair_valid_mask,
-        timing_tolerance=config.contact_timing_tolerance,
-        recovery_window=config.zmp_recovery_window,
-        zmp_violation_scale=config.zmp_violation_scale,
-        dt=config.physics_dt,
+    physics_repaired = _recovery_physics_channels(
+        evidence,
+        role="repaired",
+        clean_valid=clean_valid,
+        role_valid=repaired_valid,
+        config=config,
     )
-    noisy_phase = evaluate_phase_conditioned_physics(
-        evidence.expected_support_steps,
-        evidence.noisy_contact_steps,
-        evidence.noisy_zmp_margin_steps,
-        evidence.physics_pair_valid_mask,
-        timing_tolerance=config.contact_timing_tolerance,
-        recovery_window=config.zmp_recovery_window,
-        zmp_violation_scale=config.zmp_violation_scale,
-        dt=config.physics_dt,
-    )
-    valid_rows = (
-        evidence.intent_valid_mask.to(device=like.device, dtype=torch.bool)
-        if isinstance(evidence.intent_valid_mask, torch.Tensor)
-        else torch.ones_like(like, dtype=torch.bool)
-    )
-    contact_residual = _match(repaired_phase["contact_violation"], like) - float(config.contact_budget_foot_seconds)
-    zmp_residual = _match(repaired_phase["zmp_violation"], like) - float(config.zmp_budget_metre_seconds)
-    if isinstance(evidence.effective_horizon_k, torch.Tensor):
-        horizon = evidence.effective_horizon_k.to(device=like.device, dtype=like.dtype).reshape(-1)
-        if horizon.numel() == 1:
-            horizon = horizon.expand_as(like)
-    elif evidence.effective_horizon_k is None:
-        horizon = torch.full_like(like, float("nan"))
-    else:
-        horizon = torch.full_like(like, float(evidence.effective_horizon_k))
-    if horizon.numel() != like.numel():
-        raise ValueError("FRS-GAIN-v006 horizon_k must align with Repair policy rows")
-    horizon_seconds = horizon * float(config.physics_dt)
-    repaired_survival_seconds = _match(evidence.repaired_survival, like) * float(config.physics_dt)
-    noisy_survival_seconds = _match(evidence.noisy_survival, like) * float(config.physics_dt)
-    survival_residual = horizon_seconds - repaired_survival_seconds
-    noisy_survival_residual = horizon_seconds - noisy_survival_seconds
-    contact_constraint = torch.relu(contact_residual / float(config.contact_scale_foot_seconds))
-    zmp_constraint = torch.relu(zmp_residual / float(config.zmp_scale_metre_seconds))
-    survival_constraint = torch.relu(survival_residual / float(config.survival_scale_seconds))
-    noisy_contact_constraint = torch.relu(
-        _match(noisy_phase["contact_violation"], like) / float(config.contact_scale_foot_seconds)
-    )
-    noisy_zmp_constraint = torch.relu(
-        _match(noisy_phase["zmp_violation"], like) / float(config.zmp_scale_metre_seconds)
-    )
-    noisy_survival_constraint = torch.relu(noisy_survival_residual / float(config.survival_scale_seconds))
-    zmp_applicable_repaired = repaired_phase["zmp_applicable_steps"].any(dim=0)
-    zmp_applicable_noisy = noisy_phase["zmp_applicable_steps"].any(dim=0)
-    # PPO constrains the Repair action. Keep this compatibility alias explicit,
-    # while preserving both role identities for evidence and diagnostics.
-    zmp_constraint_applicable = zmp_applicable_repaired
-    deficit_repaired = torch.stack((contact_constraint, zmp_constraint, survival_constraint), dim=0).amax(dim=0)
-    deficit_noisy = torch.stack((noisy_contact_constraint, noisy_zmp_constraint, noisy_survival_constraint), dim=0).amax(dim=0)
-    admissible_repaired = (contact_constraint <= 0.0) & (zmp_constraint <= 0.0) & (survival_constraint <= 0.0)
-    admissible_noisy = (noisy_contact_constraint <= 0.0) & (noisy_zmp_constraint <= 0.0) & (noisy_survival_constraint <= 0.0)
-    intent_quality_repaired = torch.exp(-intent["q29_repaired_error"] / float(config.q29_scale)).clamp(0.0, 1.0)
-    intent_quality_noisy = torch.exp(-intent["q29_noisy_error"] / float(config.q29_scale)).clamp(0.0, 1.0)
-    utility_repaired = intent_quality_repaired
-    utility_noisy = intent_quality_noisy
-    repair_penalty = repair_cost
-    # B3: Keep the scalar Critic target Intent-only; Physics remains vector actor constraints.
-    total = intent["intent"] - repair_cost
-    total = torch.where(
-        torch.isfinite(intent["intent"]) & torch.isfinite(repair_cost),
-        total,
-        torch.full_like(total, float("nan")),
-    )
-    return FrontRESIntentPhysicsGainResult(
-        intent_gain=intent["intent"],
+    support_foot_drift_noisy = physics_noisy[:, 1] * float(config.support_foot_drift_scale)
+    support_foot_drift_repaired = physics_repaired[:, 1] * float(config.support_foot_drift_scale)
+    intent_remaining_noisy = _smooth_worst_rows(intent_noisy, family="Intent")
+    intent_remaining_repaired = _smooth_worst_rows(intent_repaired, family="Intent")
+    physics_remaining_noisy = _smooth_worst_rows(physics_noisy, family="Physics")
+    physics_remaining_repaired = _smooth_worst_rows(physics_repaired, family="Physics")
+
+    # B3: Noisy 定义零点, 平均剩余 Physics 压力调节 Physics 改善, cost 只惩罚干预大小.
+    intent_gain = intent_remaining_noisy - intent_remaining_repaired
+    physics_gain = physics_remaining_noisy - physics_remaining_repaired
+    recovery_pressure = 0.5 * (physics_remaining_noisy + physics_remaining_repaired)
+    weighted_physics_gain = recovery_pressure * physics_gain
+    repair_cost = _full6_repair_cost(evidence.repair_actions, config=config)
+    repair_penalty = float(config.beta) * repair_cost
+    cost_free_score = intent_gain + weighted_physics_gain
+    gain_total = cost_free_score - repair_penalty
+    if not bool(torch.isfinite(gain_total).all()):
+        raise ValueError("FRS-GAIN-v007 produced a non-finite required scalar")
+    return FrontRESRecoveryAwareGainResult(
+        intent_remaining_noisy=intent_remaining_noisy,
+        intent_remaining_repaired=intent_remaining_repaired,
+        physics_remaining_noisy=physics_remaining_noisy,
+        physics_remaining_repaired=physics_remaining_repaired,
+        intent_channel_noisy=intent_noisy,
+        intent_channel_repaired=intent_repaired,
+        physics_channel_noisy=physics_noisy,
+        physics_channel_repaired=physics_repaired,
+        support_foot_drift_noisy=support_foot_drift_noisy,
+        support_foot_drift_repaired=support_foot_drift_repaired,
+        intent_gain=intent_gain,
         physics_gain=physics_gain,
+        recovery_pressure=recovery_pressure,
+        weighted_physics_gain=weighted_physics_gain,
         repair_cost=repair_cost,
-        gain_total=total,
-        intent_q29_noisy_error=intent["q29_noisy_error"],
-        intent_q29_repaired_error=intent["q29_repaired_error"],
-        intent_q29_gain=intent["q29_gain"],
-        intent_qvel_noisy_error=intent["qvel_noisy_error"],
-        intent_qvel_repaired_error=intent["qvel_repaired_error"],
-        intent_qvel_gain=intent["qvel_gain"],
-        intent_qacc_noisy_error=intent["qacc_noisy_error"],
-        intent_qacc_repaired_error=intent["qacc_repaired_error"],
-        intent_qacc_gain=intent["qacc_gain"],
-        physics_success_gain=_match(physics["success"], like),
-        physics_survival_quality_repaired=_match(physics["survival_quality_repaired"], like),
-        physics_survival_quality_noisy=_match(physics["survival_quality_noisy"], like),
-        physics_survival_gain=_match(physics["survival"], like),
-        physics_zmp_gain=_match(physics["zmp"], like),
-        physics_contact_gain=_match(physics["contact"], like),
-        repair_norm=_match(repair["norm"], like),
-        repair_temporal_change=_match(repair["temporal"], like),
-        intent_quality_repaired=intent_quality_repaired,
-        intent_quality_noisy=intent_quality_noisy,
-        physics_admissible_repaired=admissible_repaired,
-        physics_admissible_noisy=admissible_noisy,
-        physics_deficit_repaired=deficit_repaired,
-        physics_deficit_noisy=deficit_noisy,
-        utility_repaired=utility_repaired,
-        utility_noisy=utility_noisy,
         repair_penalty=repair_penalty,
-        intent_q29_provenance=evidence.intent_q29_provenance,
-        intent_q29_source=evidence.intent_q29_source,
-        contact_constraint_residual=contact_residual,
-        zmp_constraint_residual=zmp_residual,
-        survival_constraint_residual=survival_residual,
-        contact_constraint=contact_constraint,
-        zmp_constraint=zmp_constraint,
-        survival_constraint=survival_constraint,
-        zmp_applicable_repaired=zmp_applicable_repaired,
-        zmp_applicable_noisy=zmp_applicable_noisy,
-        zmp_constraint_applicable=zmp_constraint_applicable,
+        cost_free_score=cost_free_score,
+        gain_total=gain_total,
+        intent_scales=(
+            float(config.root_orientation_scale),
+            float(config.joint_pose_scale),
+            float(config.key_body_pose_scale),
+            float(config.root_linear_velocity_scale),
+            float(config.root_angular_velocity_scale),
+            float(config.root_height_scale),
+        ),
+        physics_scales=(
+            float(config.contact_phase_scale),
+            float(config.support_foot_drift_scale),
+            float(config.phase_zmp_scale),
+            float(config.survival_scale),
+        ),
+        translation_repair_scale=float(config.translation_repair_scale),
+        rotation_repair_scale=float(config.rotation_repair_scale),
+        beta=float(config.beta),
     )
 
 
-def _normalized_violation(
-    value: torch.Tensor, like: torch.Tensor, label: str, valid_rows: torch.Tensor
-) -> torch.Tensor:
-    result = _match(value, like).float()
+def _validate_recovery_aware_gain_input(evidence: FrontRESRecoveryAwareGainInput) -> tuple[int, int]:
+    if not isinstance(evidence, FrontRESRecoveryAwareGainInput):
+        raise TypeError("FRS-GAIN-v007 requires FrontRESRecoveryAwareGainInput")
+    anchor = evidence.clean_joint_pos
+    if anchor.ndim != 3 or int(anchor.shape[-1]) != 29 or int(anchor.shape[0]) <= 0 or int(anchor.shape[1]) <= 0:
+        raise ValueError("FRS-GAIN-v007 joint trajectories must start with [K,B,29]")
+    k_steps, batch_size = int(anchor.shape[0]), int(anchor.shape[1])
+    shapes = {
+        "noisy_joint_pos": (k_steps, batch_size, 29),
+        "repaired_joint_pos": (k_steps, batch_size, 29),
+        "clean_root_pos": (k_steps, batch_size, 3),
+        "noisy_root_pos": (k_steps, batch_size, 3),
+        "repaired_root_pos": (k_steps, batch_size, 3),
+        "clean_root_quat": (k_steps, batch_size, 4),
+        "noisy_root_quat": (k_steps, batch_size, 4),
+        "repaired_root_quat": (k_steps, batch_size, 4),
+        "clean_root_lin_vel": (k_steps, batch_size, 3),
+        "noisy_root_lin_vel": (k_steps, batch_size, 3),
+        "repaired_root_lin_vel": (k_steps, batch_size, 3),
+        "clean_root_ang_vel": (k_steps, batch_size, 3),
+        "noisy_root_ang_vel": (k_steps, batch_size, 3),
+        "repaired_root_ang_vel": (k_steps, batch_size, 3),
+        "clean_foot_pos": (k_steps, batch_size, 2, 3),
+        "noisy_foot_pos": (k_steps, batch_size, 2, 3),
+        "repaired_foot_pos": (k_steps, batch_size, 2, 3),
+        "expected_support": (k_steps, batch_size, 2),
+        "clean_contact": (k_steps, batch_size, 2),
+        "noisy_contact": (k_steps, batch_size, 2),
+        "repaired_contact": (k_steps, batch_size, 2),
+        "clean_zmp_margin": (k_steps, batch_size),
+        "noisy_zmp_margin": (k_steps, batch_size),
+        "repaired_zmp_margin": (k_steps, batch_size),
+        "clean_survival": (k_steps, batch_size),
+        "noisy_survival": (k_steps, batch_size),
+        "repaired_survival": (k_steps, batch_size),
+        "clean_valid_mask": (k_steps, batch_size),
+        "noisy_valid_mask": (k_steps, batch_size),
+        "repaired_valid_mask": (k_steps, batch_size),
+        "repair_actions": (batch_size, 6),
+    }
+    for name, shape in shapes.items():
+        value = getattr(evidence, name)
+        if not isinstance(value, torch.Tensor) or tuple(value.shape) != shape:
+            raise ValueError(f"FRS-GAIN-v007 {name} must have shape {shape}, got {getattr(value, 'shape', None)}")
+    key_shape = tuple(evidence.clean_key_body_pos.shape)
     if (
-        not bool(torch.isfinite(result[valid_rows]).all())
-        or bool(torch.isfinite(result[~valid_rows]).any())
-        or bool((result[valid_rows] < 0.0).any())
-        or bool((result[valid_rows] > 1.0).any())
+        len(key_shape) != 4
+        or key_shape[:2] != (k_steps, batch_size)
+        or key_shape[-1] != 3
+        or int(key_shape[2]) <= 0
+        or tuple(evidence.noisy_key_body_pos.shape) != key_shape
+        or tuple(evidence.repaired_key_body_pos.shape) != key_shape
     ):
-        raise ValueError(f"legacy normalized {label} violation must be finite in [0,1]")
-    return result
+        raise ValueError("FRS-GAIN-v007 key-body trajectories must share [K,B,J,3]")
+    masks = (
+        evidence.clean_valid_mask.bool(),
+        evidence.noisy_valid_mask.bool(),
+        evidence.repaired_valid_mask.bool(),
+    )
+    if any(not bool(mask.any(dim=0).all()) for mask in masks):
+        raise ValueError("FRS-GAIN-v007 requires at least one observed step per role and Repair row")
+    binary = (
+        evidence.expected_support,
+        evidence.clean_contact,
+        evidence.noisy_contact,
+        evidence.repaired_contact,
+        evidence.clean_survival,
+        evidence.noisy_survival,
+        evidence.repaired_survival,
+    )
+    if any(bool(((value != 0) & (value != 1)).any()) for value in binary):
+        raise ValueError("FRS-GAIN-v007 Contact/support/survival evidence must be binary")
+    zmp_roles = (
+        ("clean", evidence.clean_zmp_margin, evidence.clean_contact, evidence.clean_valid_mask),
+        ("noisy", evidence.noisy_zmp_margin, evidence.noisy_contact, evidence.noisy_valid_mask),
+        ("repaired", evidence.repaired_zmp_margin, evidence.repaired_contact, evidence.repaired_valid_mask),
+    )
+    for name, zmp, contact, valid in zmp_roles:
+        applicable = valid.bool() & evidence.expected_support.bool().any(dim=-1) & contact.bool().any(dim=-1)
+        finite = torch.isfinite(zmp.float())
+        if not bool(finite[applicable].all()) or bool(finite[~applicable].any()):
+            raise ValueError(f"FRS-GAIN-v007 {name} ZMP must be finite exactly on loaded-support valid steps")
+    required_finite = (
+        evidence.clean_joint_pos,
+        evidence.noisy_joint_pos,
+        evidence.repaired_joint_pos,
+        evidence.clean_root_pos,
+        evidence.noisy_root_pos,
+        evidence.repaired_root_pos,
+        evidence.clean_root_quat,
+        evidence.noisy_root_quat,
+        evidence.repaired_root_quat,
+        evidence.clean_key_body_pos,
+        evidence.noisy_key_body_pos,
+        evidence.repaired_key_body_pos,
+        evidence.clean_root_lin_vel,
+        evidence.noisy_root_lin_vel,
+        evidence.repaired_root_lin_vel,
+        evidence.clean_root_ang_vel,
+        evidence.noisy_root_ang_vel,
+        evidence.repaired_root_ang_vel,
+        evidence.clean_foot_pos,
+        evidence.noisy_foot_pos,
+        evidence.repaired_foot_pos,
+        evidence.repair_actions,
+    )
+    if any(not bool(torch.isfinite(value.float()).all()) for value in required_finite):
+        raise ValueError("FRS-GAIN-v007 required execution evidence must be finite")
+    return k_steps, batch_size
 
 
-def evaluate_phase_conditioned_physics(
-    expected_support_steps: torch.Tensor,
-    actual_contact_steps: torch.Tensor,
-    zmp_margin_steps: torch.Tensor,
-    valid_steps: torch.Tensor,
+def _recovery_intent_channels(
+    evidence: FrontRESRecoveryAwareGainInput,
     *,
-    timing_tolerance: int = 1,
-    recovery_window: int = 1,
-    zmp_violation_scale: float = 0.05,
-    dt: float = 0.02,
-) -> dict[str, torch.Tensor]:
-    """Derive unsaturated physical-unit Contact/ZMP evidence from sealed K rows."""
+    role: str,
+    clean_valid: torch.Tensor,
+    role_valid: torch.Tensor,
+    config: FrontRESRecoveryAwareGainConfig,
+) -> torch.Tensor:
+    role_joint = getattr(evidence, f"{role}_joint_pos")
+    role_root_pos = getattr(evidence, f"{role}_root_pos")
+    role_root_quat = getattr(evidence, f"{role}_root_quat")
+    role_body = getattr(evidence, f"{role}_key_body_pos")
+    role_lin = getattr(evidence, f"{role}_root_lin_vel")
+    role_ang = getattr(evidence, f"{role}_root_ang_vel")
+    paired_valid = clean_valid & role_valid
+    root_orientation = _late_weighted_mean(
+        _quat_geodesic(evidence.clean_root_quat.float(), role_root_quat.float()),
+        paired_valid,
+        hold_after_invalid=True,
+    )
+    joint_pose = _late_weighted_mean(
+        torch.sqrt(torch.mean((role_joint.float() - evidence.clean_joint_pos.float()).square(), dim=-1)),
+        paired_valid,
+        hold_after_invalid=True,
+    )
+    horizontal_shift = (role_root_pos[..., :2] - evidence.clean_root_pos[..., :2]).unsqueeze(-2)
+    body_delta = role_body.float() - evidence.clean_key_body_pos.float()
+    body_delta = body_delta.clone()
+    body_delta[..., :2] -= horizontal_shift
+    key_body_pose = _late_weighted_mean(
+        torch.linalg.vector_norm(body_delta, dim=-1).mean(dim=-1),
+        paired_valid,
+        hold_after_invalid=True,
+    )
+    clean_lin_local = _quat_rotate_inverse(evidence.clean_root_quat, evidence.clean_root_lin_vel)
+    role_lin_local = _quat_rotate_inverse(role_root_quat, role_lin)
+    linear_velocity = _late_weighted_mean(
+        torch.linalg.vector_norm(role_lin_local - clean_lin_local, dim=-1),
+        paired_valid,
+        hold_after_invalid=True,
+    )
+    clean_ang_local = _quat_rotate_inverse(evidence.clean_root_quat, evidence.clean_root_ang_vel)
+    role_ang_local = _quat_rotate_inverse(role_root_quat, role_ang)
+    angular_velocity = _late_weighted_mean(
+        torch.linalg.vector_norm(role_ang_local - clean_ang_local, dim=-1),
+        paired_valid,
+        hold_after_invalid=True,
+    )
+    root_height = _late_weighted_mean(
+        (role_root_pos[..., 2] - evidence.clean_root_pos[..., 2]).abs(),
+        paired_valid,
+        hold_after_invalid=True,
+    )
+    return torch.stack(
+        (
+            root_orientation / float(config.root_orientation_scale),
+            joint_pose / float(config.joint_pose_scale),
+            key_body_pose / float(config.key_body_pose_scale),
+            linear_velocity / float(config.root_linear_velocity_scale),
+            angular_velocity / float(config.root_angular_velocity_scale),
+            root_height / float(config.root_height_scale),
+        ),
+        dim=-1,
+    )
 
-    if (
-        expected_support_steps.ndim != 3
-        or tuple(expected_support_steps.shape) != tuple(actual_contact_steps.shape)
-        or int(expected_support_steps.shape[-1]) != 2
-        or tuple(zmp_margin_steps.shape) != tuple(expected_support_steps.shape[:2])
-        or tuple(valid_steps.shape) != tuple(expected_support_steps.shape[:2])
-    ):
-        raise ValueError("FRS-GAIN-v006 phase evidence requires [K,B,2] support/contact and [K,B] ZMP/mask")
-    if timing_tolerance < 0 or recovery_window < 0 or not float(zmp_violation_scale) > 0.0 or not float(dt) > 0.0:
-        raise ValueError("FRS-GAIN-v006 timing/recovery must be non-negative and dt/scales positive")
-    expected = expected_support_steps.bool()
-    actual = actual_contact_steps.bool()
-    valid = valid_steps.bool()
+
+def _recovery_physics_channels(
+    evidence: FrontRESRecoveryAwareGainInput,
+    *,
+    role: str,
+    clean_valid: torch.Tensor,
+    role_valid: torch.Tensor,
+    config: FrontRESRecoveryAwareGainConfig,
+) -> torch.Tensor:
+    contact = getattr(evidence, f"{role}_contact").bool()
+    foot_pos = getattr(evidence, f"{role}_foot_pos")
+    zmp = getattr(evidence, f"{role}_zmp_margin")
+    survival = getattr(evidence, f"{role}_survival").bool()
+    valid = clean_valid & role_valid
+    contact_mismatch = _contact_mismatch_with_tolerance(
+        evidence.expected_support.bool(),
+        contact,
+        valid,
+        tolerance=int(config.contact_timing_tolerance),
+    )
+    valid_foot_exposure = valid.unsqueeze(-1).expand_as(contact_mismatch)
+    contact_den = valid_foot_exposure.float().sum(dim=(0, 2))
+    if bool((contact_den <= 0).any()):
+        raise ValueError("FRS-GAIN-v007 Contact exposure cannot be empty")
+    contact_problem = contact_mismatch.float().sum(dim=(0, 2)) / contact_den
+
+    expected_loaded = evidence.expected_support.bool() & valid.unsqueeze(-1)
+    foot_error = torch.linalg.vector_norm(foot_pos.float() - evidence.clean_foot_pos.float(), dim=-1)
+    support_drift = _late_weighted_mean(
+        _masked_foot_mean(foot_error, expected_loaded),
+        expected_loaded.any(dim=-1),
+        hold_after_invalid=True,
+    )
+
+    zmp_applicable = valid & evidence.expected_support.bool().any(dim=-1) & contact.any(dim=-1)
+    zmp_problem = _late_weighted_optional_mean(torch.relu(-zmp.float()), zmp_applicable)
+    survival_den = clean_valid.float().sum(dim=0)
+    if bool((survival_den <= 0).any()):
+        raise ValueError("FRS-GAIN-v007 survival exposure cannot be empty")
+    survived = (survival & clean_valid).float().sum(dim=0)
+    survival_problem = 1.0 - survived / survival_den
+    return torch.stack(
+        (
+            contact_problem / float(config.contact_phase_scale),
+            support_drift / float(config.support_foot_drift_scale),
+            zmp_problem / float(config.phase_zmp_scale),
+            survival_problem / float(config.survival_scale),
+        ),
+        dim=-1,
+    )
+
+
+def _late_weighted_mean(values: torch.Tensor, valid: torch.Tensor, *, hold_after_invalid: bool) -> torch.Tensor:
+    if tuple(values.shape) != tuple(valid.shape) or values.ndim != 2:
+        raise ValueError("FRS-GAIN-v007 continuous channel requires aligned [K,B] values/mask")
+    work = values.float()
+    mask = valid.bool()
+    if hold_after_invalid:
+        held: list[torch.Tensor] = []
+        held_mask: list[torch.Tensor] = []
+        last = torch.zeros(work.shape[1], device=work.device, dtype=work.dtype)
+        seen = torch.zeros(work.shape[1], device=work.device, dtype=torch.bool)
+        for step in range(int(work.shape[0])):
+            current_valid = mask[step]
+            last = torch.where(current_valid, work[step], last)
+            seen |= current_valid
+            held.append(last.clone())
+            held_mask.append(seen.clone())
+        if not bool(seen.all()):
+            raise ValueError("FRS-GAIN-v007 continuous channel has no valid observation")
+        work = torch.stack(held, dim=0)
+        mask = torch.stack(held_mask, dim=0)
+    tau = torch.arange(1, work.shape[0] + 1, device=work.device, dtype=work.dtype).unsqueeze(1)
+    tau = tau / float(work.shape[0])
+    weights = tau * mask.to(dtype=work.dtype)
+    denominator = weights.sum(dim=0)
+    if bool((denominator <= 0).any()):
+        raise ValueError("FRS-GAIN-v007 continuous channel has empty weighted exposure")
+    return (work * weights).sum(dim=0) / denominator
+
+
+def _late_weighted_optional_mean(values: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
+    if tuple(values.shape) != tuple(valid.shape):
+        raise ValueError("FRS-GAIN-v007 optional channel requires aligned values/mask")
+    tau = torch.arange(1, values.shape[0] + 1, device=values.device, dtype=values.dtype).unsqueeze(1)
+    tau = tau / float(values.shape[0])
+    weights = tau * valid.to(dtype=values.dtype)
+    denominator = weights.sum(dim=0)
+    numerator = torch.where(valid, values, torch.zeros_like(values)).mul(weights).sum(dim=0)
+    return torch.where(
+        denominator > 0,
+        numerator / denominator.clamp_min(torch.finfo(values.dtype).eps),
+        torch.full_like(denominator, float("nan")),
+    )
+
+
+def _masked_foot_mean(values: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    count = mask.float().sum(dim=-1)
+    return torch.where(
+        count > 0,
+        torch.where(mask, values, torch.zeros_like(values)).sum(dim=-1) / count.clamp_min(1.0),
+        torch.zeros_like(count),
+    )
+
+
+def _contact_mismatch_with_tolerance(
+    expected: torch.Tensor,
+    actual: torch.Tensor,
+    valid: torch.Tensor,
+    *,
+    tolerance: int,
+) -> torch.Tensor:
+    if tuple(expected.shape) != tuple(actual.shape) or tuple(expected.shape[:2]) != tuple(valid.shape):
+        raise ValueError("FRS-GAIN-v007 Contact phase requires aligned [K,B,2] evidence")
     k_steps = int(expected.shape[0])
-    aligned = torch.zeros_like(expected)
-    for delta in range(-int(timing_tolerance), int(timing_tolerance) + 1):
+    aligned = torch.zeros_like(expected, dtype=torch.bool)
+    for delta in range(-int(tolerance), int(tolerance) + 1):
         source = torch.arange(k_steps, device=expected.device) + delta
         in_range = (source >= 0) & (source < k_steps)
-        source = source.clamp(0, max(k_steps - 1, 0))
-        match = actual == expected.index_select(0, source)
-        aligned |= match & in_range.view(-1, 1, 1)
-    contact_mismatch = valid.unsqueeze(-1) & ~aligned
-    contact_violation = float(dt) * contact_mismatch.float().sum(dim=(0, 2))
+        source_index = source.clamp(0, max(k_steps - 1, 0))
+        aligned |= (actual == expected.index_select(0, source_index)) & in_range.view(-1, 1, 1)
+    return valid.unsqueeze(-1) & ~aligned
 
-    loaded_supported = expected.any(dim=-1) & actual.any(dim=-1) & valid
-    zmp_finite = torch.isfinite(zmp_margin_steps.float())
-    if not bool(zmp_finite[loaded_supported].all()) or bool(zmp_finite[~loaded_supported].any()):
-        raise ValueError(
-            "FRS-GAIN-v006 requires finite ZMP exactly on expected-and-actually-loaded valid K steps"
-        )
-    transition = torch.zeros_like(valid)
-    if k_steps > 1:
-        transition[1:] = (expected[1:] != expected[:-1]).any(dim=-1) & valid[1:] & valid[:-1]
-    zmp_evaluate = loaded_supported.clone()
-    for offset in range(int(recovery_window)):
-        indices = torch.nonzero(transition, as_tuple=False)
-        if int(indices.numel()) == 0:
-            break
-        shifted = indices[:, 0] + offset
-        inside = shifted < k_steps
-        zmp_evaluate[shifted[inside], indices[inside, 1]] = False
-    zmp_step_violation = torch.relu(-zmp_margin_steps.float())
-    zmp_count = zmp_evaluate.sum(dim=0)
-    zmp_violation = torch.where(
-        zmp_count > 0,
-        float(dt) * torch.where(zmp_evaluate, zmp_step_violation, torch.zeros_like(zmp_step_violation)).sum(dim=0),
-        torch.zeros(expected.shape[1], device=expected.device, dtype=torch.float32),
+
+def _smooth_worst_rows(channels: torch.Tensor, *, family: str) -> torch.Tensor:
+    if channels.ndim != 2 or int(channels.shape[1]) <= 0:
+        raise ValueError(f"FRS-GAIN-v007 {family} channels must be [B,J]")
+    finite = torch.isfinite(channels)
+    if not bool(finite.any(dim=1).all()):
+        raise ValueError(f"FRS-GAIN-v007 {family} family has no applicable channel")
+    masked = torch.where(finite, channels, torch.full_like(channels, float("-inf")))
+    count = finite.sum(dim=1).to(dtype=channels.dtype)
+    return torch.logsumexp(masked, dim=1) - torch.log(count)
+
+
+def _full6_repair_cost(actions: torch.Tensor, *, config: FrontRESRecoveryAwareGainConfig) -> torch.Tensor:
+    translation = torch.linalg.vector_norm(actions[:, :3].float(), dim=-1) / float(config.translation_repair_scale)
+    rotation = torch.linalg.vector_norm(actions[:, 3:6].float(), dim=-1) / float(config.rotation_repair_scale)
+    return torch.sqrt(translation.square() + rotation.square())
+
+
+def _quat_rotate_inverse(quaternion: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:
+    q = quaternion.float()
+    q = q / torch.linalg.vector_norm(q, dim=-1, keepdim=True).clamp_min(1.0e-8)
+    w = q[..., :1]
+    xyz = -q[..., 1:]
+    return vector.float() + 2.0 * (
+        xyz.cross(xyz.cross(vector.float(), dim=-1) + w * vector.float(), dim=-1)
     )
-    return {
-        "contact_violation": contact_violation,
-        "zmp_violation": zmp_violation,
-        "zmp_step_violation": zmp_step_violation,
-        "contact_mismatch_steps": contact_mismatch,
-        "zmp_applicable_steps": zmp_evaluate,
-        "support_transition_steps": transition,
-    }
-
-
-def _validate_v003_intent_provenance(evidence: FrontRESIntentPhysicsGainInput) -> None:
-    if evidence.intent_q29_provenance != "deployment_noisy_q29":
-        raise ValueError(
-            "FRS-GAIN-v006 requires intent_q29_provenance='deployment_noisy_q29', "
-            f"got {evidence.intent_q29_provenance!r}"
-        )
-    source = str(evidence.intent_q29_source).strip()
-    forbidden = ("clean", "root", "global")
-    if not source or any(token in source.lower() for token in forbidden):
-        raise ValueError(
-            "FRS-GAIN-v006 intent_q29_source must exclude Clean/root/global provenance, "
-            f"got {evidence.intent_q29_source!r}"
-        )
-
-
-def _compute_v003_intent_components(
-    evidence: FrontRESIntentPhysicsGainInput,
-    config: FrontRESIntentPhysicsGainConfig,
-) -> dict[str, torch.Tensor]:
-    q29_noisy, q29_repaired, q29_gain = _v003_intent_component(
-        name="q29",
-        intent=evidence.intent_q29,
-        repaired=evidence.repaired_q29,
-        noisy=evidence.noisy_q29,
-        scale=config.q29_scale,
-        valid_mask=evidence.intent_valid_mask,
-    )
-    qvel_noisy, qvel_repaired, qvel_gain = _v003_optional_intent_component(
-        name="qvel",
-        intent=evidence.intent_qvel,
-        repaired=evidence.repaired_qvel,
-        noisy=evidence.noisy_qvel,
-        scale=config.qvel_scale,
-        valid_mask=evidence.intent_valid_mask,
-        like=q29_gain,
-    )
-    qacc_noisy, qacc_repaired, qacc_gain = _v003_optional_intent_component(
-        name="qacc",
-        intent=evidence.intent_qacc,
-        repaired=evidence.repaired_qacc,
-        noisy=evidence.noisy_qacc,
-        scale=config.qacc_scale,
-        valid_mask=evidence.intent_valid_mask,
-        like=q29_gain,
-    )
-    return {
-        "q29_noisy_error": q29_noisy,
-        "q29_repaired_error": q29_repaired,
-        "q29_gain": q29_gain,
-        "qvel_noisy_error": qvel_noisy,
-        "qvel_repaired_error": qvel_repaired,
-        "qvel_gain": qvel_gain,
-        "qacc_noisy_error": qacc_noisy,
-        "qacc_repaired_error": qacc_repaired,
-        "qacc_gain": qacc_gain,
-        "intent": _available_mean((q29_gain, qvel_gain, qacc_gain)),
-    }
-
-
-def _v003_optional_intent_component(
-    *,
-    name: str,
-    intent: torch.Tensor | None,
-    repaired: torch.Tensor | None,
-    noisy: torch.Tensor | None,
-    scale: float,
-    valid_mask: torch.Tensor | None,
-    like: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    values = (intent, repaired, noisy)
-    if all(value is None for value in values):
-        missing = torch.full_like(like, float("nan"))
-        return missing.clone(), missing.clone(), missing.clone()
-    if not all(isinstance(value, torch.Tensor) for value in values):
-            raise ValueError(f"FRS-GAIN-v006 {name} must be supplied for intent, Repair, and Noisy together")
-    return _v003_intent_component(
-        name=name,
-        intent=intent,
-        repaired=repaired,
-        noisy=noisy,
-        scale=scale,
-        valid_mask=valid_mask,
-    )
-
-
-def _v003_intent_component(
-    *,
-    name: str,
-    intent: torch.Tensor,
-    repaired: torch.Tensor,
-    noisy: torch.Tensor,
-    scale: float,
-    valid_mask: torch.Tensor | None,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    if (
-        not _same_shape(intent, repaired, noisy)
-        or intent.ndim not in (2, 3)
-        or int(intent.shape[-1]) != 29
-        or int(intent.shape[0]) <= 0
-    ):
-        raise ValueError(
-                    f"FRS-GAIN-v006 {name} must have identical [B,29] or [B,T,29] tensors, "
-            f"got intent={tuple(intent.shape)}, repaired={tuple(repaired.shape)}, noisy={tuple(noisy.shape)}"
-        )
-    if not float(scale) > 0.0:
-                raise ValueError(f"FRS-GAIN-v006 {name}_scale must be positive, got {scale!r}")
-    if intent.device != repaired.device or intent.device != noisy.device:
-                raise ValueError(f"FRS-GAIN-v006 {name} intent/Repair/Noisy tensors must share one device")
-
-    noisy_error_steps = torch.linalg.norm(noisy.float() - intent.float(), dim=-1)
-    repaired_error_steps = torch.linalg.norm(repaired.float() - intent.float(), dim=-1)
-    if intent.ndim == 2:
-        if valid_mask is None:
-            valid = torch.ones(intent.shape[0], device=intent.device, dtype=torch.bool)
-        else:
-            valid = valid_mask.to(device=intent.device, dtype=torch.bool)
-            if tuple(valid.shape) != tuple(intent.shape[:1]):
-                raise ValueError(
-                        f"FRS-GAIN-v006 {name} validity must be [B] for [B,29], got {tuple(valid.shape)}"
-                )
-        noisy_error = torch.where(valid, noisy_error_steps, torch.full_like(noisy_error_steps, float("nan")))
-        repaired_error = torch.where(
-            valid,
-            repaired_error_steps,
-            torch.full_like(repaired_error_steps, float("nan")),
-        )
-    else:
-        if valid_mask is None:
-            valid = torch.ones(intent.shape[:2], device=intent.device, dtype=torch.bool)
-        else:
-            valid = valid_mask.to(device=intent.device, dtype=torch.bool)
-            if tuple(valid.shape) != tuple(intent.shape[:2]):
-                raise ValueError(
-                        f"FRS-GAIN-v006 {name} validity must be [B,T] for [B,T,29], got {tuple(valid.shape)}"
-                )
-        noisy_error = _masked_temporal_mean(noisy_error_steps, valid)
-        repaired_error = _masked_temporal_mean(repaired_error_steps, valid)
-    gain = (noisy_error - repaired_error) / float(scale)
-    return noisy_error, repaired_error, gain
-
-
-def _validate_v003_physics_batch_size(evidence: FrontRESIntentPhysicsGainInput, batch_size: int) -> None:
-    for name in (
-        "repaired_success",
-        "noisy_success",
-        "repaired_survival",
-        "noisy_survival",
-        "repaired_zmp_margin",
-        "noisy_zmp_margin",
-        "repaired_contact",
-        "noisy_contact",
-        "repaired_contact_violation",
-        "noisy_contact_violation",
-        "repaired_zmp_violation",
-        "noisy_zmp_violation",
-    ):
-        value = getattr(evidence, name)
-        if isinstance(value, torch.Tensor) and value.numel() != batch_size:
-            raise ValueError(
-                f"FRS-GAIN-v006 {name} must have one scalar per q29 row, "
-                f"got {tuple(value.shape)} for B={batch_size}"
-            )
-    horizon = evidence.effective_horizon_k
-    if isinstance(horizon, torch.Tensor) and horizon.numel() not in (1, batch_size):
-        raise ValueError(
-            "FRS-GAIN-v006 effective_horizon_k must be scalar or one value per q29 row, "
-            f"got {tuple(horizon.shape)} for B={batch_size}"
-        )
-
-
-def _validate_full6_repair_actions(action_steps: torch.Tensor, batch_size: int) -> None:
-    if not isinstance(action_steps, torch.Tensor) or action_steps.numel() == 0:
-        raise ValueError("FRS-GAIN-v006 requires nonempty executed full-6D repair_action_steps")
-    if action_steps.ndim == 2 and tuple(action_steps.shape) == (batch_size, 6):
-        return
-    if action_steps.ndim == 3 and int(action_steps.shape[1]) == batch_size and int(action_steps.shape[2]) == 6:
-        return
-    raise ValueError(
-        "FRS-GAIN-v006 repair_action_steps must be [B,6] or [T,B,6] with the q29 batch size, "
-        f"got {tuple(action_steps.shape)} for B={batch_size}"
-    )
-
-
-def compute_paired_style_gain(
-    clean_positions: torch.Tensor | None,
-    repaired_positions: torch.Tensor | None,
-    noisy_positions: torch.Tensor | None,
-    *,
-    config: FrontRESSegmentGainConfig,
-    clean_root_quaternions: torch.Tensor | None = None,
-    repaired_root_quaternions: torch.Tensor | None = None,
-    noisy_root_quaternions: torch.Tensor | None = None,
-    temporal_mask: torch.Tensor | None = None,
-    valid_mask: torch.Tensor | None = None,
-) -> dict[str, torch.Tensor]:
-    """Return normalized Noisy->Repaired style gains against immutable Clean."""
-
-    if not _same_shape(clean_positions, repaired_positions, noisy_positions):
-        return _unconfirmed_components(clean_positions, repaired_positions, noisy_positions)
-
-    clean = clean_positions.float()
-    repaired = repaired_positions.float()
-    noisy = noisy_positions.float()
-    result = {
-        "mpjpe": _error_gain(clean, repaired, noisy, config.mpjpe_scale, temporal_mask, valid_mask),
-        "velocity": _error_gain(
-            clean,
-            repaired,
-            noisy,
-            config.velocity_scale,
-            temporal_mask,
-            valid_mask,
-            order=1,
-        ),
-        "acceleration": _error_gain(
-            clean,
-            repaired,
-            noisy,
-            config.acceleration_scale,
-            temporal_mask,
-            valid_mask,
-            order=2,
-        ),
-    }
-    result["root_orientation"] = _quaternion_error_gain(
-        clean_root_quaternions,
-        repaired_root_quaternions,
-        noisy_root_quaternions,
-        config.root_orientation_scale,
-        valid_mask,
-        temporal_mask=temporal_mask,
-    )
-    result["style"] = _available_mean(tuple(result.values()))
-    return result
-
-
-def compute_paired_physics_gain(
-    repaired_success: torch.Tensor | None,
-    noisy_success: torch.Tensor | None,
-    repaired_survival: torch.Tensor | None,
-    noisy_survival: torch.Tensor | None,
-    *,
-    config: _PhysicsCostConfig,
-    effective_horizon_k: torch.Tensor | float | int | None,
-    repaired_zmp_margin: torch.Tensor | None = None,
-    noisy_zmp_margin: torch.Tensor | None = None,
-    repaired_contact: torch.Tensor | None = None,
-    noisy_contact: torch.Tensor | None = None,
-) -> dict[str, torch.Tensor]:
-    """Return paired frozen-GMT physics gains with K-normalized survival quality.
-
-    `survival_steps` remains a raw rollout diagnostic. It enters this owner only
-    after conversion to `survival_steps / effective_horizon_k`; missing K is
-    unconfirmed and therefore cannot silently become a raw-step Gain.
-
-    Status: shared pure Physics primitive. Legacy FRS-GAIN-v002 callers and the
-    FRS-GAIN-v006 keeps this paired decomposition as compatibility diagnostics; scalar Critic utility
-    uses explicit admissibility/deficit evidence instead of the available mean.
-    Upstream: paired frozen-GMT capture with raw survival steps and per-row K.
-    Downstream: final Gain composition only; consumer routing remains separate.
-    """
-
-    like = _first_tensor(
-        repaired_success,
-        noisy_success,
-        repaired_survival,
-        noisy_survival,
-        repaired_zmp_margin,
-        noisy_zmp_margin,
-        repaired_contact,
-        noisy_contact,
-    )
-    if like is None:
-        empty = torch.empty(0)
-        return {
-            key: empty
-            for key in (
-                "success",
-                "survival_quality_repaired",
-                "survival_quality_noisy",
-                "survival",
-                "zmp",
-                "contact",
-                "physics",
-            )
-        }
-
-    repaired_survival_quality = _survival_quality(
-        repaired_survival,
-        effective_horizon_k,
-        like,
-    )
-    noisy_survival_quality = _survival_quality(
-        noisy_survival,
-        effective_horizon_k,
-        like,
-    )
-
-    result = {
-        "success": _pair_difference(repaired_success, noisy_success, like),
-        "survival_quality_repaired": repaired_survival_quality,
-        "survival_quality_noisy": noisy_survival_quality,
-        "survival": _pair_difference(repaired_survival_quality, noisy_survival_quality, like),
-        "zmp": _pair_difference(repaired_zmp_margin, noisy_zmp_margin, like),
-        "contact": _pair_difference(repaired_contact, noisy_contact, like),
-    }
-    # B2: quality 的 repaired/noisy 两侧只用于诊断, 不能再次作为 Physics
-    # component 参与平均; physics 只聚合四个 paired difference.
-    result["physics"] = _available_mean(
-        (result["success"], result["survival"], result["zmp"], result["contact"])
-    )
-    return result
-
-
-def compute_repair_cost(
-    action_steps: torch.Tensor | None,
-    *,
-    config: _PhysicsCostConfig,
-    valid_steps: torch.Tensor | None = None,
-    clean_action_steps: torch.Tensor | None = None,
-    clean_valid_steps: torch.Tensor | None = None,
-) -> dict[str, torch.Tensor]:
-    """Return executed full-6D cost with per-row K/done and optional legacy diagnostics.
-
-    ``valid_steps`` is true for actions executed before the row had already
-    terminated and inside its effective K.  The action that produces ``done``
-    remains valid because it was executed by the environment.
-    """
-
-    if not isinstance(action_steps, torch.Tensor) or action_steps.numel() == 0:
-        empty = torch.empty(0)
-        return {
-            "norm": empty,
-            "temporal": empty,
-            "cost": empty,
-            "clean_norm": empty,
-            "clean_temporal": empty,
-            "clean_cost": empty,
-        }
-    result = _repair_cost_components(action_steps, valid_steps, config=config)
-    clean = _repair_cost_components(clean_action_steps, clean_valid_steps, config=config)
-    result.update(
-        {
-            "clean_norm": clean["norm"],
-            "clean_temporal": clean["temporal"],
-            "clean_cost": clean["cost"],
-        }
-    )
-    return result
-
-
-def _repair_cost_components(
-    action_steps: torch.Tensor | None,
-    valid_steps: torch.Tensor | None,
-    *,
-    config: _PhysicsCostConfig,
-) -> dict[str, torch.Tensor]:
-    if not isinstance(action_steps, torch.Tensor) or action_steps.numel() == 0:
-        empty = torch.empty(0)
-        return {"norm": empty, "temporal": empty, "cost": empty}
-    actions = action_steps.float()
-    if actions.ndim == 2:
-        actions = actions.unsqueeze(0)
-    if actions.ndim != 3 or actions.shape[-1] != 6:
-        raise ValueError(f"repair action steps must have shape [T,B,6] or [B,6], got {tuple(actions.shape)}")
-    if valid_steps is None:
-        valid = torch.ones(actions.shape[:2], device=actions.device, dtype=torch.bool)
-    else:
-        valid = valid_steps.to(device=actions.device, dtype=torch.bool)
-        if valid.ndim == 1 and actions.shape[0] == 1:
-            valid = valid.unsqueeze(0)
-        if tuple(valid.shape) != tuple(actions.shape[:2]):
-            raise ValueError(
-                "repair action validity must have shape [T,B] matching action steps, "
-                f"got {tuple(valid.shape)} for {tuple(actions.shape)}"
-            )
-
-    norm_values = torch.linalg.norm(actions, dim=-1) / max(float(config.repair_norm_scale), 1e-8)
-    norm = _masked_step_mean(norm_values, valid)
-    if actions.shape[0] >= 2:
-        temporal_values = torch.linalg.norm(torch.diff(actions, dim=0), dim=-1)
-        temporal_values = temporal_values / max(float(config.repair_temporal_scale), 1e-8)
-        temporal_valid = valid[:-1] & valid[1:]
-        temporal = _masked_step_mean(temporal_values, temporal_valid)
-    else:
-        temporal = torch.full_like(norm, float("nan"))
-    return {"norm": norm, "temporal": temporal, "cost": _available_mean((norm, temporal))}
-
-
-def _masked_step_mean(value: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
-    count = valid.sum(dim=0)
-    summed = torch.where(valid, value, torch.zeros_like(value)).sum(dim=0)
-    return torch.where(count > 0, summed / count.clamp_min(1).to(value.dtype), torch.full_like(summed, float("nan")))
-
-
-def compute_segment_gain_step(
-    *,
-    clean_position: torch.Tensor | None,
-    repaired_position: torch.Tensor | None,
-    noisy_position: torch.Tensor | None,
-    previous_clean_position: torch.Tensor | None,
-    previous_repaired_position: torch.Tensor | None,
-    previous_noisy_position: torch.Tensor | None,
-    previous_previous_clean_position: torch.Tensor | None,
-    previous_previous_repaired_position: torch.Tensor | None,
-    previous_previous_noisy_position: torch.Tensor | None,
-    clean_root_quaternion: torch.Tensor | None,
-    repaired_root_quaternion: torch.Tensor | None,
-    noisy_root_quaternion: torch.Tensor | None,
-    repaired_success: torch.Tensor | None,
-    noisy_success: torch.Tensor | None,
-    repaired_survival: torch.Tensor | None,
-    noisy_survival: torch.Tensor | None,
-    action: torch.Tensor | None,
-    previous_action: torch.Tensor | None,
-    config: FrontRESSegmentGainConfig,
-    effective_horizon_k: torch.Tensor | float | int | None,
-    repaired_zmp_margin: torch.Tensor | None = None,
-    noisy_zmp_margin: torch.Tensor | None = None,
-    repaired_contact: torch.Tensor | None = None,
-    noisy_contact: torch.Tensor | None = None,
-) -> FrontRESSegmentGainResult:
-    """Compute one K-step reward using the same components as final Gain.
-
-    The survival inputs are the current alive increments, not cumulative steps;
-    the caller supplies the same effective K used by the final paired owner.
-    """
-
-    style = _step_style_gain(
-        clean_position,
-        repaired_position,
-        noisy_position,
-        previous_clean_position,
-        previous_repaired_position,
-        previous_noisy_position,
-        previous_previous_clean_position,
-        previous_previous_repaired_position,
-        previous_previous_noisy_position,
-        clean_root_quaternion,
-        repaired_root_quaternion,
-        noisy_root_quaternion,
-        config,
-    )
-    physics = compute_paired_physics_gain(
-        repaired_success,
-        noisy_success,
-        repaired_survival,
-        noisy_survival,
-        config=config,
-        effective_horizon_k=effective_horizon_k,
-        repaired_zmp_margin=repaired_zmp_margin,
-        noisy_zmp_margin=noisy_zmp_margin,
-        repaired_contact=repaired_contact,
-        noisy_contact=noisy_contact,
-    )
-    repair = _step_repair_cost(action, previous_action, config)
-    like = _first_tensor(style["style"], physics["physics"], repair["cost"])
-    if like is None:
-        like = torch.empty(0)
-    # B2: 只用已确认可用的 canonical components 和 accepted weights 合成 Gain.
-    total = (
-        float(config.style_weight) * _match(style["style"], like)
-        + float(config.physics_weight) * _match(physics["physics"], like)
-        - float(config.repair_weight) * _match(repair["cost"], like)
-    )
-    total = torch.where(
-        torch.isfinite(style["style"]) & torch.isfinite(physics["physics"]) & torch.isfinite(repair["cost"]),
-        total,
-        torch.full_like(total, float("nan")),
-    )
-    return FrontRESSegmentGainResult(
-        style_gain=style["style"],
-        physics_gain=physics["physics"],
-        repair_cost=repair["cost"],
-        gain_total=total,
-        style_mpjpe_gain=style["mpjpe"],
-        style_velocity_gain=style["velocity"],
-        style_acceleration_gain=style["acceleration"],
-        style_root_orientation_gain=style["root_orientation"],
-        physics_success_gain=physics["success"],
-        physics_survival_quality_repaired=physics["survival_quality_repaired"],
-        physics_survival_quality_noisy=physics["survival_quality_noisy"],
-        physics_survival_gain=physics["survival"],
-        physics_zmp_gain=physics["zmp"],
-        physics_contact_gain=physics["contact"],
-        repair_norm=repair["norm"],
-        repair_temporal_change=repair["temporal"],
-        repair_clean_norm=repair["clean_norm"],
-        repair_clean_temporal_change=repair["clean_temporal"],
-        repair_clean_cost=repair["clean_cost"],
-    )
-
-
-def compute_segment_gain(
-    *,
-    clean_positions: torch.Tensor | None,
-    repaired_positions: torch.Tensor | None,
-    noisy_positions: torch.Tensor | None,
-    repaired_success: torch.Tensor | None,
-    noisy_success: torch.Tensor | None,
-    repaired_survival: torch.Tensor | None,
-    noisy_survival: torch.Tensor | None,
-    action_steps: torch.Tensor | None,
-    config: FrontRESSegmentGainConfig,
-    effective_horizon_k: torch.Tensor | float | int | None,
-    repaired_zmp_margin: torch.Tensor | None = None,
-    noisy_zmp_margin: torch.Tensor | None = None,
-    repaired_contact: torch.Tensor | None = None,
-    noisy_contact: torch.Tensor | None = None,
-    action_step_mask: torch.Tensor | None = None,
-    clean_action_steps: torch.Tensor | None = None,
-    clean_action_step_mask: torch.Tensor | None = None,
-    clean_root_quaternions: torch.Tensor | None = None,
-    repaired_root_quaternions: torch.Tensor | None = None,
-    noisy_root_quaternions: torch.Tensor | None = None,
-    temporal_mask: torch.Tensor | None = None,
-    valid_mask: torch.Tensor | None = None,
-    audit_transaction_id: str | None = None,
-    audit_batch_signature: str | None = None,
-    audit_identity_state: str = "UNCONFIRMED",
-) -> FrontRESSegmentGainResult:
-    # QUALITY-GAIN-01: 检查 matched execution evidence -> canonical Gain components/total.
-    # Result: PENDING_Q_EVIDENCE; Q-E3 only proves shared callback connectivity.
-    # B1: canonical owner 入口校验同 motion/K/available mask 的 paired evidence.
-    # B2: Style/Physics/Repair Cost 按 FRS-GAIN-v002 唯一公式合成.
-    # B3: return 前保留 component、per-step、effective K 与 finite identity.
-    """计算一个 paired capture 的 canonical Segment Gain.
-
-    函数名说明:
-        `compute_segment_gain` 是正式 Gain composition owner, 组合 Style Gain,
-        Physics Gain 和 Repair Cost; 它不是 environment reward 或 sampler priority.
-
-    主链路:
-        上游: paired capture 提供 matching Clean/Repaired/Noisy execution evidence.
-        下游: `gain_total` 写入 storage/PPO return, 同源 component diagnostics 提供给
-        sampler 和 terminal/logger.
-
-    语义:
-        `gain_total = w_style * style + w_physics * physics - w_repair * cost`.
-        缺失 component 必须显式记录 availability, 不得用无关 env reward 替代.
-    """
-
-    # B1: 构造 paired Style, Physics 和 executed Repair Cost components.
-    style = compute_paired_style_gain(
-        clean_positions,
-        repaired_positions,
-        noisy_positions,
-        config=config,
-        clean_root_quaternions=clean_root_quaternions,
-        repaired_root_quaternions=repaired_root_quaternions,
-        noisy_root_quaternions=noisy_root_quaternions,
-        temporal_mask=temporal_mask,
-        valid_mask=valid_mask,
-    )
-    physics = compute_paired_physics_gain(
-        repaired_success,
-        noisy_success,
-        repaired_survival,
-        noisy_survival,
-        config=config,
-        effective_horizon_k=effective_horizon_k,
-        repaired_zmp_margin=repaired_zmp_margin,
-        noisy_zmp_margin=noisy_zmp_margin,
-        repaired_contact=repaired_contact,
-        noisy_contact=noisy_contact,
-    )
-    repair = compute_repair_cost(
-        action_steps,
-        config=config,
-        valid_steps=action_step_mask,
-        clean_action_steps=clean_action_steps,
-        clean_valid_steps=clean_action_step_mask,
-    )
-    like = _first_tensor(style["style"], physics["physics"], repair["cost"])
-    if like is None:
-        like = torch.empty(0)
-    total = (
-        float(config.style_weight) * _match(style["style"], like)
-        + float(config.physics_weight) * _match(physics["physics"], like)
-        - float(config.repair_weight) * _match(repair["cost"], like)
-    )
-    total = torch.where(
-        torch.isfinite(style["style"]) & torch.isfinite(physics["physics"]) & torch.isfinite(repair["cost"]),
-        total,
-        torch.full_like(total, float("nan")),
-    )
-    result = FrontRESSegmentGainResult(
-        style_gain=style["style"],
-        physics_gain=physics["physics"],
-        repair_cost=repair["cost"],
-        gain_total=total,
-        style_mpjpe_gain=style["mpjpe"],
-        style_velocity_gain=style["velocity"],
-        style_acceleration_gain=style["acceleration"],
-        style_root_orientation_gain=style["root_orientation"],
-        physics_success_gain=physics["success"],
-        physics_survival_quality_repaired=physics["survival_quality_repaired"],
-        physics_survival_quality_noisy=physics["survival_quality_noisy"],
-        physics_survival_gain=physics["survival"],
-        physics_zmp_gain=physics["zmp"],
-        physics_contact_gain=physics["contact"],
-        repair_norm=repair["norm"],
-        repair_temporal_change=repair["temporal"],
-        repair_clean_norm=repair["clean_norm"],
-        repair_clean_temporal_change=repair["clean_temporal"],
-        repair_clean_cost=repair["clean_cost"],
-        audit_transaction_id=audit_transaction_id,
-        audit_batch_signature=audit_batch_signature,
-        audit_identity_state=audit_identity_state,
-    )
-    # B3: AUDIT-GAIN-01 截获 storage/sampler 消费前的 canonical Gain result.
-    # Result: PENDING_LIVE.
-    emit_formal_runtime_probe(
-        "AUDIT-GAIN-01",
-        style_gain=result.style_gain,
-        physics_gain=result.physics_gain,
-        repair_cost=result.repair_cost,
-        gain_total=result.gain_total,
-        available=result.available,
-        audit_transaction_id=result.audit_transaction_id or "UNCONFIRMED",
-        audit_batch_signature=result.audit_batch_signature or "UNCONFIRMED",
-        audit_identity_state=result.audit_identity_state,
-    )
-    return result
-
-
-def _error_gain(
-    clean: torch.Tensor,
-    repaired: torch.Tensor,
-    noisy: torch.Tensor,
-    scale: float,
-    temporal_mask: torch.Tensor | None,
-    valid_mask: torch.Tensor | None,
-    *,
-    order: int = 0,
-) -> torch.Tensor:
-    if clean.shape[1] <= order:
-        return torch.full((clean.shape[0],), float("nan"), device=clean.device, dtype=clean.dtype)
-    if order:
-        clean = torch.diff(clean, n=order, dim=1)
-        repaired = torch.diff(repaired, n=order, dim=1)
-        noisy = torch.diff(noisy, n=order, dim=1)
-        if temporal_mask is not None and temporal_mask.ndim == 2:
-            temporal_mask = temporal_mask[:, order:]
-    repaired_err = torch.linalg.norm(repaired - clean, dim=-1)
-    noisy_err = torch.linalg.norm(noisy - clean, dim=-1)
-    repaired_err = _masked_temporal_mean(repaired_err, temporal_mask)
-    noisy_err = _masked_temporal_mean(noisy_err, temporal_mask)
-    gain = (noisy_err - repaired_err) / max(float(scale), 1e-8)
-    if valid_mask is not None and valid_mask.shape[0] == gain.shape[0]:
-        gain = torch.where(valid_mask.bool(), gain, torch.full_like(gain, float("nan")))
-    return gain
-
-
-def _step_style_gain(
-    clean: torch.Tensor | None,
-    repaired: torch.Tensor | None,
-    noisy: torch.Tensor | None,
-    previous_clean: torch.Tensor | None,
-    previous_repaired: torch.Tensor | None,
-    previous_noisy: torch.Tensor | None,
-    previous_previous_clean: torch.Tensor | None,
-    previous_previous_repaired: torch.Tensor | None,
-    previous_previous_noisy: torch.Tensor | None,
-    clean_root_quaternion: torch.Tensor | None,
-    repaired_root_quaternion: torch.Tensor | None,
-    noisy_root_quaternion: torch.Tensor | None,
-    config: FrontRESSegmentGainConfig,
-) -> dict[str, torch.Tensor]:
-    if not _same_shape(clean, repaired, noisy):
-        return _unconfirmed_components(clean, repaired, noisy)
-    result = {
-        "mpjpe": _step_error_gain(clean, repaired, noisy, config.mpjpe_scale),
-        "velocity": _step_error_gain(
-            _difference(clean, previous_clean),
-            _difference(repaired, previous_repaired),
-            _difference(noisy, previous_noisy),
-            config.velocity_scale,
-        ),
-        "root_orientation": _quaternion_error_gain(
-            clean_root_quaternion,
-            repaired_root_quaternion,
-            noisy_root_quaternion,
-            config.root_orientation_scale,
-            None,
-        ),
-        "acceleration": _step_error_gain(
-            _second_difference(clean, previous_clean, previous_previous_clean),
-            _second_difference(repaired, previous_repaired, previous_previous_repaired),
-            _second_difference(noisy, previous_noisy, previous_previous_noisy),
-            config.acceleration_scale,
-        ),
-    }
-    result["style"] = _available_mean(tuple(result.values()))
-    return result
-
-
-def _step_repair_cost(
-    action: torch.Tensor | None,
-    previous_action: torch.Tensor | None,
-    config: FrontRESSegmentGainConfig,
-) -> dict[str, torch.Tensor]:
-    if not isinstance(action, torch.Tensor) or action.ndim != 2 or action.shape[-1] != 6:
-        empty = torch.empty(0)
-        return {
-            "norm": empty,
-            "temporal": empty,
-            "cost": empty,
-            "clean_norm": empty,
-            "clean_temporal": empty,
-            "clean_cost": empty,
-        }
-    norm = torch.linalg.norm(action.float(), dim=-1) / max(float(config.repair_norm_scale), 1e-8)
-    if isinstance(previous_action, torch.Tensor) and previous_action.shape == action.shape:
-        temporal = torch.linalg.norm(action.float() - previous_action.float(), dim=-1)
-        temporal = temporal / max(float(config.repair_temporal_scale), 1e-8)
-    else:
-        temporal = torch.full_like(norm, float("nan"))
-    empty = torch.empty(0, device=norm.device, dtype=norm.dtype)
-    return {
-        "norm": norm,
-        "temporal": temporal,
-        "cost": _available_mean((norm, temporal)),
-        "clean_norm": empty,
-        "clean_temporal": empty,
-        "clean_cost": empty,
-    }
-
-
-def _step_error_gain(
-    clean: torch.Tensor | None,
-    repaired: torch.Tensor | None,
-    noisy: torch.Tensor | None,
-    scale: float,
-) -> torch.Tensor:
-    if not _same_shape(clean, repaired, noisy):
-        like = _first_tensor(clean, repaired, noisy)
-        return torch.full_like(like, float("nan")) if like is not None else torch.empty(0)
-    clean_err = torch.linalg.norm(clean.float() - clean.float(), dim=-1).mean(dim=tuple(range(1, clean.ndim - 1)))
-    repaired_err = torch.linalg.norm(repaired.float() - clean.float(), dim=-1).mean(dim=tuple(range(1, repaired.ndim - 1)))
-    noisy_err = torch.linalg.norm(noisy.float() - clean.float(), dim=-1).mean(dim=tuple(range(1, noisy.ndim - 1)))
-    del clean_err
-    return (noisy_err - repaired_err) / max(float(scale), 1e-8)
-
-
-def _quaternion_error_gain(
-    clean: torch.Tensor | None,
-    repaired: torch.Tensor | None,
-    noisy: torch.Tensor | None,
-    scale: float,
-    valid_mask: torch.Tensor | None,
-    *,
-    temporal_mask: torch.Tensor | None = None,
-) -> torch.Tensor:
-    if not _same_shape(clean, repaired, noisy) or clean.shape[-1] != 4:
-        like = _first_tensor(clean, repaired, noisy)
-        return torch.full((like.shape[0],), float("nan"), device=like.device) if like is not None else torch.empty(0)
-    repaired_err = _quat_geodesic(clean.float(), repaired.float())
-    noisy_err = _quat_geodesic(clean.float(), noisy.float())
-    if (
-        repaired_err.ndim >= 2
-        and isinstance(temporal_mask, torch.Tensor)
-        and tuple(temporal_mask.shape) == tuple(repaired_err.shape[:2])
-    ):
-        repaired_err = _masked_temporal_mean(repaired_err, temporal_mask)
-        noisy_err = _masked_temporal_mean(noisy_err, temporal_mask)
-    elif repaired_err.ndim > 1:
-        repaired_err = repaired_err.mean(dim=tuple(range(1, repaired_err.ndim)))
-        noisy_err = noisy_err.mean(dim=tuple(range(1, noisy_err.ndim)))
-    gain = (noisy_err - repaired_err) / max(float(scale), 1e-8)
-    if valid_mask is not None and valid_mask.shape[0] == gain.shape[0]:
-        gain = torch.where(valid_mask.bool(), gain, torch.full_like(gain, float("nan")))
-    return gain
 
 
 def _quat_geodesic(reference: torch.Tensor, observed: torch.Tensor) -> torch.Tensor:
@@ -1299,103 +574,3 @@ def _quat_geodesic(reference: torch.Tensor, observed: torch.Tensor) -> torch.Ten
         dim=-1,
     )
     return 2.0 * torch.atan2(relative_xyz.norm(dim=-1), relative_w.abs().clamp_min(1e-8))
-
-
-def _difference(current: torch.Tensor | None, previous: torch.Tensor | None) -> torch.Tensor | None:
-    if not _same_shape(current, previous):
-        return None
-    return current - previous
-
-
-def _second_difference(
-    current: torch.Tensor | None,
-    previous: torch.Tensor | None,
-    previous_previous: torch.Tensor | None,
-) -> torch.Tensor | None:
-    if not _same_shape(current, previous, previous_previous):
-        return None
-    return current - 2.0 * previous + previous_previous
-
-
-def _masked_temporal_mean(value: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor:
-    if mask is None or mask.ndim != 2 or tuple(mask.shape) != tuple(value.shape[:2]):
-        return value.mean(dim=tuple(range(1, value.ndim)))
-    flat = value.reshape(value.shape[0], value.shape[1], -1).mean(dim=-1)
-    mask = mask.bool()
-    count = mask.sum(dim=1)
-    result = (flat * mask.to(flat.dtype)).sum(dim=1) / count.clamp_min(1).to(flat.dtype)
-    return torch.where(count > 0, result, torch.full_like(result, float("nan")))
-
-
-def _available_mean(values: tuple[torch.Tensor, ...]) -> torch.Tensor:
-    if not values:
-        return torch.empty(0)
-    like = _first_tensor(*values)
-    if like is None:
-        return torch.empty(0)
-    stack = torch.stack([_match(value, like) for value in values], dim=0)
-    valid = torch.isfinite(stack)
-    count = valid.sum(dim=0)
-    summed = torch.where(valid, stack, torch.zeros_like(stack)).sum(dim=0)
-    return torch.where(count > 0, summed / count.clamp_min(1), torch.full_like(summed, float("nan")))
-
-
-def _pair_difference(repaired: torch.Tensor | None, noisy: torch.Tensor | None, like: torch.Tensor) -> torch.Tensor:
-    if not isinstance(repaired, torch.Tensor) or not isinstance(noisy, torch.Tensor):
-        return torch.full_like(like, float("nan"))
-    if repaired.shape != noisy.shape:
-        return torch.full_like(like, float("nan"))
-    return repaired.to(device=like.device, dtype=like.dtype).reshape(-1) - noisy.to(device=like.device, dtype=like.dtype).reshape(-1)
-
-
-def _survival_quality(
-    survival_steps: torch.Tensor | None,
-    effective_horizon_k: torch.Tensor | float | int | None,
-    like: torch.Tensor,
-) -> torch.Tensor:
-    """将 raw survival steps 转成当前 segment 的 K-normalized quality."""
-
-    if not isinstance(survival_steps, torch.Tensor):
-        return torch.full_like(like, float("nan"))
-    survival = survival_steps.to(device=like.device, dtype=like.dtype).reshape(-1)
-    if survival.numel() != like.numel():
-        return torch.full_like(like, float("nan"))
-    if isinstance(effective_horizon_k, torch.Tensor):
-        horizon = effective_horizon_k.to(device=like.device, dtype=like.dtype).reshape(-1)
-    elif effective_horizon_k is None:
-        return torch.full_like(like, float("nan"))
-    else:
-        horizon = torch.full_like(like, float(effective_horizon_k))
-    if horizon.numel() == 1 and like.numel() != 1:
-        horizon = horizon.expand_as(like)
-    if horizon.numel() != like.numel():
-        return torch.full_like(like, float("nan"))
-    valid = torch.isfinite(survival) & torch.isfinite(horizon) & horizon.gt(0.0)
-    quality = survival / horizon.clamp_min(1.0)
-    return torch.where(valid, quality, torch.full_like(quality, float("nan")))
-
-
-def _match(value: torch.Tensor, like: torch.Tensor) -> torch.Tensor:
-    if value.numel() == 0:
-        return torch.full_like(like, float("nan"))
-    return value.to(device=like.device, dtype=like.dtype).reshape(-1)
-
-
-def _first_tensor(*values: torch.Tensor | None) -> torch.Tensor | None:
-    for value in values:
-        if isinstance(value, torch.Tensor) and value.numel() > 0:
-            return value.reshape(-1).float()
-    return None
-
-
-def _same_shape(*values: torch.Tensor | None) -> bool:
-    return bool(values) and all(isinstance(value, torch.Tensor) for value in values) and len({tuple(value.shape) for value in values if isinstance(value, torch.Tensor)}) == 1
-
-
-def _unconfirmed_components(*values: torch.Tensor | None) -> dict[str, torch.Tensor]:
-    like = _first_tensor(*values)
-    if like is None:
-        empty = torch.empty(0)
-        return {key: empty for key in ("mpjpe", "velocity", "acceleration", "root_orientation", "style")}
-    missing = torch.full_like(like, float("nan"))
-    return {key: missing.clone() for key in ("mpjpe", "velocity", "acceleration", "root_orientation", "style")}

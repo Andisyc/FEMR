@@ -9,10 +9,21 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import types
 from pathlib import Path
+from frontres_contract_imports import install_frontres_contract_packages
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+install_frontres_contract_packages(ROOT / "rsl_rl")
+
+probe_stub = types.ModuleType("rsl_rl.runners.frontres_segment_live_probe")
+probe_stub.apply_frontres_current_segment_reset = lambda runner: None
+probe_stub.read_frontres_live_observations = lambda runner: None
+probe_stub.capture_frontres_paired_gain = lambda capture: None
+probe_stub.run_frontres_live_rollout_capture = lambda *_args, **_kwargs: None
+sys.modules[probe_stub.__name__] = probe_stub
 
 
 def _load(name: str, path: Path):

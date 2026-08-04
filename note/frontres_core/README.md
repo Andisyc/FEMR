@@ -11,10 +11,12 @@ This folder contains the original FrontRES design and implementation notes.
 - `contracts/history/`: superseded, rejected, ablation, and migration records;
   never a default reading source.
 - `contracts/design_contract.md`: compatibility pointer to the registry.
-- `plans/FRS-v015-future-intent-single-action-k-engineering-plan.md`: current
+- `plans/FRS-v017-clean-anchored-recovery-aware-engineering-plan.md`: current
   replaceable implementation plan.
-- `checklists/FRS-v015-future-intent-single-action-k-checklist.md`: current
+- `checklists/FRS-v017-clean-anchored-recovery-aware-checklist.md`: current
   replaceable acceptance state.
+- `plans/FRS-v017-clean-anchored-recovery-aware-task-canvas.md`: current task
+  cursor and one-shot execution boundary.
 - `paper/method_outline.md`: current paper-facing method view.
 - `logs/`: raw discussion or decision history.
 

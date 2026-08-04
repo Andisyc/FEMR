@@ -6,12 +6,12 @@ from pathlib import Path
 import sys
 import tempfile
 from types import ModuleType, SimpleNamespace
+from frontres_contract_imports import install_frontres_contract_packages
 
 
 ROOT = Path(__file__).resolve().parents[4]
 SOURCE_ROOT = ROOT / "source" / "rsl_rl" / "rsl_rl"
-sys.modules.setdefault("rsl_rl", ModuleType("rsl_rl"))
-sys.modules.setdefault("rsl_rl.frontres", ModuleType("rsl_rl.frontres"))
+install_frontres_contract_packages(SOURCE_ROOT)
 
 
 def _load(name: str, path: Path):
@@ -28,7 +28,7 @@ _load(
     SOURCE_ROOT / "frontres" / "frontres_policy_quality_manifest.py",
 )
 quality = _load(
-    "frontres_policy_quality_eval",
+    "rsl_rl.runners.frontres_policy_quality_eval",
     SOURCE_ROOT / "runners" / "frontres_policy_quality_eval.py",
 )
 
@@ -107,7 +107,7 @@ def test_manifest_executor_uses_all_named_owners_and_writes_atomic_result() -> N
                 },
             )
             quality.install_frontres_policy_quality_manifest_executor(runner, owners)
-            payload = quality.run_frontres_policy_quality_eval(
+            payload = quality.run_frontres_legacy_policy_quality_eval(
                 runner,
                 manifest_path=str(manifest_path),
                 hsl_checkpoint_path=str(hsl_path),

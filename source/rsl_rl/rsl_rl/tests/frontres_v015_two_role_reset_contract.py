@@ -103,6 +103,8 @@ def _install_isaac_stubs() -> None:
 def _install_setup_stubs() -> None:
     rsl_rl = _package("rsl_rl")
     frontres = _package("rsl_rl.frontres")
+    rsl_rl.__path__ = [str(RSL_ROOT / "rsl_rl")]
+    frontres.__path__ = [str(RSL_ROOT / "rsl_rl" / "frontres")]
     rsl_rl.frontres = frontres
 
     perturbation_runtime = types.ModuleType("rsl_rl.frontres.perturbation_runtime")
@@ -305,6 +307,10 @@ def _local_request(role_env_ids: dict[str, torch.Tensor]) -> SimpleNamespace:
         [torch.full((3, 65), 300.0), torch.full((3, 65), 400.0)],
         dim=0,
     )
+    clean_reference_t = torch.stack(
+        [torch.arange(65, dtype=torch.float32), 100.0 + torch.arange(65, dtype=torch.float32)],
+        dim=0,
+    )
     return SimpleNamespace(
         segment_ids=torch.tensor([7, 8], dtype=torch.long),
         motion_ids=("motion_a.npz", "motion_a.npz"),
@@ -313,6 +319,7 @@ def _local_request(role_env_ids: dict[str, torch.Tensor]) -> SimpleNamespace:
         frontres_future_offsets=(1, 2),
         frontres_local_scenario_rows=object(),
         frontres_local_scenario_current_root_artifact_t=artifacts,
+        frontres_local_scenario_clean_reference_t=clean_reference_t,
         frontres_local_scenario_intent_q29=intent,
         frontres_local_scenario_clean_continuation=continuation,
         frontres_local_scenario_expected_support=torch.ones(2, 3, 2),
@@ -327,6 +334,7 @@ def _local_request(role_env_ids: dict[str, torch.Tensor]) -> SimpleNamespace:
         frontres_local_scenario_provenance=(
             {
                 "current_root_artifact_provenance": "noisy_root_artifact_t",
+                "clean_reference_t_provenance": "clean_gmt_physics_only",
                 "intent_q29_provenance": "deployment_noisy_q29",
                 "intent_q29_source": "motion_internal_q29",
                 "clean_continuation_provenance": "clean_gmt_only",
@@ -335,6 +343,7 @@ def _local_request(role_env_ids: dict[str, torch.Tensor]) -> SimpleNamespace:
             },
             {
                 "current_root_artifact_provenance": "noisy_root_artifact_t",
+                "clean_reference_t_provenance": "clean_gmt_physics_only",
                 "intent_q29_provenance": "deployment_noisy_q29",
                 "intent_q29_source": "motion_internal_q29",
                 "clean_continuation_provenance": "clean_gmt_only",
@@ -353,6 +362,7 @@ def _parallel_attempt_request(role_env_ids: dict[str, torch.Tensor]) -> SimpleNa
         "start_frames",
         "horizon_k",
         "frontres_local_scenario_current_root_artifact_t",
+        "frontres_local_scenario_clean_reference_t",
         "frontres_local_scenario_intent_q29",
         "frontres_local_scenario_clean_continuation",
         "frontres_local_scenario_expected_support",
@@ -456,6 +466,7 @@ def test_t_state_and_identity(hooks, env, command, role_env_ids) -> None:
         RuntimeError,
         lambda: command.set_frontres_local_scenario(
             current_root_artifact_t=mutated_active_artifact,
+            clean_reference_t=retry_snapshot["clean_reference_t"],
             intent_q29=retry_snapshot["intent_q29"],
             clean_continuation=retry_snapshot["clean_continuation"],
             expected_support=retry_snapshot["expected_support"],
@@ -541,6 +552,7 @@ def test_t_parallel_m_attempt_role_balance(commands, hooks, setup) -> None:
     def install(candidate_command, *, intent_q29, roles):
         return candidate_command.set_frontres_local_scenario(
             current_root_artifact_t=snapshot["current_root_artifact_t"],
+            clean_reference_t=snapshot["clean_reference_t"],
             intent_q29=intent_q29,
             clean_continuation=snapshot["clean_continuation"],
             expected_support=snapshot["expected_support"],

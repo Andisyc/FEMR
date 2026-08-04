@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def _package(name: str) -> types.ModuleType:
     module = types.ModuleType(name)
-    module.__path__ = []
+    module.__path__ = [str((ROOT / "rsl_rl").joinpath(*name.split(".")[1:]))]
     sys.modules[name] = module
     return module
 
@@ -52,9 +52,8 @@ def _install_live_probe_import_stubs():
         raise AssertionError("Step 1 storage test must not enter PPO loss")
 
     ppo_module.compute_frontres_segment_ppo_loss = _unused_ppo_loss
-    ppo_module.install_frontres_v004_projected_gradients = lambda *_args, **_kwargs: None
-    ppo_module.project_frontres_v004_actual_parameter_delta = lambda *_args, **_kwargs: None
-    ppo_module.step_frontres_v004_optimizer_with_actor_authority = lambda *_args, **_kwargs: None
+    ppo_module.install_frontres_v005_scalar_gradients = lambda *_args, **_kwargs: None
+    ppo_module.step_frontres_v005_scalar_optimizer = lambda *_args, **_kwargs: None
     sys.modules[ppo_module.__name__] = ppo_module
     algorithms_pkg.frontres_segment_ppo = ppo_module
 
@@ -86,6 +85,14 @@ def _install_live_probe_import_stubs():
         ROOT / "rsl_rl" / "frontres" / "frontres_segment_reset.py",
     )
     frontres_pkg.frontres_segment_reset = reset_module
+    frontres_pkg.frontres_balance = _load(
+        "rsl_rl.frontres.frontres_balance",
+        ROOT / "rsl_rl" / "frontres" / "frontres_balance.py",
+    )
+    frontres_pkg.frontres_interfaces = _load(
+        "rsl_rl.frontres.frontres_interfaces",
+        ROOT / "rsl_rl" / "frontres" / "frontres_interfaces.py",
+    )
 
     modules_pkg = types.ModuleType("rsl_rl.modules")
     modules_pkg.FrontRESActorCritic = object
@@ -106,8 +113,8 @@ def _install_live_probe_import_stubs():
         return SimpleNamespace(actions=actions, env_actions=actions.detach().clone())
 
     rollout_step.prepare_frontres_rollout_step = _prepare_frontres_rollout_step
-    rollout_step._append_future_intent_actor_context = lambda _runner, obs: obs
-    rollout_step._frontres_motion_command = lambda runner: runner.env.command_manager.get_term("motion")
+    rollout_step.append_frontres_future_intent_actor_context = lambda _runner, obs: obs
+    rollout_step.frontres_motion_command = lambda runner: runner.env.command_manager.get_term("motion")
     rollout_step.prepare_frontres_v015_one_action_at_t = _unused_ppo_loss
     rollout_step.prepare_frontres_v015_frozen_gmt_step = _unused_ppo_loss
     sys.modules[rollout_step.__name__] = rollout_step
@@ -653,7 +660,7 @@ def test_build_live_segment_storage_rejects_non_6d_actions() -> None:
         raise AssertionError("non-6D live probe actions must be rejected before storage write")
 
 
-def test_live_probe_selects_6d_delta_se_from_12d_rollout_action() -> None:
+def test_live_probe_rejects_legacy_12d_rollout_action() -> None:
     raw_actions = torch.tensor(
         [
             [0.10, -0.05, 0.00, 0.03, -0.02, 0.01, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50],
@@ -672,48 +679,26 @@ def test_live_probe_selects_6d_delta_se_from_12d_rollout_action() -> None:
             ),
             policy=SimpleNamespace(
                 num_task_corrections=6,
-                max_delta_pos=0.3,
-                max_delta_rpy=0.3,
             ),
         )
     )
 
-    segment_actions, log_probs = live_probe._select_segment_transition_actions(runner, actions=raw_actions)
-    expected_log_probs = live_probe._evaluate_segment_delta_se_log_prob_from_stats(
-        runner.alg.policy,
-        raw_actions[:, :6],
-        action_mean,
-        action_sigma,
-    )
-
-    _probe_tensor("raw_actions", raw_actions, "6D full Delta SE(3) rollout action")
-    _probe_tensor("segment_actions", segment_actions, "selected 6D Delta SE action for Segment Replay storage")
-    _probe_tensor("selected_log_probs", log_probs, "old 6D log_prob rebuilt from rollout mean/sigma with Delta-SE transform")
-    _probe_tensor("expected_log_probs", expected_log_probs, "same formula used by PPO eval for new 6D log_prob")
-    _probe_tensor("transition_mean_6d", runner.alg.transition.action_mean[:, :6], "old mean sliced to same 6D action space")
-    _probe_tensor("transition_sigma_6d", runner.alg.transition.action_sigma[:, :6], "old sigma sliced to same 6D action space")
-
-    assert segment_actions.shape == (2, 6)
-    torch.testing.assert_close(segment_actions, raw_actions[:, :6])
-    torch.testing.assert_close(log_probs, expected_log_probs)
+    try:
+        live_probe._select_segment_transition_actions(runner, actions=raw_actions)
+    except ValueError as exc:
+        assert "direct [B,6]" in str(exc)
+    else:
+        raise AssertionError("legacy 12D rollout actions must not be sliced into the active 6D route")
 
 
-def test_delta_se_log_prob_parts_expose_raw_action_and_jacobian_contributions() -> None:
-    policy = SimpleNamespace(
-        num_task_corrections=6,
-        max_delta_pos=0.2,
-        max_delta_rpy=0.4,
-    )
-    raw = torch.tensor([[0.30, -0.20, 0.10, 0.50, -0.40, 0.20]])
+def test_delta_se_log_prob_parts_use_direct_action_coordinates() -> None:
+    policy = SimpleNamespace(num_task_corrections=6)
+    actions = torch.tensor([[0.30, -0.20, 0.10, 0.50, -0.40, 0.20]])
     mean = torch.tensor([[0.10, -0.05, 0.00, 0.20, -0.10, 0.00]])
     std = torch.full((1, 6), 0.50)
-    max_d = torch.tensor([[0.20, 0.20, 0.20, 0.40, 0.40, 0.40]])
-    bounded_actions = torch.tanh(raw) * max_d
-
-    parts = live_probe._segment_delta_se_log_prob_parts(policy, bounded_actions, mean, std)
-    expected_log_prob_dim = torch.distributions.Normal(mean, std).log_prob(raw)
-    expected_log_jacobian_dim = torch.log(max_d) + torch.log(1.0 - torch.tanh(raw).pow(2) + 1e-6)
-    expected_log_prob = expected_log_prob_dim.sum(dim=-1) - expected_log_jacobian_dim.sum(dim=-1)
+    parts = live_probe._segment_delta_se_log_prob_parts(policy, actions, mean, std)
+    expected_log_prob_dim = torch.distributions.Normal(mean, std).log_prob(actions)
+    expected_log_prob = expected_log_prob_dim.sum(dim=-1)
     print(
         "[probe step3] delta_se_log_prob_parts: "
         f"raw={parts['raw_actions'][0].tolist()} "
@@ -722,13 +707,13 @@ def test_delta_se_log_prob_parts_expose_raw_action_and_jacobian_contributions() 
         flush=True,
     )
 
-    torch.testing.assert_close(parts["raw_actions"], raw)
-    torch.testing.assert_close(parts["log_jacobian_contrib"], expected_log_jacobian_dim)
+    torch.testing.assert_close(parts["raw_actions"], actions)
+    torch.testing.assert_close(parts["log_jacobian_contrib"], torch.zeros_like(actions))
     torch.testing.assert_close(parts["log_prob"], expected_log_prob)
 
 
 def test_live_probe_trace_prints_once_without_verbose() -> None:
-    raw_actions = torch.arange(24, dtype=torch.float32).reshape(2, 12) * 0.1
+    raw_actions = torch.arange(12, dtype=torch.float32).reshape(2, 6) * 0.1
     runner = SimpleNamespace(
         alg=SimpleNamespace(
             frontres_segment_verbose_probe=False,
@@ -1987,7 +1972,7 @@ def test_live_probe_summary_requires_separate_pre_and_post_ratio_blocks() -> Non
     assert "  ratio.reported_mean:" not in output
 
 
-def test_live_probe_summary_reports_raw_policy_and_segment_delta_dims() -> None:
+def test_live_probe_summary_reports_direct_policy_and_segment_delta_dims() -> None:
     runner = SimpleNamespace(
         alg=SimpleNamespace(
             frontres_training_objective="segment_replay_hrl",
@@ -1997,7 +1982,7 @@ def test_live_probe_summary_reports_raw_policy_and_segment_delta_dims() -> None:
         _frontres_segment_live_detail_log_enabled=True,
     )
     capture = _capture()
-    capture.action_shape = (2, 12)
+    capture.action_shape = (2, 6)
     summary = {
         "segment_reset": False,
         "segment_reset_skip_reason": "no_current_segment_batch",
@@ -2028,12 +2013,12 @@ def test_live_probe_summary_reports_raw_policy_and_segment_delta_dims() -> None:
     output = stream.getvalue()
     print(
         "[probe bug3] action_dim_summary: "
-        f"policy_dim_12={'rollout.policy_dim: 12' in output} "
+        f"policy_dim_6={'rollout.policy_dim: 6' in output} "
         f"segment_6d={'rollout.segment_delta_se_6d: True' in output} "
         f"reset_reason={'reset.reason: no_current_segment_batch' in output}",
         flush=True,
     )
-    assert "rollout.policy_dim: 12" in output
+    assert "rollout.policy_dim: 6" in output
     assert "rollout.segment_action: (2, 6)" in output
     assert "rollout.segment_delta_se_6d: True" in output
     assert "reset.reason: no_current_segment_batch" in output
@@ -2218,8 +2203,8 @@ if __name__ == "__main__":
     test_build_live_segment_storage_uses_mixed_per_row_horizons()
     test_build_live_segment_storage_masks_non_actor_rows()
     test_build_live_segment_storage_rejects_non_6d_actions()
-    test_live_probe_selects_6d_delta_se_from_12d_rollout_action()
-    test_delta_se_log_prob_parts_expose_raw_action_and_jacobian_contributions()
+    test_live_probe_rejects_legacy_12d_rollout_action()
+    test_delta_se_log_prob_parts_use_direct_action_coordinates()
     test_live_probe_trace_prints_once_without_verbose()
     test_live_probe_trace_reports_native_6d_policy_surface()
     test_ppo_eval_trace_prints_once_without_verbose()
@@ -2238,7 +2223,7 @@ if __name__ == "__main__":
     test_live_probe_detail_gate_suppresses_reset_and_summary_logs()
     test_live_probe_summary_uses_readable_metric_blocks()
     test_live_probe_summary_requires_separate_pre_and_post_ratio_blocks()
-    test_live_probe_summary_reports_raw_policy_and_segment_delta_dims()
+    test_live_probe_summary_reports_direct_policy_and_segment_delta_dims()
     test_live_probe_summary_extracts_repair_executability_scores()
     test_live_probe_summary_preserves_negative_repair_executability_gain()
     test_executed_segment_action_capture_uses_transition_after_baseline_override()

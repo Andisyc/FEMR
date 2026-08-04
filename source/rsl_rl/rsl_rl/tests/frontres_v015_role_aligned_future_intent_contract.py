@@ -125,6 +125,7 @@ def test_t_row_permutation_identity_and_provenance() -> None:
     permuted = helper._make_command(commands, helper._FakeRobot(num_envs=8), num_envs=8)
     permuted.set_frontres_local_scenario(
         current_root_artifact_t=command._frontres_local_scenario_current_root_artifact_t.index_select(0, permutation),
+        clean_reference_t=command._frontres_local_scenario_clean_reference_t.index_select(0, permutation),
         intent_q29=sealed["intent_q29"].index_select(0, permutation),
         clean_continuation=command._frontres_local_scenario_clean_continuation.index_select(0, permutation),
         expected_support=command._frontres_local_scenario_expected_support.index_select(0, permutation),

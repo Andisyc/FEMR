@@ -10,11 +10,33 @@ import contextlib
 import io
 import importlib.util
 import sys
+import types
 from pathlib import Path
-from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+rsl_rl_pkg = types.ModuleType("rsl_rl")
+rsl_rl_pkg.__path__ = [str(ROOT / "rsl_rl")]
+frontres_pkg = types.ModuleType("rsl_rl.frontres")
+frontres_pkg.__path__ = [str(ROOT / "rsl_rl" / "frontres")]
+runners_pkg = types.ModuleType("rsl_rl.runners")
+runners_pkg.__path__ = [str(ROOT / "rsl_rl" / "runners")]
+rsl_rl_pkg.frontres = frontres_pkg
+rsl_rl_pkg.runners = runners_pkg
+sys.modules["rsl_rl"] = rsl_rl_pkg
+sys.modules["rsl_rl.frontres"] = frontres_pkg
+sys.modules["rsl_rl.runners"] = runners_pkg
+
+probe_stub = types.ModuleType("rsl_rl.runners.frontres_segment_live_probe")
+probe_stub.apply_frontres_current_segment_reset = lambda runner: None
+probe_stub.read_frontres_live_observations = lambda runner: "fake_obs"
+probe_stub.capture_frontres_paired_gain = lambda capture: None
+probe_stub.run_frontres_live_rollout_capture = (
+    lambda runner, observations, *, rollout_steps, **_kwargs: runner.fake_eval_capture(rollout_steps)
+)
+sys.modules[probe_stub.__name__] = probe_stub
 
 
 def _load(name: str, path: Path):
@@ -30,22 +52,8 @@ live_training_module = _load(
     "frontres_segment_live_training",
     ROOT / "rsl_rl" / "runners" / "frontres_segment_live_training.py",
 )
-diagnostics_module = _load(
-    "frontres_segment_diagnostics",
-    ROOT / "rsl_rl" / "frontres" / "frontres_segment_diagnostics.py",
-)
-
 run_frontres_segment_live_training_loop = live_training_module.run_frontres_segment_live_training_loop
-run_frontres_segment_periodic_eval = live_training_module.run_frontres_segment_periodic_eval
-live_training_module._apply_current_segment_reset = lambda runner: None
-live_training_module._read_live_observations = lambda runner: "fake_obs"
-live_training_module._capture_paired_gain = lambda capture: None
-live_training_module._run_live_rollout_capture = lambda runner, observations, *, rollout_steps: runner.fake_eval_capture(
-    rollout_steps
-)
-offline_eval_summary = live_training_module._offline_eval_summary
-format_offline_eval_log = live_training_module._format_offline_eval_log
-motion_quality_summary_to_scalars = diagnostics_module.motion_quality_summary_to_scalars
+live_training_module.read_frontres_live_observations = lambda runner: "fake_obs"
 
 
 def _probe_summary(name: str, summary: dict) -> None:
@@ -82,10 +90,8 @@ def _probe_exception(name: str, exc: Exception) -> None:
 
 
 class FakeBoundary:
-    def __init__(self, live_train_enabled: bool = True, periodic_eval_enabled: bool = False, periodic_eval_interval: int = 100):
+    def __init__(self, live_train_enabled: bool = True):
         self.live_train_enabled = live_train_enabled
-        self.periodic_eval_enabled = periodic_eval_enabled
-        self.periodic_eval_interval = periodic_eval_interval
 
 
 class FakeAlg:
@@ -165,13 +171,9 @@ class FakeRunner:
         min_valid_count: int = 1,
         fail_on_nonfinite: bool = True,
         fail_save_paths: set[str] | None = None,
-        periodic_eval_enabled: bool = False,
-        periodic_eval_interval: int = 100,
     ):
         self._frontres_segment_replay_boundary = FakeBoundary(
             live_train_enabled=live_train_enabled,
-            periodic_eval_enabled=periodic_eval_enabled,
-            periodic_eval_interval=periodic_eval_interval,
         )
         self.alg = FakeAlg(
             fail_on_invalid_update=fail_on_invalid_update,
@@ -186,8 +188,6 @@ class FakeRunner:
         self.saved_paths: list[str] = []
         self.probe_records: list[tuple[dict, str]] = []
         self.fail_save_paths = fail_save_paths or set()
-        self.eval_calls: list[tuple[int, int]] = []
-        self.periodic_eval_hook_enabled = True
         self.env = FakeEnv()
         self.eval_mode_called = False
         self.train_mode_calls = 0
@@ -213,21 +213,6 @@ class FakeRunner:
 
     def _record_frontres_checkpoint_probe(self, locs: dict, checkpoint_path: str) -> None:
         self.probe_records.append((locs, checkpoint_path))
-
-    def run_frontres_segment_periodic_eval(self, *, iteration: int, train_summary: dict) -> dict:
-        self.eval_calls.append((iteration, int(train_summary["update_count"])))
-        return {
-            "episode_length": 32,
-            "success_rate": 0.75,
-            "fall_rate": 0.25,
-            "mean_survival_steps": 28,
-            "gain_source": "FRS-GAIN-v002",
-            "gain_style_mean": 0.20,
-            "gain_physics_mean": 0.40,
-            "gain_repair_cost_mean": 0.15,
-            "gain_total_mean": float(train_summary["gain_total_mean"]),
-            "gain_total_pos_frac": 0.80,
-        }
 
     def fake_eval_capture(self, rollout_steps: int):
         class Capture:
@@ -520,310 +505,11 @@ def test_pseudo_live_training_continues_after_periodic_checkpoint_failure() -> N
     assert "save.status: OK" in output
 
 
-def test_pseudo_live_training_runs_periodic_eval_only_on_interval() -> None:
-    runner = FakeRunner(periodic_eval_enabled=True, periodic_eval_interval=2)
-    buffer = io.StringIO()
-    with contextlib.redirect_stdout(buffer):
-        run_frontres_segment_live_training_loop(
-            runner,
-            num_learning_iterations=3,
-            init_at_random_ep_len=False,
-        )
-    output = buffer.getvalue()
-    print(f"[probe periodic_eval] eval_calls={runner.eval_calls}", flush=True)
-    assert runner.eval_calls == [(2, 4)]
-    assert output.count("[FrontRES Segment Periodic Eval]") == 1
-    assert "episode_length=32.0" in output
-    assert "success=75.0%" in output
-    assert "total=0.750000" in output
-
-
-def test_periodic_eval_marks_missing_gain_and_preserves_motion_metrics_when_all_samples_fall() -> None:
-    torch = __import__("torch")
-    runner = FakeRunner()
-    runner._frontres_segment_sampler = SimpleNamespace(
-        seen=torch.tensor([False, False]),
-        staleness=torch.tensor([0.0, 0.0]),
-        generator=torch.Generator().manual_seed(3),
-    )
-    capture = runner.fake_eval_capture(32)
-    capture.done_any = __import__("torch").tensor([True, True, True])
-    capture.survival_steps = __import__("torch").tensor([12.0, 8.0, 10.0])
-    runner.fake_eval_capture = lambda rollout_steps: capture
-    batch = SimpleNamespace(specs=(SimpleNamespace(motion_id="a", start_frame=1), SimpleNamespace(motion_id="b", start_frame=2)))
-    old_sample_rows = getattr(live_training_module, "_sample_live_segment_rows", None)
-    old_batch_builder = getattr(live_training_module, "_build_current_segment_batch", None)
-    live_training_module._sample_live_segment_rows = lambda *_args: SimpleNamespace(segment_ids=torch.tensor([0, 1]))
-    live_training_module._build_current_segment_batch = lambda *_args, **_kwargs: batch
-    try:
-        summary = run_frontres_segment_periodic_eval(
-            runner,
-            iteration=100,
-            train_summary={"gain_total_mean": 0.0},
-        )
-    finally:
-        live_training_module._sample_live_segment_rows = old_sample_rows
-        live_training_module._build_current_segment_batch = old_batch_builder
-    log = diagnostics_module.format_segment_periodic_eval_log(summary)
-    print(f"[probe periodic_eval_metrics] {log.replace(chr(10), ' | ')}", flush=True)
-    assert summary["success_rate"] == 0.0
-    assert summary["fall_rate"] == 1.0
-    assert "source=UNCONFIRMED" in log
-    assert "total=UNCONFIRMED" in log
-    assert "score:" not in log
-    assert "mpjpe_repaired=0.111435" in log
-    assert "mpjpe_noisy=0.445738" in log
-    assert "delta_se_norm=0.223607" in log
-
-
-def test_periodic_eval_uses_independent_batch_and_restores_training_state() -> None:
-    torch = __import__("torch")
-    runner = FakeRunner()
-    runner.env.num_envs = 8
-    runner.cfg = {"frontres_candidate_rollout_enabled": True}
-    runner._frontres_segment_live_current_sample = "training_sample"
-    runner._frontres_segment_live_current_batch = "training_batch"
-    runner._frontres_segment_live_current_reset_request = "training_request"
-    runner._frontres_segment_live_current_reset_result = "training_result"
-
-    class FakeSampler:
-        def __init__(self):
-            self.seen = torch.tensor([False, True])
-            self.staleness = torch.tensor([3.0, 7.0])
-            self.generator = torch.Generator().manual_seed(17)
-
-    sampler = FakeSampler()
-    runner._frontres_segment_sampler = sampler
-    seen_before = sampler.seen.clone()
-    staleness_before = sampler.staleness.clone()
-    rng_before = sampler.generator.get_state().clone()
-    sample = SimpleNamespace(segment_ids=torch.tensor([0, 1]))
-    batch = SimpleNamespace(
-        specs=(
-            SimpleNamespace(motion_id="motion_a.npz", start_frame=12),
-            SimpleNamespace(motion_id="motion_b.npz", start_frame=24),
-        ),
-        stage3_index_perturbation_family=("local_rp", "local_rp"),
-        stage3_index_perturbation_strength=torch.tensor([0.15, 0.25]),
-    )
-    calls: list[str] = []
-
-    def fake_sample_rows(_runner, _sampler):
-        calls.append("sample")
-        _sampler.seen[:] = True
-        _sampler.staleness += 10.0
-        torch.rand((), generator=_sampler.generator)
-        return sample
-
-    def fake_build(_runner, actual_sample, *, update_step, print_probe):
-        calls.append("build")
-        assert actual_sample is sample
-        assert update_step == 0
-        assert print_probe is False
-        return batch
-
-    def fake_reset(actual_runner):
-        calls.append("reset")
-        assert actual_runner._frontres_segment_live_current_sample is sample
-        assert actual_runner._frontres_segment_live_current_batch is batch
-        actual_runner._frontres_segment_live_current_reset_result = SimpleNamespace(ok=True)
-
-    capture = runner.fake_eval_capture(32)
-    capture.reward_accum = torch.tensor([10.0, 11.0, 100.0, 101.0, 2.0, 3.0])
-    capture.n_candidate = 2
-    old_sample_rows = getattr(live_training_module, "_sample_live_segment_rows", None)
-    old_batch_builder = getattr(live_training_module, "_build_current_segment_batch", None)
-    old_reset = live_training_module._apply_current_segment_reset
-    old_capture = live_training_module._run_live_rollout_capture
-    old_gain = live_training_module._capture_paired_gain
-    live_training_module._sample_live_segment_rows = fake_sample_rows
-    live_training_module._build_current_segment_batch = fake_build
-    live_training_module._apply_current_segment_reset = fake_reset
-    live_training_module._run_live_rollout_capture = lambda *_args, **_kwargs: capture
-    live_training_module._capture_paired_gain = lambda _capture: SimpleNamespace(
-        style_gain=torch.tensor([1.0, 3.0]),
-        physics_gain=torch.tensor([2.0, 4.0]),
-        repair_cost=torch.tensor([0.5, 1.0]),
-        gain_total=torch.tensor([2.5, 6.0]),
-    )
-    try:
-        summary = run_frontres_segment_periodic_eval(
-            runner,
-            iteration=100,
-            train_summary={"gain_total_mean": 999.0},
-        )
-    finally:
-        live_training_module._sample_live_segment_rows = old_sample_rows
-        live_training_module._build_current_segment_batch = old_batch_builder
-        live_training_module._apply_current_segment_reset = old_reset
-        live_training_module._run_live_rollout_capture = old_capture
-        live_training_module._capture_paired_gain = old_gain
-
-    log = diagnostics_module.format_segment_periodic_eval_log(summary)
-    print(f"[probe periodic_eval_independent] {log.replace(chr(10), ' | ')}", flush=True)
-    assert calls == ["sample", "build", "reset"]
-    assert runner.eval_mode_called is True
-    assert runner.train_mode_calls == 1
-    assert summary["eval_batch_source"] == "independent_sampler"
-    assert summary["eval_reset_applied"] is True
-    assert summary["gain_source"] == "FRS-GAIN-v002"
-    assert summary["gain_style_mean"] == 2.0
-    assert summary["gain_physics_mean"] == 3.0
-    assert summary["gain_repair_cost_mean"] == 0.75
-    assert summary["gain_total_mean"] == 4.25
-    assert summary["gain_total_pos_frac"] == 1.0
-    assert summary["motion_ids"] == ("motion_a.npz", "motion_b.npz")
-    assert summary["start_frames"] == (12, 24)
-    assert summary["perturbation_family_counts"] == {"local_rp": 2}
-    assert summary["perturbation_strength_min"] == float(torch.tensor(0.15))
-    assert summary["perturbation_strength_max"] == 0.25
-    assert runner._frontres_segment_live_current_sample == "training_sample"
-    assert runner._frontres_segment_live_current_batch == "training_batch"
-    assert runner._frontres_segment_live_current_reset_request == "training_request"
-    assert runner._frontres_segment_live_current_reset_result == "training_result"
-    assert torch.equal(sampler.seen, seen_before)
-    assert torch.equal(sampler.staleness, staleness_before)
-    assert torch.equal(sampler.generator.get_state(), rng_before)
-    assert "batch: source=independent_sampler" in log
-    assert "reset=True" in log
-    assert "motion_ids=('motion_a.npz', 'motion_b.npz')" in log
-    assert "start_frames=(12, 24)" in log
-    assert "families={'local_rp': 2}" in log
-    assert "total=4.250000" in log
-    assert "score:" not in log
-
-
-def test_periodic_eval_restores_train_mode_when_rollout_raises() -> None:
-    torch = __import__("torch")
-    runner = FakeRunner()
-    runner._frontres_segment_sampler = SimpleNamespace(
-        seen=torch.tensor([False]),
-        staleness=torch.tensor([0.0]),
-        generator=torch.Generator().manual_seed(5),
-    )
-    sample = SimpleNamespace(segment_ids=torch.tensor([0]))
-    batch = SimpleNamespace(specs=(SimpleNamespace(motion_id="motion_a.npz", start_frame=12),))
-    old_sample_rows = getattr(live_training_module, "_sample_live_segment_rows", None)
-    old_batch_builder = getattr(live_training_module, "_build_current_segment_batch", None)
-    old_capture = live_training_module._run_live_rollout_capture
-    live_training_module._sample_live_segment_rows = lambda *_args: sample
-    live_training_module._build_current_segment_batch = lambda *_args, **_kwargs: batch
-    live_training_module._run_live_rollout_capture = lambda *_args, **_kwargs: (_ for _ in ()).throw(
-        RuntimeError("synthetic periodic rollout failure")
-    )
-    try:
-        try:
-            run_frontres_segment_periodic_eval(runner, iteration=100, train_summary={})
-        except RuntimeError as exc:
-            assert "synthetic periodic rollout failure" in str(exc)
-        else:
-            raise AssertionError("periodic eval must propagate rollout failures")
-    finally:
-        live_training_module._sample_live_segment_rows = old_sample_rows
-        live_training_module._build_current_segment_batch = old_batch_builder
-        live_training_module._run_live_rollout_capture = old_capture
-    assert runner.train_mode_calls == 1
-    assert not hasattr(runner, "_frontres_segment_live_current_sample")
-    assert not hasattr(runner, "_frontres_segment_live_current_batch")
-
-
-def test_pseudo_live_training_periodic_eval_requires_hook() -> None:
-    runner = FakeRunner(periodic_eval_enabled=True, periodic_eval_interval=1)
-    runner.run_frontres_segment_periodic_eval = None
-    try:
-        run_frontres_segment_live_training_loop(
-            runner,
-            num_learning_iterations=1,
-            init_at_random_ep_len=False,
-        )
-    except NotImplementedError as exc:
-        _probe_exception("periodic_eval_requires_hook", exc)
-        assert "run_frontres_segment_periodic_eval" in str(exc)
-    else:
-        raise AssertionError("periodic eval must fail loudly when the live eval hook is missing")
-
-
-def test_pseudo_offline_eval_summary_uses_canonical_gain() -> None:
-    runner = FakeRunner()
-    capture = runner.fake_eval_capture(rollout_steps=5)
-    torch = __import__("torch")
-    old_gain = live_training_module._capture_paired_gain
-    live_training_module._capture_paired_gain = lambda _capture: SimpleNamespace(
-        style_gain=torch.tensor([1.0, 3.0]),
-        physics_gain=torch.tensor([2.0, 4.0]),
-        repair_cost=torch.tensor([0.5, 1.0]),
-        gain_total=torch.tensor([2.5, 6.0]),
-    )
-    try:
-        summary = offline_eval_summary(capture, sample_count=2, motion_ids=("motion_a.npz", "motion_b.npz"))
-    finally:
-        live_training_module._capture_paired_gain = old_gain
-    print(
-        "[probe offline_eval_summary] "
-        f"sample_count={summary['sample_count']} "
-        f"episode_length={summary['episode_length']} "
-        f"success_rate={summary['success_rate']} "
-        f"fall_rate={summary['fall_rate']} "
-        f"survival={summary['mean_survival_steps']} "
-        f"gain_source={summary['gain_source']} "
-        f"style={summary['gain_style_mean']} "
-        f"physics={summary['gain_physics_mean']} "
-        f"repair_cost={summary['gain_repair_cost_mean']} "
-        f"gain_total={summary['gain_total_mean']}",
-        flush=True,
-    )
-    assert summary["sample_count"] == 2.0
-    assert summary["episode_length"] == 5.0
-    assert round(summary["success_rate"], 6) == round(2.0 / 3.0, 6)
-    assert round(summary["fall_rate"], 6) == round(1.0 / 3.0, 6)
-    assert summary["gain_source"] == "FRS-GAIN-v002"
-    assert round(summary["gain_style_mean"], 6) == 2.0
-    assert round(summary["gain_physics_mean"], 6) == 3.0
-    assert round(summary["gain_repair_cost_mean"], 6) == 0.75
-    assert round(summary["gain_total_mean"], 6) == 4.25
-    log = format_offline_eval_log(summary)
-    assert "[FrontRES Segment Offline Eval / Per Motion]" in log
-    assert "gain: source=FRS-GAIN-v002" in log
-    assert "score:" not in log
-    assert "[FrontRES Segment Offline Eval / Mean]" in log
-    assert "id=motion_a.npz samples=1" in log
-    assert "id=motion_b.npz samples=1" in log
-    assert "sample_count=2" in log
-    assert "success=66.7%" in log
-    assert "fall=33.3%" in log
-    assert "style=2.000000" in log
-    assert "physics=3.000000" in log
-    assert "repair_cost=0.750000" in log
-    assert "total=4.250000" in log
-    assert "mpjpe_repaired=" in log
-    assert "mpjpe_noisy=" in log
-    assert "vel_err=" in log
-    assert "acc_err=" in log
-    assert "delta_se_norm=" in log
-
-
-def test_pseudo_offline_eval_capture_exposes_motion_quality_tensors() -> None:
-    runner = FakeRunner()
-    capture = runner.fake_eval_capture(rollout_steps=5)
-    scalars = motion_quality_summary_to_scalars(
-        clean_positions=capture.motion_clean_body_pos,
-        repaired_positions=capture.motion_repaired_body_pos,
-        noisy_positions=capture.motion_noisy_body_pos,
-    )
-    print(
-        "[probe offline_eval_motion_quality] "
-        f"clean_shape={tuple(capture.motion_clean_body_pos.shape)} "
-        f"repaired_mpjpe={scalars['segment/motion_mpjpe_repaired_clean']} "
-        f"noisy_mpjpe={scalars['segment/motion_mpjpe_noisy_clean']} "
-        f"vel={scalars['segment/motion_vel_error_repaired_clean']} "
-        f"acc={scalars['segment/motion_acc_error_repaired_clean']}",
-        flush=True,
-    )
-    assert tuple(capture.motion_clean_body_pos.shape) == (2, 5, 1, 3)
-    assert scalars["segment/motion_mpjpe_repaired_clean"] > 0.0
-    assert scalars["segment/motion_mpjpe_noisy_clean"] > scalars["segment/motion_mpjpe_repaired_clean"]
-    assert scalars["segment/motion_vel_error_repaired_clean"] > 0.0
-    assert scalars["segment/motion_acc_error_repaired_clean"] > 0.0
+def test_training_process_has_no_embedded_evaluator() -> None:
+    source = (ROOT / "rsl_rl" / "runners" / "frontres_segment_live_training.py").read_text(encoding="utf-8")
+    for retired in ("periodic_eval", "offline_eval", "sequence_offline_eval"):
+        assert retired not in source
+    print("[probe evaluation_isolation] training loop has no embedded evaluator", flush=True)
 
 
 def test_resume_progress_separates_absolute_and_local_iterations() -> None:
@@ -856,13 +542,7 @@ def main() -> None:
     test_pseudo_live_training_can_disable_fail_fast_guards()
     test_pseudo_live_training_log_formats_large_loss_readably()
     test_pseudo_live_training_continues_after_periodic_checkpoint_failure()
-    test_pseudo_live_training_runs_periodic_eval_only_on_interval()
-    test_periodic_eval_marks_missing_gain_and_preserves_motion_metrics_when_all_samples_fall()
-    test_periodic_eval_uses_independent_batch_and_restores_training_state()
-    test_periodic_eval_restores_train_mode_when_rollout_raises()
-    test_pseudo_live_training_periodic_eval_requires_hook()
-    test_pseudo_offline_eval_summary_uses_canonical_gain()
-    test_pseudo_offline_eval_capture_exposes_motion_quality_tensors()
+    test_training_process_has_no_embedded_evaluator()
     test_resume_progress_separates_absolute_and_local_iterations()
     print("result: PASS")
 

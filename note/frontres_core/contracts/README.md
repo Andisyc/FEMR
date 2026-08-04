@@ -6,11 +6,12 @@ This registry is the only default entrypoint for FrontRES contracts.
 
 | Category | Active contract | Status |
 | --- | --- | --- |
-| Method | `active/method/FRS-METHOD-v016-physics-constrained-intent-replay.md` | active |
-| Training | `active/training/FRS-TRAIN-v011-coordinated-k-m-checkpointed-curriculum.md` | active |
-| Reward | `active/reward/FRS-GAIN-v006-loaded-support-zmp-applicability.md` | active |
-| Optimization | `active/optimization/FRS-PPO-v004-grouped-constraint-gradient-projection.md` | active |
-| Evaluation | `active/evaluation/FRS-EVAL-v003-local-repair-composition-evaluation.md` | active |
+| Method | `active/method/FRS-METHOD-v017-clean-anchored-recovery-aware-segment-replay.md` | active |
+| Training | `active/training/FRS-TRAIN-v014-direct-full6-action-curriculum.md` | active |
+| Reward | `active/reward/FRS-GAIN-v007-clean-anchored-recovery-aware-ranking.md` | active |
+| Optimization | `active/optimization/FRS-PPO-v005-grouped-recovery-aware-scalar-update.md` | active |
+| Evaluation | `active/evaluation/FRS-EVAL-v004-clean-anchored-local-and-composition-evaluation.md` | active |
+| Engineering | `active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md` | active |
 
 ## Concept Figure Design Point Register
 
@@ -20,25 +21,69 @@ Concept Figure. Canonical names and block IDs come from
 
 | Design ID | Canonical human name | Active contract section | Figure block ID | Current code/evidence gap |
 | --- | --- | --- | --- | --- |
-| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v016` / `Preserved Replay Authority` | `M-02` | E-FI-74/E-FI-75 preserve scenario identity through the v016 loss and live route. |
-| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v016` / `Frozen-Policy Transaction`; `FRS-TRAIN-v011` / `Exact-M Frozen-Policy Transaction` | `SR-01` | E-FI-89 installs exactly two Segment sources x active M attempts and isolates state-driven sampler M. |
-| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v016` / `Preserved Replay Authority`; `FRS-TRAIN-v011` / `Global Coordinated K x M Schedule` | `M-06` | E-FI-89 closes the K8/M2 -> K16/M3 -> K32/M4 owner, role widths and checkpoint-v6 persistence offline; M3/M4 live evidence remains open. |
-| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v016` / `Actor And Information Boundary` | `M-04` | E-FI-74 confirms the 158D/full-6D actor authority and constraint-evidence isolation. |
-| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v016` / `Preserved Replay Authority` | `M-10` | E-FI-74/E-FI-75 preserve one-action-K and change only its loss-side interpretation. |
-| `FRS-DP-06` | Paired Rollouts | `FRS-GAIN-v006` / `Evidence Authority` | `Q-PAIR` | The same sealed roles remain; valid physical loss of support is Contact failure rather than corrupt evidence. |
-| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v006` / `Loaded-Support Phase-ZMP`; `FRS-PPO-v004` / `Grouped First-Order Projection` | `Q-01` | E-FI-84 live-confirms sensor authority; E-FI-85 closes role-specific applicability offline; E-FI-86 live-confirms the larger fail-closed raw-contact capacity through iteration 2000. |
-| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v011` / `First Entry Into The New Identity` | `M-03` | HSL-v1 remains the only cold-start actor source; checkpoint-v5 cannot migrate into v011. |
-| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v011` / `Per-Stage Recalibration And Actor Ramp` | `M-05` | E-FI-89 closes the resolver/persistence identity offline; the first real K16/M3 and K32/M4 recalibrations remain unconfirmed. |
-| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v016` / `Actor And Information Boundary` | `M-11` | Deployment/Noisy q29 H remains unchanged and isolated from Physics evaluator evidence. |
+| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v017` / `Sealed Local Scenario`; `FRS-TRAIN-v014` / `Per-K Inner DR Curriculum` | `M-02` | TRAIN-v013 curriculum evidence remains valid; E-FI-114 confirms unchanged scheduling under v014 checkpoint-v9 offline. |
+| `FRS-DP-01P` | Perturbation Probing | `FRS-TRAIN-v014` / `Optional GMT Boundary Acquisition` | `M-12` | The current campaign directly configures the measured 2.381 boundary; optional re-probing for a changed setup remains unimplemented and is not required for the current route. |
+| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v017` / `Frozen-Policy Transaction`; `FRS-PPO-v005` / `Grouped Equal-Mass Reduction`; `FRS-TRAIN-v014` / `Exact-M Frozen-Policy Transaction` | `SR-01` | Transaction semantics remain confirmed by E-FI-112; E-FI-114 confirms direct 6D rows and checkpoint-v9 offline. |
+| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v017` / `One-Action K Evidence`; `FRS-TRAIN-v014` / `Nested K x M x DR Schedule` | `M-06` | K/M/DR semantics remain confirmed by E-FI-113; E-FI-114 confirms unchanged one-action-K and checkpoint-v9 offline. |
+| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v017` / `Actor And Information Boundary`; `FRS-TRAIN-v014` / `Design Delta` | `M-04` | E-FI-114 removes active action `tanh`/scale and 12D slicing; HSL/Stage3/storage/log-prob share direct `[B,6]`. Phase B physical execution remains pending. |
+| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v017` / `One-Action K Evidence And Frozen GMT` | `M-10` | E-FI-101 closes the one-action-K/frozen-770D route offline; simulator evidence pending. |
+| `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v017` / `Clean/Noisy/Repair Evidence`; `FRS-GAIN-v007` / `Evidence Authority And Lifecycle`; `FRS-EVAL-v004` / `Local Clean/Noisy/Repair Evaluation` | `Q-PAIR` | E-FI-101 closes typed lifecycle; E-FI-102 proves authoritative capture cardinality offline; physical counts remain Step-2 evidence. |
+| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v007` / `Recovery-Aware Total Gain`; `FRS-PPO-v005` / `Scalar Actor And Critic Signal`; `FRS-EVAL-v004` / `Local Report` | `Q-01` | E-FI-101 closes v007 formula, scalar Critic/PPO, local report and projection retirement offline; beta quality pending. |
+| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v014` / `First Entry From HSL` | `M-03` | E-FI-114 confirms HSL-v2 direct full-6D coordinates and HSL-v1 pre-mutation rejection offline. |
+| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v014` / `Critic Recalibration And Actor Ramp` | `M-05` | E-FI-118 unifies the formal phase identity as `critic_only -> actor_ramp -> joint`, proves the same Critic survives K8->K16->K32, and preserves Actor/std parameters plus optimizer state during critic-only recalibration. |
+| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v017` / `Actor And Information Boundary` | `M-11` | E-FI-119 fixes exact deployment/Noisy offsets `(1,2)` at layout/config/formal/checkpoint boundaries and proves the unmocked offline 928/158/770 route; Phase B/live remains pending. |
 
-The physics-constrained Intent migration is governed by
+## Active Recovery-Aware Contract Migration
+
+Human review of all ten Design Inspector cards completed on 2026-08-01.
+The reopened Perturbation Data, K-step Curriculum and Actor & Critic Warmup
+details were re-confirmed on 2026-08-03. The subsequent DP04 Phase A review
+confirmed that the active implementation must remove its older squashed action
+coordinate, which is activated as FRS-TRAIN-v014.
+The coordinated active semantic authority is now:
+
+```text
+FRS-METHOD-v017
+FRS-GAIN-v007
+FRS-PPO-v005
+FRS-TRAIN-v014
+FRS-EVAL-v004
+```
+
+The accepted route executes one Clean and one fixed Noisy baseline per Segment,
+scores every valid Repair with
+`G_total = G_I + lambda_RA G_P - beta C_repair`, and sends all attempts through
+one grouped scalar PPO update. The old independent Physics projection/KKT path
+is superseded. The active source implements this contract set offline; remaining
+formal-runtime and physical facts stay unconfirmed until Phase B. The coordinated
+Engineering Plan is
+`../plans/FRS-v017-clean-anchored-recovery-aware-engineering-plan.md`; planning
+passed independent `engineering_plan_review` as E-FI-100. That READY verdict
+does not itself authorize implementation, checkpoint migration, simulator, or
+training.
+
+The local/composition evaluation boundary is aligned by `FRS-EVAL-v004`.
+The closed proposal at
+`../plans/FRS-GAIN-v007-clean-anchored-recovery-aware-ranking-proposal.md`
+is retained only as design rationale. The five coordinated method, Gain,
+optimization, training, and evaluation contracts above are now the default
+semantic authority. Evidence below that names v016/v006/v004/v011
+describes the superseded implementation route and must not override them.
+
+## Superseded Runtime Evidence
+
+The following evidence records the implementation route that preceded the
+2026-08-01 contract activation. It is retained for traceability and does not
+override the active contract set above.
+
+The physics-constrained Intent migration was governed by
 `../plans/FRS-v015-future-intent-single-action-k-engineering-plan.md` and its
 paired checklist. `FRS-PPO-v004` preserves v003 one-row grouped equal-mass
 reduction but replaces the actor update with a joint constraint-gradient
 projection; `E-FI-27` closes the bounded S4 local identity and
 exact-one-update route. `E-FI-71` additionally closes the bounded K-transition
 and actual checkpoint-cadence gate. Long-training convergence, policy quality,
-and Step 5B deployment composition remain unconfirmed. `E-FI-28` completes the immutable Step 5B-S1 deployment
+and Step 5B physical deployment quality remain unconfirmed. `E-FI-28` completes the immutable Step 5B-S1 deployment
 request/report kernel, and `E-FI-29` completes only the S2A command-owned
 current/H carrier plus read-only runtime connector. `E-FI-30` completes the S2
 CPU formal executor with unclamped `T-max(H)` frames, frozen GMT, atomic report,
@@ -49,9 +94,11 @@ checkpoint or defined external Noisy file exists: the checkpoint must be
 produced by the new-layout training loop, and composition must be paired
 against frozen-GMT baseline. `E-FI-46` now closes the controlled-corruption
 materializer: an external unexplained `Noisy.npz` is no longer a prerequisite.
-The CLI is implemented-not-runnable and S4 is blocked. Simulator timing,
-physical metric values, and live composition
-remain open. No
+`E-FI-98` closes the deterministic same-state Baseline/Repair executor and its
+runtime Gateway: one canonical route-start/RNG/carrier identity is restored
+before each branch, Baseline never invokes FEMR, and the paired report cannot
+feed training state. Simulator timing, physical metric values, and live
+composition remain open. No
 long-training recommendation follows from contract activation or one bounded
 sentinel alone.
 
@@ -104,8 +151,9 @@ E-FI-86 increases the raw-contact view from 16 to 256 contacts per foot/env
 while retaining saturation fail-closed, then live-confirms 1999 consecutive
 K8 committed transactions through absolute iteration 2000 without capacity,
 applicability or KKT failure. Silent v005/v004/v003/v009 fallback remains
-forbidden. Independent policy efficacy and deployment composition remain
-unconfirmed.
+forbidden. Independent policy efficacy and physical deployment-composition
+quality remain unconfirmed; deterministic paired composition connectivity is
+closed by E-FI-98.
 
 E-FI-88 activates FRS-TRAIN-v011 after the K8/M2 log audit established that
 the prior formal route never increased M. The accepted campaign freezes

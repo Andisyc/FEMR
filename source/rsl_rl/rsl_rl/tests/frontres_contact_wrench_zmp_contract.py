@@ -13,7 +13,8 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[4]
 BALANCE = ROOT / "source/rsl_rl/rsl_rl/frontres/frontres_balance.py"
-LIVE_PROBE = ROOT / "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py"
+PHYSICS_OWNER = ROOT / "source/rsl_rl/rsl_rl/runners/frontres_segment_physics.py"
+FORMAL_TRANSACTION = ROOT / "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py"
 G1_CFG = ROOT / "source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/flat_env_cfg.py"
 TRACKING_CFG = ROOT / "source/whole_body_tracking/whole_body_tracking/tasks/tracking/tracking_env_cfg.py"
 
@@ -137,13 +138,25 @@ def test_expected_support_envelope_is_derived_from_clean_foot_pose() -> None:
 
 
 def test_formal_owner_isolation() -> None:
-    probe = LIVE_PROBE.read_text(encoding="utf-8")
-    capture = probe[probe.index("def _capture_physics_frame"):probe.index("def _capture_v015_quality_lateral_lean_frame")]
-    contact_owner = probe[probe.index("def _contact_sensor_pair"):probe.index("def _ensure_frontres_raw_contact_view")]
+    physics = PHYSICS_OWNER.read_text(encoding="utf-8")
+    balance = BALANCE.read_text(encoding="utf-8")
+    capture = physics[
+        physics.index("def _capture_physics_frame"):
+        physics.index("def _capture_v015_quality_lateral_lean_frame")
+    ]
+    contact_owner = physics[
+        physics.index("def _contact_sensor_pair"):
+        physics.index("def _root_relative_body_pos")
+    ]
     assert "_contact_wrench_zmp_pair" in capture
     assert "_frontres_branch_balance_margin" not in capture
     assert "force_matrix_w" in contact_owner
     assert '"net_forces_w"' not in contact_owner
+    assert "def ensure_frontres_raw_contact_view" in balance
+    assert "def read_frontres_raw_filtered_contact_rows" in balance
+    assert "from rsl_rl.runners.frontres_segment_live_probe import _" not in (
+        ROOT / "source/rsl_rl/rsl_rl/runners/frontres_segment_sequence_eval.py"
+    ).read_text(encoding="utf-8")
     cfg = G1_CFG.read_text(encoding="utf-8")
     scene_cfg = TRACKING_CFG.read_text(encoding="utf-8")
     assert 'frontres_left_foot_contacts = ContactSensorCfg(' in cfg
@@ -161,15 +174,7 @@ def test_formal_owner_isolation() -> None:
 
 
 def test_raw_contact_owner_unpacking() -> None:
-    tree = ast.parse(LIVE_PROBE.read_text(encoding="utf-8"))
-    functions = [
-        node
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name in {"_ensure_frontres_raw_contact_view", "_raw_filtered_contact_rows"}
-    ]
-    namespace: dict[str, Any] = {"torch": torch, "Any": Any, "re": __import__("re")}
-    exec(compile(ast.Module(body=functions, type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+    owner = _owner()
     raw = (
         torch.tensor([[10.0], [30.0], [20.0]]),
         torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]),
@@ -184,7 +189,7 @@ def test_raw_contact_owner_unpacking() -> None:
         _frontres_raw_contact_capacity=64,
         contact_physx_view=SimpleNamespace(get_contact_data=lambda dt: raw),
     )
-    points, forces, normals, valid = namespace["_raw_filtered_contact_rows"](
+    points, forces, normals, valid = owner.read_frontres_raw_filtered_contact_rows(
         sensor,
         num_envs=2,
         device=torch.device("cpu"),
@@ -196,15 +201,7 @@ def test_raw_contact_owner_unpacking() -> None:
 
 
 def test_raw_contact_capacity_saturation_remains_fail_closed() -> None:
-    tree = ast.parse(LIVE_PROBE.read_text(encoding="utf-8"))
-    function = next(
-        node
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == "_raw_filtered_contact_rows"
-    )
-    namespace: dict[str, Any] = {"torch": torch, "Any": Any}
-    exec(compile(ast.Module(body=[function], type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+    owner = _owner()
     capacity = 4
     raw = (
         torch.ones(capacity, 1),
@@ -220,7 +217,7 @@ def test_raw_contact_capacity_saturation_remains_fail_closed() -> None:
         contact_physx_view=SimpleNamespace(get_contact_data=lambda dt: raw),
     )
     try:
-        namespace["_raw_filtered_contact_rows"](
+        owner.read_frontres_raw_filtered_contact_rows(
             sensor,
             num_envs=2,
             device=torch.device("cpu"),
@@ -232,14 +229,7 @@ def test_raw_contact_capacity_saturation_remains_fail_closed() -> None:
 
 
 def test_legacy_contact_view_capacity_upgrade_and_fail_closed() -> None:
-    tree = ast.parse(LIVE_PROBE.read_text(encoding="utf-8"))
-    function = next(
-        node for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == "_ensure_frontres_raw_contact_view"
-    )
-    namespace: dict[str, Any] = {"Any": Any, "re": __import__("re")}
-    exec(compile(ast.Module(body=[function], type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+    owner = _owner()
 
     calls: list[tuple[str, dict[str, Any]]] = []
     upgraded = SimpleNamespace(count=8, filter_count=1)
@@ -263,7 +253,7 @@ def test_legacy_contact_view_capacity_upgrade_and_fail_closed() -> None:
         _contact_physx_view=legacy,
         _physics_sim_view=SimpleNamespace(create_rigid_contact_view=create_view),
     )
-    result = namespace["_ensure_frontres_raw_contact_view"](sensor, num_envs=8)
+    result = owner.ensure_frontres_raw_contact_view(sensor, num_envs=8)
     assert result is upgraded and sensor._contact_physx_view is upgraded
     assert sensor._frontres_raw_contact_capacity == 2048
     assert calls == [
@@ -280,7 +270,7 @@ def test_legacy_contact_view_capacity_upgrade_and_fail_closed() -> None:
     sensor._frontres_raw_contact_capacity = 0
     sensor._physics_sim_view = SimpleNamespace(create_rigid_contact_view=lambda *args, **kwargs: bad)
     try:
-        namespace["_ensure_frontres_raw_contact_view"](sensor, num_envs=8)
+        owner.ensure_frontres_raw_contact_view(sensor, num_envs=8)
     except RuntimeError as exc:
         assert "body/env identity" in str(exc)
     else:
@@ -288,14 +278,14 @@ def test_legacy_contact_view_capacity_upgrade_and_fail_closed() -> None:
 
 
 def test_formal_zmp_capture_preserves_first_invalid_error() -> None:
-    tree = ast.parse(LIVE_PROBE.read_text(encoding="utf-8"))
+    tree = ast.parse(PHYSICS_OWNER.read_text(encoding="utf-8"))
     function = next(
         node for node in tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name == "_contact_wrench_zmp_pair"
     )
     namespace: dict[str, Any] = {"Any": Any, "Mapping": __import__("collections.abc").abc.Mapping, "torch": torch}
-    exec(compile(ast.Module(body=[function], type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(PHYSICS_OWNER), "exec"), namespace)
     runner = SimpleNamespace(env=SimpleNamespace(scene={}), device=torch.device("cpu"))
     command = SimpleNamespace(
         num_envs=8,
@@ -320,15 +310,7 @@ def test_formal_zmp_capture_preserves_first_invalid_error() -> None:
 
 
 def test_eight_role_ground_contact_reaches_finite_zmp() -> None:
-    tree = ast.parse(LIVE_PROBE.read_text(encoding="utf-8"))
-    functions = [
-        node
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name in {"_ensure_frontres_raw_contact_view", "_raw_filtered_contact_rows"}
-    ]
-    namespace: dict[str, Any] = {"torch": torch, "Any": Any, "re": __import__("re")}
-    exec(compile(ast.Module(body=functions, type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+    owner = _owner()
 
     num_envs = 8
     points_w = torch.zeros(num_envs, 3)
@@ -347,44 +329,38 @@ def test_eight_role_ground_contact_reaches_finite_zmp() -> None:
         _frontres_raw_contact_capacity=128,
         contact_physx_view=SimpleNamespace(get_contact_data=lambda dt: raw),
     )
-    unpacked = namespace["_raw_filtered_contact_rows"](
+    unpacked = owner.read_frontres_raw_filtered_contact_rows(
         sensor,
         num_envs=num_envs,
         device=torch.device("cpu"),
     )
-    zmp, valid = _owner().contact_wrench_zmp_xy(*unpacked)
+    zmp, valid = owner.contact_wrench_zmp_xy(*unpacked)
     assert tuple(zmp.shape) == (num_envs, 2)
     assert bool(valid.all()) and bool(torch.isfinite(zmp).all())
     torch.testing.assert_close(zmp, points_w[:, :2])
 
 
 def test_raw_views_are_installed_before_reset_and_never_lazily_on_read() -> None:
-    source = LIVE_PROBE.read_text(encoding="utf-8")
+    source = FORMAL_TRANSACTION.read_text(encoding="utf-8")
+    balance = BALANCE.read_text(encoding="utf-8")
     builder = source[
         source.index("def _build_frontres_v015_local_transaction_request") :
         source.index("def _build_frontres_v015_local_identity_sentinel_request")
     ]
-    assert builder.index("_prepare_frontres_raw_contact_views(runner)") < builder.index(
+    assert builder.index("prepare_frontres_raw_contact_views(runner)") < builder.index(
         "prepare_frontres_v015_local_sentinel_batch(runner)"
     )
-    assert builder.index("_prepare_frontres_raw_contact_views(runner)") < builder.index(
+    assert builder.index("prepare_frontres_raw_contact_views(runner)") < builder.index(
         "_apply_current_segment_reset(runner"
     )
-    raw_reader = source[
-        source.index("def _raw_filtered_contact_rows") : source.index("def _contact_wrench_zmp_pair")
+    raw_reader = balance[
+        balance.index("def read_frontres_raw_filtered_contact_rows") : balance.index(
+            "def pad_frontres_raw_contact_slots"
+        )
     ]
-    assert "_ensure_frontres_raw_contact_view(" not in raw_reader
+    assert "ensure_frontres_raw_contact_view(" not in raw_reader
     assert "installed before the scored physics step" in raw_reader
-
-    tree = ast.parse(source)
-    functions = [
-        node
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name in {"_ensure_frontres_raw_contact_view", "_prepare_frontres_raw_contact_views"}
-    ]
-    namespace: dict[str, Any] = {"Any": Any, "re": __import__("re")}
-    exec(compile(ast.Module(body=functions, type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+    owner = _owner()
 
     events: list[str] = []
 
@@ -413,22 +389,14 @@ def test_raw_views_are_installed_before_reset_and_never_lazily_on_read() -> None
             scene={"frontres_left_foot_contacts": left, "frontres_right_foot_contacts": right},
         )
     )
-    namespace["_prepare_frontres_raw_contact_views"](runner)
+    owner.prepare_frontres_raw_contact_views(runner)
     assert events == ["install-left", "install-right"]
     assert left._frontres_raw_contact_capacity == 2048
     assert right._frontres_raw_contact_capacity == 2048
 
 
 def test_asymmetric_foot_contact_slots_pad_without_changing_evidence() -> None:
-    tree = ast.parse(LIVE_PROBE.read_text(encoding="utf-8"))
-    function = next(
-        node
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == "_pad_raw_contact_slots"
-    )
-    namespace: dict[str, Any] = {"torch": torch}
-    exec(compile(ast.Module(body=[function], type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+    owner = _owner()
 
     def raw(slots: int, x: float) -> tuple[torch.Tensor, ...]:
         points = torch.zeros(8, 1, slots, 3)
@@ -440,8 +408,8 @@ def test_asymmetric_foot_contact_slots_pad_without_changing_evidence() -> None:
         valid = forces > 0.0
         return points, forces, normals, valid
 
-    left = namespace["_pad_raw_contact_slots"](raw(10, -0.1), contact_slots=10)
-    right = namespace["_pad_raw_contact_slots"](raw(3, 0.1), contact_slots=10)
+    left = owner.pad_frontres_raw_contact_slots(raw(10, -0.1), contact_slots=10)
+    right = owner.pad_frontres_raw_contact_slots(raw(3, 0.1), contact_slots=10)
     for left_value, right_value in zip(left, right, strict=True):
         assert int(left_value.shape[2]) == int(right_value.shape[2]) == 10
     assert right[3][:, :, :3].sum().item() == 8
@@ -454,8 +422,8 @@ def test_asymmetric_foot_contact_slots_pad_without_changing_evidence() -> None:
     assert bool(zmp_valid.all())
     torch.testing.assert_close(zmp, torch.zeros(8, 2))
 
-    swapped_left = namespace["_pad_raw_contact_slots"](raw(3, 0.1), contact_slots=10)
-    swapped_right = namespace["_pad_raw_contact_slots"](raw(10, -0.1), contact_slots=10)
+    swapped_left = owner.pad_frontres_raw_contact_slots(raw(3, 0.1), contact_slots=10)
+    swapped_right = owner.pad_frontres_raw_contact_slots(raw(10, -0.1), contact_slots=10)
     swapped_zmp, swapped_valid = _owner().contact_wrench_zmp_xy(
         torch.cat((swapped_left[0], swapped_right[0]), dim=1),
         torch.cat((swapped_left[1], swapped_right[1]), dim=1),

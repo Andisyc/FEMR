@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 import torch
@@ -15,6 +16,148 @@ import torch
 
 FRONTRES_ZMP_ESTIMATOR_ID = "contact-wrench-zmp-v1"
 FRONTRES_SUPPORT_ENVELOPE_ID = "clean-foot-pose-oriented-box-v1"
+
+
+def ensure_frontres_raw_contact_view(sensor: Any, *, num_envs: int) -> Any:
+    """Install the raw-capable PhysX view used by FrontRES Physics evidence."""
+
+    existing = getattr(sensor, "contact_physx_view", None)
+    if int(getattr(sensor, "_frontres_raw_contact_capacity", 0)) > 0:
+        return existing
+    cfg = getattr(sensor, "cfg", None)
+    if int(getattr(cfg, "max_contact_data_count", 0)) > 0:
+        return existing
+    physics_view = getattr(sensor, "_physics_sim_view", None)
+    create_view = getattr(physics_view, "create_rigid_contact_view", None)
+    body_names = getattr(sensor, "body_names", None)
+    prim_path = getattr(cfg, "prim_path", None)
+    filter_expr = getattr(cfg, "filter_prim_paths_expr", None)
+    if not callable(create_view) or not isinstance(body_names, (list, tuple)) or not body_names:
+        return existing
+    if not isinstance(prim_path, str) or not isinstance(filter_expr, (list, tuple)) or not filter_expr:
+        return existing
+
+    parent = prim_path.rsplit("/", 1)[0]
+    body_regex = r"(" + "|".join(re.escape(str(name)) for name in body_names) + r")"
+    body_glob = f"{parent}/{body_regex}".replace(".*", "*")
+    filter_glob = [str(expr).replace(".*", "*") for expr in filter_expr]
+    raw_contacts_per_foot_env = 256
+    capacity = max(raw_contacts_per_foot_env, int(num_envs) * raw_contacts_per_foot_env)
+    raw_view = create_view(
+        body_glob,
+        filter_patterns=filter_glob,
+        max_contact_data_count=capacity,
+    )
+    if int(getattr(raw_view, "count", int(num_envs))) != int(getattr(existing, "count", int(num_envs))):
+        raise RuntimeError("raw contact view changed the ContactSensor body/env identity")
+    if int(getattr(raw_view, "filter_count", len(filter_glob))) != int(
+        getattr(existing, "filter_count", len(filter_glob))
+    ):
+        raise RuntimeError("raw contact view changed the ContactSensor filter identity")
+    sensor._contact_physx_view = raw_view
+    sensor._frontres_raw_contact_capacity = capacity
+    return raw_view
+
+
+def prepare_frontres_raw_contact_views(runner: Any) -> None:
+    """Install both raw views before reset/step can create scored evidence."""
+
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    scene = getattr(env, "scene", None)
+    if scene is None:
+        raise RuntimeError("v015 Physics preparation requires the formal IsaacLab scene")
+    num_envs = int(getattr(env, "num_envs", 0))
+    if num_envs <= 0:
+        raise RuntimeError("v015 Physics preparation requires a positive env count")
+    for name in ("frontres_left_foot_contacts", "frontres_right_foot_contacts"):
+        try:
+            sensor = scene[name]
+        except (KeyError, TypeError) as exc:
+            raise RuntimeError(f"v015 Physics preparation is missing scene sensor {name}") from exc
+        view = ensure_frontres_raw_contact_view(sensor, num_envs=num_envs)
+        if int(getattr(sensor, "_frontres_raw_contact_capacity", 0)) <= 0:
+            raise RuntimeError(f"v015 Physics preparation could not provision raw contact capacity for {name}")
+        if view is not getattr(sensor, "_contact_physx_view", None):
+            raise RuntimeError(f"v015 Physics preparation did not install the authoritative view for {name}")
+
+
+def read_frontres_raw_filtered_contact_rows(
+    sensor: Any,
+    *,
+    num_envs: int,
+    device: torch.device,
+) -> tuple[torch.Tensor, ...]:
+    """Unpack one filtered foot sensor into row-aligned raw contacts."""
+
+    view = getattr(sensor, "contact_physx_view", None)
+    if int(getattr(sensor, "_frontres_raw_contact_capacity", 0)) <= 0:
+        raise RuntimeError("contact-wrench ZMP requires a raw view installed before the scored physics step")
+    get_contact_data = getattr(view, "get_contact_data", None)
+    if not callable(get_contact_data):
+        raise RuntimeError("contact-wrench ZMP requires ContactSensor.contact_physx_view.get_contact_data")
+    dt = float(getattr(sensor, "_sim_physics_dt", 0.0))
+    if dt <= 0.0:
+        raise RuntimeError("contact-wrench ZMP requires a positive ContactSensor physics dt")
+    payload = get_contact_data(dt=dt)
+    if not isinstance(payload, tuple) or len(payload) != 6:
+        raise RuntimeError("unexpected IsaacLab raw contact-data payload")
+    normal_force, points_w, normals_w, _distance, counts, starts = payload
+    tensors = (normal_force, points_w, normals_w, counts, starts)
+    if any(not isinstance(value, torch.Tensor) for value in tensors):
+        raise RuntimeError("raw contact-data payload must contain tensors")
+    counts = counts.to(device=device, dtype=torch.long).reshape(-1)
+    starts = starts.to(device=device, dtype=torch.long).reshape(-1)
+    if int(counts.numel()) != int(num_envs) or int(starts.numel()) != int(num_envs):
+        raise RuntimeError("each v015 foot sensor must resolve exactly one body and one ground filter per env")
+    capacity = int(getattr(sensor, "_frontres_raw_contact_capacity", 0))
+    if capacity > 0 and int(counts.sum().item()) >= capacity:
+        raise RuntimeError("contact-wrench ZMP raw contact buffer reached capacity; evidence may be truncated")
+    max_contacts = max(1, int(counts.max().item()) if int(counts.numel()) else 0)
+    points = torch.zeros(num_envs, 1, max_contacts, 3, device=device, dtype=torch.float32)
+    normals = torch.zeros_like(points)
+    forces = torch.zeros(num_envs, 1, max_contacts, device=device, dtype=torch.float32)
+    valid = torch.zeros(num_envs, 1, max_contacts, device=device, dtype=torch.bool)
+    normal_force = normal_force.to(device=device, dtype=torch.float32).reshape(-1)
+    points_w = points_w.to(device=device, dtype=torch.float32).reshape(-1, 3)
+    normals_w = normals_w.to(device=device, dtype=torch.float32).reshape(-1, 3)
+    for env_id in range(num_envs):
+        count = int(counts[env_id].item())
+        start = int(starts[env_id].item())
+        if count <= 0:
+            continue
+        stop = start + count
+        if stop > int(normal_force.numel()) or stop > int(points_w.shape[0]) or stop > int(normals_w.shape[0]):
+            raise RuntimeError("raw contact-data count/start exceeds the PhysX contact buffer")
+        forces[env_id, 0, :count] = normal_force[start:stop].abs()
+        points[env_id, 0, :count] = points_w[start:stop]
+        normals[env_id, 0, :count] = normals_w[start:stop]
+        valid[env_id, 0, :count] = True
+    return points, forces, normals, valid
+
+
+def pad_frontres_raw_contact_slots(
+    raw: tuple[torch.Tensor, ...],
+    *,
+    contact_slots: int,
+) -> tuple[torch.Tensor, ...]:
+    """Right-pad one foot so both contact buffers share a contact axis."""
+
+    points, forces, normals, valid = raw
+    current = int(points.shape[2])
+    if current > int(contact_slots) or int(contact_slots) <= 0:
+        raise RuntimeError("raw contact-slot padding requires target C >= current C > 0")
+    if current == int(contact_slots):
+        return raw
+    batch, feet = int(points.shape[0]), int(points.shape[1])
+    padded_points = torch.zeros(batch, feet, contact_slots, 3, device=points.device, dtype=points.dtype)
+    padded_forces = torch.zeros(batch, feet, contact_slots, device=forces.device, dtype=forces.dtype)
+    padded_normals = torch.zeros(batch, feet, contact_slots, 3, device=normals.device, dtype=normals.dtype)
+    padded_valid = torch.zeros(batch, feet, contact_slots, device=valid.device, dtype=torch.bool)
+    padded_points[:, :, :current] = points
+    padded_forces[:, :, :current] = forces
+    padded_normals[:, :, :current] = normals
+    padded_valid[:, :, :current] = valid.bool()
+    return padded_points, padded_forces, padded_normals, padded_valid
 
 
 def expected_support_and_envelope_from_foot_pose(
@@ -81,6 +224,7 @@ def expected_support_and_envelope_from_foot_pose(
     return support.detach().clone(), torch.stack(rows, dim=0).detach().clone()
 
 
+# B2: Convert row-aligned raw foot-ground contacts into physical ZMP evidence.
 def contact_wrench_zmp_xy(
     contact_points_w: torch.Tensor,
     normal_force_magnitudes: torch.Tensor,

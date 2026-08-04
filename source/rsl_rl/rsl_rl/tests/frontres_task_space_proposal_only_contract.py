@@ -21,24 +21,22 @@ def _build_policy() -> FrontRESActorCritic:
     nn.Module.__init__(policy)
     policy.num_task_corrections = 6
     policy.total_output_dim = 6
-    policy.max_delta_pos = 0.30
-    policy.max_delta_rpy = 0.40
+    policy.num_frontres_obs = 158
     policy.noise_std_type = "scalar"
-    policy.residual_actor = nn.Linear(4, 6, bias=False)
+    policy.residual_actor = nn.Linear(158, 6, bias=False)
     policy.register_buffer("std", torch.full((6,), 0.05))
     policy._parse_observations = lambda observations: (observations, None, None)
     with torch.no_grad():
-        policy.residual_actor.weight.copy_(torch.eye(6, 4))
+        policy.residual_actor.weight.zero_()
+        policy.residual_actor.weight[:, :4].copy_(torch.eye(6, 4))
     return policy
 
 
 def test_proposal_only_task_space_policy_is_6d() -> None:
     policy = _build_policy()
-    observations = torch.tensor(
-        [
-            [0.10, -0.20, 0.30, -0.40],
-            [-0.30, 0.20, -0.10, 0.40],
-        ],
+    observations = torch.zeros(2, 158, dtype=torch.float32)
+    observations[:, :4] = torch.tensor(
+        [[1.10, -1.20, 1.30, -1.40], [-1.30, 1.20, -1.10, 1.40]],
         dtype=torch.float32,
     )
     policy.update_distribution(observations)
@@ -67,8 +65,9 @@ def test_proposal_only_task_space_policy_is_6d() -> None:
     assert tuple(selected.shape) == (2,)
     assert tuple(per_dim.shape) == (2, 2)
     assert tuple(correction.shape) == (2, 6)
-    assert torch.all(actions[:, :3].abs() <= policy.max_delta_pos + 1e-6)
-    assert torch.all(actions[:, 3:6].abs() <= policy.max_delta_rpy + 1e-6)
+    expected_correction = policy.residual_actor(observations)
+    torch.testing.assert_close(correction, expected_correction)
+    assert float(correction.abs().max()) > 1.0
 
 
 if __name__ == "__main__":

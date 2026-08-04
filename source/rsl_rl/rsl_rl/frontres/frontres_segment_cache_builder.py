@@ -2,114 +2,57 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
-import sys
 from typing import Any
 
 import torch
 
-
-def _load_same_dir(module_name: str):
-    path = Path(__file__).with_name(f"{module_name}.py")
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        raise ModuleNotFoundError(module_name)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-try:
-    from rsl_rl.frontres.frontres_segment_cache_extractor import extract_robot_rollout_state
-    from rsl_rl.frontres.frontres_segment_cache_indexer import (
-        FrontRESAMASSIndexSummary,
-        append_amass_segment_index,
-        build_amass_segment_index,
-        build_amass_segment_index_from_paths,
-        discover_amass_npz_files,
-        iter_amass_segment_index_chunks_from_paths,
-        read_amass_segment_index,
-        write_amass_segment_index,
-    )
-    from rsl_rl.frontres.frontres_segment_cache_io import (
-        FrontRESCleanStateEntry,
-        append_stage1_cache_progress,
-        clean_resume_key,
-        noisy_resume_key,
-        read_clean_state_manifest_records,
-        read_clean_state_record,
-        read_noisy_variant_manifest_records,
-        scan_stage1_cache_resume_state,
-        write_cache_metadata,
-        write_clean_state_chunked_shard_atomic,
-        write_clean_state_manifest_records,
-        write_noisy_variant_chunked_shard_atomic,
-        write_noisy_variant_manifest_records,
-        write_stage1_cache_status,
-    )
-    from rsl_rl.frontres.frontres_segment_cache_noisy_capture import capture_noisy_variant
-    from rsl_rl.frontres.frontres_segment_cache_perturbation import (
-        FrontRESBankDescriptorConfig,
-        FrontRESPerturbationCurriculumConfig,
-        build_perturbation_descriptors,
-        build_perturbation_descriptors_from_curriculum_bank,
-        descriptor_probe,
-    )
-    from rsl_rl.frontres.frontres_segment_cache_schema import FrontRESSegmentIndex
-    from rsl_rl.frontres.frontres_segment_cache_curriculum import (
-        FrontRESStage1CurriculumBankConfig,
-        build_stage1_curriculum_bank,
-        stage1_curriculum_bank_probe,
-    )
-    from rsl_rl.frontres.frontres_segment_cache_validator import validate_stage1_cache_artifacts
-except ModuleNotFoundError:
-    _extractor = _load_same_dir("frontres_segment_cache_extractor")
-    _indexer = _load_same_dir("frontres_segment_cache_indexer")
-    _cache_io = _load_same_dir("frontres_segment_cache_io")
-    _noisy_capture = _load_same_dir("frontres_segment_cache_noisy_capture")
-    _perturbation = _load_same_dir("frontres_segment_cache_perturbation")
-    _schema = _load_same_dir("frontres_segment_cache_schema")
-    extract_robot_rollout_state = _extractor.extract_robot_rollout_state
-    FrontRESAMASSIndexSummary = _indexer.FrontRESAMASSIndexSummary
-    append_amass_segment_index = _indexer.append_amass_segment_index
-    build_amass_segment_index = _indexer.build_amass_segment_index
-    build_amass_segment_index_from_paths = _indexer.build_amass_segment_index_from_paths
-    discover_amass_npz_files = _indexer.discover_amass_npz_files
-    iter_amass_segment_index_chunks_from_paths = _indexer.iter_amass_segment_index_chunks_from_paths
-    read_amass_segment_index = _indexer.read_amass_segment_index
-    write_amass_segment_index = _indexer.write_amass_segment_index
-    FrontRESCleanStateEntry = _cache_io.FrontRESCleanStateEntry
-    append_stage1_cache_progress = _cache_io.append_stage1_cache_progress
-    clean_resume_key = _cache_io.clean_resume_key
-    noisy_resume_key = _cache_io.noisy_resume_key
-    read_clean_state_manifest_records = _cache_io.read_clean_state_manifest_records
-    read_clean_state_record = _cache_io.read_clean_state_record
-    read_noisy_variant_manifest_records = _cache_io.read_noisy_variant_manifest_records
-    scan_stage1_cache_resume_state = _cache_io.scan_stage1_cache_resume_state
-    write_cache_metadata = _cache_io.write_cache_metadata
-    write_clean_state_chunked_shard_atomic = _cache_io.write_clean_state_chunked_shard_atomic
-    write_clean_state_manifest_records = _cache_io.write_clean_state_manifest_records
-    write_noisy_variant_chunked_shard_atomic = _cache_io.write_noisy_variant_chunked_shard_atomic
-    write_noisy_variant_manifest_records = _cache_io.write_noisy_variant_manifest_records
-    write_stage1_cache_status = _cache_io.write_stage1_cache_status
-    capture_noisy_variant = _noisy_capture.capture_noisy_variant
-    FrontRESBankDescriptorConfig = _perturbation.FrontRESBankDescriptorConfig
-    FrontRESPerturbationCurriculumConfig = _perturbation.FrontRESPerturbationCurriculumConfig
-    build_perturbation_descriptors = _perturbation.build_perturbation_descriptors
-    build_perturbation_descriptors_from_curriculum_bank = (
-        _perturbation.build_perturbation_descriptors_from_curriculum_bank
-    )
-    descriptor_probe = _perturbation.descriptor_probe
-    FrontRESSegmentIndex = _schema.FrontRESSegmentIndex
-    _cache_curriculum = _load_same_dir("frontres_segment_cache_curriculum")
-    FrontRESStage1CurriculumBankConfig = _cache_curriculum.FrontRESStage1CurriculumBankConfig
-    build_stage1_curriculum_bank = _cache_curriculum.build_stage1_curriculum_bank
-    stage1_curriculum_bank_probe = _cache_curriculum.stage1_curriculum_bank_probe
-    _cache_validator = _load_same_dir("frontres_segment_cache_validator")
-    validate_stage1_cache_artifacts = _cache_validator.validate_stage1_cache_artifacts
+from rsl_rl.frontres.frontres_segment_cache_curriculum import (
+    FrontRESStage1CurriculumBankConfig,
+    build_stage1_curriculum_bank,
+    stage1_curriculum_bank_probe,
+)
+from rsl_rl.frontres.frontres_segment_cache_extractor import extract_robot_rollout_state
+from rsl_rl.frontres.frontres_segment_cache_indexer import (
+    FrontRESAMASSIndexSummary,
+    append_amass_segment_index,
+    build_amass_segment_index,
+    build_amass_segment_index_from_paths,
+    discover_amass_npz_files,
+    iter_amass_segment_index_chunks_from_paths,
+    read_amass_segment_index,
+    write_amass_segment_index,
+)
+from rsl_rl.frontres.frontres_segment_cache_io import (
+    FrontRESCleanStateEntry,
+    append_stage1_cache_progress,
+    clean_resume_key,
+    noisy_resume_key,
+    read_clean_state_manifest_records,
+    read_clean_state_record,
+    read_noisy_variant_manifest_records,
+    scan_stage1_cache_resume_state,
+    write_cache_metadata,
+    write_clean_state_chunked_shard_atomic,
+    write_clean_state_manifest_records,
+    write_noisy_variant_chunked_shard_atomic,
+    write_noisy_variant_manifest_records,
+    write_stage1_cache_status,
+)
+from rsl_rl.frontres.frontres_segment_cache_noisy_capture import capture_noisy_variant
+from rsl_rl.frontres.frontres_segment_cache_perturbation import (
+    FrontRESBankDescriptorConfig,
+    FrontRESPerturbationCurriculumConfig,
+    build_perturbation_descriptors,
+    build_perturbation_descriptors_from_curriculum_bank,
+    descriptor_probe,
+)
+from rsl_rl.frontres.frontres_segment_cache_schema import (
+    FrontRESSegmentIndex,
+    build_clean_segment_artifact,
+)
+from rsl_rl.frontres.frontres_segment_cache_validator import validate_stage1_cache_artifacts
 
 
 @dataclass(frozen=True)
@@ -492,13 +435,15 @@ def build_stage1_segment_cache(env: Any, cfg: FrontRESStage1CacheBuilderConfig) 
             if noisy_resume_key(segment, descriptor) not in completed_noisy_keys
         ]
         if segment_clean_key in completed_clean_keys:
-            clean_state = read_clean_state_record(cache_dir, clean_record_by_key[segment_clean_key]).clean_state
+            reused_entry = read_clean_state_record(cache_dir, clean_record_by_key[segment_clean_key])
+            reused_entry.validate(require_v017_artifact=True)
+            clean_state = reused_entry.clean_state
             clean_shard_path = None
             clean_reused = True
         else:
             prepare_clean_segment(env, segment=segment, env_ids=env_ids)
             clean_state = extract_robot_rollout_state(env, env_ids=env_ids, robot_name=cfg.robot_name)
-            entry = FrontRESCleanStateEntry(segment=segment, clean_state=clean_state)
+            entry = _build_v017_clean_entry(env, segment=segment, clean_state=clean_state)
             entry.validate()
             if clean_buffer and clean_buffer[-1].segment.motion_rel_path != entry.segment.motion_rel_path:
                 flush_clean_buffer()
@@ -948,12 +893,14 @@ def _build_stage1_segment_cache_streaming(
                 if noisy_resume_key(segment, descriptor) not in completed_noisy_keys
             ]
             if segment_clean_key in completed_clean_keys:
-                clean_state = read_clean_state_record(cache_dir, clean_record_by_key[segment_clean_key]).clean_state
+                reused_entry = read_clean_state_record(cache_dir, clean_record_by_key[segment_clean_key])
+                reused_entry.validate(require_v017_artifact=True)
+                clean_state = reused_entry.clean_state
                 clean_reused = True
             else:
                 prepare_clean_segment(env, segment=segment, env_ids=env_ids)
                 clean_state = extract_robot_rollout_state(env, env_ids=env_ids, robot_name=cfg.robot_name)
-                entry = FrontRESCleanStateEntry(segment=segment, clean_state=clean_state)
+                entry = _build_v017_clean_entry(env, segment=segment, clean_state=clean_state)
                 entry.validate()
                 if clean_buffer and clean_buffer[-1].segment.motion_rel_path != entry.segment.motion_rel_path:
                     flush_clean_buffer()
@@ -1383,6 +1330,39 @@ def _stage1_loaded_motion_path_summary(loaded_motion_paths: list[str]) -> dict[s
         "last_loaded_motion": resolved_paths[-1] if resolved_paths else None,
         "loaded_motion_paths_hash": hashlib.sha256(path_text.encode("utf-8")).hexdigest(),
     }
+
+
+def _build_v017_clean_entry(
+    env: Any,
+    *,
+    segment: FrontRESSegmentIndex,
+    clean_state: Any,
+) -> FrontRESCleanStateEntry:
+    """Seal x_t and Clean K-step GMT/Physics evidence in the cache owner."""
+
+    materialize = getattr(env, "materialize_frontres_clean_segment_artifact", None)
+    if not callable(materialize):
+        raise RuntimeError("active v017 cache builder requires materialize_frontres_clean_segment_artifact()")
+    payload = materialize(segment=segment)
+    required = {
+        "source_identity",
+        "clean_continuation",
+        "expected_support",
+        "expected_support_envelope",
+    }
+    if not isinstance(payload, dict) or set(payload) != required:
+        raise RuntimeError(f"clean segment artifact materializer must return exactly {sorted(required)}")
+    artifact = build_clean_segment_artifact(
+        segment=segment,
+        clean_state=clean_state,
+        source_identity=str(payload["source_identity"]),
+        clean_continuation=payload["clean_continuation"],
+        expected_support=payload["expected_support"],
+        expected_support_envelope=payload["expected_support_envelope"],
+    )
+    entry = FrontRESCleanStateEntry(segment=segment, clean_state=clean_state, clean_artifact=artifact)
+    entry.validate(require_v017_artifact=True)
+    return entry
 
 
 def prepare_clean_segment(env: Any, *, segment: FrontRESSegmentIndex, env_ids: torch.Tensor) -> torch.Tensor:

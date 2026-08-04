@@ -324,7 +324,7 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Allow OnPolicyRunner to enter the live Segment Replay route."""
     frontres_segment_live_sentinel_only: bool = False
     """Allow only the live Segment Replay startup sentinel, while keeping PPO/update training disabled."""
-    frontres_v015_local_sentinel_only: bool = False
+    frontres_local_sentinel_only: bool = False
     """Enable only the explicit v015 local-scenario identity sentinel; legacy live modes are rejected."""
     frontres_segment_live_probe_only: bool = False
     """Run a short live Segment Replay rollout probe without storage writes or PPO updates."""
@@ -334,13 +334,9 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Run live Segment Replay storage and exactly one PPO optimizer step, then exit."""
     frontres_segment_live_update_loop_only: bool = False
     """Run a short live Segment Replay PPO update loop, then exit before normal training."""
-    frontres_segment_offline_eval_only: bool = False
-    """Load a checkpoint, evaluate sampled Stage 1 segments, print metrics, then exit."""
-    frontres_segment_sequence_offline_eval_only: bool = False
-    """Load a checkpoint, evaluate unique motion sequences from frame 0 through sampled segment starts, then exit."""
     frontres_segment_live_train_enabled: bool = False
     """Enable the dedicated live Segment Replay training loop instead of the legacy runner.learn path."""
-    frontres_v015_formal_transaction_enabled: bool = False
+    frontres_formal_transaction_enabled: bool = False
     """Enable the isolated v015 transaction owner for its CPU contract or opt-in pre-live sentinel; it does not enable generic training."""
     frontres_segment_live_update_steps: int = 4
     """Number of live Segment Replay PPO update steps per live training iteration or sentinel."""
@@ -350,10 +346,6 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Stage 3 iterations that linearly ramp the Segment PPO actor/entropy loss to full weight."""
     frontres_formal_runtime_audit: bool = False
     """Emit structured AUDIT-* snapshots on the official Stage 3 training route."""
-    frontres_segment_periodic_eval_enabled: bool = False
-    """Run periodic long-rollout Segment Replay evaluation during Stage 3 live training."""
-    frontres_segment_periodic_eval_interval: int = 100
-    """Training-iteration interval for periodic long-rollout Segment Replay evaluation."""
     frontres_segment_live_fail_on_invalid_update: bool = True
     """Fail Stage 3 live training when an iteration produces no update or too few valid PPO samples."""
     frontres_segment_live_min_valid_count: int = 1
@@ -372,6 +364,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Maximum formal-training horizon for the 8/16/32/64 Segment Replay curriculum."""
     frontres_segment_advantage_normalization: str = "scale_only"
     """Segment PPO advantage mode; scale_only preserves the Gain sign by default."""
+    frontres_gain_beta: float = 0.02
+    """FRS-GAIN-v007 full-6D repair-cost coefficient; checkpoint-v9 freezes this identity."""
     frontres_segment_cache_dir: str = ""
     """Optional Stage 1 Segment cache directory used to initialize the Stage 3 Segment Replay dataset."""
     frontres_segment_shard_cache_size: int = 8

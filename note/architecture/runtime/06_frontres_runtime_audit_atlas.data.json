@@ -1,0 +1,234 @@
+{
+  "title": "FrontRES Formal Runtime Audit Atlas",
+  "subtitle": "Phase B 人类检查面：只用一次 8-env / 1-transaction / 1-update 正式 Stage3 运行确认已经离线正确的模块是否在正式链路中按设计连接",
+  "layout": "repository_reading_atlas",
+  "canvasWidth": 4300,
+  "defaultZoom": 1.0,
+  "runtimeOrder": [
+    "AUDIT-R01",
+    "AUDIT-R02",
+    "AUDIT-R03",
+    "AUDIT-R04",
+    "AUDIT-R05",
+    "AUDIT-R06",
+    "AUDIT-R07",
+    "AUDIT-R08"
+  ],
+  "supportOrder": ["AUDIT-RUN"],
+  "systems": [
+    {
+      "id": "SYS-PHASE-B",
+      "title": "Official Stage3 Phase B",
+      "summary": "正式入口的一次 sealed K8/M2 transaction",
+      "color": "#8b5e34",
+      "modules": [
+        {
+          "id": "AUDIT-R01",
+          "title": "01 启动身份",
+          "summary": "确认运行确实进入 active v017 正式 Stage3，而不是 probe、legacy updater 或 evaluation 分支",
+          "owns": "运行模式、contract identity、HSL-v2、K/M/DR schedule、future offsets",
+          "mustNot": "不得使用 HSL-v1、checkpoint-v8、legacy resume、旁路 evaluator 或隐藏默认值",
+          "designIds": ["FRS-DP-01", "FRS-DP-03", "FRS-DP-08", "FRS-DP-10"],
+          "objects": ["METHOD-v017", "GAIN-v007", "PPO-v005", "TRAIN-v014", "HSL-v2", "offsets=(1,2)"],
+          "files": [
+            {"id": "R01-1", "path": "scripts/rsl_rl/train.py", "role": "正式 Composition Root", "functions": ["main()"], "sourceLine": 1407, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1407"},
+            {"id": "R01-2", "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "role": "正式 runner 初始化", "functions": ["OnPolicyRunner.__init__()"], "sourceLine": 245, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Fon_policy_runner.py&line=245"}
+          ],
+          "mainRoute": [
+            "B1 launcher + CLI -> resolved Stage3 config",
+            "B2 train.py::main() -> OnPolicyRunner",
+            "B3 runner identity check -> formal transaction branch"
+          ],
+          "mainRouteTitles": ["解析唯一运行模式", "创建正式 Runner", "确认 active 身份"],
+          "review": ["AUDIT-B01：打印 contract、HSL/checkpoint、offset、K/M/DR fingerprint", "正确结果：train + K8/M2 + offsets(1,2)，且无 legacy route"],
+          "tests": ["Phase B live-only: actual composed config and branch"],
+          "gap": "PENDING_LIVE；真实 HSL-v2 artifact 路径尚未确认"
+        },
+        {
+          "id": "AUDIT-R02",
+          "title": "02 情境与 Transaction",
+          "summary": "确认正式 sampler 选择两个 Segment，每个 Segment 恰好 M=2 次 Repair，并在 transaction 内保持情境不变",
+          "owns": "K8/M2、两个 Segment、四条 policy attempt rows、sealed scenario identity",
+          "mustNot": "reset 不得重采样；不同 attempt 不得混合 noisy hash、x_t 或 reference",
+          "designIds": ["FRS-DP-01", "FRS-DP-02", "FRS-DP-03"],
+          "objects": ["2 Segment", "M=2", "4 policy rows", "8 Repair/Noisy role rows", "scenario hash"],
+          "files": [
+            {"id": "R02-1", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "正式 Segment sampler", "functions": ["run_frontres_segment_sampler_step()"], "sourceLine": 220, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=220"},
+            {"id": "R02-2", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_transaction.py", "role": "frozen-policy Transaction Aggregate", "functions": ["FrontRESFormalTransactionPlan.validate()", "FrontRESFormalTransactionAccumulator.seal()"], "sourceLine": 120, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_transaction.py&line=120"}
+          ],
+          "mainRoute": [
+            "B1 schedule identity -> K8/M2 request",
+            "B2 sampler -> two sealed Segment scenarios",
+            "B3 exact-M collection -> four immutable attempt rows"
+          ],
+          "mainRouteTitles": ["读取当前 Curriculum", "封存两个情境", "收齐 exact M"],
+          "review": ["AUDIT-B02：打印 segment/attempt/role counts 与 scenario/noisy hashes", "正确结果：2 Segment × 2 attempts；同 Segment 的 identity 全相同"],
+          "tests": ["Phase B live-only: actual sampler population and no-resample"],
+          "gap": "PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-R03",
+          "title": "03 Reset 与 Observation",
+          "summary": "确认 Clean x_t 只恢复动力学；Actor 看到当前 Noisy artifact 与 t+1、t+2 deployment q29，GMT 保持原 770D 权限",
+          "owns": "Clean x_t reset、Repair/Noisy role rows、928/158/770 authority",
+          "mustNot": "Clean future、future root/global、noise label 或 perturbation timing 不得进入 Actor",
+          "designIds": ["FRS-DP-04", "FRS-DP-06", "FRS-DP-10"],
+          "objects": ["B=8 roles", "q29=[8,3,29]", "raw=870", "combined=928", "FrontRES=158", "GMT=770"],
+          "files": [
+            {"id": "R03-1", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_reset.py", "role": "two-role Clean-state reset", "functions": ["apply_frontres_current_segment_reset()"], "sourceLine": 138, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_reset.py&line=138"},
+            {"id": "R03-2", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_one_action_k.py", "role": "正式 observation reader", "functions": ["read_frontres_live_observations()"], "sourceLine": 154, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_one_action_k.py&line=154"}
+          ],
+          "mainRoute": [
+            "B1 sealed scenario -> same Clean x_t reset",
+            "B2 command-owned q29(1,2) -> 58D tail",
+            "B3 870D + 58D -> FrontRES 158D / GMT 770D"
+          ],
+          "mainRouteTitles": ["恢复同一动力学起点", "读取 Noisy Future Intent", "切分 Actor 与 GMT 权限"],
+          "review": ["AUDIT-B03：打印 role identity、provenance 和全部 shape", "正确结果：8 role rows；Actor provenance 仅 deployment/Noisy"],
+          "tests": ["Phase B live-only: real env observation and role routing"],
+          "gap": "PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-R04",
+          "title": "04 一次 Repair 动作与 Frozen GMT",
+          "summary": "确认每个 attempt 只采样一次 direct full-6D Repair；随后 FEMR 冻结，由 GMT 执行 K=8 后果",
+          "owns": "policy action、one-action-K、frozen GMT lifecycle",
+          "mustNot": "K 内不得再次调用 FEMR；GMT policy/normalizer/estimator 不得 train 或进入 optimizer",
+          "designIds": ["FRS-DP-03", "FRS-DP-04", "FRS-DP-05"],
+          "objects": ["policy_actions=[4,6]", "actor_calls=4 attempts", "K=8", "one PPO row per attempt"],
+          "files": [
+            {"id": "R04-1", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_one_action_k.py", "role": "one-action-K collector", "functions": ["collect_frontres_v017_repair_attempts()", "collect_frontres_v015_one_action_k_evidence()"], "sourceLine": 425, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_one_action_k.py&line=425"},
+            {"id": "R04-2", "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "role": "FrontRES/GMT authority owner", "functions": ["FrontRESActorCritic.train()"], "sourceLine": 583, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=583"}
+          ],
+          "mainRoute": [
+            "B1 normalized 158D -> one direct 6D proposal",
+            "B2 proposal applied at t -> FEMR frozen",
+            "B3 frozen GMT + Clean continuation -> K8 executed evidence"
+          ],
+          "mainRouteTitles": ["采样一次 Repair", "冻结 FEMR", "执行 K-step 后果"],
+          "review": ["AUDIT-B04：打印 action shape/finite、per-attempt actor count、K frame count、GMT mode", "正确结果：4 个 attempt 各一次 Actor；GMT 始终 eval/no-grad"],
+          "tests": ["Phase B live-only: simulator action count and frozen lifecycle"],
+          "gap": "PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-R05",
+          "title": "05 Paired Evidence 与 Gain",
+          "summary": "确认每个 Segment 的 Clean/Noisy baseline 只执行一次，M 个 Repair 共用它们，并由唯一 v007 owner 产生 Recovery-Aware G_total",
+          "owns": "Clean/Noisy/Repair cardinality、Intent/Physics evidence、G_I/G_P/lambda/cost/G_total",
+          "mustNot": "不得使用 v006、Clean-global fallback、缺失证据补零或 diagnostics 重算 Gain",
+          "designIds": ["FRS-DP-06", "FRS-DP-07"],
+          "objects": ["Clean=2", "Noisy=2", "Repair=4", "Gain components=[4]", "return_K=G_total"],
+          "files": [
+            {"id": "R05-1", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_one_action_k.py", "role": "paired evidence consumer", "functions": ["collect_frontres_v015_gain_return_priority_evidence()"], "sourceLine": 784, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_one_action_k.py&line=784"},
+            {"id": "R05-2", "path": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py", "role": "唯一 GAIN-v007 semantic owner", "functions": ["compute_recovery_aware_gain()"], "sourceLine": 128, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=128"}
+          ],
+          "mainRoute": [
+            "B1 K8 execution -> paired Intent/Physics evidence",
+            "B2 Clean anchor + Noisy/Repair -> G_I/G_P/P_N/P_R/lambda",
+            "B3 G_I + lambda*G_P - beta*cost -> G_total"
+          ],
+          "mainRouteTitles": ["封存 Paired Evidence", "计算 Recovery Pressure", "形成唯一 Scalar Gain"],
+          "review": ["AUDIT-B05：打印 baseline/Repair counts、valid mask 和完整 Gain 分解", "正确结果：所有四条 attempt 有同 identity 的 finite G_total；语义 N/A 不伪装成缺失"],
+          "tests": ["Phase B live-only: real Contact/ZMP/survival applicability"],
+          "gap": "PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-R06",
+          "title": "06 Storage 与 Return",
+          "summary": "确认每次 attempt 只写一条 PPO policy row，G_total 原样成为 return，身份和 valid mask 不丢失",
+          "owns": "four policy rows、valid mask、return/advantage、transaction metadata",
+          "mustNot": "不得把 K 帧展开成 K 条 PPO rows，不得混入 legacy batch 或静默填充字段",
+          "designIds": ["FRS-DP-02", "FRS-DP-03", "FRS-DP-07"],
+          "objects": ["rows=4", "actions=[4,6]", "returns=[4]", "metadata=[4]"],
+          "files": [
+            {"id": "R06-1", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_rollout_storage.py", "role": "one-row storage owner", "functions": ["FrontRESSegmentRolloutStorage.add_transition()", "compute_returns_and_advantages()"], "sourceLine": 77, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_rollout_storage.py&line=77"},
+            {"id": "R06-2", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_one_action_k.py", "role": "grouped candidate adapter", "functions": ["build_frontres_v015_grouped_candidate_batch()"], "sourceLine": 862, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_one_action_k.py&line=862"}
+          ],
+          "mainRoute": [
+            "B1 four attempts -> four immutable transitions",
+            "B2 G_total -> return_K and advantage",
+            "B3 storage batch -> grouped candidate metadata"
+          ],
+          "mainRouteTitles": ["写入一条 Policy Row", "计算 Scalar Credit", "交给 Grouped PPO"],
+          "review": ["AUDIT-B06：打印 row count、shape、valid count、return==G_total 和 identity hash", "正确结果：4 rows，不是 4×K；所有必需字段存在"],
+          "tests": ["Phase B live-only: official storage write and batch forwarding"],
+          "gap": "PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-R07",
+          "title": "07 Grouped PPO 与 Exact-One Update",
+          "summary": "确认四条 attempt 按两个 Segment 公平归约，整个 sealed transaction 只发生一次 optimizer update",
+          "owns": "group mass、scalar PPO loss、phase weight、Actor/Critic delta、optimizer step count",
+          "mustNot": "收集期间不得更新；legacy updater 不得进入；critic_only 不得改变 Actor/std",
+          "designIds": ["FRS-DP-02", "FRS-DP-07", "FRS-DP-09"],
+          "objects": ["2 equal Segment groups", "optimizer step delta=1", "K8 critic_only", "actor delta=0", "critic delta>0"],
+          "files": [
+            {"id": "R07-1", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "grouped scalar PPO owner", "functions": ["compute_frontres_segment_ppo_loss()", "step_frontres_v005_scalar_optimizer()"], "sourceLine": 277, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=277"},
+            {"id": "R07-2", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", "role": "transaction commit owner", "functions": ["run_frontres_formal_transaction_update()"], "sourceLine": 243, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_formal_transaction.py&line=243"}
+          ],
+          "mainRoute": [
+            "B1 sealed four-row batch -> two equal Segment groups",
+            "B2 grouped scalar loss -> one optimizer call",
+            "B3 critic_only commit -> Critic changes, Actor/std unchanged"
+          ],
+          "mainRouteTitles": ["公平归约 Transaction", "执行一次 Optimizer", "核验 Phase 参数变化"],
+          "review": ["AUDIT-B07：打印 group mass、loss/advantage、before/after steps 与 parameter deltas", "正确结果：step_delta=1；fresh K8 critic_only 的 Actor/std delta=0"],
+          "tests": ["Phase B live-only: real optimizer and parameter state"],
+          "gap": "PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-R08",
+          "title": "08 Commit、Telemetry 与 Checkpoint",
+          "summary": "确认只有完整 transaction 才推进 iteration/curriculum 并保存严格 checkpoint-v9，日志能够复原本次运行事实",
+          "owns": "committed receipt、absolute iteration、curriculum progress、checkpoint-v9、GMT hash、structured telemetry",
+          "mustNot": "partial transaction 不得推进或保存；checkpoint 身份不得缺失或静默替换 GMT",
+          "designIds": ["FRS-DP-01", "FRS-DP-02", "FRS-DP-05", "FRS-DP-09", "FRS-DP-10"],
+          "objects": ["committed=1", "absolute_iteration=1", "checkpoint-v9", "GMT SHA256", "receipt identity"],
+          "files": [
+            {"id": "R08-1", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "formal telemetry serializer", "functions": ["run_frontres_segment_live_training_loop()", "_print_v015_formal_train_summary()"], "sourceLine": 239, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=239"},
+            {"id": "R08-2", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "checkpoint-v9 Gateway", "functions": ["save_runner()"], "sourceLine": 1327, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1327"}
+          ],
+          "mainRoute": [
+            "B1 exact-one result -> committed receipt",
+            "B2 commit -> iteration/curriculum advance + telemetry",
+            "B3 committed state -> checkpoint-v9 atomic save"
+          ],
+          "mainRouteTitles": ["封存 Transaction Receipt", "推进唯一训练状态", "保存严格 Checkpoint"],
+          "review": ["AUDIT-B08：打印 receipt、iteration、schedule fingerprint、GMT hash、save identity", "正确结果：commit=1、iteration=1、checkpoint-v9；无 partial/mixed state"],
+          "tests": ["Phase B live-only: actual committed save"],
+          "gap": "PENDING_LIVE"
+        }
+      ]
+    },
+    {
+      "id": "SYS-RUN",
+      "title": "运行合同",
+      "summary": "Phase B 只允许一次 tiny official-route run",
+      "color": "#64748b",
+      "modules": [
+        {
+          "id": "AUDIT-RUN",
+          "title": "运行前必须确认",
+          "summary": "必须先给出真实 HSL-v2 checkpoint；旧 model_warmup.pt 的历史路径不能默认视为 v2",
+          "owns": "正式命令、artifact path、GPU、log path 与成本边界",
+          "mustNot": "没有 HSL-v2 identity 时不得启动；不得改用 sentinel/probe 旁路",
+          "designIds": ["FRS-DP-08"],
+          "objects": ["HSL_V2", "MOTION_ROOT", "CACHE_DIR", "GPU", "LOG_PATH"],
+          "files": [
+            {"id": "RUN-1", "path": "run/run_frontres_stage3_segment_hrl.sh", "role": "正式 Stage3 launcher", "functions": [], "sourceLine": 1, "sourceHref": "/open-source?path=run%2Frun_frontres_stage3_segment_hrl.sh&line=1"},
+            {"id": "RUN-2", "path": "run_stage3.sh", "role": "服务器后台启动器", "functions": [], "sourceLine": 1, "sourceHref": "/open-source?path=run_stage3.sh&line=1"}
+          ],
+          "mainRoute": [
+            "B1 verify HSL_V2 identity + motion/cache roots",
+            "B2 install AUDIT-B01..B08 without changing method",
+            "B3 run train mode with 8 env / 1 iteration / 1 update"
+          ],
+          "mainRouteTitles": ["核验 Artifact", "安装正式边界诊断", "执行一次 Tiny Train"],
+          "review": ["命令模板见当前 checklist；HSL_V2 绝对路径确认后才能变成可执行命令", "成本：一个 K8/M2 transaction、一次 optimizer update、一个 checkpoint"],
+          "tests": ["No live run authorized by this atlas creation"],
+          "gap": "BLOCKED_FOR_HUMAN_INPUT：真实 HSL-v2 artifact path"
+        }
+      ]
+    }
+  ]
+}

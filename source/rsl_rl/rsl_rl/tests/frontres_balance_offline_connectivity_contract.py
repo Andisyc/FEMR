@@ -31,6 +31,7 @@ def _load_module(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -84,7 +85,8 @@ def _load_runtime_module():
         sys.path.insert(0, str(RSL_SOURCE))
     runtime_diagnostics_stub = types.ModuleType("rsl_rl.frontres.runtime_diagnostics")
     runtime_diagnostics_stub.maybe_print_frontres_restore_debug = lambda *args, **kwargs: None
-    sys.modules.setdefault("rsl_rl.frontres", types.ModuleType("rsl_rl.frontres"))
+    frontres_package = sys.modules.setdefault("rsl_rl.frontres", types.ModuleType("rsl_rl.frontres"))
+    frontres_package.__path__ = [str(RSL_SOURCE / "rsl_rl" / "frontres")]
     sys.modules["rsl_rl.frontres.runtime_diagnostics"] = runtime_diagnostics_stub
     return _load_module("frontres_runtime_connectivity_under_test", RUNTIME_PATH)
 

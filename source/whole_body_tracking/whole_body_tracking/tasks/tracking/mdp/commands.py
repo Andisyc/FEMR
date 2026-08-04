@@ -1524,6 +1524,7 @@ class MultiMotionCommand(CommandTerm):
         # deployment-command identity plus later actor context; Clean
         # continuation -> later GMT K executor.
         self._frontres_local_scenario_current_root_artifact_t: torch.Tensor | None = None
+        self._frontres_local_scenario_clean_reference_t: torch.Tensor | None = None
         self._frontres_local_scenario_intent_q29: torch.Tensor | None = None
         self._frontres_local_scenario_current_command_q29_dq29: torch.Tensor | None = None
         self._frontres_local_scenario_clean_continuation: torch.Tensor | None = None
@@ -1552,6 +1553,7 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_local_scenario_x_t_identities: list[str | None] = [None] * self.num_envs
         self._frontres_local_scenario_roles: list[str | None] = [None] * self.num_envs
         self._frontres_local_scenario_provenance: list[dict[str, object] | None] = [None] * self.num_envs
+        self._frontres_local_scenario_execution_mode = "repair_attempts"
 
         # v015 deployment-composition carrier. This is independent of the
         # local Segment carrier: it owns one immutable .npz q29/dq29 sequence
@@ -1585,6 +1587,8 @@ class MultiMotionCommand(CommandTerm):
         Status: Step 5B-S2A command owner only. The sequence is not connected
         to the actor, GMT, command clock, metrics, or training state here.
         """
+
+        # B1: 校验并安装 immutable deployment arrays/identity, 初始化 command-owned cursor.
 
         validate = getattr(request, "validate", None)
         if not callable(validate):
@@ -1739,6 +1743,8 @@ class MultiMotionCommand(CommandTerm):
     ) -> dict[str, object]:
         """Return current q29/dq29 and dense H intent without advancing the cursor."""
 
+        # B1: 按 env roles 与 cursor 读取 current/H q29 rows, 产出只读 deployment snapshot.
+
         if not bool(self._frontres_v015_deployment_sequence_active.all()):
             raise RuntimeError("v015 deployment sequence snapshot requires one transaction-wide active carrier")
         q29 = self._frontres_v015_deployment_sequence_q29
@@ -1799,6 +1805,8 @@ class MultiMotionCommand(CommandTerm):
     def advance_frontres_v015_deployment_sequence(self) -> None:
         """Advance every command row by one frame, rejecting before H would clamp."""
 
+        # B1: 严格推进 command-owned frame cursor, 拒绝越过 sealed sequence boundary.
+
         if not bool(self._frontres_v015_deployment_sequence_active.all()):
             raise RuntimeError("v015 deployment sequence advance requires one transaction-wide active carrier")
         next_cursor = self._frontres_v015_deployment_sequence_cursor + 1
@@ -1834,6 +1842,7 @@ class MultiMotionCommand(CommandTerm):
         self,
         *,
         current_root_artifact_t: torch.Tensor,
+        clean_reference_t: torch.Tensor,
         intent_q29: torch.Tensor,
         clean_continuation: torch.Tensor,
         expected_support: torch.Tensor,
@@ -1860,6 +1869,7 @@ class MultiMotionCommand(CommandTerm):
             raise ValueError("v015 local scenario install must cover every command row exactly once")
         payloads = {
             "current_root_artifact_t": current_root_artifact_t,
+            "clean_reference_t": clean_reference_t,
             "intent_q29": intent_q29,
             "clean_continuation": clean_continuation,
             "expected_support": expected_support,
@@ -1877,6 +1887,11 @@ class MultiMotionCommand(CommandTerm):
             raise ValueError(
                 "v015 current_root_artifact_t must have shape "
                 f"[{batch_size},7], got {tuple(current_root_artifact_t.shape)}"
+            )
+        if tuple(clean_reference_t.shape) != (batch_size, 65):
+            raise ValueError(
+                "v017 clean_reference_t must have shape "
+                f"[{batch_size},65], got {tuple(clean_reference_t.shape)}"
             )
         if intent_q29.ndim != 3 or tuple(intent_q29.shape[:1]) != (batch_size,) or int(intent_q29.shape[1]) < 2 or int(intent_q29.shape[2]) != 29:
             raise ValueError(
@@ -1922,6 +1937,7 @@ class MultiMotionCommand(CommandTerm):
         for row, value in enumerate(provenance_rows):
             if (
                 value.get("current_root_artifact_provenance") != "noisy_root_artifact_t"
+                or value.get("clean_reference_t_provenance") != "clean_gmt_physics_only"
                 or value.get("intent_q29_provenance") != "deployment_noisy_q29"
                 or value.get("clean_continuation_provenance") != "clean_gmt_only"
                 or value.get("expected_support_provenance") != "clean_gmt_physics_only"
@@ -1955,6 +1971,7 @@ class MultiMotionCommand(CommandTerm):
                     noisy_segment_hashes[anchor] != noisy_segment_hashes[row]
                     or x_t_identities[anchor] != x_t_identities[row]
                     or not torch.equal(current_root_artifact_t[anchor], current_root_artifact_t[row])
+                    or not torch.equal(clean_reference_t[anchor], clean_reference_t[row])
                     or not torch.equal(intent_q29[anchor], intent_q29[row])
                     or not torch.equal(clean_continuation[anchor], clean_continuation[row])
                     or not torch.equal(expected_support[anchor], expected_support[row])
@@ -1973,6 +1990,7 @@ class MultiMotionCommand(CommandTerm):
         if bool(self._frontres_reference_window_active.any()):
             raise RuntimeError("v015 local scenario cannot mix with a legacy reference window")
         value_artifact = current_root_artifact_t.detach().to(device=self.device, dtype=torch.float32).contiguous()
+        value_clean_reference = clean_reference_t.detach().to(device=self.device, dtype=torch.float32).contiguous()
         value_intent = intent_q29.detach().to(device=self.device, dtype=torch.float32).contiguous()
         value_continuation = clean_continuation.detach().to(device=self.device, dtype=torch.float32).contiguous()
         value_support = expected_support.detach().to(device=self.device, dtype=torch.float32).contiguous()
@@ -1987,6 +2005,7 @@ class MultiMotionCommand(CommandTerm):
             existing = self.frontres_local_scenario_snapshot(env_ids)
             if not (
                 torch.equal(existing["current_root_artifact_t"], value_artifact)
+                and torch.equal(existing["clean_reference_t"], value_clean_reference)
                 and torch.equal(existing["intent_q29"], value_intent)
                 and torch.equal(existing["clean_continuation"], value_continuation)
                 and torch.equal(existing["expected_support"], value_support)
@@ -2024,6 +2043,9 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_local_scenario_current_root_artifact_t = torch.empty(
             self.num_envs, 7, dtype=torch.float32, device=self.device
         )
+        self._frontres_local_scenario_clean_reference_t = torch.empty(
+            self.num_envs, 65, dtype=torch.float32, device=self.device
+        )
         self._frontres_local_scenario_intent_q29 = torch.empty(
             self.num_envs, int(value_intent.shape[1]), 29, dtype=torch.float32, device=self.device
         )
@@ -2037,6 +2059,7 @@ class MultiMotionCommand(CommandTerm):
             self.num_envs, int(value_envelope.shape[1]), 6, dtype=torch.float32, device=self.device
         )
         self._frontres_local_scenario_current_root_artifact_t[env_ids] = value_artifact.clone()
+        self._frontres_local_scenario_clean_reference_t[env_ids] = value_clean_reference.clone()
         self._frontres_local_scenario_intent_q29[env_ids] = value_intent.clone()
         self._frontres_local_scenario_current_command_q29_dq29 = torch.empty(
             self.num_envs, 58, dtype=torch.float32, device=self.device
@@ -2077,6 +2100,7 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_local_scenario_horizon_k[ids] = 0
         self._frontres_local_scenario_continuation_lengths[ids] = 0
         self._frontres_local_scenario_current_command_q29_dq29 = None
+        self._frontres_local_scenario_execution_mode = "repair_attempts"
         for env_id in ids.detach().cpu().tolist():
             self._frontres_local_scenario_ids[int(env_id)] = None
             self._frontres_local_scenario_hashes[int(env_id)] = None
@@ -2092,6 +2116,7 @@ class MultiMotionCommand(CommandTerm):
             int(ids.numel()) == 0
             or not bool(self._frontres_local_scenario_active[ids].all())
             or self._frontres_local_scenario_current_root_artifact_t is None
+            or self._frontres_local_scenario_clean_reference_t is None
             or self._frontres_local_scenario_intent_q29 is None
             or self._frontres_local_scenario_clean_continuation is None
             or self._frontres_local_scenario_expected_support is None
@@ -2109,6 +2134,7 @@ class MultiMotionCommand(CommandTerm):
             raise RuntimeError("active v015 local scenario is missing identity or provenance metadata")
         return {
             "current_root_artifact_t": self._frontres_local_scenario_current_root_artifact_t.index_select(0, ids).detach().clone(),
+            "clean_reference_t": self._frontres_local_scenario_clean_reference_t.index_select(0, ids).detach().clone(),
             "intent_q29": self._frontres_local_scenario_intent_q29.index_select(0, ids).detach().clone(),
             "clean_continuation": self._frontres_local_scenario_clean_continuation.index_select(0, ids).detach().clone(),
             "expected_support": self._frontres_local_scenario_expected_support.index_select(0, ids).detach().clone(),
@@ -2127,6 +2153,7 @@ class MultiMotionCommand(CommandTerm):
 
         if (
             not bool(self._frontres_local_scenario_active.all())
+            or self._frontres_local_scenario_execution_mode == "clean_baseline"
             or not bool(self._frontres_local_scenario_current_frame_ready.all())
             or bool(self._frontres_local_scenario_k_execution_active.any())
             or self._frontres_local_scenario_intent_q29 is None
@@ -2151,6 +2178,23 @@ class MultiMotionCommand(CommandTerm):
             "roles": tuple(str(value) for value in roles),
             "provenance": tuple(dict(value) for value in provenance if value is not None),
         }
+
+    def set_frontres_local_scenario_execution_mode(self, mode: str) -> None:
+        """Select the current GMT-only baseline or Repair phase without changing scenario identity."""
+
+        value = str(mode)
+        if value not in {"clean_baseline", "noisy_baseline", "repair_attempts"}:
+            raise ValueError(f"unknown v017 local-scenario execution mode={value!r}")
+        if not bool(self._frontres_local_scenario_active.all()):
+            raise RuntimeError("v017 execution mode requires one active sealed local scenario transaction")
+        if bool(self._frontres_local_scenario_k_execution_active.any()):
+            raise RuntimeError("v017 execution mode cannot change during K-step execution")
+        self._frontres_local_scenario_execution_mode = value
+        self._frontres_local_scenario_current_frame_ready[:] = False
+
+    @property
+    def frontres_local_scenario_execution_mode(self) -> str:
+        return str(self._frontres_local_scenario_execution_mode)
 
     def begin_frontres_local_scenario_k_execution(self) -> None:
         """Open the explicit GMT-only Clean-continuation phase after the one actor action.
@@ -2307,12 +2351,12 @@ class MultiMotionCommand(CommandTerm):
                 f"max_frame={int(max_frames[row].item())}"
             )
 
-        # B1: Expand each row into its dense t:t+H frame identity.
+        # B1: 将每个 role row 展开为稠密 t:t+H frame identity, 产出对齐帧索引.
         offsets = torch.arange(horizon + 1, dtype=torch.long, device=self.device)
         dense_frames = frames_t.unsqueeze(1) + offsets.unsqueeze(0)
         dense_motions = motion_ids.unsqueeze(1).expand_as(dense_frames)
 
-        # B2: Reuse the deployment joint_pos owner; root/global and Clean fields are absent.
+        # B2: 复用 deployment joint_pos owner, 产出不含 root/global 与 Clean 字段的 q29 intent.
         with torch.no_grad():
             intent = self.motion_dir_loader.gather(
                 "joint_pos",
@@ -2515,9 +2559,12 @@ class MultiMotionCommand(CommandTerm):
             return joint_pos, joint_vel, body_pos, body_quat
 
         with torch.no_grad():
-            joint_pos_t, _joint_vel_t, body_pos_t, body_quat_t = gather(start_frame)
+            joint_pos_t, joint_vel_t, body_pos_t, body_quat_t = gather(start_frame)
             root_pos_t = body_pos_t[:, self.motion_anchor_body_index]
             root_quat_t = body_quat_t[:, self.motion_anchor_body_index]
+            clean_reference_t = torch.cat(
+                [joint_pos_t[0], joint_vel_t[0], root_pos_t[0], root_quat_t[0]], dim=0
+            )
             noisy_root_pos_t = isolated_perturber.apply_perturbations(
                 root_pos_t,
                 body_pos_t[:, self.left_foot_idx],
@@ -2621,6 +2668,8 @@ class MultiMotionCommand(CommandTerm):
                 "local scenario current root artifact must be [7], got "
                 f"{tuple(current_root_artifact_t.shape)}"
             )
+        if tuple(clean_reference_t.shape) != (65,):
+            raise RuntimeError(f"local scenario clean_reference_t has invalid shape {tuple(clean_reference_t.shape)}")
         if tuple(intent_q29.shape) != (intent_horizon + 1, 29):
             raise RuntimeError(f"local scenario intent_q29 has invalid shape {tuple(intent_q29.shape)}")
         if tuple(clean_continuation.shape) != (horizon_k, 65):
@@ -2634,6 +2683,7 @@ class MultiMotionCommand(CommandTerm):
             )
         return {
             "current_root_artifact_t": current_root_artifact_t.detach().to(dtype=torch.float32).contiguous(),
+            "clean_reference_t": clean_reference_t.detach().to(dtype=torch.float32).contiguous(),
             "intent_q29": intent_q29.detach().to(dtype=torch.float32).contiguous(),
             "clean_continuation": clean_continuation.detach().to(dtype=torch.float32).contiguous(),
             "expected_support": expected_support.detach().to(dtype=torch.float32).contiguous(),
@@ -2641,6 +2691,7 @@ class MultiMotionCommand(CommandTerm):
             "provenance": {
                 "materializer_owner": "MultiMotionCommand",
                 "current_root_artifact_provenance": "noisy_root_artifact_t",
+                "clean_reference_t_provenance": "clean_gmt_physics_only",
                 "intent_q29_provenance": "deployment_noisy_q29",
                 "intent_q29_source": "motion_internal_q29",
                 "clean_continuation_provenance": "clean_gmt_only",
@@ -3026,6 +3077,10 @@ class MultiMotionCommand(CommandTerm):
             )
 
         current_command = self._frontres_local_scenario_current_command_q29_dq29
+        if self._frontres_local_scenario_execution_mode == "clean_baseline":
+            if self._frontres_local_scenario_clean_reference_t is None:
+                raise RuntimeError("v017 Clean baseline lost its sealed current reference")
+            current_command = self._frontres_local_scenario_clean_reference_t[:, :58]
         current = current_command[:, :29] if getter == "joint_pos" else current_command[:, 29:]
         expected_shape = (self.num_envs, 29)
         if tuple(current.shape) != expected_shape or not bool(torch.isfinite(current).all()):
@@ -3033,7 +3088,7 @@ class MultiMotionCommand(CommandTerm):
                 "v015 local pre-action GMT command requires finite deployment q29/dq29 rows; "
                 f"getter={getter!r} shape={tuple(current.shape)} expected={expected_shape}"
             )
-        if getter == "joint_pos":
+        if getter == "joint_pos" and self._frontres_local_scenario_execution_mode != "clean_baseline":
             sealed_current_q29 = self._frontres_local_scenario_intent_q29[:, 0]
             if not torch.equal(
                 current.to(device=sealed_current_q29.device, dtype=sealed_current_q29.dtype),
@@ -3866,9 +3921,12 @@ class MultiMotionCommand(CommandTerm):
                 raise RuntimeError(
                     "v015 local scenario current cache was already installed; Step 2B owns all subsequent K-step command advancement"
                 )
-            # The sealed root artifact is the only current Noisy reference here.
-            # No MotionPerturber draw and no Clean target may enter this reset path.
-            artifact = self._frontres_local_scenario_current_root_artifact_t
+            if self._frontres_local_scenario_execution_mode == "clean_baseline":
+                if self._frontres_local_scenario_clean_reference_t is None:
+                    raise RuntimeError("v017 Clean baseline lost its sealed current reference")
+                artifact = self._frontres_local_scenario_clean_reference_t[:, 58:65]
+            else:
+                artifact = self._frontres_local_scenario_current_root_artifact_t
             self._cached_perturbed_pos.copy_(artifact[:, :3])
             self._cached_perturbed_quat.copy_(artifact[:, 3:])
             self._dr_supervised_target.zero_()
@@ -3946,6 +4004,8 @@ class MultiMotionCommand(CommandTerm):
         Status: active R6-F1 command-clock owner. Local scenarios keep the
         sealed current/C reference; only the Step 2B cursor may advance them.
         """
+
+        # B1: 根据 deployment/local-scenario owner 选择 command clock, 保持 current reference identity.
 
         self._global_sim_step += 1
         deployment_active = getattr(

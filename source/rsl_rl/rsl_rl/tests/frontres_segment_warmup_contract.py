@@ -29,6 +29,8 @@ frontres_segment_warmup_phase = WARMUP_MODULE.frontres_segment_warmup_phase
 parse_frontres_k_stage_schedule = WARMUP_MODULE.parse_frontres_k_stage_schedule
 resolve_frontres_k_stage_identity = WARMUP_MODULE.resolve_frontres_k_stage_identity
 require_frontres_v011_campaign_schedule = WARMUP_MODULE.require_frontres_v011_campaign_schedule
+require_frontres_v013_campaign_schedule = WARMUP_MODULE.require_frontres_v013_campaign_schedule
+sample_frontres_v013_dr_strength = WARMUP_MODULE.sample_frontres_v013_dr_strength
 
 
 class _ToyPolicy(torch.nn.Module):
@@ -100,10 +102,10 @@ def test_phase_boundaries_are_monotonic() -> None:
     assert [phase.name for phase in phases] == [
         "critic_only",
         "critic_only",
-        "actor_warmup",
-        "actor_warmup",
-        "actor_warmup",
-        "actor_warmup",
+        "actor_ramp",
+        "actor_ramp",
+        "actor_ramp",
+        "actor_ramp",
         "joint",
         "joint",
     ]
@@ -128,7 +130,7 @@ def test_critic_only_blocks_actor_and_std_gradients() -> None:
     assert _grad_norm(policy.critic.weight) > 0.0
 
 
-def test_actor_warmup_releases_actor_gradient() -> None:
+def test_actor_ramp_releases_actor_gradient() -> None:
     policy = _ToyPolicy()
     result = compute_frontres_segment_ppo_loss(
         policy,
@@ -155,13 +157,13 @@ def test_v011_k_m_stage_boundaries_and_repeated_critic_only() -> None:
     assert identities[0].phase.name == "critic_only"
     assert identities[6].phase.name == "critic_only"
     assert identities[7].phase.name == "critic_only"
-    assert identities[9].phase.name == "actor_warmup"
+    assert identities[9].phase.name == "actor_ramp"
     assert identities[11].phase.name == "joint"
     assert identities[12].stage_index == 2
     assert identities[12].active_k == 32
     assert identities[12].active_m == 4
     assert identities[12].phase.name == "critic_only"
-    assert identities[13].phase.name == "actor_warmup"
+    assert identities[13].phase.name == "actor_ramp"
     assert len({value.schedule_fingerprint for value in identities}) == 1
 
 
@@ -224,13 +226,75 @@ def test_v011_campaign_schedule_is_exact_and_checkpoint_bounded() -> None:
             raise AssertionError("TRAIN-v011 formal campaign drift must reject")
 
 
+def _v013_schedule_text() -> str:
+    return (
+        "8:2:200:500:1300:lower-k8:0.50:linear-joint-v1:1300:2.381,"
+        "16:3:300:300:900:lower-k16:0.60:linear-joint-v1:900:2.381,"
+        "32:4:400:300:625:lower-k32:0.70:linear-joint-v1:625:2.381"
+    )
+
+
+def test_v013_nested_dr_restart_and_committed_progress() -> None:
+    schedule = require_frontres_v013_campaign_schedule(
+        parse_frontres_k_stage_schedule(_v013_schedule_text(), max_horizon_k=32)
+    )
+    at_k8_joint = resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=700)
+    assert at_k8_joint.active_k == 8
+    assert at_k8_joint.dr_progress == 0.0
+    assert at_k8_joint.d_cap == 0.50
+    later_k8 = resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=1350)
+    assert abs(later_k8.dr_progress - 0.5) < 1.0e-12
+    expected_half = 0.5 + 0.5 * (2.381 / 1.10 - 0.5)
+    assert abs(later_k8.d_cap - expected_half) < 1.0e-12
+    at_k16 = resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=2000)
+    assert at_k16.active_k == 16 and at_k16.active_m == 3
+    assert at_k16.phase.name == "critic_only"
+    assert at_k16.dr_progress == 0.0 and at_k16.d_cap == 0.60
+    assert at_k16.dr_stage_fingerprint != at_k8_joint.dr_stage_fingerprint
+
+
+def test_v013_four_class_sampling_and_no_hidden_defaults() -> None:
+    schedule = require_frontres_v013_campaign_schedule(parse_frontres_k_stage_schedule(_v013_schedule_text()))
+    identity = resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=1350)
+    counts = {"easy": 0, "medium": 0, "hard": 0, "broken": 0}
+    for sample_key in range(10_000):
+        sample = sample_frontres_v013_dr_strength(identity, sample_key=sample_key)
+        counts[sample.class_name] += 1
+        assert 0.0 <= sample.strength <= 2.381
+        if sample.class_name == "easy":
+            assert sample.strength < 0.25 * identity.d_cap
+        elif sample.class_name == "medium":
+            assert 0.25 * identity.d_cap <= sample.strength < 0.70 * identity.d_cap
+        elif sample.class_name == "hard":
+            assert 0.70 * identity.d_cap <= sample.strength <= identity.d_cap
+        else:
+            assert identity.d_cap < sample.strength <= min(1.10 * identity.d_cap, 2.381)
+    fractions = {name: count / 10_000 for name, count in counts.items()}
+    assert abs(fractions["easy"] - 0.20) < 0.02
+    assert abs(fractions["medium"] - 0.30) < 0.02
+    assert abs(fractions["hard"] - 0.40) < 0.02
+    assert abs(fractions["broken"] - 0.10) < 0.02
+    for old_or_incomplete in (
+        "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625",
+        "8:2:200:500:1300:lower-k8:0.5::1300:2.381",
+    ):
+        try:
+            require_frontres_v013_campaign_schedule(parse_frontres_k_stage_schedule(old_or_incomplete))
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("TRAIN-v013 must reject missing DR identity instead of using defaults")
+
+
 def main() -> None:
     test_phase_boundaries_are_monotonic()
     test_critic_only_blocks_actor_and_std_gradients()
-    test_actor_warmup_releases_actor_gradient()
+    test_actor_ramp_releases_actor_gradient()
     test_v011_k_m_stage_boundaries_and_repeated_critic_only()
     test_v011_schedule_is_deterministic_and_fail_closed()
     test_v011_campaign_schedule_is_exact_and_checkpoint_bounded()
+    test_v013_nested_dr_restart_and_committed_progress()
+    test_v013_four_class_sampling_and_no_hidden_defaults()
     print("frontres_segment_warmup_contract: ok")
 
 

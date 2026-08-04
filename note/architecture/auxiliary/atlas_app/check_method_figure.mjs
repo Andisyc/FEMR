@@ -4,6 +4,26 @@ import vm from "node:vm";
 
 const html = fs.readFileSync("architecture_atlas.html", "utf8");
 const data = JSON.parse(fs.readFileSync("../../concept/03_frontres_concept_tabs.data.json", "utf8"));
+const methodWrapper = fs.readFileSync("../../01_frontres_method_figure.html", "utf8");
+const indexHtml = fs.readFileSync("../../index.html", "utf8");
+
+const pageOrder = [
+ "01_frontres_method_figure.html",
+ "02_frontres_design_inspector.html",
+ "03_femr_module_inspector.html",
+ "04_code_quality_evidence_atlas.html",
+ "05_frontres_module_test_atlas.html",
+];
+let previousIndex = -1;
+for (const page of pageOrder) {
+ const currentIndex = indexHtml.indexOf(page);
+ if (currentIndex <= previousIndex) throw new Error(`Atlas page order drift: ${page}`);
+ previousIndex = currentIndex;
+}
+if (!methodWrapper.includes("01 FrontRES Method Figure")
+ || !methodWrapper.includes("../../concept/03_frontres_concept_tabs.data.json")) {
+ throw new Error("01 Method Figure wrapper does not point to the canonical method data");
+}
 
 if (data.layout !== "method_figure") {
   throw new Error(`expected layout=method_figure, got ${data.layout}`);
@@ -13,7 +33,7 @@ if (!html.includes("function renderMethodFigure")) {
 }
 const scriptMatch = html.match(/<script type="module">([\s\S]*?)<\/script>/);
 if (!scriptMatch) throw new Error("viewer module script is missing");
-new vm.Script(scriptMatch[1].replace(/^\s*import rough.*$/m, "const rough = {};"));
+new vm.Script(scriptMatch[1].replace(/^\s*import .*$/gm, ""));
 
 const nodes = new Map((data.nodes || []).map((node) => [node.id, node]));
 

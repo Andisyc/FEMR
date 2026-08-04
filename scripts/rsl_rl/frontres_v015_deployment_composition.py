@@ -45,6 +45,7 @@ class FrontRESV015DeploymentCLIContract:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    # B1: 声明 v015-only CLI 参数, 产出不包含 training/resume 自由度的 parser.
     parser = argparse.ArgumentParser(
         description="Run one isolated v015 FEMR -> frozen GMT deployment-composition sequence."
     )
@@ -68,6 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _parse_future_offsets(raw: str) -> tuple[int, ...]:
+    # B1: 解析 ordered unique positive offsets, 产出 actor future-intent window identity.
     try:
         values = tuple(int(token.strip()) for token in str(raw).split(",") if token.strip())
     except ValueError as exc:
@@ -78,6 +80,7 @@ def _parse_future_offsets(raw: str) -> tuple[int, ...]:
 
 
 def _parse_corruption_parameters(raw: str) -> tuple[tuple[str, str | int | float | bool], ...]:
+    # B1: 解析并规范化 JSON scalar mapping, 产出 deterministic corruption parameters.
     try:
         values = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -99,6 +102,7 @@ def _parse_corruption_parameters(raw: str) -> tuple[tuple[str, str | int | float
 
 
 def _absolute_input_file(raw: str, *, suffix: str, name: str) -> str:
+    # B1: 解析绝对 artifact path 并校验 suffix/existence, 产出 strict input identity.
     path = Path(str(raw)).expanduser()
     if not path.is_absolute():
         raise ValueError(f"{name} must be an absolute path")
@@ -109,6 +113,7 @@ def _absolute_input_file(raw: str, *, suffix: str, name: str) -> str:
 
 
 def _absolute_new_report(raw: str) -> str:
+    # B1: 解析绝对 report path, 拒绝覆盖与缺失 parent, 产出 atomic output boundary.
     path = Path(str(raw)).expanduser()
     if not path.is_absolute():
         raise ValueError("report_path must be an absolute path")
@@ -120,6 +125,7 @@ def _absolute_new_report(raw: str) -> str:
 
 
 def _validate_cuda_dispatch(device: str, environ: Mapping[str, str]) -> str:
+    # B1: 对齐 CUDA_VISIBLE_DEVICES 与 local cuda:0, 产出显卡选择 identity.
     visible = str(environ.get("CUDA_VISIBLE_DEVICES", "") or "").strip()
     if not str(device).startswith("cuda"):
         raise ValueError("v015 live composition requires a CUDA device")
@@ -142,6 +148,7 @@ def validate_frontres_v015_deployment_cli_args(
     *,
     environ: Mapping[str, str] | None = None,
 ) -> FrontRESV015DeploymentCLIContract:
+    # B1: 校验 task, CUDA, env count 与 artifact paths, 产出 strict CLI identity fields.
     """Fail closed before AppLauncher imports or simulator construction."""
 
     if str(args.task) != _V015_TASK:
@@ -155,6 +162,7 @@ def validate_frontres_v015_deployment_cli_args(
     corruption_family = str(args.corruption_family).strip()
     if not corruption_id or not corruption_family:
         raise ValueError("corruption_id and corruption_family must be nonempty")
+    # B2: 封装 corruption 与 future-context 参数, 产出不可变 deployment contract.
     return FrontRESV015DeploymentCLIContract(
         task=_V015_TASK,
         frontres_checkpoint=_absolute_input_file(
@@ -187,6 +195,7 @@ def configure_frontres_v015_deployment_agent_cfg(
     agent_cfg: Any,
     contract: FrontRESV015DeploymentCLIContract,
 ) -> None:
+    # B1: 验证 strict CLI contract 并安装 observation/checkpoint/evaluation-only flags.
     """Install the existing v015 inference/checkpoint identity with all train modes off."""
 
     if not isinstance(contract, FrontRESV015DeploymentCLIContract):
@@ -200,14 +209,12 @@ def configure_frontres_v015_deployment_agent_cfg(
         ("frontres_segment_live_runner_enabled", False),
         ("frontres_segment_live_train_enabled", False),
         ("frontres_segment_live_sentinel_only", False),
-        ("frontres_v015_local_sentinel_only", False),
+        ("frontres_local_sentinel_only", False),
         ("frontres_segment_live_probe_only", False),
         ("frontres_segment_live_storage_write_only", False),
         ("frontres_segment_live_single_update_only", False),
         ("frontres_segment_live_update_loop_only", False),
-        ("frontres_segment_offline_eval_only", False),
-        ("frontres_segment_sequence_offline_eval_only", False),
-        ("frontres_v015_formal_transaction_enabled", True),
+        ("frontres_formal_transaction_enabled", True),
         ("frontres_segment_critic_warmup_iterations", 0),
         ("frontres_segment_actor_warmup_iterations", 0),
         ("frontres_future_offsets", contract.future_offsets),
@@ -235,6 +242,7 @@ def build_frontres_v015_deployment_run_config(
     *,
     sequence_module: Any | None = None,
 ):
+    # B1: 从 CLI contract 构造 corruption protocol 与 immutable composition config.
     """Build the already accepted S1/S2B immutable evaluator config."""
 
     if sequence_module is None:
@@ -246,6 +254,7 @@ def build_frontres_v015_deployment_run_config(
         seed=contract.corruption_seed,
         parameters=dict(contract.corruption_parameters),
     )
+    # B2: 绑定 artifact paths, offsets 与 report path, 产出 validated run config.
     config = sequence_module.FrontRESV015DeploymentCompositionRunConfig(
         request_config=sequence_module.FrontRESV015DeploymentCompositionConfig(
             enabled=True,
@@ -253,7 +262,6 @@ def build_frontres_v015_deployment_run_config(
             reference_path=contract.reference_npz,
             future_offsets=contract.future_offsets,
             corruption_protocol=protocol,
-            legacy_modes=(),
         ),
         report_path=contract.report_path,
     )
@@ -263,7 +271,7 @@ def build_frontres_v015_deployment_run_config(
 
 def _optimizer_step_count(runner: Any) -> int:
     optimizer = getattr(getattr(runner, "alg", None), "optimizer", None)
-    value = getattr(optimizer, "frontres_v015_step_count", None)
+    value = getattr(optimizer, "frontres_step_count", None)
     value = value() if callable(value) else value
     if not isinstance(value, int) or value < 0:
         raise RuntimeError("v015 deployment CLI requires the persistent optimizer step counter")
@@ -271,12 +279,14 @@ def _optimizer_step_count(runner: Any) -> int:
 
 
 def dispatch_frontres_v015_deployment_composition(runner: Any, run_config: Any):
+    # B1: 解析 formal dispatch 与 optimizer counter, 产出执行前 mutation anchor.
     """Call only the S2B owner and reject any optimizer-step change."""
 
     dispatch = getattr(runner, "run_frontres_v015_deployment_composition_eval", None)
     if not callable(dispatch):
         raise RuntimeError("formal runner has no v015 deployment-composition dispatch")
     step_before = _optimizer_step_count(runner)
+    # B2: 执行唯一 v015 composition route, 产出 paired deployment report.
     report = dispatch(config=run_config)
     step_after = _optimizer_step_count(runner)
     if step_after != step_before:
@@ -292,6 +302,7 @@ def format_frontres_v015_deployment_sentinel(
     *,
     optimizer_step_delta: int,
 ) -> str:
+    # B1: 投影 report identity 与质量指标, 产出单行可搜索 runtime sentinel.
     no_feedback = not any(
         bool(getattr(report, name))
         for name in (
@@ -325,6 +336,7 @@ def format_frontres_v015_deployment_sentinel(
 
 
 def _zero_motion_randomization(env_cfg: Any) -> None:
+    # B1: 禁用 evaluation motion randomization, 保持 request/reference frame authority.
     motion_cfg = getattr(getattr(env_cfg, "commands", None), "motion", None)
     if motion_cfg is None:
         raise AttributeError("v015 deployment task has no commands.motion config")
@@ -338,6 +350,7 @@ def _zero_motion_randomization(env_cfg: Any) -> None:
 
 
 def _run_with_hydra(contract: FrontRESV015DeploymentCLIContract, args_cli: Any) -> None:
+    # B1: 冻结 Hydra task 与 CLI overrides, 产出 outer composition configuration.
     import gymnasium as gym
 
     from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
@@ -349,6 +362,7 @@ def _run_with_hydra(contract: FrontRESV015DeploymentCLIContract, args_cli: Any) 
 
     @hydra_task_config(contract.task, "rsl_rl_cfg_entry_point")
     def run(env_cfg: Any, agent_cfg: Any) -> None:
+        # B2: 校验 reference identity 并配置 env/agent, 产出正式 runner inputs.
         configure_frontres_v015_deployment_agent_cfg(agent_cfg, contract)
         env_cfg.scene.num_envs = contract.num_envs
         env_cfg.sim.device = contract.device
@@ -378,6 +392,7 @@ def _run_with_hydra(contract: FrontRESV015DeploymentCLIContract, args_cli: Any) 
         if hasattr(env_cfg, "motion_perturbations"):
             env_cfg.motion_perturbations = MotionPerturbationCfg()
 
+        # B3: 创建正式 env 与 runner, 严格加载 FEMR/GMT checkpoints.
         env = gym.make(contract.task, cfg=env_cfg, render_mode=None)
         try:
             if isinstance(env.unwrapped, DirectMARLEnv):
@@ -406,6 +421,7 @@ def _run_with_hydra(contract: FrontRESV015DeploymentCLIContract, args_cli: Any) 
 
 
 def main() -> None:
+    # B1: 解析并验证用户参数, 产出 AppLauncher 可消费的 strict CLI contract.
     parser = build_parser()
     from isaaclab.app import AppLauncher
 
@@ -420,6 +436,7 @@ def main() -> None:
         f"future_offsets={contract.future_offsets} report={contract.report_path}",
         flush=True,
     )
+    # B2: 管理 IsaacLab app 生命周期, 在异常或成功后统一关闭 simulator app.
     app_launcher = AppLauncher(args_cli)
     try:
         _run_with_hydra(contract, args_cli)

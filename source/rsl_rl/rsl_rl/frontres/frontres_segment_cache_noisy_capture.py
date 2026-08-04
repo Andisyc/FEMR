@@ -1,42 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import importlib.util
-from pathlib import Path
-import sys
 from typing import Any, Iterable
 
 import torch
 
-try:
-    from rsl_rl.frontres.frontres_segment_cache_extractor import extract_robot_rollout_state
-    from rsl_rl.frontres.frontres_segment_cache_schema import (
-        FrontRESNoisyVariant,
-        FrontRESPerturbationDescriptor,
-        FrontRESRobotRolloutState,
-        FrontRESSegmentIndex,
-    )
-except ModuleNotFoundError:
-    _ROOT = Path(__file__).resolve().parent
-    _SCHEMA_SPEC = importlib.util.spec_from_file_location(
-        "frontres_segment_cache_schema", _ROOT / "frontres_segment_cache_schema.py"
-    )
-    _EXTRACTOR_SPEC = importlib.util.spec_from_file_location(
-        "frontres_segment_cache_extractor", _ROOT / "frontres_segment_cache_extractor.py"
-    )
-    if _SCHEMA_SPEC is None or _SCHEMA_SPEC.loader is None or _EXTRACTOR_SPEC is None or _EXTRACTOR_SPEC.loader is None:
-        raise
-    _SCHEMA_MODULE = importlib.util.module_from_spec(_SCHEMA_SPEC)
-    sys.modules[_SCHEMA_SPEC.name] = _SCHEMA_MODULE
-    _SCHEMA_SPEC.loader.exec_module(_SCHEMA_MODULE)
-    _EXTRACTOR_MODULE = importlib.util.module_from_spec(_EXTRACTOR_SPEC)
-    sys.modules[_EXTRACTOR_SPEC.name] = _EXTRACTOR_MODULE
-    _EXTRACTOR_SPEC.loader.exec_module(_EXTRACTOR_MODULE)
-    extract_robot_rollout_state = _EXTRACTOR_MODULE.extract_robot_rollout_state
-    FrontRESNoisyVariant = _SCHEMA_MODULE.FrontRESNoisyVariant
-    FrontRESPerturbationDescriptor = _SCHEMA_MODULE.FrontRESPerturbationDescriptor
-    FrontRESRobotRolloutState = _SCHEMA_MODULE.FrontRESRobotRolloutState
-    FrontRESSegmentIndex = _SCHEMA_MODULE.FrontRESSegmentIndex
+from rsl_rl.frontres.frontres_segment_cache_extractor import extract_robot_rollout_state
+from rsl_rl.frontres.frontres_segment_cache_schema import (
+    FrontRESNoisyVariant,
+    FrontRESPerturbationDescriptor,
+    FrontRESRobotRolloutState,
+    FrontRESSegmentIndex,
+)
 
 
 @dataclass(frozen=True)

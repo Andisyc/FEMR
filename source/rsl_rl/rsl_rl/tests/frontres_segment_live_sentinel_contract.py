@@ -229,48 +229,6 @@ def test_boundary_live_update_loop_probe_log() -> None:
         assert needle in log, needle
 
 
-def test_boundary_offline_eval_probe_log() -> None:
-    module = _load(
-        "frontres_segment_runner_boundary_offline_eval_probe",
-        RSL_ROOT / "rsl_rl" / "runners" / "frontres_segment_runner_boundary.py",
-    )
-    boundary = module.FrontRESSegmentRunnerBoundary.from_train_cfg(
-        {
-            "algorithm": {
-                "frontres_training_objective": "segment_replay_hrl",
-                "frontres_segment_replay_enabled": True,
-                "frontres_segment_live_runner_enabled": True,
-                "frontres_segment_live_sentinel_only": False,
-                "frontres_segment_live_probe_only": False,
-                "frontres_segment_live_storage_write_only": False,
-                "frontres_segment_live_single_update_only": False,
-                "frontres_segment_live_update_loop_only": False,
-                "frontres_segment_offline_eval_only": True,
-                "frontres_segment_live_train_enabled": False,
-                "frontres_segment_live_update_steps": 4,
-                "frontres_segment_k": 8,
-                "frontres_segment_reset_mode": "auto",
-            }
-        }
-    )
-    boundary.assert_live_runner_ready()
-    log = boundary.probe_log()
-    assert log is not None
-    required = [
-        "FrontRES Segment Live Probe Ready",
-        "objective=segment_replay_hrl",
-        "segment_k=8",
-        "update_steps=4",
-        "reset_mode=auto",
-        "live_runner=True",
-        "mode=offline_eval",
-        "storage_write=False",
-        "ppo_update=False",
-    ]
-    for needle in required:
-        assert needle in log, needle
-
-
 def test_boundary_live_train_log() -> None:
     module = _load(
         "frontres_segment_runner_boundary_train",
@@ -289,8 +247,6 @@ def test_boundary_live_train_log() -> None:
                 "frontres_segment_live_update_loop_only": False,
                 "frontres_segment_live_train_enabled": True,
                 "frontres_segment_live_update_steps": 4,
-                "frontres_segment_periodic_eval_enabled": True,
-                "frontres_segment_periodic_eval_interval": 50,
                 "frontres_segment_k": 8,
                 "frontres_segment_reset_mode": "auto",
             }
@@ -309,8 +265,7 @@ def test_boundary_live_train_log() -> None:
         "runner_learn=True",
         "storage=independent",
         "ppo_action=delta_se3_6d",
-        "periodic_eval=True",
-        "eval_interval=50",
+        "evaluation=external",
     ]
     for needle in required:
         assert needle in log, needle
@@ -319,7 +274,19 @@ def test_boundary_live_train_log() -> None:
 def test_live_sentinel_is_not_training_mode() -> None:
     train = (ROOT / "scripts" / "rsl_rl" / "train.py").read_text()
     runner = (RSL_ROOT / "rsl_rl" / "runners" / "on_policy_runner.py").read_text()
-    live_probe = (RSL_ROOT / "rsl_rl" / "runners" / "frontres_segment_live_probe.py").read_text()
+    owner_root = RSL_ROOT / "rsl_rl" / "runners"
+    live_probe = "\n".join(
+        (owner_root / name).read_text()
+        for name in (
+            "frontres_segment_live_probe.py",
+            "frontres_segment_legacy_probe.py",
+            "frontres_segment_probe_reporting.py",
+            "frontres_segment_live_storage.py",
+            "frontres_segment_live_policy.py",
+            "frontres_segment_live_rollout.py",
+            "frontres_segment_formal_transaction.py",
+        )
+    )
     live_update_loop = (RSL_ROOT / "rsl_rl" / "runners" / "frontres_segment_live_update_loop.py").read_text()
     live_training = (RSL_ROOT / "rsl_rl" / "runners" / "frontres_segment_live_training.py").read_text()
     cfg = (RSL_ROOT / "rsl_rl" / "modules" / "rsl_rl_cfg.py").read_text()
@@ -330,25 +297,17 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert '"--frontres_segment_live_single_update_only"' in train
     assert '"--frontres_segment_live_update_loop_only"' in train
     assert '"--frontres_segment_live_update_steps"' in train
-    assert '"--frontres_segment_periodic_eval_enabled"' in train
-    assert '"--frontres_segment_periodic_eval_interval"' in train
-    assert '"--frontres_segment_offline_eval_only"' in train
-    assert '"--frontres_segment_sequence_offline_eval_only"' in train
-    assert '"--frontres_segment_offline_eval_segments"' in train
-    assert '"--frontres_segment_sequence_eval_sequences"' in train
-    assert '"--frontres_segment_offline_eval_steps"' in train
-    assert "frontres_segment_offline_eval_only: bool = False" in cfg
-    assert "frontres_segment_sequence_offline_eval_only: bool = False" in cfg
+    for retired in ("periodic_eval", "offline_eval", "sequence_offline_eval"):
+        assert retired not in train
+        assert retired not in cfg
     assert "agent_cfg.max_iterations = 0" in train
-    assert "sequence_eval_only" in train
     assert "live_train_enabled = not (" in train
     assert '_set_if_present(alg_cfg, "frontres_segment_live_sentinel_only", live_sentinel_only)' in train
     assert '_set_if_present(alg_cfg, "frontres_segment_live_probe_only", live_probe_only)' in train
     assert '_set_if_present(alg_cfg, "frontres_segment_live_storage_write_only", live_storage_only)' in train
-    assert '_set_if_present(alg_cfg, "frontres_segment_live_single_update_only", live_single_update_only)' in train
-    assert '_set_if_present(alg_cfg, "frontres_segment_live_update_loop_only", live_update_loop_only)' in train
-    assert '_set_if_present(alg_cfg, "frontres_segment_offline_eval_only", offline_eval_only)' in train
-    assert '_set_if_present(alg_cfg, "frontres_segment_sequence_offline_eval_only", sequence_eval_only)' in train
+    assert '_set_if_present(alg_cfg, "frontres_segment_live_single_update_only", False)' in train
+    assert '_set_if_present(alg_cfg, "frontres_segment_live_update_loop_only", False)' in train
+    assert "FRS-PPO-v005 rejects retired Stage-3 single_update/update_loop modes" in train
     assert '_set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)' in train
     assert '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", 1 if live_train_enabled else live_update_steps)' in train
     assert "sentinel_log()" in runner
@@ -358,11 +317,11 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert "run_frontres_segment_live_probe_helper(" in runner
     assert "run_frontres_segment_live_update_loop" in runner
     assert "run_frontres_segment_live_update_loop_helper(" in runner
-    assert "run_frontres_segment_offline_eval" in runner
-    assert "run_frontres_segment_sequence_offline_eval" in runner
+    assert "run_frontres_segment_offline_eval" not in runner
+    assert "run_frontres_segment_sequence_offline_eval" not in runner
     assert "learn_frontres_segment_live" in runner
     assert "run_frontres_segment_live_training_loop" in runner
-    assert "run_frontres_segment_periodic_eval" in runner
+    assert "run_frontres_segment_periodic_eval" not in runner
     assert "_run_frontres_segment_single_update" in runner
     assert "FrontRESSegmentRolloutStorage" not in runner
     assert "FrontRESSegmentTransition" not in runner
@@ -385,18 +344,14 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert "FrontRES Segment Live Update Loop" in live_update_loop
     assert "runner_learn={runner_learn}" in live_update_loop
     assert "FrontRES Segment Live Train" in live_training
-    assert "format_segment_periodic_eval_log" in live_training
-    assert "_run_live_rollout_capture(runner, observations, rollout_steps=eval_steps)" in live_training
-    assert "_run_live_rollout_capture(runner, observations, rollout_steps=max(1, int(rollout_steps)))" in live_training
+    assert "periodic_eval" not in live_training
     assert "runner_learn=True" in live_training
     assert "FrontRES Segment live update summary missing keys" in live_training
     assert "FrontRES Segment live update produced update_count=0" in live_training
     assert "FrontRES Segment live update produced non-finite" in live_training
     assert "too few valid PPO samples" in live_training
     assert "Stage 3 Segment Replay live mode reached FrontRESUnified.update" in algorithm
-    assert "frontres_segment_offline_eval_only: bool = False" in algorithm
-    assert "self.frontres_segment_offline_eval_only = bool(frontres_segment_offline_eval_only)" in algorithm
-    assert "Segment Replay HRL offline eval initialized" in algorithm
+    assert "frontres_segment_offline_eval_only" not in algorithm
     assert "runner will execute exactly one PPO optimizer step and exit" in algorithm
     assert "PPO optimizer steps and exit" in algorithm
     assert "PPO optimizer steps per iteration" in algorithm
@@ -408,7 +363,6 @@ def main() -> None:
     test_boundary_live_storage_probe_log()
     test_boundary_live_single_update_probe_log()
     test_boundary_live_update_loop_probe_log()
-    test_boundary_offline_eval_probe_log()
     test_boundary_live_train_log()
     test_live_sentinel_is_not_training_mode()
     print("result: PASS")

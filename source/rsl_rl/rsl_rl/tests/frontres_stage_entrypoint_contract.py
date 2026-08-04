@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """FrontRES stage entrypoint contract.
 
-Stage 1/2 are live.  Stage 3 is recognized as Segment Replay HRL.  Explicit
-sentinel/probe/storage/single-update/update-loop sentinels and the dedicated
-live train loop can enter the minimal runner path.
+Stage 1/2 are live. Stage 3 is recognized as Segment Replay HRL. Explicit
+sentinel/probe/storage diagnostics and the dedicated formal train loop can
+enter the minimal runner path; retired optimizer-writing modes fail closed.
 """
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ def main() -> None:
     assert '"--frontres_segment_live_storage_write_only"' in train
     assert '"--frontres_segment_live_single_update_only"' in train
     assert '"--frontres_segment_live_update_loop_only"' in train
-    assert '"--frontres_segment_sequence_offline_eval_only"' in train
+    assert '"--frontres_segment_sequence_offline_eval_only"' not in train
     assert '"--frontres_segment_live_update_steps"' in train
     assert '"--frontres_segment_ppo_schedule"' in train
     assert '"--frontres_segment_shard_cache_size"' in train
@@ -171,11 +171,9 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_training_objective", "segment_replay_hrl")',
         '_set_if_present(alg_cfg, "frontres_segment_replay_enabled", True)',
         'live_sentinel_only = live_sentinel_arg',
-        'v015_local_sentinel_only = v015_local_sentinel_arg',
+        'local_sentinel_only = local_sentinel_arg',
         'live_probe_only = live_probe_arg',
         'live_storage_only = live_storage_arg',
-        'live_single_update_only = live_single_update_arg',
-        'live_update_loop_only = live_update_loop_arg',
         'live_update_steps = max(1, int(getattr(args_cli, "frontres_segment_live_update_steps", 4)))',
         'live_train_enabled = not (',
         'Use only one of --frontres_segment_live_sentinel_only',
@@ -183,12 +181,11 @@ def main() -> None:
         '"frontres_segment_live_runner_enabled",',
         'or live_train_enabled',
         '_set_if_present(alg_cfg, "frontres_segment_live_sentinel_only", live_sentinel_only)',
-        '_set_if_present(alg_cfg, "frontres_v015_local_sentinel_only", v015_local_sentinel_only)',
+        '_set_if_present(alg_cfg, "frontres_local_sentinel_only", local_sentinel_only)',
         '_set_if_present(alg_cfg, "frontres_segment_live_probe_only", live_probe_only)',
         '_set_if_present(alg_cfg, "frontres_segment_live_storage_write_only", live_storage_only)',
-        '_set_if_present(alg_cfg, "frontres_segment_live_single_update_only", live_single_update_only)',
-        '_set_if_present(alg_cfg, "frontres_segment_live_update_loop_only", live_update_loop_only)',
-        '_set_if_present(alg_cfg, "frontres_segment_sequence_offline_eval_only", sequence_eval_only)',
+        '_set_if_present(alg_cfg, "frontres_segment_live_single_update_only", False)',
+        '_set_if_present(alg_cfg, "frontres_segment_live_update_loop_only", False)',
         '_set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)',
         '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", 1 if live_train_enabled else live_update_steps)',
         '_set_if_present(alg_cfg, "frontres_hsl_init_enabled", False)',
@@ -213,22 +210,22 @@ def main() -> None:
     algorithm_impl = _read("source/rsl_rl/rsl_rl/algorithms/frontres_unified.py")
     runner_impl = _read("source/rsl_rl/rsl_rl/runners/on_policy_runner.py")
     live_probe_helper = _read("source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py")
+    legacy_probe_helper = _read("source/rsl_rl/rsl_rl/runners/frontres_segment_legacy_probe.py")
+    live_storage_helper = _read("source/rsl_rl/rsl_rl/runners/frontres_segment_live_storage.py")
+    live_policy_helper = _read("source/rsl_rl/rsl_rl/runners/frontres_segment_live_policy.py")
+    live_rollout_helper = _read("source/rsl_rl/rsl_rl/runners/frontres_segment_live_rollout.py")
     live_training_helper = _read("source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py")
     for cfg_text in (algorithm_cfg, task_cfg):
         assert "frontres_segment_replay_enabled: bool = False" in cfg_text
         assert "frontres_segment_live_runner_enabled: bool = False" in cfg_text
         assert "frontres_segment_live_sentinel_only: bool = False" in cfg_text
-        assert "frontres_v015_local_sentinel_only: bool = False" in cfg_text
+        assert "frontres_local_sentinel_only: bool = False" in cfg_text
         assert "frontres_segment_live_probe_only: bool = False" in cfg_text
         assert "frontres_segment_live_storage_write_only: bool = False" in cfg_text
         assert "frontres_segment_live_single_update_only: bool = False" in cfg_text
         assert "frontres_segment_live_update_loop_only: bool = False" in cfg_text
-        assert "frontres_segment_offline_eval_only: bool = False" in cfg_text
-        assert "frontres_segment_sequence_offline_eval_only: bool = False" in cfg_text
         assert "frontres_segment_live_train_enabled: bool = False" in cfg_text
         assert "frontres_segment_live_update_steps: int = 4" in cfg_text
-        assert "frontres_segment_periodic_eval_enabled: bool = False" in cfg_text
-        assert "frontres_segment_periodic_eval_interval: int = 100" in cfg_text
         assert "frontres_segment_live_fail_on_invalid_update: bool = True" in cfg_text
         assert "frontres_segment_live_min_valid_count: int = 1" in cfg_text
         assert "frontres_segment_live_fail_on_nonfinite: bool = True" in cfg_text
@@ -247,12 +244,14 @@ def main() -> None:
     assert "live runner integration is disabled" in algorithm_impl
     assert "runner/PPO integration is not wired yet" in algorithm_impl
     assert "frontres_segment_live_sentinel_only" in algorithm_impl
-    assert "frontres_v015_local_sentinel_only" in algorithm_impl
+    assert "frontres_local_sentinel_only" in algorithm_impl
     assert "frontres_segment_live_probe_only" in algorithm_impl
     assert "frontres_segment_live_storage_write_only" in algorithm_impl
     assert "frontres_segment_live_single_update_only" in algorithm_impl
     assert "frontres_segment_live_update_loop_only" in algorithm_impl
-    assert "frontres_segment_sequence_offline_eval_only" in algorithm_impl
+    assert "frontres_segment_sequence_offline_eval_only" not in algorithm_impl
+    assert "frontres_segment_offline_eval_only" not in algorithm_impl
+    assert "frontres_segment_periodic_eval_enabled" not in algorithm_impl
     assert "frontres_segment_live_train_enabled" in algorithm_impl
     assert "frontres_segment_live_update_steps" in algorithm_impl
     assert "frontres_segment_cache_dir: str = \"\"" in algorithm_impl
@@ -266,31 +265,27 @@ def main() -> None:
     assert "runner will execute exactly one PPO optimizer step and exit" in algorithm_impl
     assert "PPO optimizer steps and exit" in algorithm_impl
     assert "PPO optimizer steps per iteration" in algorithm_impl
-    assert "args_cli.frontres_segment_live_single_update_only" in train
-    assert 'getattr(args_cli, "frontres_v015_local_sentinel_only", False)' in train
-    assert "args_cli.frontres_segment_live_update_loop_only" in train
-    assert "args_cli.frontres_segment_sequence_offline_eval_only" in train
-    assert "runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)" in train
-    assert "sentinel_result = runner.run_frontres_v015_local_identity_sentinel(init_at_random_ep_len=True)" in train
-    assert "runner.finalize_frontres_v015_local_sentinel_checkpoint(sentinel_result)" in train
-    assert "runner.run_frontres_segment_sequence_offline_eval(" in train
-    assert 'sampler_seed=getattr(args_cli, "frontres_segment_sequence_eval_seed", None)' in train
-    assert "sampler_seed: int | None = None" in runner_impl
-    assert "sampler_seed=sampler_seed" in runner_impl
+    assert "FRS-PPO-v005 rejects retired Stage-3 single_update/update_loop modes" in train
+    assert 'getattr(args_cli, "frontres_local_sentinel_only", False)' in train
+    assert "runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)" not in train
+    assert "sentinel_result = runner.run_frontres_local_identity_sentinel(init_at_random_ep_len=True)" in train
+    assert "runner.finalize_frontres_local_sentinel_checkpoint(sentinel_result)" in train
+    assert "runner.run_frontres_segment_sequence_offline_eval(" not in train
     assert "runner.learn_frontres_segment_live(" in train
     assert "frontres_segment_live_train_enabled" in train
     assert "runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)" in train
     assert "run_frontres_segment_live_probe_helper(" in runner_impl
-    assert "run_frontres_v015_local_identity_sentinel_helper(" in runner_impl
-    assert "finalize_frontres_v015_local_sentinel_checkpoint_helper(" in runner_impl
+    assert "run_frontres_local_identity_sentinel_helper(" in runner_impl
+    assert "finalize_frontres_local_sentinel_checkpoint_helper(" in runner_impl
     assert "FrontRESSegmentRolloutStorage" not in runner_impl
     assert "FrontRESSegmentTransition" not in runner_impl
     assert "compute_frontres_segment_ppo_loss" not in runner_impl
     assert "FrontRESSegmentPPOConfig" not in runner_impl
-    assert "def run_frontres_segment_live_probe" in live_probe_helper
-    assert "def build_live_segment_storage" in live_probe_helper
-    assert "def run_frontres_segment_single_update" in live_probe_helper
-    assert "def _run_live_rollout_capture" in live_probe_helper
+    assert "run_frontres_segment_live_probe" in live_probe_helper
+    assert "def run_frontres_segment_live_probe" in legacy_probe_helper
+    assert "def build_live_segment_storage" in live_storage_helper
+    assert "def run_frontres_segment_single_update" in live_policy_helper
+    assert "def _run_live_rollout_capture" in live_rollout_helper
     assert "FrontRESSegmentRolloutStorage" in live_probe_helper
     assert "FrontRESSegmentTransition" in live_probe_helper
     assert "compute_frontres_segment_ppo_loss" in live_probe_helper
@@ -354,7 +349,8 @@ def main() -> None:
     assert 'After a successful build, the script validates the written cache by default.' in stage1_cache
     assert 'if [[ "${VALIDATE_AFTER_BUILD}" == "1" ]]; then' in stage1_cache
     assert 'VALIDATE_CMD=(' in stage1_cache
-    assert 'source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_validator.py' in stage1_cache
+    assert 'env "PYTHONPATH=${PWD}/source/rsl_rl${PYTHONPATH:+:${PYTHONPATH}}"' in stage1_cache
+    assert '-m rsl_rl.frontres.frontres_segment_cache_validator' in stage1_cache
     assert '--expect-mode "${VALIDATION_EXPECT_MODE}"' in stage1_cache
     assert '--min-segments "${VALIDATION_MIN_SEGMENTS}"' in stage1_cache
     assert '--min-noisy "${VALIDATION_MIN_NOISY}"' in stage1_cache
@@ -366,7 +362,8 @@ def main() -> None:
     assert 'EXPECT_MODE="${EXPECT_MODE:-hrl_curriculum_bank}"' in stage1_cache_validator
     assert 'MIN_SEGMENTS="${MIN_SEGMENTS:-1}"' in stage1_cache_validator
     assert 'MIN_NOISY="${MIN_NOISY:-1}"' in stage1_cache_validator
-    assert 'source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_validator.py' in stage1_cache_validator
+    assert 'env "PYTHONPATH=${PWD}/source/rsl_rl${PYTHONPATH:+:${PYTHONPATH}}"' in stage1_cache_validator
+    assert '-m rsl_rl.frontres.frontres_segment_cache_validator' in stage1_cache_validator
     assert '--expect-mode "${EXPECT_MODE}"' in stage1_cache_validator
     assert '--min-segments "${MIN_SEGMENTS}"' in stage1_cache_validator
     assert '--min-noisy "${MIN_NOISY}"' in stage1_cache_validator
@@ -407,7 +404,7 @@ def main() -> None:
     assert 'FRONTRES_STAGE_PREFLIGHT_ONLY' in root_stage3
     assert 'FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"' in root_stage3
     assert 'FRONTRES_V015_FUTURE_OFFSETS="${FRONTRES_V015_FUTURE_OFFSETS:-1,2}"' in root_stage3
-    assert 'PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"' in root_stage3
+    assert "PERIODIC_EVAL_ENABLED" not in root_stage3
     assert '[FrontRES Stage3] preflight only' in root_stage3
     assert 'CMD+=("${EXTRA_TRAIN_ARGS[@]}")' in root_stage3
     assert 'train_stage3_segment_hrl.txt' in root_stage3
@@ -418,7 +415,7 @@ def main() -> None:
     assert '--frontres_v015_future_offsets "${FRONTRES_V015_FUTURE_OFFSETS}"' in stage3
     assert '--resume_student_checkpoint "${HSL_CHECKPOINT}"' not in stage3
     assert 'STAGE3_IS_FULL_RESUME' not in stage3
-    assert 'v015 Stage 3 forbids resume and legacy periodic-evaluation arguments' in stage3
+    assert 'v015 Stage 3 forbids legacy resume arguments' in stage3
     assert 'G5-S4 bounded Stage 3 requires train mode, 8 envs, 1 iteration, and 1 update' in stage3
     assert 'CHECKPOINT_INTERVAL="${FRONTRES_CHECKPOINT_INTERVAL:-1}"' in stage3
     assert 'TRAIN_CMD+=(--frontres_checkpoint_interval "${CHECKPOINT_INTERVAL}")' in stage3
@@ -434,8 +431,10 @@ def main() -> None:
     assert 'TRAIN_CMD+=("${EXTRA_TRAIN_ARGS[@]}")' in stage3
     assert '" --frontres_segment_cache_dir ${CACHE_DIR} "' in stage3
     assert '" --frontres_segment_shard_cache_size ${SHARD_CACHE_SIZE} "' in stage3
-    assert '--frontres_segment_live_update_loop_only' in stage3
-    assert '--frontres_segment_sequence_offline_eval_only' in stage3
+    assert 'FRS-PPO-v005 rejects retired optimizer-writing Stage 3 mode' in stage3
+    assert 'MODE_ARGS=(--frontres_segment_live_update_loop_only)' not in stage3
+    assert 'MODE_ARGS=(--frontres_segment_live_single_update_only)' not in stage3
+    assert '--frontres_segment_sequence_offline_eval_only' not in stage3
     assert 'FRONTRES_STAGE3_RUN_CONTRACTS' in stage3
     assert 'frontres_segment_all_contract_suite.py' in stage3
     assert '[FrontRES Stage3 contract preflight] PASS' in stage3

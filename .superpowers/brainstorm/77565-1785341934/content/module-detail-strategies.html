@@ -1,0 +1,81 @@
+<h2>模块化架构图的细节应该怎样出现？</h2>
+<p class="subtitle">主图只表达模块与接口。比较三种继续深入的方式，重点观察：主结构是否稳定、细节是否可定位、函数是否污染架构层。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:20px;min-height:285px;background:#f8fafc">
+      <div class="label">A · 原图继续分叉</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:22px;font-size:12px">
+        <div style="padding:10px;border:1px solid #94a3b8;background:white">Scenario</div>
+        <div>→</div>
+        <div style="padding:10px;border:1px solid #94a3b8;background:white">Evidence</div>
+        <div>→</div>
+        <div style="padding:10px;border:1px solid #94a3b8;background:white">PPO</div>
+      </div>
+      <div style="margin:10px 0 0 98px;border-left:1px solid #94a3b8;padding-left:12px;display:grid;gap:7px;font-size:11px">
+        <div style="padding:7px;border:1px solid #cbd5e1;background:white">Contact phase</div>
+        <div style="padding:7px;border:1px solid #cbd5e1;background:white">ZMP applicability</div>
+        <div style="padding:7px;border:1px solid #cbd5e1;background:white">paired facts</div>
+        <div style="padding:7px;border:1px solid #cbd5e1;background:white">build_return()</div>
+      </div>
+      <p style="font-size:12px;color:#64748b;margin-top:16px">层级越深，主链越容易被函数和支线淹没</p>
+    </div>
+    <div class="card-body">
+      <h3>持续展开主图</h3>
+      <p>直观但不可持续。它把系统结构、模块内部结构和代码导航混成一个平面。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:20px;min-height:285px;background:#f8fafc">
+      <div class="label">B · 语义缩放</div>
+      <div style="font-size:11px;color:#64748b;margin:18px 0 12px">FrontRES / Training / Evidence</div>
+      <div style="border:1px solid #94a3b8;background:white;padding:14px">
+        <div style="font-weight:700;margin-bottom:12px">Evidence Module</div>
+        <div style="display:grid;grid-template-columns:1fr 18px 1fr 18px 1fr;align-items:center;gap:5px;font-size:11px">
+          <div style="padding:9px;border:1px solid #cbd5e1">Role frames</div><div>→</div>
+          <div style="padding:9px;border:1px solid #cbd5e1">Paired facts</div><div>→</div>
+          <div style="padding:9px;border:1px solid #cbd5e1">Return + constraints</div>
+        </div>
+      </div>
+      <p style="font-size:12px;color:#64748b;margin-top:18px">点击模块后，整个画布切换到该模块内部</p>
+    </div>
+    <div class="card-body">
+      <h3>同一画布逐级钻取</h3>
+      <p>每层都很干净，但进入模块后会失去整体运行链上下文，需要依赖面包屑返回。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:20px;min-height:285px;background:#f8fafc">
+      <div class="label">C · 稳定主图 + 模块剖面</div>
+      <div style="display:flex;gap:7px;align-items:center;margin:16px 0 14px;font-size:10px">
+        <div style="padding:7px;border:1px solid #cbd5e1;background:white">Scenario</div><div>→</div>
+        <div style="padding:7px;border:2px solid #0f766e;background:#ecfdf5">Evidence</div><div>→</div>
+        <div style="padding:7px;border:1px solid #cbd5e1;background:white">Grouped PPO</div><div>→</div>
+        <div style="padding:7px;border:1px solid #cbd5e1;background:white">Checkpoint</div>
+      </div>
+      <div style="border-top:2px solid #0f766e;background:white;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <strong style="font-size:12px">Evidence 模块剖面</strong>
+          <span style="font-size:10px;color:#64748b">输入 / 内部职责 / 输出</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1.6fr 1fr;gap:7px;font-size:10px">
+          <div style="padding:9px;background:#f1f5f9">K-step role evidence</div>
+          <div style="padding:9px;background:#ecfdf5">phase解释 → paired facts → applicability</div>
+          <div style="padding:9px;background:#f1f5f9">y_I + Physics constraints</div>
+        </div>
+        <div style="margin-top:9px;font-size:10px;color:#64748b">下一层才显示 owner files / symbols / tests，不进入主图</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>主架构保持不动，选中模块后显示剖面</h3>
+      <p>同时保留整体上下文与模块内部结构。函数只作为第三层源码入口，我推荐这一方案。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:28px">
+  <h3>关键原则</h3>
+  <p>不要把“更细”理解为“显示更多函数”。正确的第二层仍然是架构：展示模块内部的职责单元、端口和语义对象；函数属于第三层代码导航。</p>
+</div>

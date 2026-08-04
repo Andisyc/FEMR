@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import hashlib
+import inspect
 import json
 from contextlib import contextmanager
 from dataclasses import replace
@@ -35,13 +36,13 @@ def _owners():
         RSL_ROOT / "tests" / "frontres_v015_policy_quality_identity_contract.py",
     )
     checkpointing, manifest, quality = identity_contract._owners()
-    storage = _load(
-        "rsl_rl.frontres.frontres_segment_storage",
-        RSL_ROOT / "frontres" / "frontres_segment_storage.py",
-    )
     gain = _load(
         "rsl_rl.frontres.frontres_gain",
         RSL_ROOT / "frontres" / "frontres_gain.py",
+    )
+    storage = _load(
+        "rsl_rl.frontres.frontres_segment_storage",
+        RSL_ROOT / "frontres" / "frontres_segment_storage.py",
     )
     return identity_contract, checkpointing, manifest, quality, storage, gain
 
@@ -259,8 +260,8 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
         calls: list[tuple[str, str]] = []
         checkpoint_by_route = {
             "zero": "zero",
-            "hsl": checkpointing.inspect_frontres_v015_quality_checkpoint(hsl_path, route="hsl").file_sha256,
-            "policy": checkpointing.inspect_frontres_v015_quality_checkpoint(policy_path, route="policy").file_sha256,
+            "hsl": checkpointing.inspect_frontres_quality_checkpoint(hsl_path, route="hsl").file_sha256,
+            "policy": checkpointing.inspect_frontres_quality_checkpoint(policy_path, route="policy").file_sha256,
         }
 
         normalizers = {
@@ -302,7 +303,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
         )
         runner = SimpleNamespace(
             alg=SimpleNamespace(
-                frontres_v015_formal_transaction_enabled=True,
+                frontres_formal_transaction_enabled=True,
                 policy=policy,
             ),
             _frontres_extra_normalizer=normalizers["prefix"],
@@ -382,7 +383,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
 
         failing_runner = SimpleNamespace(
             alg=SimpleNamespace(
-                frontres_v015_formal_transaction_enabled=True,
+                frontres_formal_transaction_enabled=True,
                 policy=policy,
             ),
             _frontres_extra_normalizer=normalizers["prefix"],
@@ -433,7 +434,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
                 dynamic_state_identity=_dynamic_identity(quality, item.comparison_signature),
             )
 
-        mixed_runner = SimpleNamespace(alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True))
+        mixed_runner = SimpleNamespace(alg=SimpleNamespace(frontres_formal_transaction_enabled=True))
         quality.install_frontres_v015_policy_quality_owner_bundle(
             mixed_runner,
             quality.FrontRESV015PolicyQualityOwnerBundle(
@@ -470,7 +471,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
                 dynamic_state_identity=_dynamic_identity(quality, item.comparison_signature),
             )
 
-        missing_runner = SimpleNamespace(alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True))
+        missing_runner = SimpleNamespace(alg=SimpleNamespace(frontres_formal_transaction_enabled=True))
         quality.install_frontres_v015_policy_quality_owner_bundle(
             missing_runner,
             quality.FrontRESV015PolicyQualityOwnerBundle(
@@ -505,7 +506,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             )
 
         wrong_checkpoint_runner = SimpleNamespace(
-            alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True)
+            alg=SimpleNamespace(frontres_formal_transaction_enabled=True)
         )
         quality.install_frontres_v015_policy_quality_owner_bundle(
             wrong_checkpoint_runner,
@@ -543,7 +544,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             context_calls.append((route, expected_file_sha256))
             yield
 
-        checkpointing.frontres_v015_quality_route_actor = route_actor
+        checkpointing.frontres_quality_route_actor = route_actor
         sampler_module = ModuleType("rsl_rl.runners.frontres_segment_live_sampler")
         lifecycle_close_calls: list[object] = []
 
@@ -552,7 +553,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             return SimpleNamespace(batch=object(), sample=object())
 
         sampler_module.prepare_frontres_v015_policy_quality_item_batch = prepare_item
-        sampler_module._close_frontres_local_scenarios = lifecycle_close_calls.append
+        sampler_module.close_frontres_local_scenarios = lifecycle_close_calls.append
         sys.modules[sampler_module.__name__] = sampler_module
         probe_module = ModuleType("rsl_rl.runners.frontres_segment_live_probe")
         def reset_route_start(*_args, **_kwargs):
@@ -561,6 +562,8 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
 
         probe_module._apply_current_segment_reset = reset_route_start
         probe_module._read_live_observations = lambda _runner: object()
+        probe_module.apply_frontres_current_segment_reset = reset_route_start
+        probe_module.read_frontres_live_observations = lambda _runner: object()
 
         def collect_formal(runner, _observations, *, pair_layout):
             route = runner._frontres_v015_quality_action_route
@@ -573,6 +576,13 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
 
         probe_module.collect_frontres_v015_one_action_k_evidence = collect_formal
         sys.modules[probe_module.__name__] = probe_module
+        reset_module = ModuleType("rsl_rl.runners.frontres_segment_live_reset")
+        reset_module.apply_frontres_current_segment_reset = reset_route_start
+        sys.modules[reset_module.__name__] = reset_module
+        one_action_module = ModuleType("rsl_rl.runners.frontres_segment_one_action_k")
+        one_action_module.read_frontres_live_observations = lambda _runner: object()
+        one_action_module.collect_frontres_v015_one_action_k_evidence = collect_formal
+        sys.modules[one_action_module.__name__] = one_action_module
         setup_module = ModuleType("rsl_rl.runners.frontres_training_setup")
         setup_module.configure_frontres_pair_layout = lambda *_args, **_kwargs: SimpleNamespace(
             n_train=4,
@@ -587,7 +597,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             clear_frontres_local_scenario=lambda: command_close_calls.append("clear")
         )
         formal_runner = SimpleNamespace(
-            alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True),
+            alg=SimpleNamespace(frontres_formal_transaction_enabled=True),
             current_learning_iteration=0,
             env=SimpleNamespace(
                 command_manager=SimpleNamespace(
@@ -642,10 +652,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             policy_checkpoint_path=str(policy_path),
             result_path=str(formal_path),
         )
-        assert isinstance(
-            formal_runner._frontres_v015_policy_quality_owner_bundle,
-            quality.FrontRESV015PolicyQualityOwnerBundle,
-        )
+        assert not hasattr(formal_runner, "_frontres_v015_policy_quality_owner_bundle")
         assert prepared_calls == [formal_payload["items"][0]["comparison_signature"]]
         assert reset_calls == ["reset"]
         assert snapshot_calls == [formal_payload["items"][0]["comparison_signature"]]
@@ -676,7 +683,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             clear_frontres_local_scenario=lambda: permuted_command_calls.append("clear")
         )
         permuted_runner = SimpleNamespace(
-            alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True),
+            alg=SimpleNamespace(frontres_formal_transaction_enabled=True),
             current_learning_iteration=0,
             env=SimpleNamespace(
                 command_manager=SimpleNamespace(
@@ -707,7 +714,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             clear_frontres_local_scenario=lambda: failure_command_calls.append("clear")
         )
         failure_runner = SimpleNamespace(
-            alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True),
+            alg=SimpleNamespace(frontres_formal_transaction_enabled=True),
             current_learning_iteration=0,
             env=SimpleNamespace(
                 command_manager=SimpleNamespace(
@@ -763,7 +770,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             )
 
         state_mismatch_runner = SimpleNamespace(
-            alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True)
+            alg=SimpleNamespace(frontres_formal_transaction_enabled=True)
         )
         quality.install_frontres_v015_policy_quality_owner_bundle(
             state_mismatch_runner,
@@ -806,8 +813,8 @@ def test_v015_manifest_item_lifecycle_closes_after_routes_and_on_error() -> None
 
         checkpoint_by_route = {
             "zero": "zero",
-            "hsl": checkpointing.inspect_frontres_v015_quality_checkpoint(hsl_path, route="hsl").file_sha256,
-            "policy": checkpointing.inspect_frontres_v015_quality_checkpoint(policy_path, route="policy").file_sha256,
+            "hsl": checkpointing.inspect_frontres_quality_checkpoint(hsl_path, route="hsl").file_sha256,
+            "policy": checkpointing.inspect_frontres_quality_checkpoint(policy_path, route="policy").file_sha256,
         }
         events: list[tuple[str, str]] = []
 
@@ -824,7 +831,7 @@ def test_v015_manifest_item_lifecycle_closes_after_routes_and_on_error() -> None
         def close_item(_runner, item) -> None:
             events.append((item.item_id, "close"))
 
-        runner = SimpleNamespace(alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True))
+        runner = SimpleNamespace(alg=SimpleNamespace(frontres_formal_transaction_enabled=True))
         quality.install_frontres_v015_policy_quality_owner_bundle(
             runner,
             quality.FrontRESV015PolicyQualityOwnerBundle(
@@ -860,7 +867,7 @@ def test_v015_manifest_item_lifecycle_closes_after_routes_and_on_error() -> None
                 raise RuntimeError("route failure")
             return collect(_runner, item, route)
 
-        failed_runner = SimpleNamespace(alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True))
+        failed_runner = SimpleNamespace(alg=SimpleNamespace(frontres_formal_transaction_enabled=True))
         quality.install_frontres_v015_policy_quality_owner_bundle(
             failed_runner,
             quality.FrontRESV015PolicyQualityOwnerBundle(
@@ -884,7 +891,7 @@ def test_v015_manifest_item_lifecycle_closes_after_routes_and_on_error() -> None
 
         close_state = {"value": 0}
         close_mutation_runner = SimpleNamespace(
-            alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True)
+            alg=SimpleNamespace(frontres_formal_transaction_enabled=True)
         )
         quality.install_frontres_v015_policy_quality_owner_bundle(
             close_mutation_runner,
@@ -935,9 +942,17 @@ def test_v015_atomic_route_report_preserves_role_specific_no_load_na() -> None:
     assert row["zmp_constraint"] == [0.0]
 
 
+def test_v015_repeated_requests_never_reuse_request_scoped_owner() -> None:
+    _identity, _checkpointing, _manifest, quality, _storage, _gain = _owners()
+    source = inspect.getsource(quality.run_frontres_policy_quality_eval)
+    assert 'build_frontres_v015_policy_quality_owner_bundle(runner, request)' in source
+    assert 'delattr(runner, "_frontres_v015_policy_quality_owner_bundle")' in source
+
+
 if __name__ == "__main__":
     test_v015_full_dynamic_state_identity_probe()
     test_v015_repair_noisy_one_action_k_atomic_quality()
     test_v015_manifest_item_lifecycle_closes_after_routes_and_on_error()
     test_v015_atomic_route_report_preserves_role_specific_no_load_na()
+    test_v015_repeated_requests_never_reuse_request_scoped_owner()
     print("frontres_v015_policy_quality_heldout_contract: ok", flush=True)

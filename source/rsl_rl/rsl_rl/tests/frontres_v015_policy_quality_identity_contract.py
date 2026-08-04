@@ -35,9 +35,9 @@ def _owners():
     )
     _layout, checkpointing, _policy = checkpoint_contract._load_owners()
     frontres = types.ModuleType("rsl_rl.frontres")
-    frontres.__path__ = []
+    frontres.__path__ = [str(RSL_ROOT / "frontres")]
     runners = types.ModuleType("rsl_rl.runners")
-    runners.__path__ = []
+    runners.__path__ = [str(RSL_ROOT / "runners")]
     sys.modules["rsl_rl.frontres"] = frontres
     sys.modules["rsl_rl.runners"] = runners
     sys.modules["rsl_rl.runners.frontres_checkpointing"] = checkpointing
@@ -45,8 +45,9 @@ def _owners():
         "rsl_rl.frontres.frontres_policy_quality_manifest",
         RSL_ROOT / "frontres" / "frontres_policy_quality_manifest.py",
     )
+    sys.modules.pop("rsl_rl.runners.frontres_policy_quality_legacy", None)
     quality = _load(
-        "frontres_v015_quality_request_contract",
+        "rsl_rl.runners.frontres_policy_quality_eval",
         RSL_ROOT / "runners" / "frontres_policy_quality_eval.py",
     )
     return checkpointing, manifest, quality
@@ -105,12 +106,16 @@ def _hsl_payload(checkpointing) -> dict[str, object]:
     }
     return {
         "frontres_v015_hsl_checkpoint_identity": {
-            "format": "frontres-v015-hsl-proposal-v1",
-            "method_contract_id": "FRS-METHOD-v015",
-            "training_contract_id": "FRS-TRAIN-v007",
+            "format": "frontres-v017-hsl-proposal-v2",
+            "method_contract_id": "FRS-METHOD-v017",
+            "training_contract_id": "FRS-TRAIN-v014",
             "objective": "proposal_only_current_antidr_delta_se3",
             "future_intent_layout": _layout(),
-            "action": {"kind": "delta_se3", "dim": 6},
+            "action": {
+                "kind": "delta_se3",
+                "dim": 6,
+                "semantics": "direct-world-full6-v1",
+            },
             "gmt": {
                 "checkpoint_sha256": "a" * 64,
                 "normalizer_dim": 770,
@@ -281,7 +286,7 @@ def test_strict_v015_quality_identity_and_tamper_rejection() -> None:
         assert request.manifest.gmt_suffix_dim == 770
         assert request.manifest.action_dim == 6
         assert request.hsl_checkpoint.route == "hsl"
-        assert request.hsl_checkpoint.format == "frontres-v015-hsl-proposal-v1"
+        assert request.hsl_checkpoint.format == "frontres-v017-hsl-proposal-v2"
         assert request.hsl_checkpoint.normalizer_key == "frontres_prefix_norm_state_dict"
         assert request.policy_checkpoint.route == "policy"
         assert request.policy_checkpoint.format == "frontres-v015-checkpoint-v6"
@@ -296,18 +301,18 @@ def test_strict_v015_quality_identity_and_tamper_rejection() -> None:
         tampered_hsl_path = root / "tampered_hsl.pt"
         torch.save(tampered_hsl, tampered_hsl_path)
         _expect_reject(
-            lambda: checkpointing.inspect_frontres_v015_quality_checkpoint(tampered_hsl_path, route="hsl"),
+            lambda: checkpointing.inspect_frontres_quality_checkpoint(tampered_hsl_path, route="hsl"),
             "fingerprint",
         )
         _expect_reject(
-            lambda: checkpointing.inspect_frontres_v015_quality_checkpoint(policy_path, route="hsl"),
+            lambda: checkpointing.inspect_frontres_quality_checkpoint(policy_path, route="hsl"),
             "HSL",
         )
 
         partial_path = root / "partial.pt"
         torch.save(_stage3_payload(checkpointing, transaction_state="sealed"), partial_path)
         _expect_reject(
-            lambda: checkpointing.inspect_frontres_v015_quality_checkpoint(partial_path, route="policy"),
+            lambda: checkpointing.inspect_frontres_quality_checkpoint(partial_path, route="policy"),
             "transaction",
         )
 
@@ -316,7 +321,7 @@ def test_strict_v015_quality_identity_and_tamper_rejection() -> None:
         tampered_policy_path = root / "tampered_policy.pt"
         torch.save(tampered_policy, tampered_policy_path)
         _expect_reject(
-            lambda: checkpointing.inspect_frontres_v015_quality_checkpoint(
+            lambda: checkpointing.inspect_frontres_quality_checkpoint(
                 tampered_policy_path, route="policy"
             ),
             "fingerprint",
@@ -354,7 +359,7 @@ def test_strict_v015_quality_identity_and_tamper_rejection() -> None:
         legacy_exact_path.write_text(json.dumps(_legacy_manifest_payload()), encoding="utf-8")
         legacy_calls: list[object] = []
         active_runner = SimpleNamespace(
-            alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True),
+            alg=SimpleNamespace(frontres_formal_transaction_enabled=True),
             _frontres_policy_quality_manifest_executor=lambda request: legacy_calls.append(request),
         )
         _expect_reject(

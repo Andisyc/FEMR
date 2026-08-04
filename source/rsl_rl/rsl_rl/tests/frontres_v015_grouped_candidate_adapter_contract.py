@@ -56,6 +56,9 @@ def _load_owners():
     storage = sys.modules["rsl_rl.frontres.frontres_segment_storage"]
     ppo = _load("frontres_v015_grouped_candidate_ppo", PPO_PATH)
     live_probe.FrontRESSegmentPPOBatch = ppo.FrontRESSegmentPPOBatch
+    sys.modules["rsl_rl.runners.frontres_segment_one_action_k"].FrontRESSegmentPPOBatch = (
+        ppo.FrontRESSegmentPPOBatch
+    )
     return gain_contract, one_action, helper, commands, hooks, setup, live_probe, storage, ppo
 
 

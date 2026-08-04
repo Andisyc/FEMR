@@ -45,15 +45,20 @@ function watchDataFiles() {
 
 function safeResolve(urlPath) {
   const cleanPath = decodeURIComponent(urlPath.split("?")[0]);
-  const relativePath = cleanPath === "/" ? "index.html" : cleanPath.slice(1);
-  const resolved = path.resolve(atlasRoot, relativePath);
-  if (!resolved.startsWith(atlasRoot)) return null;
-  return resolved;
+ const relativePath = cleanPath === "/" ? "index.html" : cleanPath.slice(1);
+ const resolved = path.resolve(atlasRoot, relativePath);
+ if (resolved !== atlasRoot && !resolved.startsWith(`${atlasRoot}${path.sep}`)) return null;
+ return resolved;
 }
 
 const server = http.createServer((req, res) => {
-  const requestUrl = new URL(req.url || "/", "http://127.0.0.1");
-  if (requestUrl.pathname === "/open-source") {
+ const requestUrl = new URL(req.url || "/", "http://127.0.0.1");
+ if (requestUrl.pathname === "/healthz") {
+  res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+  res.end(JSON.stringify({ service: "mosaic-frontres-atlas" }));
+  return;
+ }
+ if (requestUrl.pathname === "/open-source") {
     const relativePath = requestUrl.searchParams.get("path") || "";
     const line = Number.parseInt(requestUrl.searchParams.get("line") || "1", 10);
     const absolutePath = path.resolve(repoRoot, relativePath);
@@ -145,7 +150,9 @@ watchDataFiles();
 server.listen(port, "127.0.0.1", () => {
   console.log(`MOSAIC architecture atlas: http://127.0.0.1:${port}/`);
   console.log(`Repo map: http://127.0.0.1:${port}/auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/01_repo_architecture.data.json`);
-  console.log(`Interface map: http://127.0.0.1:${port}/auxiliary/atlas_app/architecture_atlas.html?data=../../runtime/02_frontres_flow.data.json`);
-  console.log(`Concept tabs: http://127.0.0.1:${port}/auxiliary/atlas_app/architecture_atlas.html?data=../../concept/03_frontres_concept_tabs.data.json`);
-  console.log(`Watching data folders: architecture/, runtime/, concept/`);
+  console.log(`Method Figure: http://127.0.0.1:${port}/01_frontres_method_figure.html`);
+  console.log(`Design Inspector: http://127.0.0.1:${port}/02_frontres_design_inspector.html`);
+  console.log(`Module Test Atlas: http://127.0.0.1:${port}/05_frontres_module_test_atlas.html`);
+  console.log(`Runtime Audit Atlas: http://127.0.0.1:${port}/06_frontres_runtime_audit_atlas.html`);
+ console.log(`Watching data folders: architecture/, runtime/, concept/`);
 });

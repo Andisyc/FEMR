@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[4]
 SCRIPT = ROOT / "run" / "run_frontres_stage3_segment_hrl.sh"
 
 
-def _run_failing_contract_preflight(mode: str = "update_loop") -> subprocess.CompletedProcess[str]:
+def _run_failing_contract_preflight(mode: str = "train") -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         checkpoint = tmp_path / "stage1_model.pt"
@@ -30,14 +30,15 @@ def _run_failing_contract_preflight(mode: str = "update_loop") -> subprocess.Com
         env["FRONTRES_STAGE3_RUN_CONTRACTS"] = "1"
         env["FRONTRES_STAGE3_CONTRACT_SUITE"] = str(suite_stub)
         env["FRONTRES_STAGE3_CONTRACT_PYTHON"] = sys.executable
+        env["FRONTRES_V015_K_CURRICULUM"] = "8:2:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381,16:3:300:300:900:lower-k16:0.6:linear-joint-v1:900:2.381,32:4:400:300:625:lower-k32:0.7:linear-joint-v1:625:2.381"
         return subprocess.run(
             [
                 "bash",
                 str(SCRIPT),
                 str(checkpoint),
                 str(motion_path),
+                "8",
                 "1",
-                "2",
                 "1",
                 mode,
             ],

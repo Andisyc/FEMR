@@ -13,9 +13,6 @@ SENTINEL_FLAGS = {
     "sentinel": "--frontres_segment_live_sentinel_only",
     "probe": "--frontres_segment_live_probe_only",
     "storage": "--frontres_segment_live_storage_write_only",
-    "single_update": "--frontres_segment_live_single_update_only",
-    "update_loop": "--frontres_segment_live_update_loop_only",
-    "sequence_eval": "--frontres_segment_sequence_offline_eval_only",
 }
 
 
@@ -35,7 +32,7 @@ def _run_preflight(
         env["FRONTRES_STAGE_PREFLIGHT_ONLY"] = "1"
         env["FRONTRES_STAGE3_RUN_CONTRACTS"] = "0"
         env["FRONTRES_SPECIALIST_MODE"] = "rp"
-        env["FRONTRES_V015_K_CURRICULUM"] = "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625"
+        env["FRONTRES_V015_K_CURRICULUM"] = "8:2:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381,16:3:300:300:900:lower-k16:0.6:linear-joint-v1:900:2.381,32:4:400:300:625:lower-k32:0.7:linear-joint-v1:625:2.381"
         if env_overrides:
             env.update(env_overrides)
         cmd = [
@@ -70,13 +67,12 @@ def _probe(name: str, command: str) -> None:
     print(
         f"[probe step7] {name}: "
         f"stage3={'--frontres_stage stage3_segment_hrl' in command} "
-        f"hsl_v1={'--frontres_v015_hsl_initializer_checkpoint' in command} "
+        f"hsl_v2={'--frontres_v015_hsl_initializer_checkpoint' in command} "
         f"offsets={'--frontres_v015_future_offsets 1\\,2' in command} "
         f"resume={'--resume' in command} "
         f"update_steps_3={'--frontres_segment_live_update_steps 3' in command} "
         f"specialist_rp={'--frontres_specialist_mode rp' in command} "
         f"update_loop={'--frontres_segment_live_update_loop_only' in command} "
-        f"sequence_eval={'--frontres_segment_sequence_offline_eval_only' in command} "
         f"legacy_stage2={'stage2_acceptance' in command} "
         f"mosaic_path={'/MOSAIC/' in command}",
         flush=True,
@@ -93,15 +89,13 @@ def test_stage3_train_launch_preflight_builds_femr_command() -> None:
     assert "--frontres_stage stage3_segment_hrl" in command
     assert "--frontres_v015_hsl_initializer_checkpoint" in command
     assert "--frontres_v015_future_offsets 1\\,2" in command
-    assert "--frontres_segment_k_curriculum 8:2:200:500:1300\\,16:3:300:300:900\\,32:4:400:300:625" in command
+    assert "--frontres_segment_k_curriculum 8:2:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381" in command
     assert "--resume_student_checkpoint" not in command
     assert "--is_full_resume" not in command
     assert "--resume " not in command
-    assert "--frontres_segment_periodic_eval_enabled" not in command
     assert "--frontres_specialist_mode rp" in command
     assert "--frontres_segment_live_update_steps 3" in command
     assert "--frontres_segment_live_update_loop_only" not in command
-    assert "--frontres_segment_sequence_offline_eval_only" not in command
     assert "stage2_acceptance" not in command
     assert "/MOSAIC/" not in command
 
@@ -137,12 +131,11 @@ def test_stage3_train_launch_accepts_explicit_checkpoint_interval() -> None:
     assert "FRONTRES_CHECKPOINT_INTERVAL must be a positive integer" in invalid.stderr
 
 
-def test_g5_s4_launch_rejects_resume_periodic_and_wrong_bounds() -> None:
+def test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds() -> None:
     forbidden = (
         ["--resume", "True"],
         ["--resume_student_checkpoint", "/tmp/legacy.pt"],
         ["--is_full_resume", "False"],
-        ["--frontres_segment_periodic_eval_enabled"],
     )
     for args in forbidden:
         result = _run_preflight("train", extra_args=args)
@@ -157,10 +150,10 @@ def test_g5_s4_launch_rejects_resume_periodic_and_wrong_bounds() -> None:
     assert "fresh K8/M2 campaign requires NUM_ENVS=8" in wrong.stderr
 
 
-def test_p5_b_strict_v6_resume_replaces_hsl_initializer() -> None:
+def test_strict_v9_resume_replaces_hsl_initializer() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         resume_path = Path(tmp) / "model_1.pt"
-        resume_path.write_text("semantic checkpoint-v6 fixture\n")
+        resume_path.write_text("semantic checkpoint-v9 fixture\n")
         result = _run_preflight(
             "train",
             {"FRONTRES_V015_RESUME_CHECKPOINT": str(resume_path)},
@@ -176,17 +169,17 @@ def test_p5_b_strict_v6_resume_replaces_hsl_initializer() -> None:
     assert "--max_iterations 199" in command
 
 
-def test_p5_b_strict_v6_resume_rejects_missing_checkpoint() -> None:
+def test_strict_v9_resume_rejects_missing_checkpoint() -> None:
     result = _run_preflight(
         "train",
         {"FRONTRES_V015_RESUME_CHECKPOINT": "/definitely/missing/model_1.pt"},
         bounds=("8", "199", "1"),
     )
     assert result.returncode != 0
-    assert "checkpoint-v6 resume checkpoint not found" in result.stderr
+    assert "checkpoint-v9 resume checkpoint not found" in result.stderr
 
 
-def test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel() -> None:
+def test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel() -> None:
     for mode, expected_flag in SENTINEL_FLAGS.items():
         result = _run_preflight(mode)
         assert result.returncode == 0, result.stderr
@@ -200,40 +193,17 @@ def test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel() ->
         for other_flag in SENTINEL_FLAGS.values():
             if other_flag != expected_flag:
                 assert other_flag not in command
-        if mode == "sequence_eval":
-            assert "--frontres_segment_sequence_eval_sequences 10" in command
-            assert "--frontres_segment_sequence_eval_max_preroll_steps 2000" in command
-
-
-def test_stage3_sequence_eval_launch_honors_smoke_eval_env_overrides() -> None:
+def test_stage3_train_launch_passes_explicit_segment_ppo_schedule_and_lr_args() -> None:
     result = _run_preflight(
-        "sequence_eval",
-        {
-            "OFFLINE_EVAL_SEQUENCES": "2",
-            "OFFLINE_EVAL_STEPS": "120",
-            "OFFLINE_EVAL_MAX_PREROLL_STEPS": "120",
-        },
-    )
-    assert result.returncode == 0, result.stderr
-    command = _command_line(result)
-    _probe("stage3_sequence_eval_smoke_overrides", command)
-
-    assert "--frontres_segment_sequence_offline_eval_only" in command
-    assert "--frontres_segment_sequence_eval_sequences 2" in command
-    assert "--frontres_segment_sequence_eval_max_preroll_steps 120" in command
-    assert "--frontres_segment_offline_eval_steps 120" in command
-
-
-def test_stage3_launch_passes_explicit_segment_ppo_schedule_and_lr_args() -> None:
-    result = _run_preflight(
-        "update_loop",
+        "train",
         extra_args=["--frontres_segment_ppo_schedule", "adaptive", "--frontres_segment_ppo_lr", "1e-6"],
     )
     assert result.returncode == 0, result.stderr
     command = _command_line(result)
-    _probe("stage3_update_loop_ppo_schedule_lr_args", command)
+    _probe("stage3_train_ppo_schedule_lr_args", command)
 
-    assert "--frontres_segment_live_update_loop_only" in command
+    assert "--frontres_segment_live_update_loop_only" not in command
+    assert "--frontres_segment_live_single_update_only" not in command
     assert "--frontres_segment_ppo_schedule adaptive" in command
     assert "--frontres_segment_ppo_lr 1e-6" in command
 
@@ -248,15 +218,31 @@ def test_stage3_launch_rejects_unknown_mode_before_training() -> None:
     assert "Unknown Stage 3 MODE: unknown" in result.stderr
 
 
+def test_stage3_launch_rejects_legacy_local_evaluation_modes() -> None:
+    for mode in ("offline_eval", "sequence_eval", "policy_quality_eval", "policy_quality_q2d_eval"):
+        result = _run_preflight(mode)
+        assert result.returncode == 4
+        assert "FRS-EVAL-v004 rejects legacy v002/v006/quartet local evaluation mode" in result.stderr
+
+
+def test_stage3_launch_rejects_retired_optimizer_modes() -> None:
+    for mode in ("single_update", "update_loop"):
+        result = _run_preflight(mode)
+        assert result.returncode == 4
+        assert "FRS-PPO-v005 rejects retired optimizer-writing Stage 3 mode" in result.stderr
+        assert "Command: " not in result.stdout
+
+
 if __name__ == "__main__":
     test_stage3_train_launch_preflight_builds_femr_command()
     test_g5_s4_bounded_launch_freezes_8_1_1_and_audit()
     test_stage3_train_launch_accepts_explicit_checkpoint_interval()
-    test_g5_s4_launch_rejects_resume_periodic_and_wrong_bounds()
-    test_p5_b_strict_v6_resume_replaces_hsl_initializer()
-    test_p5_b_strict_v6_resume_rejects_missing_checkpoint()
-    test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel()
-    test_stage3_sequence_eval_launch_honors_smoke_eval_env_overrides()
-    test_stage3_launch_passes_explicit_segment_ppo_schedule_and_lr_args()
+    test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds()
+    test_strict_v9_resume_replaces_hsl_initializer()
+    test_strict_v9_resume_rejects_missing_checkpoint()
+    test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel()
+    test_stage3_train_launch_passes_explicit_segment_ppo_schedule_and_lr_args()
+    test_stage3_launch_rejects_retired_optimizer_modes()
+    test_stage3_launch_rejects_legacy_local_evaluation_modes()
     test_stage3_launch_rejects_unknown_mode_before_training()
     print("frontres_segment_stage3_launch_command_contract: ok")

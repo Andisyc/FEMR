@@ -14,28 +14,33 @@ from typing import Any, Mapping
 import numpy as np
 import torch
 
-from rsl_rl.frontres.frontres_gain import FrontRESSegmentGainConfig, compute_segment_gain
-from rsl_rl.runners.frontres_policy_quality_eval import (
+from rsl_rl.frontres.frontres_gain_legacy import FrontRESSegmentGainConfig, compute_segment_gain
+from rsl_rl.runners.frontres_policy_quality_interfaces import (
     FrontRESPolicyQualityEvalRequest,
     FrontRESPolicyQualityFormalOwnerBundle,
     FrontRESPolicyQualityObservationIdentity,
     FrontRESPolicyQualityRouteHooks,
     FrontRESPolicyQualityRouteResult,
+)
+from rsl_rl.runners.frontres_policy_quality_legacy import (
     FrozenFrontRESTaskActor,
     ZeroFrontRESTaskActor,
-    capture_frontres_policy_quality_state,
 )
+from rsl_rl.runners.frontres_policy_quality_state import capture_frontres_policy_quality_state
+from rsl_rl.runners.frontres_checkpoint_quality import load_frontres_checkpoint_mapping
 from rsl_rl.runners.frontres_hsl_rollout_target import (
     build_frontres_hsl_rollout_target,
     quat_to_rotvec_wxyz,
 )
-from rsl_rl.runners.frontres_segment_live_probe import (
-    _capture_motion_quality_frame,
-    _capture_physics_frame,
-    _capture_root_orientation_frame,
-    _frontres_reset_role_env_ids,
-    _index_reset_result_from_mapping,
-    _index_segment_reset_hook,
+from rsl_rl.runners.frontres_segment_live_reset import (
+    frontres_index_reset_result_from_mapping as _index_reset_result_from_mapping,
+    frontres_index_segment_reset_hook as _index_segment_reset_hook,
+    frontres_reset_role_env_ids as _frontres_reset_role_env_ids,
+)
+from rsl_rl.runners.frontres_segment_physics import (
+    capture_frontres_motion_quality_frame as _capture_motion_quality_frame,
+    capture_frontres_physics_frame as _capture_physics_frame,
+    capture_frontres_root_orientation_frame as _capture_root_orientation_frame,
 )
 from rsl_rl.runners.frontres_segment_live_sampler import ensure_frontres_policy_quality_reset_support
 from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layout
@@ -47,15 +52,12 @@ _OWNER_IDENTITY = (
     ("action", "task_space_correction.apply_frontres_task_corrections"),
     ("rollout", "FrontRESActorCritic.get_env_action + env.step"),
     ("gain", "frontres_gain.compute_segment_gain"),
-    ("execution", "frontres_segment_live_probe._capture_motion_quality_frame/_capture_physics_frame"),
+    ("execution", "frontres_segment_physics.capture_frontres_motion_quality_frame/capture_frontres_physics_frame"),
 )
 
 
 def _checkpoint_payload(path: str, device: torch.device | str) -> Mapping[str, Any]:
-    payload = torch.load(path, map_location=device, weights_only=False)
-    if not isinstance(payload, Mapping):
-        raise ValueError(f"policy-quality checkpoint must contain a mapping: {path}")
-    return payload
+    return load_frontres_checkpoint_mapping(path, map_location=device)
 
 
 def _first_linear_input_dim(module: torch.nn.Module) -> int:
@@ -356,15 +358,18 @@ def _training_state_signature(runner: Any) -> str:
     return hashlib.sha256(stream.getvalue()).hexdigest()
 
 
-def _json_value(value: Any) -> Any:
+def frontres_policy_quality_json_value(value: Any) -> Any:
     if isinstance(value, torch.Tensor):
-        return _json_value(value.detach().cpu().tolist())
+        return frontres_policy_quality_json_value(value.detach().cpu().tolist())
     if hasattr(value, "__dataclass_fields__"):
-        return {field.name: _json_value(getattr(value, field.name)) for field in fields(value)}
+        return {
+            field.name: frontres_policy_quality_json_value(getattr(value, field.name))
+            for field in fields(value)
+        }
     if isinstance(value, Mapping):
-        return {str(key): _json_value(item) for key, item in value.items()}
+        return {str(key): frontres_policy_quality_json_value(item) for key, item in value.items()}
     if isinstance(value, (tuple, list)):
-        return [_json_value(item) for item in value]
+        return [frontres_policy_quality_json_value(item) for item in value]
     if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, (str, int, float, bool)) or value is None:
@@ -424,9 +429,9 @@ def _serialize_result(item: Any, results: tuple[FrontRESPolicyQualityRouteResult
             result.identity.route: {
                 "checkpoint_identity": result.identity.checkpoint_identity,
                 "initial_state_hash": result.identity.state.initial_state_hash,
-                "actions": _json_value(result.actions),
-                "gain": _json_value(result.gain),
-                "execution": _json_value(result.execution),
+                "actions": frontres_policy_quality_json_value(result.actions),
+                "gain": frontres_policy_quality_json_value(result.gain),
+                "execution": frontres_policy_quality_json_value(result.execution),
             }
             for result in results
         },
@@ -463,8 +468,6 @@ def build_frontres_policy_quality_formal_owner_bundle(
             actor_template=actor_template,
             normalizer_template=runner.obs_normalizer,
             observation_identity=observation_identity,
-            max_delta_pos=float(policy.max_delta_pos),
-            max_delta_rpy=float(policy.max_delta_rpy),
             gmt_obs_dim=gmt_dim,
         ),
         FrozenFrontRESTaskActor.from_checkpoint_payload(
@@ -474,8 +477,6 @@ def build_frontres_policy_quality_formal_owner_bundle(
             actor_template=actor_template,
             normalizer_template=runner.obs_normalizer,
             observation_identity=observation_identity,
-            max_delta_pos=float(policy.max_delta_pos),
-            max_delta_rpy=float(policy.max_delta_rpy),
             gmt_obs_dim=gmt_dim,
         ),
     )
@@ -501,7 +502,11 @@ def build_frontres_policy_quality_formal_owner_bundle(
         role_identity_by_signature[item.comparison_signature] = role_identity
         print(
             "[QUALITY-ID-01 Role Identity] "
-            + json.dumps(_json_value(role_identity), sort_keys=True, separators=(",", ":")),
+            + json.dumps(
+                frontres_policy_quality_json_value(role_identity),
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
             flush=True,
         )
         capture = _RouteCapture(active_runner, pair_layout, item.effective_horizon_k)

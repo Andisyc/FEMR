@@ -324,3 +324,250 @@ p_{W+\Delta W}(a\mid h,Y),
 - **已接受**：LoRA 是逐层参数/特征修正，不是 action residual。
 - **未确认**：FADA 的收益主要来自 target occupancy、future-action pairing，还是跨状态共享的低维修正。
 - **未闭合**：若同时允许 Intent 与 Execution 改变，什么额外证据能够提供意图修正方向并区分两类误差。
+
+### 2026-07-29：从目标域微调到轨迹条件推理
+
+进一步回看 ASAP、HDMI、OmniXtreme 与 FADA，可以看到一条比“跨任务泛化”更稳定的演进主轴：**持续压缩真实世界必须承担的学习负担**。
+
+- ASAP 需要从真实执行中获得 residual 信息，并继续优化策略；
+- HDMI、OmniXtreme 保留主体能力，但仍需额外训练 residual policy；
+- FADA 不再训练独立修正器，而是用少量真实 rollout 对预训练 IDM 进行低秩监督适配。
+
+这一演进背后的共同观察是：大部分运动能力已经在源域中获得，目标域不应重新学习完整技能，只需提供源域无法包含的真实物理证据。FADA 已经把目标域学习压缩得很轻，但其部署过程仍然属于学习：失败 rollout 被构造成监督样本，梯度更新把目标域信息写入 LoRA 参数。
+
+这里必须区分两种压缩：
+
+1. **流程压缩**：减少数据整理、梯度步数、模块数量或运行时间。如果真实轨迹仍以相同方式监督参数更新，这主要是工程改进。
+2. **证据角色改变**：真实轨迹不再负责教会模型新的执行映射，只负责消除模型对当前部署条件的不确定性。这才可能形成新的科学命题。
+
+由此产生一个候选的下一层概念：
+
+> 能否把 test-time learning 变成 trajectory-conditioned inference，使真实世界只提供判别当前执行条件的证据，而不再承担策略训练？
+
+其概念流程是：离线阶段预先学习可适配的执行规律；部署时读取一条真实失败轨迹，将其压缩为临时 deployment context；冻结全部模型参数，只用该 context 条件化 Tracker 对后续 Intent 的动作输出。轨迹在这里更像物理提示，而不是微调数据集。学习没有消失，而是从部署阶段前移到离线阶段。
+
+该命题与 FADA 的关键差别不是“更新更快”，而是目标域证据的因果角色发生改变：
+
+- **FADA**：真实轨迹提供监督，改变可部署模型参数；
+- **候选概念**：真实轨迹提供证据，只改变临时推理状态，模型参数保持冻结。
+
+这一概念只有在以下条件下才被验证：相同的单条目标 rollout 输入后，完全禁止目标域梯度更新和永久参数修改，轨迹条件模型仍能产生与 FADA 相当的 execution alignment。若只是用另一个网络预测 LoRA 权重，或者把多步优化蒸馏为一次参数写入，却没有证明真实轨迹从“教学”变成“消歧”，则仍可能只是流程工程压缩。
+
+当前不可回避的边界是：轨迹条件推理无法凭空处理离线训练从未表示的物理变化。目标 rollout 只能在预训练适配先验中识别或组合修正；它是否包含足以区分当前部署条件的证据，仍受轨迹激励范围与可辨识性约束。
+
+#### 当前概念状态
+
+- **候选主命题**：真实世界适配能否从参数学习退化为基于单条轨迹的条件推理。
+- **不可缺少的变量**：目标 rollout 在部署阶段承担的是“教学”还是“消歧”。
+- **冻结边界**：部署阶段不得通过梯度或其他永久写入改变策略、Tracker 或 adapter 参数。
+- **允许变化**：由轨迹产生、只服务于当前部署条件的临时 context 或内部推理状态。
+- **尚未选择**：context 表示、序列编码器、训练目标与具体网络结构。
+- **尚未证明**：现有 in-context adaptation 技术是否能够在 humanoid execution alignment 中闭合这一命题。
+
+治理状态：本节是早期研究提案，不是已接受的 FrontRES 活动合同，也未映射到当前 FrontRES Concept Figure。独立候选图见 `note/architecture/concept/08_trajectory_conditioned_execution_alignment.data.json`，仅用于讨论仿真跨 Intent 训练与冻结参数真机推理的概念闭环。在核心证据、训练权限和验证边界被确认前，不进入实现计划。
+
+### 2026-08-03：科研目标应从现象与证据边界中生成
+
+进一步反思发现，当前候选思路之所以逐渐依赖大量不确定条件，不只是因为方法尚未完善，也因为讨论采用了目标先行的顺序：先设定“一条轨迹应当校准其他 Intent”，再引入仿真覆盖、context、元学习和可辨识性等机制去支撑这个预设目标。每增加一个机制，也同时增加一个尚未被现象证明的前提。
+
+对于早期科学研究，更稳健的顺序应当反过来：
+
+> 可重复现象 → 可观察证据 → 因果分析 → 最小可证伪变量 → 该变量自然支持的任务与命题 → 最小方法。
+
+这里并不是取消研究目标，而是改变目标的来源。目标不再是预先指定的能力愿望，而是从现象所暴露的信息和因果边界中派生出来的科学命题。工程可以从“想实现什么”出发寻找手段；科学概念形成则应先回答“已经观察到什么、它必然说明什么、它不能说明什么”。当这些边界足够清楚时，真正值得研究的目标会自然浮现。
+
+对当前问题而言，不再预设直线失败轨迹必须能够校准转弯或八字。首先只研究一条真实 rollout 中哪些执行信息必然存在、哪些只在特定激励条件下存在、哪些原则上没有被观察到。随后，由这些信息能够可靠约束的后续行为范围，决定跨 Intent claim 的边界。Context Encoder、离线仿真族和具体适配机制都应晚于这一现象分析，而不能替代它。
+
+真机上的可见效果是具身智能工作的必要证据，但不是 insight 正确的充分证据。若不输入失败轨迹也能得到相同提升，真实效果仍然存在，却不能支持“轨迹提供了执行条件信息”这一因果解释。只有当改变或移除所识别的关键证据，会按照分析所预测的方向改变后续执行，真机结果才同时支持方法效果与科学 insight。
+
+当前状态：轨迹条件推理仍保留为候选假设，但不再把“单轨迹跨 Intent 成功”当作必须实现的预设目标。下一层讨论应先刻画单条 rollout 的信息边界，再由该边界决定研究命题和最小可执行方法。
+
+### 2026-08-03：从真实物理对应关系到 Context-Conditioned Action Residual
+
+在接受“科研目标应从现象与证据边界中生成”之后，讨论进一步收缩了当前任务。第一阶段不再要求一条直线轨迹校准转弯、圆圈或八字，而是接受 **within-Intent calibration**：直线任务使用真实直线轨迹，转身任务使用真实转身轨迹。需要检验的新问题变为：
+
+> 能否把同一任务中的真实失败 rollout 从微调数据改造成推理条件，使冻结模型无需目标域梯度更新即可产生执行修正？
+
+#### FADA 公开实现的证据边界
+
+截至 2026-08-03，对两位共同一作和 LeCAR-Lab 公开 GitHub 仓库的检索得到以下边界：
+
+- [Angchen Xie](https://github.com/AngchenXie) 名下未发现 FADA 方法实现；
+- [Nike353/fada-corl](https://github.com/Nike353/fada-corl) 是只有简短 README 的空占位仓库；
+- [Nike353/few_shot_adaptation](https://github.com/Nike353/few_shot_adaptation) 是 online adaptation 研究综述笔记，不是 FADA 代码；
+- [LeCAR-Lab/FADA-humanoid](https://github.com/LeCAR-Lab/FADA-humanoid) 是 Vite + React + TypeScript 项目网页，源码明确保留了“代码公开后再启用 Code 按钮”的状态；
+- 网页公开的 `public/models/reach` ONNX 文件与 reach/payload 演示对应，不能据此认定为完整 humanoid FADA checkpoint；
+- 公开仓库中没有发现 Oracle RL、Planner-IDM DAgger 蒸馏、真实 rollout 记录、IDM LoRA 适配或 G1 部署实现。
+
+因此，后续机制分析必须区分论文确认与合理推断。演示 ONNX 不能作为完整实现证据；Real Action 的底层控制语义、日志字段、窗口时间对齐和 LoRA 样本构造目前仍没有代码确认。
+
+#### Real Action、失败轨迹与 IDM 校准
+
+论文中的目标域窗口写为：
+
+\[
+W_{\mathrm{tgt}}
+=
+(O_t^H,A_t^H,Y_{t,\mathrm{exec}}^K,U_{t,\mathrm{exec}}^K).
+\]
+
+其中，\(U_{t,\mathrm{exec}}^K\) 应理解为同一真实 rollout 中实际发送并执行的动作序列，而不是正确动作标签；\(Y_{t,\mathrm{exec}}^K\) 是这些动作在真实物理中实际产生的未来状态。其直接证据是：
+
+> 在当前机器人和当前历史下，这些 Action 实际产生了这些 Future State。
+
+这类正向执行数据可以构成逆动力学样本，因为它提供了 realized-future/action correspondence；但它只能说明如何复现已经发生的 future，不能单独说明如何实现一个尚未发生的 Planner future。FADA 能把它用于执行校准，依赖三个边界共同成立：
+
+1. Planner 冻结并提供正确运动 Intent；
+2. 预训练 IDM 已经包含主要源域逆动力学先验；
+3. LoRA 只允许小容量、低秩的执行映射修正。
+
+因此，不能把 FADA 简化为“输入 Real Observation、以 Real Action 为正确标签进行普通行为克隆”。训练窗口的历史、future/action 配对和时序关系都是机制的一部分。当前仍未被论文完全拆解的是：LoRA 的收益主要来自 target occupancy、future/action correspondence，还是跨状态共享的低维执行修正。
+
+#### 冻结 Tracker 暴露出的结构缺口
+
+轨迹条件推理最初被描述为“Context Encoder 读取真实轨迹，冻结 Tracker 根据 Context 输出新动作”。进一步检查后发现，该表述缺少 Context 到 Action 的作用路径：
+
+> 单独外挂一个 Context Encoder，不能使一个从未接收 Context 的冻结 Tracker 改变动作。
+
+这里需要区分两种冻结边界：
+
+1. **只在部署时冻结**：离线阶段可以共同训练 Context Encoder 与 context-conditioned Tracker，部署时冻结全部权重；
+2. **原 Tracker 始终冻结**：Context 必须进入一个具有动作修改权限的独立 Corrector。
+
+若希望最大限度保留原 Tracker，并把当前概念压缩为最小可执行形式，第二种边界自然导出一个 context-conditioned residual policy。
+
+#### 候选数学形态：Context-Conditioned Action Residual
+
+令冻结 Tracker 为 \(\pi_0\)，当前历史或本体状态为 \(h_t\)，Planner Intent 为 \(Y_t\)，则 Nominal Action 为：
+
+\[
+a_t^0=\pi_0(h_t,Y_t).
+\]
+
+真实校准轨迹只用于产生临时 Context：
+
+\[
+z=E_\phi(\tau_{\mathrm{cal}}).
+\]
+
+候选残差网络输出：
+
+\[
+\Delta a_t
+=
+\pi_{\mathrm{res},\theta}
+(h_t,Y_t,a_t^0,z),
+\qquad
+a_t=a_t^0+\Delta a_t.
+\]
+
+这一形式给出了明确的权限划分：
+
+- \(\pi_0\) 保留已有的 Intent-to-Action 主映射；
+- \(E_\phi\) 只从真实轨迹识别当前执行条件；
+- \(\pi_{\mathrm{res},\theta}\) 根据当前 Intent、状态、Nominal Action 和 Context 修改最终 Action；
+- 部署时 \(\pi_0\)、\(E_\phi\) 与 \(\pi_{\mathrm{res},\theta}\) 均保持冻结，变化的只有临时 Context 与网络激活。
+
+Context \(z\) 不是一个固定“加力值”，而是选择一张残差规律。同一个“左腿响应偏弱”Context，在直线与转身中可以输出不同修正，因为当前 Intent、状态和 Nominal Action 不同。如果 residual network 只读取 Context，它无法形成 Intent-dependent correction。
+
+这一候选方法与 FADA 的区别是适配发生的位置不同：
+
+```text
+FADA:
+real trajectory -> supervised gradient -> low-rank Delta W -> adapted IDM
+
+Candidate:
+real trajectory -> temporary context z -> residual policy -> Delta Action
+```
+
+必须保留此前对 LoRA 数学对象的修正：FADA 的 LoRA 是网络内部的逐层低秩参数更新，不是 action residual；这里的 \(\pi_{\mathrm{res}}\) 才是显式输出层 action residual。
+
+Additive residual 本身也是一个可证伪的物理假设：目标机器人所需的逆动力学位于源 Tracker 附近，Sim2Real gap 可以由局部动作修正表达。如果真实变化会改变接触模式、动作方向或正确运动 Intent，简单的 \(a_t^0+\Delta a_t\) 可能不再充分。
+
+#### 候选离线训练闭环
+
+残差网络不能通过模仿失败 rollout 中的 Action 获得正确修正，因为这些 Action 正是失败执行的一部分。更完整的候选训练单位是同一个隐藏仿真物理条件下的一对 rollout：
+
+```text
+sample Intent I and randomized dynamics M
+
+Support rollout:
+frozen Tracker -> M -> tau_support -> Context Encoder -> z
+
+Query rollout under the same M:
+frozen Tracker + pi_res(..., z) -> task return / successful execution
+```
+
+Support rollout 负责暴露“该机器人怎样响应动作”；Query rollout 的任务回报、成功监督或 privileged teacher 才负责提供修正方向。训练阶段只更新 \(E_\phi\) 与 \(\pi_{\mathrm{res},\theta}\)，不更新基础 Tracker。若未来要求一个网络服务多个 Intent，训练数据还需要交叉覆盖：同一个物理条件对应多个 Intent，同时同一个 Intent 对应多个物理条件，避免把任务特征错误编码为物理 Context。当前第一阶段不要求跨 Intent 闭合。
+
+#### 应当制造什么仿真轨迹
+
+域随机化不应直接追求“轨迹越多越好”。训练 Support 必须由与部署一致的因果链产生：
+
+```text
+Intent -> frozen Tracker -> Action -> randomized Robot Dynamics -> Observation
+```
+
+因此，需要覆盖的是不同的 **Action-to-Observation response**，而不是任意运动学轨迹或独立动作噪声。真实物理证据至少存在于逐时刻的：
+
+```text
+previous Observation -> executed Action -> next Observation
+```
+
+在尚未证明充分统计量之前，这些逐时刻、逐关节、带符号的响应不应被压缩成单个误差范数。质量、阻尼、摩擦、延迟、电机增益或接触参数即使不同，只要它们在当前任务中产生相同的可观察执行效果并需要相同修正，就可以属于同一个功能等价类。
+
+轨迹条件残差可学习的核心要求是：
+
+\[
+\tau_1\approx\tau_2
+\quad\Longrightarrow\quad
+\Delta a_1^*\approx\Delta a_2^*.
+\]
+
+如果两段不可区分的 Support trajectory 需要方向相反的最优 residual，那么一条轨迹在信息上不足，增加网络容量也无法解决。合理的仿真轨迹族至少需要满足：
+
+1. **功能覆盖**：包含任务相关的多种可观察执行偏差；
+2. **桥接连续性**：相邻物理效果之间存在可以插值的轨迹；
+3. **可恢复性**：冻结 Tracker 加有限 residual 后仍然能够完成任务；
+4. **访问相关性**：覆盖该 Intent 实际访问的状态、关节、接触与步态相位。
+
+#### 仿真覆盖真机与性能下界
+
+纯仿真不能无条件证明自己覆盖了真机。数学不等式只能把覆盖假设传递到性能结论，不能凭空创造覆盖关系。更精确地说，域随机化先采样物理条件：
+
+\[
+M\sim\mu(M),
+\qquad
+\tau\sim p(\tau\mid M,I,\pi_0).
+\]
+
+真实轨迹不必在仿真中逐点出现；它只需落在一个“邻近轨迹需要邻近 residual”的功能区域。可以用真实轨迹定义一个与观测相容的候选物理集合：
+
+\[
+\mathcal U_\alpha(\tau_{\mathrm{real}})
+=
+\{M:\ M\text{ 与 }\tau_{\mathrm{real}}\text{ 的执行响应相容}\}.
+\]
+
+随后在该集合内定义候选性能下界：
+
+\[
+J_m(\pi\mid\tau_{\mathrm{real}})
+=
+\inf_{M\in\mathcal U_\alpha(\tau_{\mathrm{real}})}
+J(\pi;M,I).
+\]
+
+只有当真实机器人以所声明的置信度位于 \(\mathcal U_\alpha\) 中时，\(J_m\) 才能解释为真实性能下界。一条真实任务轨迹可以用于识别 Context，并检查自己是否接近离线学习的响应流形；它不能证明所有真实任务或所有未激励动力学均已被覆盖。
+
+#### 当前概念状态
+
+- **已收缩的范围**：第一阶段研究同一 Intent 的真实轨迹条件执行校准，不再把跨 Intent 成功设为必要前提；
+- **候选主变量**：trajectory-conditioned, Intent-dependent action correction；
+- **候选最小方法**：冻结 Tracker、轨迹 Context Encoder 与 context-conditioned action residual；
+- **候选训练闭环**：同一随机物理条件下的 Support rollout 与 Query rollout；
+- **不可缺少的可证伪条件**：相近执行轨迹必须对应相近最优 residual；
+- **未确认**：Additive action residual 是否足以表达真实 humanoid execution gap；
+- **未确认**：应如何构造或校准 \(\mathcal U_\alpha(\tau)\)，以及如何证明真实轨迹处于其支持范围；
+- **未确认**：FADA 真实 Action 的底层控制语义、完整 rollout 字段和 IDM LoRA 样本时间对齐；
+- **治理边界**：本节记录的是已审阅的讨论与候选方法，不是活动实现合同，不触发代码、训练或 Concept Figure 更新。

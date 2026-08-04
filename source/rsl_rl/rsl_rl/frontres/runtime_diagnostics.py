@@ -97,9 +97,6 @@ def maybe_print_frontres_restore_debug(
     noisy_err = clean_from_raw[:, :2].norm(dim=-1)
     corrected_err_norm = corrected_err[:, :2].norm(dim=-1)
     restore_gain = noisy_err - corrected_err_norm
-    max_delta_rpy = float(getattr(getattr(self.alg, "policy", None), "max_delta_rpy", 0.4))
-    sat_frac = (pred_rpy[:, :2].abs() > 0.95 * max_delta_rpy).float().mean()
-
     prev = getattr(self, "_frontres_restore_debug_prev_action", None)
     if prev is not None and prev.shape == pred6.shape:
         step_jump = (pred6[:, :2] - prev[:, :2]).norm(dim=-1).mean()
@@ -115,7 +112,8 @@ def maybe_print_frontres_restore_debug(
         f"it={int(it)} mode=full6 n={n} "
         f"cos(pos)={float(_mean_cos(pred_pos, target_pos)):+.4f} "
         f"cos(rpy)={float(_mean_cos(pred_rpy, target_rpy)):+.4f} "
-        f"sat_rp={float(sat_frac):.3f} jump_rp={float(step_jump):.5f}",
+        f"mean_rp={float(pred_rpy[:, :2].norm(dim=-1).mean()):.5f} "
+        f"jump_rp={float(step_jump):.5f}",
         flush=True,
     )
     print(

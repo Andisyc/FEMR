@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import torch
-from isaaclab.utils.math import euler_xyz_from_quat, quat_apply, quat_inv, quat_mul, yaw_quat
+from isaaclab.utils.math import euler_xyz_from_quat, quat_inv, quat_mul
 
 
 def quat_to_rotvec_wxyz(q: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
@@ -197,115 +197,6 @@ class FrontRESExecutabilityScorer:
                 "task": torch.nan_to_num(task_score, nan=0.0, posinf=1.0, neginf=0.0),
             }
         return score
-
-    def feasible_oracle_exec_score(
-        self,
-        command,
-        start: int,
-        count: int,
-        return_components: bool = False,
-    ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        """Executability score after a bounded full-6D oracle correction."""
-        if count <= 0:
-            return torch.empty(0, device=self.device)
-
-        needed = (
-            "anchor_pos_w_original",
-            "anchor_pos_w_raw",
-            "anchor_quat_w_original",
-            "anchor_quat_w_raw",
-            "_frontres_pos_correction",
-            "_frontres_quat_correction",
-        )
-        if not all(hasattr(command, name) for name in needed):
-            score = self.exec_score(command, return_components=return_components)
-            if return_components:
-                full_score, components = score
-                return full_score[start:start + count], {
-                    key: value[start:start + count] for key, value in components.items()
-                }
-            return score[start:start + count]
-
-        env_slice = slice(start, start + count)
-        raw_pos = command.anchor_pos_w_raw[env_slice]
-        clean_pos = command.anchor_pos_w_original[env_slice]
-        raw_quat = command.anchor_quat_w_raw[env_slice]
-        clean_quat = command.anchor_quat_w_original[env_slice]
-
-        max_delta_pos = float(getattr(getattr(self.alg, "policy", None), "max_delta_pos", 0.3))
-        max_delta_rpy = float(getattr(getattr(self.alg, "policy", None), "max_delta_rpy", 0.1))
-
-        oracle_pos = torch.zeros_like(raw_pos)
-        dpos_clean = clean_pos - raw_pos
-        oracle_pos[:, 0] = dpos_clean[:, 0].clamp(-max_delta_pos, max_delta_pos)
-        oracle_pos[:, 1] = dpos_clean[:, 1].clamp(-max_delta_pos, max_delta_pos)
-        dz_clean = clean_pos[:, 2] - raw_pos[:, 2]
-        z_upper = torch.zeros_like(dz_clean)
-        if hasattr(command, "jump_degree") and hasattr(command, "anchor_penetration_depth"):
-            jump_degree = command.jump_degree[env_slice].to(raw_pos.device).to(raw_pos.dtype).clamp(0.0, 1.0)
-            penetration = command.anchor_penetration_depth[env_slice].to(raw_pos.device).to(raw_pos.dtype)
-            z_upper = (jump_degree * penetration).clamp(max=max_delta_pos)
-        z_lower = torch.full_like(dz_clean, -max_delta_pos)
-        oracle_pos[:, 2] = torch.minimum(torch.maximum(dz_clean, z_lower), z_upper)
-
-        correction_quat = quat_mul(quat_inv(raw_quat), clean_quat)
-        correction_rotvec = quat_to_rotvec_wxyz(correction_quat)
-        oracle_rotvec = torch.zeros_like(correction_rotvec)
-        for dim in (3, 4, 5):
-            axis = dim - 3
-            oracle_rotvec[:, axis] = correction_rotvec[:, axis].clamp(-max_delta_rpy, max_delta_rpy)
-        oracle_quat = rotvec_to_quat_wxyz(oracle_rotvec)
-
-        saved_pos = command._frontres_pos_correction[env_slice].clone()
-        saved_quat = command._frontres_quat_correction[env_slice].clone()
-        saved_body_pos = None
-        saved_body_quat = None
-        try:
-            command._frontres_pos_correction[env_slice].copy_(oracle_pos)
-            command._frontres_quat_correction[env_slice].copy_(oracle_quat)
-            if hasattr(command, "body_pos_relative_w") and hasattr(command, "body_quat_relative_w"):
-                saved_body_pos = command.body_pos_relative_w[env_slice].clone()
-                saved_body_quat = command.body_quat_relative_w[env_slice].clone()
-
-                body_count = len(getattr(command.cfg, "body_names", []))
-                if body_count > 0:
-                    anchor_pos = command.anchor_pos_w[env_slice]
-                    anchor_quat = command.anchor_quat_w[env_slice]
-                    robot_anchor_pos = command.robot_anchor_pos_w[env_slice]
-                    robot_anchor_quat = command.robot_anchor_quat_w[env_slice]
-                    body_pos = command.body_pos_w[env_slice]
-                    body_quat = command.body_quat_w[env_slice]
-
-                    anchor_pos_repeat = anchor_pos[:, None, :].repeat(1, body_count, 1)
-                    anchor_quat_repeat = anchor_quat[:, None, :].repeat(1, body_count, 1)
-                    robot_anchor_pos_repeat = robot_anchor_pos[:, None, :].repeat(1, body_count, 1)
-                    robot_anchor_quat_repeat = robot_anchor_quat[:, None, :].repeat(1, body_count, 1)
-
-                    delta_pos = robot_anchor_pos_repeat.clone()
-                    delta_pos[..., 2] = anchor_pos_repeat[..., 2]
-                    delta_ori = yaw_quat(quat_mul(robot_anchor_quat_repeat, quat_inv(anchor_quat_repeat)))
-                    command.body_quat_relative_w[env_slice].copy_(quat_mul(delta_ori, body_quat))
-                    command.body_pos_relative_w[env_slice].copy_(
-                        delta_pos + quat_apply(delta_ori, body_pos - anchor_pos_repeat)
-                    )
-            if return_components:
-                feasible_score_all, feasible_components_all = self.exec_score(command, return_components=True)
-                feasible_score = feasible_score_all[env_slice].clone()
-                feasible_components = {
-                    key: value[env_slice].clone() for key, value in feasible_components_all.items()
-                }
-            else:
-                feasible_score = self.exec_score(command)[env_slice].clone()
-        finally:
-            command._frontres_pos_correction[env_slice].copy_(saved_pos)
-            command._frontres_quat_correction[env_slice].copy_(saved_quat)
-            if saved_body_pos is not None:
-                command.body_pos_relative_w[env_slice].copy_(saved_body_pos)
-            if saved_body_quat is not None:
-                command.body_quat_relative_w[env_slice].copy_(saved_body_quat)
-        if return_components:
-            return feasible_score, feasible_components
-        return feasible_score
 
     def exec_score_for_modes(
         self,

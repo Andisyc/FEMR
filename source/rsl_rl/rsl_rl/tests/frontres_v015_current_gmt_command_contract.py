@@ -99,6 +99,7 @@ def test_t_current_command_survives_post_action_auto_reset_clock_drift(helper, c
     permutation = torch.arange(7, -1, -1)
     command.set_frontres_local_scenario(
         current_root_artifact_t=snapshot["current_root_artifact_t"].index_select(0, permutation),
+        clean_reference_t=snapshot["clean_reference_t"].index_select(0, permutation),
         intent_q29=snapshot["intent_q29"].index_select(0, permutation),
         clean_continuation=snapshot["clean_continuation"].index_select(0, permutation),
         expected_support=snapshot["expected_support"].index_select(0, permutation),

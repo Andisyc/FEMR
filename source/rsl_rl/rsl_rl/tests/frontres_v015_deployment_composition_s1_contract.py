@@ -10,10 +10,14 @@ import sys
 import tempfile
 
 import numpy as np
+from frontres_contract_imports import install_frontres_contract_packages
 
 
 ROOT = Path(__file__).resolve().parents[2]
 OWNER_PATH = ROOT / "rsl_rl" / "runners" / "frontres_segment_sequence_eval.py"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+install_frontres_contract_packages(ROOT / "rsl_rl")
 
 
 def _load_owner():
@@ -150,8 +154,30 @@ def test_t_report_and_no_feedback(owner) -> None:
                 corruption_protocol=protocol,
             )
         )
-        report = owner.FrontRESV015DeploymentCompositionReport(
-            request=request,
+        route_start_hash = "a" * 64
+        baseline = owner.FrontRESV015DeploymentBranchReport(
+            role="baseline",
+            route_start_state_hash=route_start_hash,
+            per_frame_femr_action_used=(False, False),
+            per_frame_intent_q29_error=(0.3, 0.2),
+            per_frame_physics_success=(False, False),
+            per_frame_fall=(False, True),
+            per_frame_zmp_margin=(0.05, None),
+            per_frame_contact_consistency=(0.8, 0.2),
+            per_frame_policy_actions=(((0.0,) * 6,), ((0.0,) * 6,)),
+            actual_contact_steps=(((True, False),), ((False, False),)),
+            contact_mismatch_steps=(((False, True),), ((True, False),)),
+            phase_zmp_applicable_steps=((True,), (False,)),
+            phase_zmp_violation_steps=((0.1,), (None,)),
+            phase_zmp_recovery_steps=((False,), (True,)),
+            survival_steps=((True,), (False,)),
+            lateral_roll_rad_steps=((0.02,), (0.04,)),
+            lateral_roll_cumulative_mean_rad_steps=((0.02,), (0.03,)),
+            unplanned_contact_steps=((False,), (True,)),
+        )
+        repair = owner.FrontRESV015DeploymentBranchReport(
+            role="repair",
+            route_start_state_hash=route_start_hash,
             per_frame_femr_action_used=(True, True),
             per_frame_intent_q29_error=(0.2, 0.1),
             per_frame_physics_success=(True, False),
@@ -159,7 +185,6 @@ def test_t_report_and_no_feedback(owner) -> None:
             per_frame_zmp_margin=(0.1, -0.03),
             per_frame_contact_consistency=(1.0, 0.2),
             per_frame_policy_actions=(((0.0,) * 6,), ((0.1,) * 6,)),
-            expected_contact_steps=(((True, True),), ((True, False),)),
             actual_contact_steps=(((True, True),), ((False, False),)),
             contact_mismatch_steps=(((False, False),), ((True, False),)),
             phase_zmp_applicable_steps=((True,), (False,)),
@@ -169,6 +194,13 @@ def test_t_report_and_no_feedback(owner) -> None:
             lateral_roll_rad_steps=((0.01,), (0.03,)),
             lateral_roll_cumulative_mean_rad_steps=((0.01,), (0.02,)),
             unplanned_contact_steps=((False,), (True,)),
+        )
+        report = owner.FrontRESV015DeploymentCompositionReport(
+            request=request,
+            baseline=baseline,
+            repair=repair,
+            route_start_state_hash=route_start_hash,
+            expected_contact_steps=(((True, True),), ((True, False),)),
         )
         report.validate()
         assert report.reference_frame_count == 4
@@ -211,24 +243,42 @@ def test_t_report_and_no_feedback(owner) -> None:
         else:
             raise AssertionError("v015 composition report accepted a local return carrier")
         assert "length" in _expect_value_error(
-            lambda: replace(report, per_frame_fall=(False,)).validate()
+            lambda: replace(report, repair=replace(repair, per_frame_fall=(False,))).validate()
         )
         assert "success and fall" in _expect_value_error(
             lambda: replace(
                 report,
-                per_frame_physics_success=(True, True),
+                repair=replace(repair, per_frame_physics_success=(True, True)),
             ).validate()
         )
         assert "applicability" in _expect_value_error(
             lambda: replace(
                 report,
-                phase_zmp_violation_steps=((None,), (None,)),
+                repair=replace(repair, phase_zmp_violation_steps=((None,), (None,))),
             ).validate()
         )
         assert "bool" in _expect_value_error(
             lambda: replace(
                 report,
-                unplanned_contact_steps=((0,), (True,)),
+                repair=replace(repair, unplanned_contact_steps=((0,), (True,))),
+            ).validate()
+        )
+        assert "same-state Baseline and Repair" in _expect_value_error(
+            lambda: replace(report, baseline=replace(baseline, route_start_state_hash="b" * 64)).validate()
+        )
+        assert "never invoke FEMR" in _expect_value_error(
+            lambda: replace(
+                report,
+                baseline=replace(baseline, per_frame_femr_action_used=(True, False)),
+            ).validate()
+        )
+        assert "exact zero" in _expect_value_error(
+            lambda: replace(
+                report,
+                baseline=replace(
+                    baseline,
+                    per_frame_policy_actions=(((0.01,) + (0.0,) * 5,), ((0.0,) * 6,)),
+                ),
             ).validate()
         )
     print(
@@ -255,12 +305,12 @@ def test_t_config_fail_closed_and_legacy_reject(owner) -> None:
     assert "enabled" in _expect_value_error(lambda: replace(base, enabled=False).validate())
     assert ".npz" in _expect_value_error(lambda: replace(base, reference_path="motion.pt").validate())
     assert "future_offsets" in _expect_value_error(lambda: replace(base, future_offsets=()).validate())
-    assert "legacy" in _expect_value_error(
-        lambda: replace(
-            base,
-            legacy_modes=("frontres_segment_sequence_offline_eval_only",),
-        ).validate()
-    )
+    try:
+        replace(base, legacy_modes=("offline_eval",))
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("retired legacy evaluator field remains constructible")
     print(
         "[T-config-fail-closed/T-legacy-reject] v015 composition cannot mix with the v002 sequence mode",
         flush=True,
@@ -311,7 +361,7 @@ def test_t_controlled_carrier_materialization(owner) -> None:
         assert first.intent_q29_hash
 
         with np.load(source, allow_pickle=False) as source_data, np.load(first_path, allow_pickle=False) as carrier_data:
-            assert set(carrier_data.files) == set(owner._V015_REQUIRED_NPZ_ARRAYS)
+            assert set(carrier_data.files) == set(owner.FRONTRES_V015_REQUIRED_NPZ_ARRAYS)
             np.testing.assert_array_equal(carrier_data["joint_pos"], source_data["joint_pos"])
             np.testing.assert_array_equal(carrier_data["joint_vel"], source_data["joint_vel"])
             assert not np.array_equal(carrier_data["body_pos_w"], source_data["body_pos_w"])

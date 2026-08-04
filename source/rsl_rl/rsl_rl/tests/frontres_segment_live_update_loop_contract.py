@@ -7,11 +7,13 @@ import importlib.util
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from frontres_contract_imports import install_frontres_contract_packages
 
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+install_frontres_contract_packages(ROOT / "rsl_rl")
 
 
 def _load(name: str, path: Path):

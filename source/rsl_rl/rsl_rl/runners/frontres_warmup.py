@@ -162,8 +162,8 @@ def validate_frontres_hsl_current_frame_target(target: torch.Tensor, command: An
         or tuple(delta_quat.shape) != (int(target.shape[0]), 4)
     ):
         raise RuntimeError("Stage-1 HSL target requires current command anti-DR [B,3] and [B,4] fields")
+    # B1: 独立重建完整 anti-DR translation, 验证 producer 未隐藏逐轴 mask/clamp.
     expected_pos = -delta_pos.to(device=target.device, dtype=target.dtype)
-    expected_pos[:, 2] = torch.clamp(expected_pos[:, 2], max=0.0)
     quat = delta_quat.to(device=target.device, dtype=target.dtype)
     w, x, y, z = quat[:, 0], quat[:, 1], quat[:, 2], quat[:, 3]
     expected_rpy = torch.stack(
@@ -238,6 +238,14 @@ def build_frontres_hsl_actor_only_optimizer(
     if not actor_params or {id(value) for value in actor_params} & {id(value) for value in critic_params}:
         raise RuntimeError("proposal-only HSL actor and critic parameter ownership must be disjoint")
     return torch.optim.Adam(actor_params, lr=float(learning_rate))
+
+
+def _require_direct_hsl_proposal(value: torch.Tensor) -> torch.Tensor:
+    if value.ndim != 2 or int(value.shape[-1]) != 6:
+        raise ValueError(f"proposal-only HSL actor must emit exact direct [B,6], got {tuple(value.shape)}")
+    if not bool(torch.isfinite(value).all()):
+        raise ValueError("proposal-only HSL actor emitted non-finite direct 6D values")
+    return value
 
 
 def run_frontres_joint_warmup(
@@ -321,7 +329,7 @@ def run_frontres_joint_warmup(
     _live_smoke = bool(getattr(self, "_frontres_hsl_live_smoke_enabled", False))
     _fresh_reload_shadow = None
     if _live_smoke:
-        capture_shadow = getattr(self, "_capture_v015_hsl_fresh_reload_shadow", None)
+        capture_shadow = getattr(self, "_capture_frontres_hsl_fresh_reload_shadow", None)
         if not callable(capture_shadow):
             raise RuntimeError("G2-S4 requires the strict HSL fresh-reload shadow owner")
         _fresh_reload_shadow = capture_shadow()
@@ -395,7 +403,6 @@ def run_frontres_joint_warmup(
                     _mcmd_wu,
                 )
                 _raw_target = _target.detach().clone()
-                _target = self._frontres_action_cone.project_task_target(_mcmd_wu, _target)
                 if _live_smoke and not bool(getattr(self, "_frontres_hsl_smoke_target_emitted", False)):
                     print(
                         "[G2-S4-TARGET] owner=current_antidr_delta_se3 "
@@ -424,16 +431,8 @@ def run_frontres_joint_warmup(
                 idx = perm[i:i + 4096]
                 pred = self.alg.policy.residual_actor(_all_obs[idx])
                 if getattr(self.alg.policy, "num_task_corrections", 0) > 0:
-                    pred_sup = torch.cat([
-                        torch.tanh(pred[:, :3]) * self.alg.policy.max_delta_pos,
-                        torch.tanh(pred[:, 3:6]) * self.alg.policy.max_delta_rpy,
-                    ], dim=-1)
-                    target_sup = torch.cat([
-                        _all_tgt[idx, :3].clamp(
-                            -self.alg.policy.max_delta_pos, self.alg.policy.max_delta_pos),
-                        _all_tgt[idx, 3:].clamp(
-                            -self.alg.policy.max_delta_rpy, self.alg.policy.max_delta_rpy),
-                    ], dim=-1)
+                    pred_sup = _require_direct_hsl_proposal(pred)
+                    target_sup = _all_tgt[idx, :6]
                 else:
                     pred_sup = pred[:, :_all_tgt.shape[-1]]
                     target_sup = _all_tgt[idx]
@@ -505,16 +504,8 @@ def run_frontres_joint_warmup(
             with torch.inference_mode():
                 _pred_all_raw = self.alg.policy.residual_actor(_all_obs[:, :_nfo])
                 if getattr(self.alg.policy, "num_task_corrections", 0) > 0:
-                    _pred_all = torch.cat([
-                        torch.tanh(_pred_all_raw[:, :3]) * self.alg.policy.max_delta_pos,
-                        torch.tanh(_pred_all_raw[:, 3:6]) * self.alg.policy.max_delta_rpy,
-                    ], dim=-1)
-                    _target_all = torch.cat([
-                        _all_tgt[:, :3].clamp(
-                            -self.alg.policy.max_delta_pos, self.alg.policy.max_delta_pos),
-                        _all_tgt[:, 3:].clamp(
-                            -self.alg.policy.max_delta_rpy, self.alg.policy.max_delta_rpy),
-                    ], dim=-1)
+                    _pred_all = _require_direct_hsl_proposal(_pred_all_raw)
+                    _target_all = _all_tgt[:, :6]
                 else:
                     _pred_all = _pred_all_raw[:, :_all_tgt.shape[-1]]
                     _target_all = _all_tgt
@@ -765,7 +756,7 @@ def run_frontres_joint_warmup(
         if _live_smoke:
             combined_obs = getattr(self, "_frontres_hsl_smoke_combined_obs", None)
             normalized_obs = getattr(self, "_frontres_hsl_smoke_normalized_obs", None)
-            verify_reload = getattr(self, "_verify_v015_hsl_fresh_reload", None)
+            verify_reload = getattr(self, "_verify_frontres_hsl_fresh_reload", None)
             if (
                 _fresh_reload_shadow is None
                 or not isinstance(combined_obs, torch.Tensor)
@@ -775,13 +766,8 @@ def run_frontres_joint_warmup(
                 raise RuntimeError("G2-S4 fresh reload telemetry is incomplete")
             source_actor_input = normalized_obs[:, :158]
             with torch.inference_mode():
-                raw_proposal = self.alg.policy.residual_actor(source_actor_input)
-                source_proposal = torch.cat(
-                    [
-                        torch.tanh(raw_proposal[:, :3]) * self.alg.policy.max_delta_pos,
-                        torch.tanh(raw_proposal[:, 3:6]) * self.alg.policy.max_delta_rpy,
-                    ],
-                    dim=-1,
+                source_proposal = _require_direct_hsl_proposal(
+                    self.alg.policy.residual_actor(source_actor_input)
                 )
             verify_reload(
                 _fresh_reload_shadow,
@@ -790,5 +776,5 @@ def run_frontres_joint_warmup(
                 source_actor_input=source_actor_input,
                 source_proposal=source_proposal,
             )
-            print("[G2-S4-COMPLETE] bounded_hsl=1 ppo_entered=0", flush=True)
+            print("[G2-S4-COMPLETE] direct_full6_hsl=1 ppo_entered=0", flush=True)
     _apply_frontres_dr_scale(dr_scale)

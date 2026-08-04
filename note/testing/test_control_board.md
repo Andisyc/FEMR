@@ -1,6 +1,6 @@
 # FEMR Current Test Control Board
 
-Updated: 2026-07-27
+Updated: 2026-08-03
 
 This is a current-state view, not a chronological test log. Dated command
 evidence belongs in evidence ledgers.
@@ -18,6 +18,25 @@ S4 Live Sentinel      minimal real IsaacLab runtime evidence
 Each mechanism has separate implementation and integration gates. Runtime-only
 claims additionally require S4.
 
+## Current Module Gate
+
+The human-confirmed Module Test Atlas is the current authority for admission to
+formal-runtime audit.
+
+```text
+18 cards refreshed under TRAIN-v014
+18 passed / 0 partial / 0 blocked after human confirmation (E-FI-110)
+formal-runtime-audit Phase A: READY FOR HUMAN REVIEW
+formal-runtime-audit Phase B: NOT AUTHORIZED
+simulator/training/live: NOT AUTHORIZED
+```
+
+All 18 cards retain the human-confirmed module baseline at E-FI-110; direct
+full-6D action deltas and identity rejection are closed at E-FI-114.
+E-FI-109's prior Phase A result remains separate historical execution evidence;
+it is not inferred from the module PASS. The old v012 result remains historical
+only.
+
 ## Current Baseline
 
 | Surface | Current evidence | Status | Limitation |
@@ -27,7 +46,7 @@ claims additionally require S4.
 | Architecture viewer | JSON valid; viewer imports; 62 owner paths exist; Runtime Audit Atlas has 22 cards and Quality Audit Atlas has 8 source-linked cards | covered S0 | Does not prove runtime routing or policy quality. |
 | Full-6D/no active mask | dedicated static contract plus rollout/PPO tuple tests | covered S0-S2 | S4 full-6D log proof remains. |
 | K curriculum | 8/16/32/64 implementation, explicit Stage 3 max horizon, and formal-route connectivity | covered S1-S2 | Live horizon distribution remains S4. |
-| Segment PPO | clipped surrogate, exact KL, raw-Gaussian/tanh log-prob identity, ratio source, scale-only advantage, rollback | covered S1-S2 | Gain consumer alignment remains S4; long-run learning quality is deferred until after training. |
+| Segment PPO | clipped surrogate, exact KL, direct finite 6D Gaussian log-prob identity, ratio source, scale-only advantage, rollback | covered S1-S2 | PPO clipping is retained as optimizer logic; it does not transform or saturate the 6D action. Gain consumer alignment remains S4. |
 | v015 Intent/Physics constrained update | q29 Intent scalar objective plus Contact/phase-ZMP/survival projected actor constraints | S1-S4 route covered through `E-FI-75`--`E-FI-85` | Policy efficacy and a clean post-E-FI-85 long lineage remain unresolved. |
 | v015 grouped candidate adapter | sealed ReturnEvidence -> local metadata -> grouped PPO batch | S1-S3 plus bounded S4 complete | Exact-one update and checkpoint-v5 are live-confirmed; E-FI-85 adds explicit Repair/Noisy ZMP applicability without changing PPO math. |
 | v015 deployment composition | ordinary reference `.npz` -> planned selection-time fixed carrier -> paired frozen-GMT baseline vs per-frame FEMR+GMT -> report | interfaces S1/S2 at `E-FI-28`--`E-FI-31`; test-path rebase `E-FI-32` | Current code still requires an external pre-materialized file and missing trained checkpoint. CLI is implemented-not-runnable; G1--G6 precede S4. |
@@ -76,12 +95,10 @@ acceptance surface and supersedes it for all new implementation work.
 ## Current Training Gate
 
 ```text
-v015 Step 0 documentation closure: COMPLETE
-v015 local scenario, future q29-intent, two-role K lifecycle, pure Gain, candidate return/priority, and diagnostic/isolation S1: COMPLETE
-v015 formal transaction, exact-one grouped PPO, checkpoint-v5 and bounded sensor authority: COMPLETE
-FRS-GAIN-v006 explicit Repair/Noisy applicability carrier: OFFLINE COMPLETE at E-FI-85
-next runtime gate: one post-E-FI-85 server validation/continuation; policy efficacy remains UNCONFIRMED
-FRS-GAIN-v006 / PPO-v004 / TRAIN-v010 are active; v002/v003 evidence is historical only
+active semantics: METHOD-v017 / GAIN-v007 / PPO-v005 / TRAIN-v014 / EVAL-v004
+module test gate: 18 passed / 0 partial / 0 blocked at E-FI-110
+formal Phase A: module prerequisite satisfied; human review is next
+live training remains closed
 ```
 
 Unblock only when the current checklist records implementation, formal-route

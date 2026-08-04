@@ -18,14 +18,28 @@ def _toy_frontres_policy() -> FrontRESActorCritic:
     policy = FrontRESActorCritic.__new__(FrontRESActorCritic)
     nn.Module.__init__(policy)
     policy.gmt_policy = nn.Linear(3, 3)
+    policy.gmt_normalizer = nn.BatchNorm1d(3)
+    policy.gmt_normalizer.until = 10
+    policy.ref_vel_estimator = nn.Linear(3, 2)
     policy.residual_actor = nn.Linear(3, 6)
     policy.critic = nn.Linear(3, 1)
     policy.log_std = nn.Parameter(torch.zeros(6))
     policy.std = None
-    policy.gmt_policy.eval()
-    for param in policy.gmt_policy.parameters():
-        param.requires_grad = False
+    policy.enforce_frozen_gmt_inference()
     return policy
+
+
+def test_parent_train_keeps_frozen_gmt_family_in_inference_mode() -> None:
+    policy = _toy_frontres_policy()
+    policy.eval()
+    policy.train()
+
+    assert policy.residual_actor.training
+    assert policy.critic.training
+    for module in (policy.gmt_policy, policy.gmt_normalizer, policy.ref_vel_estimator):
+        assert not module.training
+        assert all(not parameter.requires_grad for parameter in module.parameters())
+    assert policy.gmt_normalizer.until == 0
 
 
 def test_frozen_gmt_is_excluded_from_optimizer_and_unchanged_after_update() -> None:
@@ -59,5 +73,6 @@ def test_frozen_gmt_is_excluded_from_optimizer_and_unchanged_after_update() -> N
 
 
 if __name__ == "__main__":
+    test_parent_train_keeps_frozen_gmt_family_in_inference_mode()
     test_frozen_gmt_is_excluded_from_optimizer_and_unchanged_after_update()
     print("frontres_frozen_gmt_contract: ok")

@@ -2,14 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import rough from "./node_modules/roughjs/bundled/rough.esm.js";
+import { renderModuleInspector } from "./layouts/module_inspector.js";
 
 const html = fs.readFileSync("architecture_atlas.html", "utf8");
 const repoMap = JSON.parse(fs.readFileSync("../../architecture/01_repo_architecture.data.json", "utf8"));
-const flowMap = JSON.parse(fs.readFileSync("../../runtime/02_frontres_flow.data.json", "utf8"));
 const conceptTabs = JSON.parse(fs.readFileSync("../../concept/03_frontres_concept_tabs.data.json", "utf8"));
-const formalAuditMap = JSON.parse(fs.readFileSync("../../runtime/04_stage3_formal_runtime_audit.data.json", "utf8"));
-const qualityAuditMap = JSON.parse(fs.readFileSync("../../runtime/05_policy_quality_audit.data.json", "utf8"));
-const designQuestionTable = JSON.parse(fs.readFileSync("../../runtime/06_frontres_design_point_review.data.json", "utf8"));
+const designContractReview = JSON.parse(fs.readFileSync("../../runtime/04_frontres_design_inspector.data.json", "utf8"));
+const moduleTestAtlas = JSON.parse(fs.readFileSync("../../testing/05_frontres_module_test_atlas.data.json", "utf8"));
 
 if (typeof rough.svg !== "function") {
   throw new Error("roughjs import succeeded but rough.svg is missing");
@@ -40,7 +39,11 @@ if (!scriptMatch) {
   throw new Error("architecture_atlas.html should keep its module script");
 }
 
-new vm.Script(scriptMatch[1].replace(/^\s*import rough.*$/m, "const rough = {};"));
+new vm.Script(scriptMatch[1].replace(/^\s*import .*$/gm, ""));
+
+if (typeof renderModuleInspector !== "function") {
+  throw new Error("module_inspector renderer import failed");
+}
 
 if (!html.includes("function measuredLineCount")) {
   throw new Error("architecture_atlas.html should measure wrapped text before drawing cards");
@@ -97,49 +100,29 @@ if (repoMap.layout !== "repository_reading_atlas") {
 if (!html.includes("function renderRepositoryReadingAtlas(data)")) {
   throw new Error("architecture_atlas.html is missing repository reading renderer");
 }
-if (!html.includes("function renderDesignPointTable(data)")) {
-  throw new Error("architecture_atlas.html is missing the minimal design-question renderer");
+if (!html.includes("function renderInspector(data)")) {
+ throw new Error("architecture_atlas.html is missing the shared Inspector renderer");
 }
-if (!html.includes("Array.isArray(data.groups)")) {
-  throw new Error("architecture_atlas.html must render grouped atomic design-question rows");
+if (!html.includes("layout === \"design_transaction_inspector\"")
+  || !html.includes("layout === \"module_test_inspector\"")) {
+ throw new Error("architecture_atlas.html does not route design_transaction_inspector");
 }
-if (!html.includes("function designTableTextLayout")) {
-  throw new Error("architecture_atlas.html must use a content-driven design-table text layout");
+if (designContractReview.layout !== "design_transaction_inspector" || !Array.isArray(designContractReview.cards)
+  || !Array.isArray(designContractReview.transaction?.steps)) {
+ throw new Error("runtime/04_frontres_design_inspector.data.json must expose cards[] plus one Transaction spine");
 }
-if (!html.includes("tableHeadingFont") || !html.includes("questionHeaderFill") || !html.includes("pointHeaderFill")) {
-  throw new Error("architecture_atlas.html must distinguish design-table typography and column backgrounds");
-}
-if (!html.includes("layout === \"design_point_table\"")) {
-  throw new Error("architecture_atlas.html does not route design_point_table");
-}
-if (designQuestionTable.layout !== "design_point_table" || !Array.isArray(designQuestionTable.groups)) {
-  throw new Error("runtime/06_frontres_design_point_review.data.json must use design_point_table with groups[]");
-}
-if (Object.keys(designQuestionTable).sort().join(",") !== "groups,layout,title") {
-  throw new Error("design-question table must contain only title, layout and groups");
-}
-if (designQuestionTable.groups.some((group) => (
-  Object.keys(group).sort().join(",") !== "parent,rows"
-  || typeof group.parent !== "string" || !group.parent.trim()
-  || !Array.isArray(group.rows) || !group.rows.length
-  || group.rows.some((row) => (
-    Object.keys(row).sort().join(",") !== "point,question"
-    || typeof row.question !== "string" || !row.question.trim()
-    || typeof row.point !== "string" || !row.point.trim()
-  ))
-))) {
-  throw new Error("each design-question group must contain only a parent and non-empty question/point rows");
-}
-const expectedDesignPoints = [
-  "Perturbation Data", "Perturbation Probing", "Segment Replay", "Future Motion Context",
-  "HSL Warmup", "FrontRES 6D Repair", "Frozen GMT", "K-step Curriculum",
-  "Paired Rollouts", "Repair Gain", "Actor & Critic Warmup",
-];
-if (designQuestionTable.groups.map((group) => group.parent).join(",") !== expectedDesignPoints.join(",")) {
-  throw new Error("design-question table must preserve the complete human design-point order");
+if (moduleTestAtlas.layout !== "module_test_inspector" || !Array.isArray(moduleTestAtlas.cards)
+  || !Array.isArray(moduleTestAtlas.transaction?.steps)) {
+ throw new Error("testing/05_frontres_module_test_atlas.data.json must expose cards[] plus one testing spine");
 }
 if (!html.includes('layout === "repository_reading_atlas"')) {
   throw new Error("architecture_atlas.html does not route repository_reading_atlas");
+}
+if (
+  !html.includes("Boolean(data.moduleInspector)")
+  || !html.includes("renderModuleInspector(data")
+) {
+  throw new Error("architecture_atlas.html does not route 01 through Module Inspector by default");
 }
 if (
   !html.includes('window.location.protocol === "file:"')
@@ -180,8 +163,6 @@ const checkReadingCardSourceLinks = (atlas, atlasLabel) => {
 };
 
 checkReadingCardSourceLinks(repoMap, "01 repository atlas");
-checkReadingCardSourceLinks(flowMap, "02 method-to-code atlas");
-checkReadingCardSourceLinks(qualityAuditMap, "05 policy quality atlas");
 for (const system of repoMap.systems || []) {
   for (const module of system.modules || []) {
     for (const block of module.files || []) {
@@ -203,45 +184,6 @@ if (missingRepoPaths.length) {
   throw new Error(`repo owner paths missing:\n${missingRepoPaths.join("\n")}`);
 }
 
-if (flowMap.layout !== "repository_reading_atlas" || !Array.isArray(flowMap.runtimeOrder)) {
-  throw new Error("runtime/02_frontres_flow.data.json must use layout=repository_reading_atlas with runtimeOrder[]");
-}
-for (const requiredId of ["DP-PERTURB", "DP-SEGMENT", "DP-KSTEP", "DP-HSL", "DP-WARMUP", "DP-REPAIR", "DP-GMT", "DP-PAIRED", "DP-GAIN"]) {
-  if (!JSON.stringify(flowMap).includes(`\"${requiredId}\"`)) {
-    throw new Error(`method-to-code reading atlas is missing design card ${requiredId}`);
-  }
-}
-const flowModules = (flowMap.systems || []).flatMap((system) => system.modules || []);
-const flowModuleIds = flowModules.map((module) => module.id);
-if (new Set(flowModuleIds).size !== flowModuleIds.length) {
-  throw new Error("method-to-code reading atlas contains duplicate module ids");
-}
-if (
-  flowMap.runtimeOrder.length !== flowModuleIds.length
-  || flowMap.runtimeOrder.some((id) => !flowModuleIds.includes(id))
-) {
-  throw new Error("method-to-code runtimeOrder must contain every reading card exactly once");
-}
-for (const module of flowModules) {
-  if (!(module.files || []).length || !(module.objects || []).length) {
-    throw new Error(`method-to-code card ${module.id} must include files and core objects`);
-  }
-  if ((module.mainRoute || []).length !== (module.mainRouteTitles || []).length) {
-    throw new Error(`method-to-code card ${module.id} route/title counts differ`);
-  }
-  for (const [index, route] of module.mainRoute.entries()) {
-    if (!route.startsWith(`B${index + 1} `)) {
-      throw new Error(`method-to-code card ${module.id} route numbering is not sequential`);
-    }
-  }
-  for (const block of module.files) {
-    const ownerPath = block.path.split("::")[0].trim().replace(/\/$/, "");
-    if (!fs.existsSync(path.resolve(repoRoot, ownerPath))) {
-      throw new Error(`method-to-code owner path missing: ${block.id} ${ownerPath}`);
-    }
-  }
-}
-
 if (
   conceptTabs.layout !== "method_figure"
   || !Array.isArray(conceptTabs.nodes)
@@ -259,82 +201,6 @@ for (const requiredId of ["M-02", "SR-01", "M-06", "M-04", "M-10", "Q-PAIR", "Q-
   }
 }
 
-if (
-  formalAuditMap.layout !== "repository_reading_atlas"
-  || !Array.isArray(formalAuditMap.runtimeOrder)
-  || !Array.isArray(formalAuditMap.systems)
-) {
-  throw new Error("runtime/04_stage3_formal_runtime_audit.data.json must use the 01 repository_reading_atlas schema");
-}
-const formalAuditIds = [
-  "AUDIT-ROUTE-01", "AUDIT-PERTURB-01", "AUDIT-PERTURB-02", "AUDIT-SEGDATA-01",
-  "AUDIT-SAMPLER-01", "AUDIT-KPLAN-01", "AUDIT-KROLLOUT-01", "AUDIT-RESET-LIFECYCLE-01",
-  "AUDIT-ANCHOR-Z-01",
-  "AUDIT-OBS-01",
-  "AUDIT-ACTION-01", "AUDIT-APPLY-01", "AUDIT-GMT-01", "AUDIT-PAIR-01",
-  "AUDIT-PAIR-EVIDENCE-01", "AUDIT-GAIN-01", "AUDIT-RETURN-01", "AUDIT-HSL-LOAD-01",
-  "AUDIT-WARMUP-01", "AUDIT-PPO-01", "AUDIT-PERSIST-01", "AUDIT-DIAG-01",
-];
-for (const requiredId of formalAuditIds) {
-  if (!JSON.stringify(formalAuditMap).includes(`\"${requiredId}\"`)) {
-    throw new Error(`formal runtime audit atlas is missing ${requiredId}`);
-  }
-}
-if (formalAuditMap.runtimeOrder.join(",") !== formalAuditIds.join(",")) {
-  throw new Error("formal runtime audit atlas runtimeOrder must match the official Stage 3 probe order");
-}
-const formalAuditModules = formalAuditMap.systems.flatMap((system) => system.modules || []);
-for (const module of formalAuditModules) {
-  if (module.cardKind !== "runtime_probe" || !module.probe?.owner || !module.probe?.insertion) {
-    throw new Error(`formal runtime audit card ${module.id} must expose its exact probe owner and insertion location`);
-  }
-  if (!(module.probe.capture || []).length || !(module.probe.failIf || []).length) {
-    throw new Error(`formal runtime audit card ${module.id} must expose captured objects and failure criteria`);
-  }
-  if (!Array.isArray(module.probeSteps) || module.probeSteps.length !== module.mainRoute.length) {
-    throw new Error(`formal runtime audit card ${module.id} must map every B-step to one probe boundary`);
-  }
-  if (module.probeSteps.some((step) => !step.location || !step.capture || !step.whyHere || !step.failureOwner || !step.sourceHref || !step.sourceLine)) {
-    throw new Error(`formal runtime audit card ${module.id} has a B-step without location, capture, rationale, failure owner, or source link`);
-  }
-  if (module.probeSteps.some((step) => !step.sourceHref.startsWith("/open-source?path=") || !step.sourceHref.includes(`line=${step.sourceLine}`))) {
-    throw new Error(`formal runtime audit card ${module.id} has a non-local source link`);
-  }
-}
-const formalAuditWhyHere = formalAuditModules.flatMap((module) => module.probeSteps.map((step) => step.whyHere));
-const expectedWhyHereCount = formalAuditIds.length * 3;
-if (formalAuditWhyHere.length !== expectedWhyHereCount || new Set(formalAuditWhyHere).size !== expectedWhyHereCount) {
-  throw new Error(`formal runtime audit requires ${expectedWhyHereCount} non-template whyHere decisions`);
-}
-
-const qualityAuditIds = [
-  "QUALITY-ID-01", "QUALITY-DATA-01", "QUALITY-ACTION-01", "QUALITY-GAIN-01",
-  "QUALITY-CREDIT-01", "QUALITY-UPDATE-01", "QUALITY-EXEC-01", "QUALITY-TRAJECTORY-01",
-];
-if (
-  qualityAuditMap.layout !== "repository_reading_atlas"
-  || qualityAuditMap.runtimeOrder?.join(",") !== qualityAuditIds.join(",")
-) {
-  throw new Error("policy quality atlas must expose the eight causal owners in audit order");
-}
-const qualityAuditModules = (qualityAuditMap.systems || []).flatMap((system) => system.modules || []);
-if (qualityAuditModules.length !== qualityAuditIds.length) {
-  throw new Error("policy quality atlas must contain exactly eight reading cards");
-}
-for (const module of qualityAuditModules) {
-  if (module.cardKind !== "quality_probe" || !module.parentDesignPoint || !module.question) {
-    throw new Error(`policy quality card ${module.id} must map a design point to a falsifiable question`);
-  }
-  if (!module.probe?.owner || !module.probe?.insertion || !(module.probe.capture || []).length) {
-    throw new Error(`policy quality card ${module.id} must expose owner, insertion, and captures`);
-  }
-  if (!module.failureOwner || !Array.isArray(module.probeSteps) || module.probeSteps.length !== 3) {
-    throw new Error(`policy quality card ${module.id} must expose one failure owner and B1/B2/B3`);
-  }
-  if (module.probeSteps.some((step) => !step.whyHere || !step.failureOwner || !step.sourceHref || !step.sourceLine)) {
-    throw new Error(`policy quality card ${module.id} has an unreadable B-step`);
-  }
-}
 const atlasServerSource = fs.readFileSync("serve_architecture.mjs", "utf8");
 if (
   !atlasServerSource.includes('requestUrl.pathname === "/open-source"')

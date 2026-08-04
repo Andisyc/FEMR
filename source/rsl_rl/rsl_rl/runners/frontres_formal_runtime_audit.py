@@ -1,21 +1,11 @@
 from __future__ import annotations
 
 import math
-import importlib.util
-from pathlib import Path
 from typing import Any, Mapping
 
 import torch
 
-_AUDIT_SPEC = importlib.util.spec_from_file_location(
-    "frontres_formal_runtime_probe_runner",
-    Path(__file__).resolve().parents[1] / "frontres" / "frontres_formal_runtime_probe.py",
-)
-assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
-_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
-_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
-configure_formal_runtime_probe = _AUDIT_MODULE.configure_formal_runtime_probe
-emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
+from rsl_rl.frontres.frontres_formal_runtime_probe import configure_formal_runtime_probe, emit_formal_runtime_probe
 
 
 def formal_runtime_audit_enabled(runner: Any) -> bool:
@@ -277,6 +267,12 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
 
 
 def print_sampler_audit(runner: Any, *, update_step: int, sample: Any, batch: Any, summary: Mapping[str, Any]) -> None:
+    """Emit the retained legacy sampler snapshot.
+
+    TRAIN-v014 K/M identity is owned by ``frontres_segment_warmup.py`` and the
+    sealed formal transaction. This compatibility projection cannot prove the
+    active K-step Curriculum.
+    """
     if not formal_runtime_audit_enabled(runner):
         return
     segment_ids = getattr(sample, "segment_ids", None)
@@ -291,23 +287,6 @@ def print_sampler_audit(runner: Any, *, update_step: int, sample: Any, batch: An
         "AUDIT-SEGDATA-01",
         segment_ids=_tensor_stats(segment_ids),
         source_index=_tensor_stats(getattr(sample, "source_index", None)),
-    )
-    # AUDIT-KPLAN-01: 检查 per-row K 与 rollout budget, 位于 sampler plan -> trial expansion.
-    # Result: E68 LIVE OBSERVED: effective horizon K spans 8..64 in the
-    # formal route; each sampled plan remains policy-owned.
-    _emit_owner_snapshot(
-        "AUDIT-KPLAN-01",
-        horizon_k=_tensor_stats(horizon_k),
-        trial_roles=getattr(batch, "frontres_segment_trial_role", "missing"),
-    )
-    # AUDIT-KROLLOUT-01: 检查 reset/preroll/valid horizon, 位于 expanded trials -> scored rollout.
-    # Result: E68 LIVE OBSERVED: mixed-K formal captures remain finite and
-    # policy-owned; reset/valid evidence is emitted for each transaction.
-    _emit_owner_snapshot(
-        "AUDIT-KROLLOUT-01",
-        reset_success_frac=_summary_value(summary, "segment_reset_success_frac"),
-        valid=_summary_value(summary, "ppo_valid_count"),
-        horizon_k=_tensor_stats(horizon_k),
     )
     print(
         "[AUDIT-SAMPLER-01] "
@@ -330,6 +309,12 @@ def print_rollout_storage_audit(
     summary: Mapping[str, Any],
     storage_batch: Any | None,
 ) -> None:
+    """Emit the retained legacy flat-probe snapshot.
+
+    The active v017 transaction is audited by
+    :func:`print_segment_replay_transaction_audit`; this function must not be
+    used as evidence for the active 928D/grouped-scalar route.
+    """
     if not formal_runtime_audit_enabled(runner):
         return
     observations = getattr(capture, "transition_obs", None)
@@ -448,6 +433,77 @@ def print_rollout_storage_audit(
         audit_batch_signature=getattr(storage_batch, "audit_batch_signature", "UNCONFIRMED"),
         audit_identity_state=getattr(storage_batch, "audit_identity_state", "UNCONFIRMED"),
     )
+
+
+def print_segment_replay_transaction_audit(runner: Any, *, result: Any) -> None:
+    """Audit the committed v017 Segment Replay transaction without mutation."""
+
+    if not formal_runtime_audit_enabled(runner):
+        return
+    diagnostics = getattr(result, "diagnostics", None)
+    if not isinstance(diagnostics, Mapping):
+        raise AssertionError("active Segment Replay audit requires immutable transaction diagnostics")
+    required_identity = {
+        "method_contract_id": "FRS-METHOD-v017",
+        "gain_contract_id": "FRS-GAIN-v007",
+        "optimization_contract_id": "FRS-PPO-v005",
+        "training_contract_id": "FRS-TRAIN-v014",
+    }
+    for key, expected in required_identity.items():
+        assert diagnostics.get(key) == expected, f"active Segment Replay audit requires {key}={expected}"
+
+    active_m = int(diagnostics.get("active_m", 0))
+    segment_count = int(diagnostics.get("selected_segment_count", 0))
+    policy_row_count = int(diagnostics.get("policy_row_count", 0))
+    assert segment_count == 2, "active campaign requires exactly two selected Segments"
+    assert active_m > 0 and policy_row_count == segment_count * active_m, (
+        "active Segment Replay audit requires exactly M Repair rows for each selected Segment"
+    )
+    assert int(getattr(result, "segment_count", -1)) == segment_count
+    assert int(getattr(result, "source_count", -1)) == segment_count
+    assert int(getattr(result, "policy_attempt_count", -1)) == policy_row_count
+    assert int(getattr(result, "valid_row_count", -1)) == policy_row_count
+    assert int(getattr(result, "optimizer_step_delta", -1)) == 1
+    assert int(getattr(result, "update_invocation_count", -1)) == 1
+
+    motion_mass = tuple(float(value) for value in diagnostics.get("grouped_motion_mass_shares", ()))
+    segment_mass = tuple(float(value) for value in diagnostics.get("grouped_segment_mass_shares", ()))
+    attempt_mass = tuple(float(value) for value in diagnostics.get("grouped_attempt_mass_shares", ()))
+    for name, values, expected_count in (
+        ("motion", motion_mass, None),
+        ("Segment", segment_mass, segment_count),
+        ("attempt", attempt_mass, policy_row_count),
+    ):
+        assert values and all(math.isfinite(value) and value > 0.0 for value in values), (
+            f"active Segment Replay audit requires positive finite {name} voting weights"
+        )
+        assert math.isclose(sum(values), 1.0, rel_tol=0.0, abs_tol=1e-6), (
+            f"active Segment Replay {name} voting weights must sum to one"
+        )
+        expected_weight = 1.0 / float(len(values))
+        assert all(math.isclose(value, expected_weight, rel_tol=0.0, abs_tol=1e-6) for value in values), (
+            f"active Segment Replay requires equal {name} voting weights"
+        )
+        if expected_count is not None:
+            assert len(values) == expected_count, f"active Segment Replay has wrong {name} voting-weight count"
+
+    _emit_owner_snapshot(
+        "AUDIT-SEGMENT-REPLAY-01",
+        transaction_id=getattr(result, "transaction_id", "missing"),
+        policy_snapshot_id=getattr(result, "policy_snapshot_id", "missing"),
+        segments=segment_count,
+        attempts_per_segment=active_m,
+        policy_rows=policy_row_count,
+        valid_rows=getattr(result, "valid_row_count", "missing"),
+        motion_voting_weights=motion_mass,
+        segment_voting_weights=segment_mass,
+        attempt_voting_weights=attempt_mass,
+        optimizer_step_delta=getattr(result, "optimizer_step_delta", "missing"),
+        update_invocations=getattr(result, "update_invocation_count", "missing"),
+        contracts="FRS-METHOD-v017/FRS-GAIN-v007/FRS-PPO-v005/FRS-TRAIN-v014",
+    )
+
+
 def print_ppo_audit(runner: Any, *, result: Any) -> None:
     if not formal_runtime_audit_enabled(runner):
         return
@@ -503,7 +559,7 @@ def print_ppo_audit(runner: Any, *, result: Any) -> None:
 def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[str, Any]) -> None:
     if not formal_runtime_audit_enabled(runner):
         return
-    # B1: active persistence audit follows the checkpoint-v6 coordinated owner.
+    # B1: active persistence audit follows the checkpoint-v9 coordinated owner.
     required = (
         "model_state_dict",
         "optimizer_state_dict",
@@ -516,23 +572,27 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
     missing = [key for key in required if key not in payload]
     assert not missing, f"formal Stage 3 checkpoint missing audit fields: {missing}"
 
-    # B2: Cross-check the top-level resume schedule and coordinated v5 identity.
+    # B2: Cross-check the top-level resume schedule and coordinated v8 identity.
     identity = payload["frontres_v015_checkpoint_identity"]
     assert isinstance(identity, Mapping), "formal Stage 3 checkpoint identity must be a mapping"
-    assert identity.get("format") == "frontres-v015-checkpoint-v6", "formal audit requires checkpoint-v6"
-    assert identity.get("method_contract_id") == "FRS-METHOD-v016", "formal audit requires FRS-METHOD-v016"
-    assert identity.get("gain_contract_id") == "FRS-GAIN-v006", "formal audit requires FRS-GAIN-v006"
-    assert identity.get("optimization_contract_id") == "FRS-PPO-v004", "formal audit requires FRS-PPO-v004"
-    assert identity.get("training_contract_id") == "FRS-TRAIN-v011", "formal audit requires FRS-TRAIN-v011"
-    assert "frontres_gain_config" not in payload, "active checkpoint-v6 must exclude legacy scalar Gain metadata"
-    solver = identity.get("constraint_solver")
-    assert isinstance(solver, Mapping), "formal Stage 3 checkpoint has no constraint-solver identity"
-    assert solver.get("persistent_dual_state") is False, "formal Stage 3 must not persist learned dual state"
+    assert identity.get("format") == "frontres-v017-checkpoint-v9", "formal audit requires checkpoint-v9"
+    assert identity.get("method_contract_id") == "FRS-METHOD-v017", "formal audit requires FRS-METHOD-v017"
+    assert identity.get("gain_contract_id") == "FRS-GAIN-v007", "formal audit requires FRS-GAIN-v007"
+    assert identity.get("optimization_contract_id") == "FRS-PPO-v005", "formal audit requires FRS-PPO-v005"
+    assert identity.get("training_contract_id") == "FRS-TRAIN-v014", "formal audit requires FRS-TRAIN-v014"
+    assert identity.get("dr_curriculum_schema_id") == "nested-k-dr-four-class-v1", "formal audit requires TRAIN-v014 DR identity"
+    assert identity.get("scalar_target_id") == "clean-anchored-recovery-aware-gain-v1"
+    assert identity.get("physics_schema_id") == "clean-anchored-contact-zmp-survival-v1"
+    assert identity.get("grouped_schema_id") == "grouped-all-attempt-scalar-v1"
+    assert identity.get("gain") == {"beta": 0.02}, "formal audit requires the frozen v007 beta"
+    assert "constraint_solver" not in identity and "projection_schema_id" not in identity
+    assert "frontres_gain_config" not in payload, "active checkpoint-v9 must exclude legacy scalar Gain metadata"
+    assert "dr_scale" not in payload and not any(str(key).startswith("frontres_gmt_frontier_") for key in payload), "active checkpoint-v9 must exclude legacy adaptive DR state"
     curriculum = identity.get("curriculum")
     assert isinstance(curriculum, Mapping), "formal Stage 3 checkpoint has no sealed curriculum identity"
     try:
-        saved_schedule = tuple(tuple(int(value) for value in row) for row in payload["frontres_segment_k_curriculum"])
-        identity_schedule = tuple(tuple(int(value) for value in row) for row in curriculum["schedule"])
+        saved_schedule = tuple(tuple(row) for row in payload["frontres_segment_k_curriculum"])
+        identity_schedule = tuple(tuple(row) for row in curriculum["schedule"])
     except (KeyError, TypeError, ValueError) as exc:
         raise AssertionError("formal Stage 3 checkpoint has malformed curriculum schedule") from exc
     assert saved_schedule and saved_schedule == identity_schedule, (
@@ -549,7 +609,7 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
         f"obs_norm={int('obs_norm_state_dict' in payload)} sampler={int('frontres_segment_sampler_state_dict' in payload)} "
         f"contracts={identity.get('method_contract_id')}/{identity.get('gain_contract_id')}/"
         f"{identity.get('optimization_contract_id')}/{identity.get('training_contract_id')} "
-        f"persistent_dual={int(bool(solver.get('persistent_dual_state')))} "
+        f"scalar_target={identity.get('scalar_target_id')} beta={identity.get('gain', {}).get('beta', 'missing')} "
         f"curriculum={saved_schedule} stage={curriculum.get('k_stage_index', 'missing')} "
         f"active_k={active_k} phase={curriculum.get('phase', 'missing')} "
         f"fingerprint={curriculum.get('schedule_fingerprint', 'missing')}",
@@ -564,4 +624,5 @@ __all__ = [
     "print_ppo_audit",
     "print_rollout_storage_audit",
     "print_sampler_audit",
+    "print_segment_replay_transaction_audit",
 ]

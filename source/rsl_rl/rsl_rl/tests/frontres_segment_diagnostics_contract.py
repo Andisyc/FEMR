@@ -8,8 +8,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import torch
+from frontres_contract_imports import install_frontres_contract_packages
 
 ROOT = Path(__file__).resolve().parents[2]
+install_frontres_contract_packages(ROOT / "rsl_rl")
 
 DIAG_PATH = ROOT / "rsl_rl" / "frontres" / "frontres_segment_diagnostics.py"
 diag_spec = importlib.util.spec_from_file_location("frontres_segment_diagnostics", DIAG_PATH)
@@ -20,10 +22,8 @@ diag_spec.loader.exec_module(diag_module)
 format_segment_replay_log = diag_module.format_segment_replay_log
 format_segment_train_effect_log = diag_module.format_segment_train_effect_log
 format_segment_motion_quality_log = diag_module.format_segment_motion_quality_log
-format_segment_periodic_eval_log = diag_module.format_segment_periodic_eval_log
 action_distribution_health_summary = diag_module.action_distribution_health_summary
 motion_quality_summary_to_scalars = diag_module.motion_quality_summary_to_scalars
-periodic_eval_summary_to_scalars = diag_module.periodic_eval_summary_to_scalars
 repair_effect_summary_to_scalars = diag_module.repair_effect_summary_to_scalars
 segment_summary_to_scalars = diag_module.segment_summary_to_scalars
 summarize_segment_batch = diag_module.summarize_segment_batch
@@ -168,7 +168,7 @@ def _v015_candidate_evidence() -> SimpleNamespace:
     return SimpleNamespace(validate=lambda: None, return_evidence=return_evidence, one_action=one_action)
 
 
-def test_v015_transaction_telemetry_projects_sealed_rows_without_recompute() -> None:
+def test_frontres_transaction_telemetry_projects_sealed_rows_without_recompute() -> None:
     candidate = _v015_candidate_evidence()
     report = diag_module.build_frontres_v015_local_evaluation_report(
         candidate,
@@ -561,52 +561,6 @@ def test_motion_quality_keeps_action_diagnostics_when_all_samples_fall() -> None
     )
 
 
-def test_periodic_eval_summary_formats_long_rollout_metrics() -> None:
-    summary = {
-        "episode_length": 500,
-        "success_rate": 0.7,
-        "fall_rate": 0.2,
-        "mean_survival_steps": 430,
-        "gain_source": "FRS-GAIN-v002",
-        "gain_style_mean": 0.08,
-        "gain_physics_mean": 0.06,
-        "gain_repair_cost_mean": 0.02,
-        "gain_total_mean": 0.12,
-        "gain_total_pos_frac": 0.75,
-        "segment/motion_mpjpe_repaired_clean": 0.11,
-        "segment/motion_mpjpe_noisy_clean": 0.44,
-        "segment/motion_vel_error_repaired_clean": 0.02,
-        "segment/motion_acc_error_repaired_clean": 0.03,
-        "segment/motion_delta_se_norm": 0.42,
-        "segment/motion_delta_z_up_frac": 0.25,
-    }
-    scalars = periodic_eval_summary_to_scalars(summary)
-    assert scalars["segment/eval_episode_length"] == 500.0
-    assert scalars["segment/eval_success_rate"] == 0.7
-    assert scalars["segment/eval_fall_rate"] == 0.2
-    assert scalars["segment/eval_mean_survival_steps"] == 430.0
-    assert scalars["segment/eval_gain_style"] == 0.08
-    assert scalars["segment/eval_gain_physics"] == 0.06
-    assert scalars["segment/eval_gain_repair_cost"] == 0.02
-    assert scalars["segment/eval_gain_total"] == 0.12
-    assert scalars["segment/eval_gain_total_pos_frac"] == 0.75
-    log = format_segment_periodic_eval_log(summary)
-    assert "[FrontRES Segment Periodic Eval]" in log
-    assert "episode_length=500.0" in log
-    assert "survival=430.0" in log
-    assert "success=70.0%" in log
-    assert "fall=20.0%" in log
-    assert "source=FRS-GAIN-v002" in log
-    assert "style=0.080000 physics=0.060000 repair_cost=0.020000 total=0.120000 positive=75.0%" in log
-    assert "score:" not in log
-    assert "mpjpe_repaired=0.110000" in log
-    assert "mpjpe_noisy=0.440000" in log
-    assert "vel_err=0.020000" in log
-    assert "acc_err=0.030000" in log
-    assert "delta_se_norm=0.420000" in log
-    assert "dz_up=25.0%" in log
-
-
 def test_action_distribution_health_flags_raw_mean_saturation() -> None:
     means = torch.tensor(
         [
@@ -637,7 +591,7 @@ def test_action_distribution_health_flags_raw_mean_saturation() -> None:
 
 def main() -> None:
     test_v004_actual_update_diagnostics_accept_tangent_and_reject_violation()
-    test_v015_transaction_telemetry_projects_sealed_rows_without_recompute()
+    test_frontres_transaction_telemetry_projects_sealed_rows_without_recompute()
     test_v015_diagnostics_preserve_role_specific_zmp_na()
     test_segment_diagnostics_required_keys_and_no_acceptance_keys()
     test_segment_log_contains_live_path_sentinel()
@@ -647,7 +601,6 @@ def main() -> None:
     test_motion_quality_summary_respects_per_row_horizon_mask()
     test_motion_quality_missing_positions_are_unconfirmed_not_zero()
     test_motion_quality_keeps_action_diagnostics_when_all_samples_fall()
-    test_periodic_eval_summary_formats_long_rollout_metrics()
     test_action_distribution_health_flags_raw_mean_saturation()
     print("result: PASS")
 

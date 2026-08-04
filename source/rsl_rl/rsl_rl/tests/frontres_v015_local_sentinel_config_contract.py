@@ -32,8 +32,8 @@ def _v015_cfg(**overrides):
         "frontres_training_objective": "segment_replay_hrl",
         "frontres_segment_replay_enabled": True,
         "frontres_segment_live_runner_enabled": True,
-        "frontres_v015_local_sentinel_only": True,
-        "frontres_v015_formal_transaction_enabled": True,
+        "frontres_local_sentinel_only": True,
+        "frontres_formal_transaction_enabled": True,
         "frontres_future_offsets": (1, 2),
         "frontres_future_intent_layout_version": "frontres-v015-future-intent-q29-v1",
         "frontres_segment_k": 8,
@@ -47,12 +47,12 @@ def test_t_v015_boundary_is_explicit_and_legacy_exclusive() -> None:
     boundary_module = _load("frontres_v015_local_sentinel_boundary", BOUNDARY_PATH)
     boundary = boundary_module.FrontRESSegmentRunnerBoundary.from_train_cfg(_v015_cfg())
 
-    assert boundary.v015_local_sentinel_only
+    assert boundary.local_sentinel_only
     boundary.assert_live_runner_ready()
     assert boundary.sentinel_log() is None
-    log = boundary.v015_sentinel_log()
+    log = boundary.local_sentinel_log()
     assert log is not None
-    assert "v015_local_sentinel=True" in log
+    assert "frontres_local_sentinel=True" in log
     assert "future_offsets=(1, 2)" in log
 
     mixed = boundary_module.FrontRESSegmentRunnerBoundary.from_train_cfg(
@@ -74,16 +74,16 @@ def test_t_entrypoint_and_algorithm_route_are_dedicated() -> None:
     rsl_cfg = RSL_CFG_PATH.read_text(encoding="utf-8")
     task_cfg = TASK_CFG_PATH.read_text(encoding="utf-8")
 
-    assert "--frontres_v015_local_sentinel_only" in train
+    assert "--frontres_local_sentinel_only" in train
     assert "--frontres_v015_future_offsets" in train
-    assert "runner.run_frontres_v015_local_identity_sentinel" in train
-    assert "runner.finalize_frontres_v015_local_sentinel_checkpoint" in train
-    assert "def run_frontres_v015_local_identity_sentinel(" in runner
-    assert "def finalize_frontres_v015_local_sentinel_checkpoint(" in runner
-    assert "frontres_v015_local_sentinel_only: bool = False" in algorithm
-    assert "frontres_v015_local_sentinel_only: bool = False" in rsl_cfg
-    assert "frontres_v015_local_sentinel_only: bool = False" in task_cfg
-    method_start = runner.index("def run_frontres_v015_local_identity_sentinel(")
+    assert "runner.run_frontres_local_identity_sentinel" in train
+    assert "runner.finalize_frontres_local_sentinel_checkpoint" in train
+    assert "def run_frontres_local_identity_sentinel(" in runner
+    assert "def finalize_frontres_local_sentinel_checkpoint(" in runner
+    assert "frontres_local_sentinel_only: bool = False" in algorithm
+    assert "frontres_local_sentinel_only: bool = False" in rsl_cfg
+    assert "frontres_local_sentinel_only: bool = False" in task_cfg
+    method_start = runner.index("def run_frontres_local_identity_sentinel(")
     method_end = runner.index("\n    def ", method_start + 1)
     assert "run_frontres_segment_single_update" not in runner[method_start:method_end]
     print("[T-entrypoint/T-no-legacy-update] train dispatches only the dedicated v015 sentinel owner", flush=True)

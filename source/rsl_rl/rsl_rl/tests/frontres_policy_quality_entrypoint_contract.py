@@ -6,12 +6,12 @@ from pathlib import Path
 import sys
 import tempfile
 from types import ModuleType, SimpleNamespace
+from frontres_contract_imports import install_frontres_contract_packages
 
 
 ROOT = Path(__file__).resolve().parents[4]
 SOURCE_ROOT = ROOT / "source" / "rsl_rl" / "rsl_rl"
-sys.modules.setdefault("rsl_rl", ModuleType("rsl_rl"))
-sys.modules.setdefault("rsl_rl.frontres", ModuleType("rsl_rl.frontres"))
+install_frontres_contract_packages(SOURCE_ROOT)
 
 
 def _load(name: str, path: Path):
@@ -28,7 +28,7 @@ _load(
     SOURCE_ROOT / "frontres" / "frontres_policy_quality_manifest.py",
 )
 quality = _load(
-    "frontres_policy_quality_eval",
+    "rsl_rl.runners.frontres_policy_quality_eval",
     SOURCE_ROOT / "runners" / "frontres_policy_quality_eval.py",
 )
 
@@ -67,7 +67,7 @@ def test_request_validation_and_single_owner_dispatch() -> None:
         runner = SimpleNamespace(
             _frontres_policy_quality_manifest_executor=lambda request: calls.append(request) or {"status": "ok"}
         )
-        observed = quality.run_frontres_policy_quality_eval(
+        observed = quality.run_frontres_legacy_policy_quality_eval(
             runner,
             manifest_path=str(manifest),
             hsl_checkpoint_path=str(hsl),
@@ -85,7 +85,23 @@ def test_request_validation_and_single_owner_dispatch() -> None:
         assert "install_frontres_policy_quality_manifest_executor(runner, owners)" in source
 
 
-def test_cli_runner_and_shell_are_dedicated_and_lazy() -> None:
+def test_active_entry_rejects_implicit_legacy_fallback() -> None:
+    runner = SimpleNamespace(alg=SimpleNamespace(frontres_formal_transaction_enabled=False))
+    try:
+        quality.run_frontres_policy_quality_eval(
+            runner,
+            manifest_path="unused.json",
+            hsl_checkpoint_path="unused-hsl.pt",
+            policy_checkpoint_path="unused-policy.pt",
+            result_path="unused-result.json",
+        )
+    except RuntimeError as exc:
+        assert "run_frontres_legacy_policy_quality_eval explicitly" in str(exc)
+    else:
+        raise AssertionError("active policy-quality entry silently selected legacy semantics")
+
+
+def test_cli_and_runner_are_dedicated_and_lazy() -> None:
     train = (ROOT / "scripts" / "rsl_rl" / "train.py").read_text(encoding="utf-8")
     runner = (SOURCE_ROOT / "runners" / "on_policy_runner.py").read_text(encoding="utf-8")
     shell = (ROOT / "run" / "run_frontres_stage3_segment_hrl.sh").read_text(encoding="utf-8")
@@ -99,10 +115,9 @@ def test_cli_runner_and_shell_are_dedicated_and_lazy() -> None:
     ):
         assert flag in train
     quality_dispatch = train.index('if bool(getattr(args_cli, "frontres_policy_quality_eval_only", False)):')
-    old_offline_dispatch = train.index("if args_cli.frontres_segment_offline_eval_only:", quality_dispatch)
     live_train_dispatch = train.index("runner.learn_frontres_segment_live(", quality_dispatch)
-    assert quality_dispatch < old_offline_dispatch < live_train_dispatch
-    quality_block = train[quality_dispatch:old_offline_dispatch]
+    assert quality_dispatch < live_train_dispatch
+    quality_block = train[quality_dispatch:live_train_dispatch]
     assert quality_block.count("runner.run_frontres_policy_quality_eval(") == 1
     assert "run_frontres_segment_offline_eval" not in quality_block
     assert "run_frontres_segment_sequence_offline_eval" not in quality_block
@@ -116,13 +131,8 @@ def test_cli_runner_and_shell_are_dedicated_and_lazy() -> None:
     )
     assert lazy_import_at > method_at
     assert runner[:method_at].count("frontres_policy_quality_eval") == 0
-    assert "policy_quality_eval)" in shell
-    assert "POLICY_QUALITY_MANIFEST" in shell
-    assert "POLICY_QUALITY_HSL_CHECKPOINT" in shell
-    assert "POLICY_QUALITY_POLICY_CHECKPOINT" in shell
-    assert "POLICY_QUALITY_RESULT" in shell
-    quality_case = shell[shell.index("policy_quality_eval)") : shell.index(";;", shell.index("policy_quality_eval)"))]
-    assert "--frontres_policy_quality_eval_only" in quality_case
+    assert "policy_quality_eval)" not in shell
+    assert "Evaluation is launched independently" in shell
     assert '--frontres_v015_hsl_initializer_checkpoint "${HSL_CHECKPOINT}"' in shell
     assert "STAGE3_IS_FULL_RESUME" not in shell
     assert '--resume_student_checkpoint "${HSL_CHECKPOINT}"' not in shell
@@ -130,5 +140,6 @@ def test_cli_runner_and_shell_are_dedicated_and_lazy() -> None:
 
 if __name__ == "__main__":
     test_request_validation_and_single_owner_dispatch()
-    test_cli_runner_and_shell_are_dedicated_and_lazy()
+    test_active_entry_rejects_implicit_legacy_fallback()
+    test_cli_and_runner_are_dedicated_and_lazy()
     print("PASS: dedicated policy-quality entrypoint and old-mode isolation are closed offline.")

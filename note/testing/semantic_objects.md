@@ -1,6 +1,6 @@
 # FEMR Current Semantic Objects
 
-Updated: 2026-07-27
+Updated: 2026-08-03
 
 ## Observation Payload
 
@@ -43,7 +43,7 @@ evidence remains invalid before the batch boundary.
 
 ## Effective Horizon K
 
-Sampler states may assign `8/16/32/64`. One FEMR action is authorized at t;
+Sampler states assign `8/16/32` under TRAIN-v012. One FEMR action is authorized at t;
 FEMR is frozen for t+1...t+K while GMT consumes C. K must survive local-pair
 construction, reset, rollout accumulation, done masks, returns, sampler
 evidence, diagnostics, and evaluation.
@@ -53,27 +53,32 @@ Implementation and formal-route integration are separate evidence claims.
 ## Gain Decomposition
 
 ```text
-scalar target = paired intent improvement - full6 repair cost
-actor direction = grouped gradient(scalar target)
-                  projected into Contact / phase-ZMP / survival feasible halfspaces
+one executed Clean baseline + one fixed zero-action Noisy baseline
++ M Repair attempts
+-> Clean-conditioned Intent and Physics remaining problems
+-> signed Noisy-to-Repair improvement
+-> continuous remaining Physics pressure
+-> one scalar Recovery-Aware G_total - full-6D repair cost
 ```
 
 Owner contract:
-`frontres_core/contracts/active/reward/FRS-GAIN-v006-loaded-support-zmp-applicability.md`.
+`frontres_core/contracts/active/reward/FRS-GAIN-v007-clean-anchored-recovery-aware-ranking.md`.
 
-`physics_gain` remains a paired read-only diagnostic. It is not added back into
-the scalar Critic target. Clean-global Style, full-65D tape and quartet scoring
-remain incompatible historical paths.
+Intent and Physics jointly define the scalar Recovery-Aware ordering. The
+retired independent Physics projection/KKT route cannot reach PPO-v005. Clean
+is an executed evaluator anchor only; it never enters actor input. Full-65D
+tape, quartet scoring, and v006 scalar/constraint semantics are historical.
 
 Required lifecycle:
 
 ```text
-same x_t/current artifact/I/C/K in Noisy/Repair local roles
--> root-invariant intent objective and independent physical constraints
--> per-row K aggregation
--> grouped first-order projection + scalar-Critic return
--> periodic/sequence eval
--> decomposed diagnostics with explicit role applicability
+same x_t/current artifact/I/C/K in Clean/Noisy/M-Repair evidence lifecycle
+-> fixed-unit, valid-time-normalized K evidence
+-> Clean-conditioned Intent/Physics remaining problems
+-> v007 Recovery-Aware scalar return
+-> every valid attempt enters grouped equal-mass exact-one PPO-v005
+-> active held-out and deployment evaluation remain no-feedback
+-> decomposed diagnostics expose missing evidence as UNCONFIRMED
 ```
 
 ## Raw Foot-Ground Contact Evidence
@@ -134,11 +139,16 @@ resume, evaluation, and export must agree on ownership and dimensions.
 
 ## Evaluation Evidence
 
-Evaluation is independent of policy update and sampler mutation. Local K
-evaluation reports root-invariant intent metrics, Physics metrics, Repair cost,
-separate paired gains, total Gain, scenario identity, K, reset, continuation,
-and action evidence. Full-sequence composition evaluation remains separate and
-cannot enter a local PPO return.
+Evaluation is independent of policy update and sampler mutation. EVAL-v004
+keeps three capabilities: held-out one-action-K policy quality, full-sequence
+deployment composition, and the independent DR sweep. Training may schedule a
+held-out run, but it does not own a fourth evaluator. Retired offline/sequence
+evaluators cannot enter the active route.
+
+Local K evaluation reports the executed Clean/Noisy/Repair evidence lifecycle,
+v007 Intent/Physics decomposition, Repair cost, total Gain, scenario identity,
+K, reset, continuation, and action evidence. Full-sequence composition remains
+separate and cannot enter a local PPO return.
 
 Missing evidence is `UNCONFIRMED`, never zero.
 

@@ -1,13 +1,20 @@
 # FRS-v015 Physics-Constrained Intent Migration Engineering Plan
 
-Status: active, volatile engineering plan. Updated: 2026-07-28.
+Status: superseded as an implementation plan on 2026-08-01. Retained as the
+v016/v006/v004/v011 engineering record; it is not authority for the active
+v017/v007/v005/v012 design.
 
-## Authority
+The next implementation stage requires a new, separately authorized
+Engineering Plan derived from the active contracts. No source change, test,
+checkpoint migration, simulator run, or training run is authorized by this
+closure.
+
+## Historical Authority
 
 - Concept Figure: `../../architecture/concept/03_frontres_concept_tabs.data.json`
-- Active contracts: FRS-METHOD-v016 / FRS-GAIN-v006 / FRS-PPO-v004 /
+- Contract set when this plan was active: FRS-METHOD-v016 / FRS-GAIN-v006 / FRS-PPO-v004 /
   FRS-TRAIN-v011
-- Current source/runtime route: FRS-METHOD-v016 / FRS-GAIN-v006 /
+- Source/runtime route recorded by this plan: FRS-METHOD-v016 / FRS-GAIN-v006 /
   FRS-PPO-v004 / FRS-TRAIN-v010 checkpoint-v5; contract-mismatch for active
   FRS-TRAIN-v011 until P5-B
 - P0 decision record:
@@ -616,4 +623,6 @@ for the new route are deliberately merged into P5-B.
 
 ## Cursor
 
-Current cursor: `P5-C K8/M2 model_2000 runtime complete; E-FI-90 actual-update authority and E-FI-91 ownership refactor are offline-complete; next is user-controlled K16/M3 critic recalibration from model_2000 after synchronization. P4 policy-only deployment quality remains independently open`.
+Current cursor: `historical v016 route closed; active v017/v007/v005/v012
+contracts confirmed; next is a separately authorized Recovery-Aware
+Engineering Plan`.

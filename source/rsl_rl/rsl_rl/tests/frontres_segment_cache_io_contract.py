@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import importlib.util
 import json
@@ -8,6 +9,8 @@ import sys
 import tempfile
 
 import torch
+
+from rsl_rl.frontres.frontres_segment_cache_schema import build_clean_segment_artifact
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -181,6 +184,102 @@ def test_cache_io_round_trips_clean_and_noisy_shards() -> None:
             assert after.noisy_state.root_pos.requires_grad is False
 
 
+def test_v017_clean_artifact_owns_exact_k_slice_identity_and_round_trip() -> None:
+    segment = FrontRESSegmentIndex(
+        segment_id=42,
+        motion_rel_path="source_a/motion.npz",
+        motion_num_frames=10,
+        fps=30.0,
+        start_frame=2,
+        horizon_k=3,
+    )
+    state = _state(0.0)
+    source_frames = torch.arange(10, dtype=torch.float32)[:, None].repeat(1, 65)
+    expected_support = torch.tensor([[1.0, 1.0], [1.0, 0.0], [0.0, 1.0]])
+    expected_envelope = torch.arange(18, dtype=torch.float32).reshape(3, 6)
+    artifact = build_clean_segment_artifact(
+        segment=segment,
+        clean_state=state,
+        source_identity=segment.motion_rel_path,
+        clean_continuation=source_frames[3:6],
+        expected_support=expected_support,
+        expected_support_envelope=expected_envelope,
+    )
+    entry = FrontRESCleanStateEntry(segment=segment, clean_state=state, clean_artifact=artifact)
+    entry.validate(require_v017_artifact=True)
+    source_frames[3:6].fill_(-999.0)
+    torch.testing.assert_close(artifact.clean_continuation[:, 0], torch.tensor([3.0, 4.0, 5.0]))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        manifest = cache_io.write_clean_state_shard(Path(tmp), [entry], shard_id=0)
+        loaded = cache_io.read_clean_state_shard(manifest)[0]
+    loaded.validate(require_v017_artifact=True)
+    assert loaded.clean_artifact is not None
+    assert loaded.clean_artifact.artifact_hash == artifact.artifact_hash
+    assert loaded.clean_artifact.x_t_identity == artifact.x_t_identity
+    torch.testing.assert_close(loaded.clean_artifact.clean_continuation, artifact.clean_continuation)
+    torch.testing.assert_close(loaded.clean_artifact.expected_support, expected_support)
+    torch.testing.assert_close(loaded.clean_artifact.expected_support_envelope, expected_envelope)
+
+    other_source = build_clean_segment_artifact(
+        segment=segment,
+        clean_state=state,
+        source_identity="source_b/motion.npz",
+        clean_continuation=artifact.clean_continuation,
+        expected_support=expected_support,
+        expected_support_envelope=expected_envelope,
+    )
+    assert other_source.artifact_hash != artifact.artifact_hash
+    assert other_source.x_t_identity != artifact.x_t_identity
+
+
+def test_v017_clean_artifact_rejects_missing_or_short_evidence() -> None:
+    segment = FrontRESSegmentIndex(
+        segment_id=43,
+        motion_rel_path="source/motion.npz",
+        motion_num_frames=10,
+        fps=30.0,
+        start_frame=2,
+        horizon_k=3,
+    )
+    missing = FrontRESCleanStateEntry(segment=segment, clean_state=_state(0.0))
+    try:
+        missing.validate(require_v017_artifact=True)
+    except ValueError as exc:
+        assert "requires immutable K-step artifact" in str(exc)
+    else:
+        raise AssertionError("active cache entry must reject missing Clean continuation/support")
+
+    try:
+        build_clean_segment_artifact(
+            segment=segment,
+            clean_state=_state(0.0),
+            source_identity=segment.motion_rel_path,
+            clean_continuation=torch.zeros(2, 65),
+            expected_support=torch.ones(3, 2),
+            expected_support_envelope=torch.zeros(3, 6),
+        )
+    except ValueError as exc:
+        assert "clean_continuation" in str(exc)
+    else:
+        raise AssertionError("short Clean continuation must fail closed")
+
+    valid = build_clean_segment_artifact(
+        segment=segment,
+        clean_state=_state(0.0),
+        source_identity=segment.motion_rel_path,
+        clean_continuation=torch.zeros(3, 65),
+        expected_support=torch.ones(3, 2),
+        expected_support_envelope=torch.zeros(3, 6),
+    )
+    try:
+        replace(valid, x_t_identity="").validate()
+    except ValueError as exc:
+        assert "x_t_identity" in str(exc)
+    else:
+        raise AssertionError("empty replay-state identity must fail closed")
+
+
 def test_cache_io_rejects_id_drift_before_write() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         cache_dir = Path(tmp) / "frontres_segment_cache"
@@ -314,6 +413,8 @@ def test_stage1_resume_scan_uses_manifest_commits_not_tmp_or_progress() -> None:
 
 if __name__ == "__main__":
     test_cache_io_round_trips_clean_and_noisy_shards()
+    test_v017_clean_artifact_owns_exact_k_slice_identity_and_round_trip()
+    test_v017_clean_artifact_rejects_missing_or_short_evidence()
     test_cache_io_rejects_id_drift_before_write()
     test_shard_lru_limits_resident_payloads()
     test_stage1_resume_scan_uses_manifest_commits_not_tmp_or_progress()

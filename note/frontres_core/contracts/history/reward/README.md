@@ -6,5 +6,7 @@
 | `FRS-GAIN-v002` | superseded | `FRS-GAIN-v003` |
 | `FRS-GAIN-v003` | superseded | `FRS-GAIN-v004` |
 | `FRS-GAIN-v004` | superseded | `FRS-GAIN-v005` |
+| `FRS-GAIN-v005` | superseded | `FRS-GAIN-v006` |
+| `FRS-GAIN-v006` | superseded | `FRS-GAIN-v007` |
 
 Read the active registry before using any historical reward contract.

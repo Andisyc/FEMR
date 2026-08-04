@@ -2,37 +2,15 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-import importlib.util
 from pathlib import Path
-import sys
 from typing import Any
 
-
-def _load_same_dir(module_name: str):
-    path = Path(__file__).with_name(f"{module_name}.py")
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        raise ModuleNotFoundError(module_name)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-try:
-    from rsl_rl.frontres.frontres_segment_cache_indexer import read_amass_segment_index
-    from rsl_rl.frontres.frontres_segment_cache_io import (
-        read_cache_metadata,
-        read_clean_state_shard,
-        read_noisy_variant_shard,
-    )
-except ModuleNotFoundError:
-    _indexer = _load_same_dir("frontres_segment_cache_indexer")
-    _cache_io = _load_same_dir("frontres_segment_cache_io")
-    read_amass_segment_index = _indexer.read_amass_segment_index
-    read_cache_metadata = _cache_io.read_cache_metadata
-    read_clean_state_shard = _cache_io.read_clean_state_shard
-    read_noisy_variant_shard = _cache_io.read_noisy_variant_shard
+from rsl_rl.frontres.frontres_segment_cache_indexer import read_amass_segment_index
+from rsl_rl.frontres.frontres_segment_cache_io import (
+    read_cache_metadata,
+    read_clean_state_shard,
+    read_noisy_variant_shard,
+)
 
 
 @dataclass(frozen=True)

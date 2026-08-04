@@ -10,6 +10,7 @@ import torch
 
 FRONTRES_FUTURE_INTENT_LAYOUT_VERSION = "frontres-v015-future-intent-q29-v1"
 FRONTRES_FUTURE_INTENT_DIM = 29
+FRONTRES_FUTURE_INTENT_OFFSETS = (1, 2)
 FRONTRES_V015_GMT_SUFFIX_DIM = 770
 
 
@@ -34,19 +35,15 @@ class FrontRESFutureIntentLayout:
                 "FrontRES future-intent layout version must be "
                 f"{FRONTRES_FUTURE_INTENT_LAYOUT_VERSION!r}, got {self.version!r}"
             )
-        if not self.future_offsets:
-            raise ValueError("FrontRES future-intent layout requires nonempty future offsets")
-        if any(int(offset) <= 0 for offset in self.future_offsets):
-            raise ValueError(f"FrontRES future-intent offsets must be positive, got {self.future_offsets}")
-        if tuple(sorted(set(int(offset) for offset in self.future_offsets))) != tuple(self.future_offsets):
+        if tuple(self.future_offsets) != FRONTRES_FUTURE_INTENT_OFFSETS:
             raise ValueError(
-                "FrontRES future-intent offsets must be strictly ordered and unique, "
-                f"got {self.future_offsets}"
+                "FrontRES future-intent layout requires exact deployment offsets "
+                f"{FRONTRES_FUTURE_INTENT_OFFSETS}, got {self.future_offsets}"
             )
 
 
 @dataclass(frozen=True)
-class FrontRESV015ObservationAuthority:
+class FrontRESActiveObservationAuthority:
     """Resolved v015 split between deployable FEMR context and frozen GMT input."""
 
     environment_obs_dim: int
@@ -84,10 +81,10 @@ def resolve_frontres_v015_observation_authority(
     configured_frontres_prefix_dim: int,
     actor_tail_dim: int,
     gmt_suffix_dim: int = FRONTRES_V015_GMT_SUFFIX_DIM,
-) -> FrontRESV015ObservationAuthority:
+) -> FrontRESActiveObservationAuthority:
     """Resolve the fail-closed v015 ``[FEMR prefix | GMT suffix]`` layout."""
 
-    authority = FrontRESV015ObservationAuthority(
+    authority = FrontRESActiveObservationAuthority(
         environment_obs_dim=int(environment_obs_dim),
         current_frontres_prefix_dim=int(configured_frontres_prefix_dim),
         actor_tail_dim=int(actor_tail_dim),

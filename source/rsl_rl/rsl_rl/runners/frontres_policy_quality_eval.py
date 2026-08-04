@@ -8,9 +8,7 @@ import copy
 import hashlib
 import json
 from pathlib import Path
-import pickle
-import random
-from typing import Any, Callable, Literal, Mapping
+from typing import Any, Callable, Mapping
 
 import numpy as np
 import torch
@@ -21,154 +19,23 @@ from rsl_rl.frontres.frontres_policy_quality_manifest import (
     FrontRESPolicyQualityStateIdentity,
     FrontRESV015PolicyQualityManifest,
 )
-
-
-_COMMAND_STATE_FIELDS = (
-    "time_steps",
-    "env_motion_indices",
-    "_cached_perturbed_pos",
-    "_cached_perturbed_quat",
-    "_frontres_pos_correction",
-    "_frontres_quat_correction",
+from rsl_rl.runners.frontres_policy_quality_interfaces import (
+    FrontRESPolicyQualityEvalRequest,
+    FrontRESPolicyQualityFormalOwnerBundle,
+    FrontRESPolicyQualityObservationIdentity,
+    FrontRESPolicyQualityRouteHooks,
+    FrontRESPolicyQualityRouteResult,
 )
-
-_LOCAL_SCENARIO_LIFECYCLE_FIELDS = (
-    "_frontres_local_scenario_active",
-    "_frontres_local_scenario_current_frame_ready",
-    "_frontres_local_scenario_k_execution_active",
-    "_frontres_local_scenario_k_execution_cursor",
+from rsl_rl.runners.frontres_policy_quality_legacy import run_frontres_policy_quality_counterfactuals
+from rsl_rl.runners.frontres_policy_quality_state import (
+    FrontRESPolicyQualityScoringState,
+    FrontRESPolicyQualityTensorImage,
+    capture_frontres_policy_quality_state,
+    resolve_frontres_policy_quality_command,
+    resolve_frontres_policy_quality_envs,
+    restore_frontres_policy_quality_state,
 )
-
-
-def _policy_quality_command_state_fields(command: Any) -> tuple[str, ...]:
-    """Include route-local scenario clocks whenever a sealed scenario is active."""
-
-    active = getattr(command, "_frontres_local_scenario_active", None)
-    if not isinstance(active, torch.Tensor) or not bool(active.any().item()):
-        return _COMMAND_STATE_FIELDS
-    if active.ndim != 1 or not bool(active.all().item()):
-        raise RuntimeError("policy-quality state requires one transaction-wide active local scenario")
-    for name in _LOCAL_SCENARIO_LIFECYCLE_FIELDS:
-        value = getattr(command, name, None)
-        if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.shape[0]) != int(active.shape[0]):
-            raise RuntimeError(f"policy-quality local-scenario lifecycle field is invalid: {name}")
-    return (*_COMMAND_STATE_FIELDS, *_LOCAL_SCENARIO_LIFECYCLE_FIELDS)
-
-
-@dataclass(frozen=True)
-class _TensorImage:
-    dtype: str
-    shape: tuple[int, ...]
-    data: bytes
-
-    @classmethod
-    def capture(cls, tensor: torch.Tensor) -> _TensorImage:
-        value = tensor.detach().contiguous().cpu()
-        return cls(dtype=str(value.dtype), shape=tuple(value.shape), data=value.numpy().tobytes(order="C"))
-
-    def restore(self, *, device: torch.device | str) -> torch.Tensor:
-        dtype_name = self.dtype.removeprefix("torch.")
-        dtype = getattr(torch, dtype_name, None)
-        if not isinstance(dtype, torch.dtype):
-            raise ValueError(f"unsupported snapshot dtype: {self.dtype}")
-        value = torch.frombuffer(bytearray(self.data), dtype=dtype).clone()
-        return value.reshape(self.shape).to(device=device)
-
-    def update_hash(self, digest: Any, *, name: str) -> None:
-        digest.update(name.encode("utf-8"))
-        digest.update(self.dtype.encode("ascii"))
-        digest.update(repr(self.shape).encode("ascii"))
-        digest.update(self.data)
-
-
-@dataclass(frozen=True)
-class FrontRESPolicyQualityScoringState:
-    comparison_signature: str
-    env_ids: tuple[int, ...]
-    role_layout: tuple[str, ...]
-    root_state_w: _TensorImage
-    joint_pos: _TensorImage
-    joint_vel: _TensorImage
-    env_origins: _TensorImage
-    episode_length: _TensorImage
-    command_state: tuple[tuple[str, _TensorImage], ...]
-    perturber_state: tuple[tuple[str, _TensorImage], ...]
-    python_rng_state: bytes
-    numpy_rng_state: bytes
-    torch_rng_state: _TensorImage
-    cuda_rng_state: tuple[_TensorImage, ...]
-
-    @property
-    def initial_state_hash(self) -> str:
-        digest = hashlib.sha256()
-        digest.update(self.comparison_signature.encode("ascii"))
-        digest.update(repr(self.env_ids).encode("ascii"))
-        digest.update(repr(self.role_layout).encode("utf-8"))
-        for name, image in (
-            ("root_state_w", self.root_state_w),
-            ("joint_pos", self.joint_pos),
-            ("joint_vel", self.joint_vel),
-            ("env_origins", self.env_origins),
-            ("episode_length", self.episode_length),
-            *self.command_state,
-            *self.perturber_state,
-            ("torch_rng_state", self.torch_rng_state),
-        ):
-            image.update_hash(digest, name=name)
-        for index, image in enumerate(self.cuda_rng_state):
-            image.update_hash(digest, name=f"cuda_rng_state[{index}]")
-        digest.update(self.python_rng_state)
-        digest.update(self.numpy_rng_state)
-        return digest.hexdigest()
-
-    @property
-    def state_identity(self) -> FrontRESPolicyQualityStateIdentity:
-        return FrontRESPolicyQualityStateIdentity(
-            comparison_signature=self.comparison_signature,
-            initial_state_hash=self.initial_state_hash,
-        )
-
-
-@dataclass(frozen=True)
-class FrontRESPolicyQualityObservationIdentity:
-    expected_obs_dim: int
-    actor_input_dim: int
-    normalizer_identity: str
-
-    def __post_init__(self) -> None:
-        if self.expected_obs_dim <= 0 or not 0 < self.actor_input_dim <= self.expected_obs_dim:
-            raise ValueError("quality observation dimensions must satisfy 0 < actor_input_dim <= expected_obs_dim")
-        if not self.normalizer_identity.strip():
-            raise ValueError("normalizer_identity must be explicit")
-
-
-@dataclass(frozen=True)
-class FrontRESPolicyQualityRouteResult:
-    identity: FrontRESPolicyQualityRouteIdentity
-    observation_identity: FrontRESPolicyQualityObservationIdentity
-    actions: torch.Tensor
-    gain: Any
-    execution: Any
-
-
-@dataclass(frozen=True)
-class FrontRESPolicyQualityRouteHooks:
-    observe: Callable[[], torch.Tensor]
-    apply_action: Callable[[torch.Tensor], Any]
-    step: Callable[[], Any]
-    compute_gain: Callable[[], Any]
-    capture_execution: Callable[[], Any]
-    begin_route: Callable[[str], None] | None = None
-    set_audit_identity: Callable[[Mapping[str, str]], None] | None = None
-
-
-@dataclass(frozen=True)
-class FrontRESPolicyQualityEvalRequest:
-    manifest_path: str
-    hsl_checkpoint_path: str
-    policy_checkpoint_path: str
-    result_path: str
-    manifest: FrontRESPolicyQualityManifest
+from rsl_rl.runners.frontres_evaluation_reporting import write_frontres_atomic_json
 
 
 @dataclass(frozen=True)
@@ -219,6 +86,7 @@ class FrontRESV015DynamicStateIdentity:
     field_hashes: tuple[tuple[str, str], ...]
 
     def validate(self) -> None:
+        # B1: 校验 comparison, role layout 与 field hashes, 产出完整 dynamic-state identity.
         if (
             len(self.comparison_signature) != 64
             or any(char not in "0123456789abcdef" for char in self.comparison_signature)
@@ -237,6 +105,7 @@ class FrontRESV015DynamicStateIdentity:
 
     @property
     def full_state_hash(self) -> str:
+        # B1: 归约有序 field hashes, 产出 route-start 的整体状态哈希.
         self.validate()
         digest = hashlib.sha256()
         digest.update(self.comparison_signature.encode("ascii"))
@@ -269,6 +138,7 @@ class FrontRESV015PolicyQualityOwnerBundle:
     training_state_signature: Callable[[Any], str]
 
     def __post_init__(self) -> None:
+        # B1: 校验 owner bundle callbacks 与 immutable identity, 产出可执行 dependency set.
         if tuple(self.owner_identity) != _V015_QUALITY_OWNER_IDENTITY:
             raise ValueError("v015 quality owner identity must name only the active reset/observation/one-action-K/v003 path")
         if (
@@ -290,6 +160,7 @@ class FrontRESV015PolicyQualityRouteEvidence:
     dynamic_state_identity: FrontRESV015DynamicStateIdentity
 
     def validate(self) -> None:
+        # B1: 校验 route/checkpoint/scenario 与 one-action-K fields, 产出 matched route record.
         if self.route not in _V015_QUALITY_ROUTES:
             raise ValueError("v015 quality route evidence has an invalid route")
         if self.route == "zero":
@@ -329,6 +200,7 @@ def install_frontres_v015_policy_quality_owner_bundle(
     runner: Any,
     bundle: FrontRESV015PolicyQualityOwnerBundle,
 ) -> None:
+    # B1: 验证 bundle 类型并安装到 runner, 产出唯一 policy-quality owner binding.
     """Install one immutable S2 connector; legacy executor attributes are ignored."""
 
     if not isinstance(bundle, FrontRESV015PolicyQualityOwnerBundle):
@@ -339,6 +211,7 @@ def install_frontres_v015_policy_quality_owner_bundle(
 
 
 def _v015_quality_hash_state(digest: Any, value: Any) -> None:
+    # B1: 按稳定类型递归编码 state value, 更新 deterministic SHA-256 digest.
     if isinstance(value, torch.Tensor):
         tensor = value.detach().to(device="cpu").contiguous()
         digest.update(str(tuple(tensor.shape)).encode("ascii"))
@@ -357,17 +230,18 @@ def _v015_quality_hash_state(digest: Any, value: Any) -> None:
 
 
 def _v015_quality_field_hash(name: str, value: Any) -> str:
+    # B1: 将字段名和值共同编码, 产出避免跨字段碰撞的 state hash.
     digest = hashlib.sha256()
     digest.update(name.encode("ascii"))
-    if isinstance(value, _TensorImage):
+    if isinstance(value, FrontRESPolicyQualityTensorImage):
         value.update_hash(digest, name=name)
     elif isinstance(value, bytes):
         digest.update(value)
-    elif isinstance(value, tuple) and all(isinstance(item, _TensorImage) for item in value):
+    elif isinstance(value, tuple) and all(isinstance(item, FrontRESPolicyQualityTensorImage) for item in value):
         for index, image in enumerate(value):
             image.update_hash(digest, name=f"{name}[{index}]")
     elif isinstance(value, tuple) and all(
-        isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], _TensorImage)
+        isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], FrontRESPolicyQualityTensorImage)
         for item in value
     ):
         for field_name, image in value:
@@ -379,6 +253,7 @@ def _v015_quality_field_hash(name: str, value: Any) -> str:
 
 @contextmanager
 def _frontres_v015_quality_inference_mode(runner: Any):
+    # B1: 捕获并冻结 policy/normalizer modes, 产出可恢复的 inference-only context.
     """Freeze every observation/policy module mode for held-out inference.
 
     Directly restoring each submodule flag preserves mixed source modes such
@@ -408,6 +283,7 @@ def _frontres_v015_quality_inference_mode(runner: Any):
 
 
 def _v015_quality_training_state_signature(runner: Any) -> str:
+    # B1: 哈希 model/optimizer/sampler/normalizer/transaction facts, 产出零写入签名.
     """Hash every mutable training owner while excluding physical env state."""
 
     digest = hashlib.sha256()
@@ -440,8 +316,8 @@ def _v015_quality_training_state_signature(runner: Any) -> str:
             "sampler",
             getattr(getattr(runner, "_frontres_segment_sampler", None), "state_dict", lambda: {})(),
         ),
-        ("transaction", getattr(runner, "_frontres_v015_checkpoint_transaction_state", None)),
-        ("receipt", getattr(runner, "_frontres_v015_last_committed_transaction_receipt", None)),
+        ("transaction", getattr(runner, "_frontres_checkpoint_transaction_state", None)),
+        ("receipt", getattr(runner, "_frontres_last_committed_transaction_receipt", None)),
         ("warmup", getattr(runner, "_frontres_warmup_complete", None)),
         ("iteration", getattr(runner, "current_learning_iteration", None)),
     ):
@@ -456,18 +332,19 @@ def build_frontres_v015_policy_quality_owner_bundle(
 ) -> FrontRESV015PolicyQualityOwnerBundle:
     """Bind the formal runner to existing v015 scenario, reset, K, and Gain owners."""
 
+    # B1: 验证 strict request 与 4 Repair + 4 Noisy layout, 产出唯一 held-out owner context.
     if not isinstance(request, FrontRESV015PolicyQualityEvalRequest):
         raise TypeError("formal v015 quality owner requires the strict request")
-    if not bool(getattr(getattr(runner, "alg", None), "frontres_v015_formal_transaction_enabled", False)):
+    if not bool(getattr(getattr(runner, "alg", None), "frontres_formal_transaction_enabled", False)):
         raise RuntimeError("formal v015 quality owner requires the active grouped transaction configuration")
-    from rsl_rl.runners.frontres_checkpointing import frontres_v015_quality_route_actor
-    from rsl_rl.runners.frontres_segment_live_probe import (
-        _apply_current_segment_reset,
-        _read_live_observations,
+    from rsl_rl.runners.frontres_checkpointing import frontres_quality_route_actor
+    from rsl_rl.runners.frontres_segment_live_reset import apply_frontres_current_segment_reset
+    from rsl_rl.runners.frontres_segment_one_action_k import (
         collect_frontres_v015_one_action_k_evidence,
+        read_frontres_live_observations,
     )
     from rsl_rl.runners.frontres_segment_live_sampler import (
-        _close_frontres_local_scenarios,
+        close_frontres_local_scenarios,
         prepare_frontres_v015_policy_quality_item_batch,
     )
     from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layout
@@ -480,6 +357,7 @@ def build_frontres_v015_policy_quality_owner_bundle(
         or int(getattr(pair_layout, "n_clean", 0)) != 0
     ):
         raise RuntimeError("formal v015 held-out quality requires exactly 4 Repair + 4 Noisy rows")
+    # B2: 建立 request-scoped item caches, 产出 route-start 与 sealed batch lifecycle state.
     item_batches: dict[str, Any] = {}
     item_route_starts: dict[
         str,
@@ -488,7 +366,9 @@ def build_frontres_v015_policy_quality_owner_bundle(
     route_start_roles = ("repair",) * 4 + ("noisy",) * 4
     route_start_env_ids = tuple(range(8))
 
+    # B3: 对每个 manifest item 恢复同一 route-start, 产出 zero/HSL/policy one-action-K evidence.
     def collect_one_action_k(_runner: Any, item: Any, route: str) -> FrontRESV015PolicyQualityRouteEvidence:
+        # B1: materialize 或复用 sealed item, 恢复 matched route-start 并收集 K evidence.
         if _runner is not runner or route not in _V015_QUALITY_ROUTES:
             raise RuntimeError("v015 quality owner received a mixed runner or route identity")
         signature = str(item.comparison_signature)
@@ -500,7 +380,7 @@ def build_frontres_v015_policy_quality_owner_bundle(
         runner._frontres_segment_live_current_sample = prepared.sample
         route_start = item_route_starts.get(signature)
         if route_start is None:
-            reset = _apply_current_segment_reset(runner, pair_layout=pair_layout)
+            reset = apply_frontres_current_segment_reset(runner, pair_layout=pair_layout)
             if reset is None or not bool(reset.success_mask.detach().bool().all().item()):
                 raise RuntimeError("v015 held-out quality failed to restore the sealed Clean x_t")
             snapshot = capture_frontres_policy_quality_state(
@@ -541,7 +421,7 @@ def build_frontres_v015_policy_quality_owner_bundle(
                 "v015 quality route-start restore did not reproduce the sealed dynamic state: "
                 f"route={route} differing_fields={differing}"
             )
-        observations = _read_live_observations(runner)
+        observations = read_frontres_live_observations(runner)
         checkpoint_sha = {
             "zero": "zero",
             "hsl": request.hsl_checkpoint.file_sha256,
@@ -560,7 +440,7 @@ def build_frontres_v015_policy_quality_owner_bundle(
                     pair_layout=pair_layout,
                 )
             else:
-                with frontres_v015_quality_route_actor(
+                with frontres_quality_route_actor(
                     runner,
                     checkpoint_path,
                     route=route,
@@ -574,6 +454,7 @@ def build_frontres_v015_policy_quality_owner_bundle(
         finally:
             if hasattr(runner, "_frontres_v015_quality_action_route"):
                 delattr(runner, "_frontres_v015_quality_action_route")
+        # B2: 绑定 route/checkpoint/scenario identities, 产出 immutable route evidence.
         return FrontRESV015PolicyQualityRouteEvidence(
             route=route,
             checkpoint_file_sha256=checkpoint_sha,
@@ -582,7 +463,9 @@ def build_frontres_v015_policy_quality_owner_bundle(
             dynamic_state_identity=dynamic_state_identity,
         )
 
+    # B4: 关闭 item-owned scenario/batch 并清除 runner projection, 产出无残留的 evaluation lifecycle.
     def close_item(_runner: Any, item: Any) -> None:
+        # B1: 关闭 command carrier, batch 与 runner projections, 清理 item lifecycle.
         """Close one manifest item's command carrier after all counterfactual routes."""
 
         if _runner is not runner:
@@ -603,32 +486,19 @@ def build_frontres_v015_policy_quality_owner_bundle(
             clear()
         finally:
             try:
-                _close_frontres_local_scenarios(prepared.batch)
+                close_frontres_local_scenarios(prepared.batch)
             finally:
                 if getattr(runner, "_frontres_segment_live_current_batch", None) is prepared.batch:
                     runner._frontres_segment_live_current_batch = None
                     runner._frontres_segment_live_current_sample = None
 
+    # B5: 将 request-bound callbacks 封装为 owner bundle, 产出本次 evaluation 的执行接口.
     return FrontRESV015PolicyQualityOwnerBundle(
         owner_identity=_V015_QUALITY_OWNER_IDENTITY,
         collect_one_action_k=collect_one_action_k,
         close_item=close_item,
         training_state_signature=_v015_quality_training_state_signature,
     )
-
-
-@dataclass(frozen=True)
-class FrontRESPolicyQualityFormalOwnerBundle:
-    owner_identity: tuple[tuple[str, str], ...]
-    prepare_item: Callable[[Any, Any, FrontRESPolicyQualityEvalRequest], tuple[Any, Any, Any]]
-    isolation_state: Callable[[Any], str]
-    serialize_result: Callable[[Any, tuple[FrontRESPolicyQualityRouteResult, ...]], Mapping[str, Any]]
-
-    def __post_init__(self) -> None:
-        owners = dict(self.owner_identity)
-        required = {"reset", "observation", "action", "rollout", "gain", "execution"}
-        if set(owners) != required or any(not str(value).strip() for value in owners.values()):
-            raise ValueError(f"quality formal owner bundle must name exactly {sorted(required)}")
 
 
 def install_frontres_policy_quality_manifest_executor(
@@ -645,6 +515,7 @@ def install_frontres_policy_quality_manifest_executor(
         raise RuntimeError("policy-quality manifest executor is already configured")
 
     def execute(request: FrontRESPolicyQualityEvalRequest) -> dict[str, Any]:
+        # B1: 将 legacy manifest request 交给显式 owner bundle, 产出兼容 quality payload.
         isolated_before = owners.isolation_state(runner)
         rows: list[Mapping[str, Any]] = []
         for item in request.manifest.items:
@@ -667,13 +538,7 @@ def install_frontres_policy_quality_manifest_executor(
             "owner_identity": dict(owners.owner_identity),
             "rows": rows,
         }
-        result_path = Path(request.result_path)
-        temporary = result_path.with_suffix(result_path.suffix + ".tmp")
-        temporary.write_text(
-            json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False),
-            encoding="utf-8",
-        )
-        temporary.replace(result_path)
+        write_frontres_atomic_json(request.result_path, payload, compact=True)
         return payload
 
     runner._frontres_policy_quality_manifest_executor = execute
@@ -686,6 +551,7 @@ def build_frontres_policy_quality_eval_request(
     policy_checkpoint_path: str,
     result_path: str,
 ) -> FrontRESPolicyQualityEvalRequest:
+    # B1: 解析 legacy manifest/checkpoint/report paths, 产出 fail-closed request identity.
     paths = {
         "manifest_path": Path(manifest_path).expanduser().resolve(),
         "hsl_checkpoint_path": Path(hsl_checkpoint_path).expanduser().resolve(),
@@ -716,6 +582,7 @@ def build_frontres_v015_policy_quality_eval_request(
     policy_checkpoint_path: str,
     result_path: str,
 ) -> FrontRESV015PolicyQualityEvalRequest:
+    # B1: 解析 v015 manifest 与 strict checkpoint identities, 产出 immutable request.
     """Inspect strict v015 artifacts and freeze their identities without restoring state."""
 
     paths = {
@@ -734,10 +601,10 @@ def build_frontres_v015_policy_quality_eval_request(
 
     manifest_bytes = paths["manifest_path"].read_bytes()
     manifest = FrontRESV015PolicyQualityManifest.from_json(manifest_bytes.decode("utf-8"))
-    from rsl_rl.runners.frontres_checkpointing import inspect_frontres_v015_quality_checkpoint
+    from rsl_rl.runners.frontres_checkpointing import inspect_frontres_quality_checkpoint
 
-    hsl = inspect_frontres_v015_quality_checkpoint(paths["hsl_checkpoint_path"], route="hsl")
-    policy = inspect_frontres_v015_quality_checkpoint(paths["policy_checkpoint_path"], route="policy")
+    hsl = inspect_frontres_quality_checkpoint(paths["hsl_checkpoint_path"], route="hsl")
+    policy = inspect_frontres_quality_checkpoint(paths["policy_checkpoint_path"], route="policy")
     expected_layout = {
         "layout_version": manifest.future_intent_layout_version,
         "future_offsets": manifest.future_offsets,
@@ -764,6 +631,7 @@ def build_frontres_v015_policy_quality_eval_request(
         or policy.ppo_contract_id != manifest.ppo_contract_id
     ):
         raise ValueError("v015 policy-quality manifest and checkpoint contract/action identities are mixed")
+    # B2: 绑定 comparison signature 与 output boundary, 产出经 validate 的 request.
     return FrontRESV015PolicyQualityEvalRequest(
         manifest_path=str(paths["manifest_path"]),
         hsl_checkpoint_path=str(paths["hsl_checkpoint_path"]),
@@ -777,6 +645,7 @@ def build_frontres_v015_policy_quality_eval_request(
 
 
 def _v015_quality_json_tensor(value: torch.Tensor) -> Any:
+    # B1: 将 detached tensor tree 转为 finite JSON values, 产出 serializer-safe payload.
     """Serialize finite values and preserve unavailable values as null, never zero."""
 
     def convert(item: Any) -> Any:
@@ -789,6 +658,7 @@ def _v015_quality_json_tensor(value: torch.Tensor) -> Any:
 
 
 def _v015_quality_require_same_scenario(anchor: Any, candidate: Any) -> None:
+    # B1: 比较 route 的 scenario/state identities, 拒绝 mixed held-out evidence.
     scalar_identity = (
         "scenario_ids",
         "noisy_segment_hashes",
@@ -820,15 +690,16 @@ def _v015_quality_route_result(
     checkpoint_file_sha256: str,
     dynamic_state_identity: FrontRESV015DynamicStateIdentity,
 ) -> dict[str, Any]:
+    # B1: 归约 action, Intent 与 phase-Physics evidence, 产出单 route report row.
     """Consume one-action evidence through the active v003 Gain owner only."""
 
-    from rsl_rl.frontres.frontres_gain import (
+    from rsl_rl.frontres.frontres_gain_legacy import (
         FrontRESIntentPhysicsGainConfig,
         FrontRESIntentPhysicsGainInput,
         compute_intent_physics_local_repair_gain,
         evaluate_phase_conditioned_physics,
     )
-    from rsl_rl.frontres.frontres_segment_storage import (
+    from rsl_rl.frontres.frontres_segment_evidence_legacy import (
         FrontRESV015OneActionKEvidence,
         pair_frontres_v015_gain_facts,
     )
@@ -876,6 +747,7 @@ def _v015_quality_route_result(
     valid = facts.intent_valid_mask.bool() & gain.available.bool()
     if not bool(valid.any().item()):
         raise RuntimeError("v015 quality route has no valid v006 objective/constraint row")
+    # B2: 投影 v003 Gain components 与 one-action-K trajectory, 产出 route quality metrics.
     components = {
         name: torch.where(valid, getattr(gain, name).detach().float(), torch.full_like(gain.gain_total, float("nan")))
         for name in (
@@ -920,6 +792,7 @@ def _v015_quality_route_result(
         "expected_support_steps": evidence.physics_expected_support_steps,
         "valid_steps": pair_valid,
     }
+    # B3: 按 expected Contact phase 计算 Repair/Noisy ZMP 与 recovery evidence.
     repaired_phase = evaluate_phase_conditioned_physics(
         actual_contact_steps=evidence.physics_contact_repaired_steps,
         zmp_margin_steps=evidence.physics_zmp_repaired_steps,
@@ -959,6 +832,7 @@ def _v015_quality_route_result(
         finite = torch.isfinite(value)
         if not bool(finite[pair_valid].all()) or bool(finite[~pair_valid].any()):
             raise RuntimeError(f"v015 quality {name} lateral-lean trajectory has invalid mask semantics")
+    # B4: 序列化 action, Intent, Contact, ZMP, survival 与 lean, 产出 report row.
     return {
         "route": route,
         "checkpoint_file_sha256": checkpoint_file_sha256,
@@ -1015,6 +889,7 @@ def run_frontres_v015_policy_quality_heldout_eval(
     request: FrontRESV015PolicyQualityEvalRequest,
     owners: FrontRESV015PolicyQualityOwnerBundle,
 ) -> dict[str, Any]:
+    # B1: 在可恢复 inference mode 中执行 matched evaluator, 产出零写入 report.
     """Run all held-out routes under one reversible inference-mode boundary."""
 
     with _frontres_v015_quality_inference_mode(runner):
@@ -1037,6 +912,7 @@ def _run_frontres_v015_policy_quality_heldout_eval_inference(
     Full-state live equality and policy quality remain separate S4 evidence.
     """
 
+    # B1: 验证 request/owners 并封存训练状态, 产出三条 route 的共同比较边界.
     if not isinstance(request, FrontRESV015PolicyQualityEvalRequest):
         raise TypeError("v015 held-out quality requires the strict G5-S2A request")
     if not isinstance(owners, FrontRESV015PolicyQualityOwnerBundle):
@@ -1048,6 +924,7 @@ def _run_frontres_v015_policy_quality_heldout_eval_inference(
         "policy": request.policy_checkpoint.file_sha256,
     }
     item_rows: list[dict[str, Any]] = []
+    # B2: 每个 item 执行 matched zero/HSL/policy, 产出 identity-checked route rows.
     for item in request.manifest.items:
         anchor = None
         dynamic_state_anchor = None
@@ -1101,6 +978,7 @@ def _run_frontres_v015_policy_quality_heldout_eval_inference(
             owners.close_item(runner, item)
         if str(owners.training_state_signature(runner)) != baseline_state:
             raise RuntimeError("v015 quality item close mutated training state")
+        # B3: 将三条 route 的 matched evidence 固化为一个 item row, 保留 checkpoint 与 state identity.
         item_rows.append(
             {
                 "item_id": item.item_id,
@@ -1108,6 +986,7 @@ def _run_frontres_v015_policy_quality_heldout_eval_inference(
                 "routes": routes,
             }
         )
+    # B4: 聚合 immutable quality rows 并原子写入, 产出不反馈训练的 report artifact.
     payload = {
         "schema_version": _V015_QUALITY_REPORT_SCHEMA,
         "manifest_file_sha256": request.manifest_file_sha256,
@@ -1116,17 +995,7 @@ def _run_frontres_v015_policy_quality_heldout_eval_inference(
         "owner_identity": dict(owners.owner_identity),
         "items": item_rows,
     }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    output = Path(request.result_path)
-    temporary = output.with_suffix(output.suffix + ".tmp")
-    if temporary.exists():
-        raise RuntimeError(f"v015 quality atomic report temp path already exists: {temporary}")
-    try:
-        temporary.write_text(encoded, encoding="utf-8")
-        temporary.replace(output)
-    except Exception:
-        temporary.unlink(missing_ok=True)
-        raise
+    write_frontres_atomic_json(request.result_path, payload, compact=True)
     return payload
 
 
@@ -1138,29 +1007,49 @@ def run_frontres_policy_quality_eval(
     policy_checkpoint_path: str,
     result_path: str,
 ) -> Any:
-    """Validate the dedicated request, then delegate only to the quality execution owner."""
-    if bool(getattr(getattr(runner, "alg", None), "frontres_v015_formal_transaction_enabled", False)):
-        request = build_frontres_v015_policy_quality_eval_request(
-            manifest_path=manifest_path,
-            hsl_checkpoint_path=hsl_checkpoint_path,
-            policy_checkpoint_path=policy_checkpoint_path,
-            result_path=result_path,
+    """Run only the active v015 evaluator; legacy routes are explicit and separate."""
+
+    # B1: 验证 formal transaction 并构造 strict request, 产出本次 quality evaluation identity.
+    if not bool(getattr(getattr(runner, "alg", None), "frontres_formal_transaction_enabled", False)):
+        raise RuntimeError(
+            "active policy-quality evaluation requires the v015 formal transaction route; "
+            "legacy evaluation must use run_frontres_legacy_policy_quality_eval explicitly"
         )
-        owners = getattr(runner, "_frontres_v015_policy_quality_owner_bundle", None)
-        if owners is None:
-            owners = build_frontres_v015_policy_quality_owner_bundle(runner, request)
-            install_frontres_v015_policy_quality_owner_bundle(runner, owners)
-        if not isinstance(owners, FrontRESV015PolicyQualityOwnerBundle):
-            raise RuntimeError("v015 policy-quality rejects a non-v015 formal owner bundle")
-        return run_frontres_v015_policy_quality_heldout_eval(runner, request=request, owners=owners)
+    request = build_frontres_v015_policy_quality_eval_request(
+        manifest_path=manifest_path,
+        hsl_checkpoint_path=hsl_checkpoint_path,
+        policy_checkpoint_path=policy_checkpoint_path,
+        result_path=result_path,
+    )
+    # B2: 消费显式注入的单次 bundle 或创建 request-scoped bundle, 禁止跨 request 缓存.
+    owners = getattr(runner, "_frontres_v015_policy_quality_owner_bundle", None)
+    if owners is None:
+        owners = build_frontres_v015_policy_quality_owner_bundle(runner, request)
+    else:
+        delattr(runner, "_frontres_v015_policy_quality_owner_bundle")
+    if not isinstance(owners, FrontRESV015PolicyQualityOwnerBundle):
+        raise RuntimeError("v015 policy-quality rejects a non-v015 formal owner bundle")
+    # B3: 将 request 与 owner bundle 交给 matched held-out evaluator, 产出 atomic quality report.
+    return run_frontres_v015_policy_quality_heldout_eval(runner, request=request, owners=owners)
+
+
+def run_frontres_legacy_policy_quality_eval(
+    runner: Any,
+    *,
+    manifest_path: str,
+    hsl_checkpoint_path: str,
+    policy_checkpoint_path: str,
+    result_path: str,
+) -> Any:
+    """Run the historical matched-route evaluator through an explicit legacy entrypoint."""
     request = build_frontres_policy_quality_eval_request(
         manifest_path=manifest_path,
         hsl_checkpoint_path=hsl_checkpoint_path,
         policy_checkpoint_path=policy_checkpoint_path,
         result_path=result_path,
     )
-    # QUALITY-ID-01: 正式 entry -> real owner bundle -> matched manifest executor.
-    # Result: Q-E6 OFFLINE PASS; six real owner adapters are installed and reached from the official entry.
+    # QUALITY-ID-01 legacy route -> real owner bundle -> matched manifest executor.
+    # Result: Q-E6 OFFLINE PASS; six historical owner adapters remain explicit.
     # B1: request 校验后安装 dedicated real-owner bundle, 不进入旧 evaluator.
     # B2: manifest executor 对每个 item 运行 matched zero/HSL/policy route.
     # B3: result 保留 comparison/state/checkpoint/owner identity, 且训练状态不变.
@@ -1180,360 +1069,13 @@ def run_frontres_policy_quality_eval(
     return executor(request)
 
 
-class _FrozenFrontRESCheckpointNormalizer(torch.nn.Module):
-    """Apply checkpoint prefix stats and frozen-GMT suffix stats without mutating runner state."""
-
-    def __init__(
-        self,
-        *,
-        suffix_template: torch.nn.Module,
-        checkpoint_state: dict[str, Any],
-        obs_dim: int,
-        gmt_dim: int,
-    ) -> None:
-        super().__init__()
-        suffix_state = dict(checkpoint_state)
-        template_state = suffix_template.state_dict()
-        for key, template_value in template_state.items():
-            value = suffix_state.get(key)
-            if (
-                isinstance(value, torch.Tensor)
-                and isinstance(template_value, torch.Tensor)
-                and value.ndim > 0
-                and template_value.ndim > 0
-                and value.shape != template_value.shape
-                and value.shape[:-1] == template_value.shape[:-1]
-                and value.shape[-1] >= template_value.shape[-1]
-            ):
-                suffix_state[key] = value[..., -template_value.shape[-1] :]
-        suffix_template.load_state_dict(suffix_state, strict=True)
-        extra = _extract_checkpoint_extra_stats(checkpoint_state, obs_dim=obs_dim, gmt_dim=gmt_dim)
-        if extra is None:
-            extra_mean = torch.zeros(obs_dim - gmt_dim)
-            extra_std = torch.ones(obs_dim - gmt_dim)
-        else:
-            extra_mean, extra_std = extra
-        self.suffix = suffix_template
-        self.gmt_dim = int(gmt_dim)
-        self.register_buffer("extra_mean", extra_mean.detach().clone())
-        self.register_buffer("extra_std", extra_std.detach().clone())
-
-    def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        extra, suffix = _split_policy_observations(observations, self.gmt_dim)
-        if extra is None:
-            return self.suffix(suffix)
-        normalized_extra = (extra - self.extra_mean.to(extra)) / (self.extra_std.to(extra) + 1e-8)
-        return torch.cat((normalized_extra, self.suffix(suffix)), dim=-1)
-
-
-def _split_policy_observations(observations: torch.Tensor, gmt_dim: int) -> tuple[torch.Tensor | None, torch.Tensor]:
-    if observations.shape[-1] <= int(gmt_dim):
-        return None, observations
-    return observations[..., : -int(gmt_dim)], observations[..., -int(gmt_dim) :]
-
-
-def _extract_checkpoint_extra_stats(
-    state: Mapping[str, Any], *, obs_dim: int, gmt_dim: int
-) -> tuple[torch.Tensor, torch.Tensor] | None:
-    mean = state.get("_mean")
-    std = state.get("_std")
-    extra_dim = int(obs_dim) - int(gmt_dim)
-    if (
-        extra_dim <= 0
-        or not isinstance(mean, torch.Tensor)
-        or not isinstance(std, torch.Tensor)
-        or mean.shape[-1] < int(gmt_dim)
-        or std.shape != mean.shape
-    ):
-        return None
-    available = max(0, min(extra_dim, int(mean.shape[-1]) - int(gmt_dim)))
-    extra_mean = torch.zeros((*mean.shape[:-1], extra_dim), device=mean.device, dtype=mean.dtype)
-    extra_std = torch.ones((*std.shape[:-1], extra_dim), device=std.device, dtype=std.dtype)
-    if available:
-        extra_mean[..., :available] = mean[..., :available]
-        extra_std[..., :available] = std[..., :available]
-    return extra_mean, extra_std
-
-
-class FrozenFrontRESTaskActor:
-    """Inference-only actor/normalizer pair loaded without runner training state."""
-
-    def __init__(
-        self,
-        *,
-        route: Literal["hsl", "policy"],
-        checkpoint_identity: str,
-        actor: torch.nn.Module,
-        normalizer: torch.nn.Module,
-        observation_identity: FrontRESPolicyQualityObservationIdentity,
-        max_delta_pos: float,
-        max_delta_rpy: float,
-    ) -> None:
-        if route not in ("hsl", "policy"):
-            raise ValueError("FrozenFrontRESTaskActor route must be hsl or policy")
-        if not checkpoint_identity.strip():
-            raise ValueError("checkpoint_identity must be explicit")
-        if max_delta_pos <= 0 or max_delta_rpy <= 0:
-            raise ValueError("task-space action bounds must be positive")
-        self.route = route
-        self.checkpoint_identity = checkpoint_identity
-        self.actor = actor.eval()
-        self.normalizer = normalizer.eval()
-        self.observation_identity = observation_identity
-        self.max_delta_pos = float(max_delta_pos)
-        self.max_delta_rpy = float(max_delta_rpy)
-        for module in (self.actor, self.normalizer):
-            for parameter in module.parameters():
-                parameter.requires_grad_(False)
-
-    @classmethod
-    def from_checkpoint_payload(
-        cls,
-        *,
-        route: Literal["hsl", "policy"],
-        checkpoint_identity: str,
-        checkpoint_payload: Mapping[str, Any],
-        actor_template: torch.nn.Module,
-        normalizer_template: torch.nn.Module,
-        observation_identity: FrontRESPolicyQualityObservationIdentity,
-        max_delta_pos: float,
-        max_delta_rpy: float,
-        gmt_obs_dim: int | None = None,
-    ) -> FrozenFrontRESTaskActor:
-        model_state = checkpoint_payload.get("model_state_dict")
-        if not isinstance(model_state, Mapping):
-            raise ValueError("quality actor checkpoint requires model_state_dict")
-        residual_state = model_state.get("residual_actor")
-        if not isinstance(residual_state, Mapping):
-            student_state = {
-                str(key).removeprefix("student."): value
-                for key, value in model_state.items()
-                if str(key).startswith("student.")
-            }
-            residual_state = student_state or None
-        if not isinstance(residual_state, Mapping):
-            raise ValueError("quality actor checkpoint requires residual_actor or student.* weights")
-        normalizer_state = checkpoint_payload.get("obs_norm_state_dict")
-        if not isinstance(normalizer_state, Mapping):
-            raise ValueError("quality actor checkpoint requires obs_norm_state_dict")
-
-        actor = copy.deepcopy(actor_template)
-        normalizer = copy.deepcopy(normalizer_template)
-        actor.load_state_dict(dict(residual_state), strict=True)
-        if gmt_obs_dim is None or observation_identity.expected_obs_dim <= int(gmt_obs_dim):
-            normalizer.load_state_dict(dict(normalizer_state), strict=True)
-        else:
-            normalizer = _FrozenFrontRESCheckpointNormalizer(
-                suffix_template=normalizer,
-                checkpoint_state=dict(normalizer_state),
-                obs_dim=observation_identity.expected_obs_dim,
-                gmt_dim=int(gmt_obs_dim),
-            )
-        return cls(
-            route=route,
-            checkpoint_identity=checkpoint_identity,
-            actor=actor,
-            normalizer=normalizer,
-            observation_identity=observation_identity,
-            max_delta_pos=max_delta_pos,
-            max_delta_rpy=max_delta_rpy,
-        )
-
-    @torch.inference_mode()
-    def action(self, observations: torch.Tensor) -> torch.Tensor:
-        _validate_observations(observations, self.observation_identity)
-        normalized = self.normalizer(observations)
-        if not isinstance(normalized, torch.Tensor) or tuple(normalized.shape) != tuple(observations.shape):
-            raise ValueError("quality normalizer must preserve observation shape")
-        raw = self.actor(normalized[:, : self.observation_identity.actor_input_dim])
-        if tuple(raw.shape) != (int(observations.shape[0]), 6) or not bool(torch.isfinite(raw).all()):
-            raise ValueError("quality residual actor must emit finite full-6D raw actions")
-        return torch.cat(
-            (
-                torch.tanh(raw[:, :3]) * self.max_delta_pos,
-                torch.tanh(raw[:, 3:]) * self.max_delta_rpy,
-            ),
-            dim=-1,
-        )
-
-
-class ZeroFrontRESTaskActor:
-    def __init__(self, observation_identity: FrontRESPolicyQualityObservationIdentity) -> None:
-        self.route = "zero"
-        self.checkpoint_identity = "zero:no-checkpoint"
-        self.observation_identity = observation_identity
-
-    def action(self, observations: torch.Tensor) -> torch.Tensor:
-        _validate_observations(observations, self.observation_identity)
-        return torch.zeros((int(observations.shape[0]), 6), dtype=observations.dtype, device=observations.device)
-
-
-def run_frontres_policy_quality_counterfactuals(
-    runner: Any,
-    *,
-    snapshot: FrontRESPolicyQualityScoringState,
-    comparison_signature: str,
-    adapters: tuple[ZeroFrontRESTaskActor | FrozenFrontRESTaskActor, ...],
-    hooks: FrontRESPolicyQualityRouteHooks,
-    horizon_k: int,
-    isolation_state: Callable[[], str],
-) -> tuple[FrontRESPolicyQualityRouteResult, ...]:
-    """Run zero/HSL/policy through the same restored state and canonical owner hooks."""
-    # QUALITY-ID-01: 检查 manifest identity -> restored scoring state -> route identity.
-    # Result: Q-E1/Q-E2/Q-E3 OFFLINE PASS; real simulator equality pending Q1-F.
-    # B1: 进入 route 前校验 adapter order、observation identity 与 comparison signature.
-    # B2: 每条 route 在首次 observation 前恢复 initial_state_hash.
-    # B3: 返回前要求三路 comparison signature 与 state hash 完全相同.
-    if tuple(adapter.route for adapter in adapters) != ("zero", "hsl", "policy"):
-        raise ValueError("quality counterfactual order must be exactly zero, hsl, policy")
-    if horizon_k <= 0:
-        raise ValueError("quality counterfactual horizon_k must be positive")
-    observation_identity = adapters[0].observation_identity
-    if any(adapter.observation_identity != observation_identity for adapter in adapters[1:]):
-        raise ValueError("zero/HSL/policy observation and normalizer identities must match")
-    isolated_before = isolation_state()
-    results: list[FrontRESPolicyQualityRouteResult] = []
-
-    for adapter in adapters:
-        # QUALITY-ID-01: 每条 route 的任何 observation/action 前先恢复并验证同一 scoring state.
-        # Result: Q-E3 OFFLINE PASS; zero/HSL/policy route identity 共享 comparison/state hash.
-        state_identity = restore_frontres_policy_quality_state(
-            runner,
-            snapshot,
-            comparison_signature=comparison_signature,
-        )
-        if hooks.begin_route is not None:
-            hooks.begin_route(adapter.route)
-        route_identity = FrontRESPolicyQualityRouteIdentity(
-            route=adapter.route,
-            checkpoint_identity=adapter.checkpoint_identity,
-            state=state_identity,
-        )
-        route_actions: list[torch.Tensor] = []
-        for _ in range(horizon_k):
-            observations = hooks.observe()
-            actions = adapter.action(observations)
-            if tuple(actions.shape) != (int(observations.shape[0]), 6):
-                raise ValueError("quality route action must preserve full-6D identity")
-            # QUALITY-ACTION-01: actor source 之后、正式 task-space application owner 之前截获 6D action.
-            # Result: Q-E3 OFFLINE PASS; zero/HSL/policy source、shape、bounds 与 frozen state 已闭合.
-            route_actions.append(actions.detach().clone())
-            hooks.apply_action(actions)
-            hooks.step()
-        # QUALITY-GAIN-01 / QUALITY-EXEC-01: K-step rollout 完成后只消费注入的
-        # canonical Gain 与 execution owner; 本模块不复制公式或执行指标.
-        # Result: Q-E3 OFFLINE CONNECTIVITY PASS; real owner wiring remains Q1-D/Q1-F.
-        results.append(
-            FrontRESPolicyQualityRouteResult(
-                identity=route_identity,
-                observation_identity=observation_identity,
-                actions=torch.stack(route_actions, dim=0),
-                gain=hooks.compute_gain(),
-                execution=hooks.capture_execution(),
-            )
-        )
-
-    if isolation_state() != isolated_before:
-        raise RuntimeError("quality evaluation mutated optimizer/sampler/warmup isolation state")
-    signatures = {result.identity.comparison_signature for result in results}
-    state_hashes = {result.identity.state.initial_state_hash for result in results}
-    if signatures != {comparison_signature} or state_hashes != {snapshot.initial_state_hash}:
-        raise RuntimeError("quality counterfactual routes did not share one matched scoring state")
-    return tuple(results)
-
-
-def _validate_observations(
-    observations: torch.Tensor,
-    identity: FrontRESPolicyQualityObservationIdentity,
-) -> None:
-    if not isinstance(observations, torch.Tensor) or observations.ndim != 2:
-        raise ValueError("quality observations must be a rank-2 tensor")
-    if int(observations.shape[1]) != identity.expected_obs_dim:
-        raise ValueError(
-            f"quality observation dim mismatch: expected {identity.expected_obs_dim}, got {int(observations.shape[1])}"
-        )
-    if not bool(torch.isfinite(observations).all()):
-        raise ValueError("quality observations must be finite")
-
-
-def run_zero_frontres_preroll(
-    step_fn: Callable[[torch.Tensor], Any],
-    *,
-    num_envs: int,
-    steps: int,
-    device: torch.device | str,
-) -> None:
-    """Advance GMT with exact zero Delta SE(3); no policy object enters this boundary."""
-    if num_envs <= 0 or steps < 0:
-        raise ValueError("zero preroll requires num_envs > 0 and steps >= 0")
-    zero_action = torch.zeros((num_envs, 6), dtype=torch.float32, device=device)
-    for _ in range(steps):
-        step_fn(zero_action.clone())
-
-
-def capture_frontres_policy_quality_state(
-    runner: Any,
-    *,
-    env_ids: torch.Tensor | tuple[int, ...] | list[int],
-    comparison_signature: str,
-    role_layout: tuple[str, ...] | list[str],
-) -> FrontRESPolicyQualityScoringState:
-    """Capture the complete scoring-start state after the one shared zero preroll."""
-    ids = _normalize_env_ids(env_ids)
-    roles = _normalize_role_layout(role_layout, count=int(ids.numel()))
-    env, raw_env = _resolve_envs(runner)
-    robot = _resolve_robot(raw_env)
-    command = _resolve_command(raw_env)
-    origins = _require_tensor(getattr(getattr(raw_env, "scene", None), "env_origins", None), "env_origins")
-    episode = _require_tensor(
-        getattr(env, "episode_length_buf", getattr(raw_env, "episode_length_buf", None)),
-        "episode_length_buf",
-    )
-    command_state = tuple(
-        (name, _capture_rows(_require_tensor(getattr(command, name, None), f"command.{name}"), ids))
-        for name in _policy_quality_command_state_fields(command)
-    )
-    perturber = getattr(command, "perturber", None)
-    if perturber is None:
-        raise AttributeError("policy-quality state capture requires command.perturber")
-    perturber_state = tuple(
-        (f"perturber.{name}", _capture_rows(value, ids))
-        for name, value in sorted(vars(perturber).items())
-        if isinstance(value, torch.Tensor)
-        and value.ndim > 0
-        and int(value.shape[0]) > int(ids.max().item())
-    )
-    if not perturber_state:
-        raise AttributeError("policy-quality state capture found no per-env perturber tensors")
-    cuda_rng = tuple(_TensorImage.capture(state) for state in torch.cuda.get_rng_state_all()) if torch.cuda.is_available() else ()
-
-    # QUALITY-ID-01: zero preroll 结束后、任一 counterfactual route 开始前冻结动态起点.
-    # Result: Q-E2 OFFLINE PASS; 完整 fake lifecycle 可逐字段 restore 并复现 hash.
-    # Real simulator state identity remains pending Q1-F live evidence.
-    return FrontRESPolicyQualityScoringState(
-        comparison_signature=comparison_signature,
-        env_ids=tuple(ids.tolist()),
-        role_layout=roles,
-        root_state_w=_capture_rows(_require_tensor(robot.data.root_state_w, "robot.root_state_w"), ids),
-        joint_pos=_capture_rows(_require_tensor(robot.data.joint_pos, "robot.joint_pos"), ids),
-        joint_vel=_capture_rows(_require_tensor(robot.data.joint_vel, "robot.joint_vel"), ids),
-        env_origins=_capture_rows(origins, ids),
-        episode_length=_capture_rows(episode, ids),
-        command_state=command_state,
-        perturber_state=perturber_state,
-        python_rng_state=pickle.dumps(random.getstate(), protocol=5),
-        numpy_rng_state=pickle.dumps(np.random.get_state(), protocol=5),
-        torch_rng_state=_TensorImage.capture(torch.random.get_rng_state()),
-        cuda_rng_state=cuda_rng,
-    )
-
-
 def capture_frontres_v015_policy_quality_dynamic_state_identity(
     runner: Any,
     *,
     comparison_signature: str,
     pair_layout: Any,
 ) -> FrontRESV015DynamicStateIdentity:
+    # B1: 捕获并哈希 physical, command, perturber, RNG 与 sealed scenario state.
     """Hash the complete active v015 post-reset state without restoring or mutating it."""
 
     counts = (
@@ -1545,7 +1087,7 @@ def capture_frontres_v015_policy_quality_dynamic_state_identity(
     if counts != (4, 4, 0, 0):
         raise RuntimeError("v015 dynamic-state identity requires exactly 4 Repair + 4 Noisy rows")
     role_layout = ("repair",) * counts[0] + ("noisy",) * counts[1]
-    env, raw_env = _resolve_envs(runner)
+    env, raw_env = resolve_frontres_policy_quality_envs(runner)
     env_count = int(getattr(env, "num_envs", getattr(raw_env, "num_envs", 0)) or 0)
     if env_count != len(role_layout):
         raise RuntimeError("v015 dynamic-state identity requires B=8 role-aligned environment rows")
@@ -1556,7 +1098,7 @@ def capture_frontres_v015_policy_quality_dynamic_state_identity(
         comparison_signature=comparison_signature,
         role_layout=role_layout,
     )
-    command = _resolve_command(raw_env)
+    command = resolve_frontres_policy_quality_command(raw_env)
     local_snapshot_fn = getattr(command, "frontres_local_scenario_snapshot", None)
     if not callable(local_snapshot_fn):
         raise RuntimeError("v015 dynamic-state identity requires the command-owned local-scenario snapshot")
@@ -1580,6 +1122,7 @@ def capture_frontres_v015_policy_quality_dynamic_state_identity(
     if tuple(local_snapshot["roles"]) != role_layout:
         raise RuntimeError("v015 dynamic-state identity local-scenario role alignment is mixed")
 
+    # B2: 将 route-start snapshot 投影为固定字段集, 产出逐字段可比较 values.
     values = {
         "root_state_w": snapshot.root_state_w,
         "joint_pos": snapshot.joint_pos,
@@ -1594,6 +1137,7 @@ def capture_frontres_v015_policy_quality_dynamic_state_identity(
         "cuda_rng_state": snapshot.cuda_rng_state,
         "local_scenario": {key: local_snapshot[key] for key in sorted(required_local)},
     }
+    # B3: 哈希每个字段并校验 role layout, 产出完整 dynamic-state identity.
     identity = FrontRESV015DynamicStateIdentity(
         comparison_signature=comparison_signature,
         role_layout=role_layout,
@@ -1604,130 +1148,3 @@ def capture_frontres_v015_policy_quality_dynamic_state_identity(
     )
     identity.validate()
     return identity
-
-
-def restore_frontres_policy_quality_state(
-    runner: Any,
-    snapshot: FrontRESPolicyQualityScoringState,
-    *,
-    comparison_signature: str,
-) -> FrontRESPolicyQualityStateIdentity:
-    """Restore a scoring state and fail closed unless every captured field hashes identically."""
-    if comparison_signature != snapshot.comparison_signature:
-        raise ValueError("comparison signature mismatch during policy-quality state restore")
-    env, raw_env = _resolve_envs(runner)
-    robot = _resolve_robot(raw_env)
-    command = _resolve_command(raw_env)
-    ids = torch.tensor(snapshot.env_ids, dtype=torch.long)
-
-    root_target = _require_tensor(robot.data.root_state_w, "robot.root_state_w")
-    joint_pos_target = _require_tensor(robot.data.joint_pos, "robot.joint_pos")
-    joint_vel_target = _require_tensor(robot.data.joint_vel, "robot.joint_vel")
-    root = snapshot.root_state_w.restore(device=root_target.device)
-    joint_pos = snapshot.joint_pos.restore(device=joint_pos_target.device)
-    joint_vel = snapshot.joint_vel.restore(device=joint_vel_target.device)
-    sim_ids = ids.to(root_target.device)
-    robot.write_root_state_to_sim(root, env_ids=sim_ids)
-    robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=sim_ids)
-
-    origins = _require_tensor(getattr(getattr(raw_env, "scene", None), "env_origins", None), "env_origins")
-    _restore_rows(origins, ids, snapshot.env_origins)
-    episode = _require_tensor(
-        getattr(env, "episode_length_buf", getattr(raw_env, "episode_length_buf", None)),
-        "episode_length_buf",
-    )
-    _restore_rows(episode, ids, snapshot.episode_length)
-    for name, image in snapshot.command_state:
-        _restore_rows(_require_tensor(getattr(command, name, None), f"command.{name}"), ids, image)
-    perturber = getattr(command, "perturber", None)
-    if perturber is None:
-        raise AttributeError("policy-quality state restore requires command.perturber")
-    for qualified_name, image in snapshot.perturber_state:
-        name = qualified_name.removeprefix("perturber.")
-        _restore_rows(_require_tensor(getattr(perturber, name, None), qualified_name), ids, image)
-
-    random.setstate(pickle.loads(snapshot.python_rng_state))
-    np.random.set_state(pickle.loads(snapshot.numpy_rng_state))
-    torch.random.set_rng_state(snapshot.torch_rng_state.restore(device="cpu"))
-    if snapshot.cuda_rng_state:
-        if not torch.cuda.is_available() or len(snapshot.cuda_rng_state) != torch.cuda.device_count():
-            raise RuntimeError("CUDA RNG topology differs from captured policy-quality state")
-        torch.cuda.set_rng_state_all([image.restore(device="cpu") for image in snapshot.cuda_rng_state])
-
-    restored = capture_frontres_policy_quality_state(
-        runner,
-        env_ids=snapshot.env_ids,
-        comparison_signature=comparison_signature,
-        role_layout=snapshot.role_layout,
-    ).state_identity
-    if restored.initial_state_hash != snapshot.initial_state_hash:
-        raise RuntimeError(
-            "policy-quality scoring state restore mismatch: "
-            f"expected={snapshot.initial_state_hash} observed={restored.initial_state_hash}"
-        )
-    return restored
-
-
-def _normalize_env_ids(env_ids: torch.Tensor | tuple[int, ...] | list[int]) -> torch.Tensor:
-    ids = env_ids.detach().to(device="cpu", dtype=torch.long).flatten() if isinstance(env_ids, torch.Tensor) else torch.tensor(env_ids, dtype=torch.long)
-    if ids.numel() == 0 or bool((ids < 0).any()) or int(torch.unique(ids).numel()) != int(ids.numel()):
-        raise ValueError("env_ids must be non-empty, non-negative, and unique")
-    return ids
-
-
-def _normalize_role_layout(role_layout: tuple[str, ...] | list[str], *, count: int) -> tuple[str, ...]:
-    if not isinstance(role_layout, (tuple, list)) or len(role_layout) != count:
-        raise ValueError(f"role_layout must contain exactly {count} entries")
-    roles = tuple(str(role).strip() for role in role_layout)
-    if any(not role for role in roles):
-        raise ValueError("role_layout entries must be non-empty")
-    return roles
-
-
-def _resolve_envs(runner: Any) -> tuple[Any, Any]:
-    env = getattr(runner, "env", None)
-    if env is None:
-        raise AttributeError("policy-quality state capture requires runner.env")
-    return env, getattr(env, "unwrapped", env)
-
-
-def _resolve_robot(raw_env: Any) -> Any:
-    scene = getattr(raw_env, "scene", None)
-    try:
-        robot = scene["robot"]
-    except (KeyError, TypeError):
-        robot = getattr(scene, "robot", None)
-    if robot is None or not hasattr(robot, "data"):
-        raise AttributeError("policy-quality state capture requires scene['robot']")
-    return robot
-
-
-def _resolve_command(raw_env: Any) -> Any:
-    manager = getattr(raw_env, "command_manager", None)
-    if manager is None or not hasattr(manager, "get_term"):
-        raise AttributeError("policy-quality state capture requires command_manager.get_term('motion')")
-    return manager.get_term("motion")
-
-
-def _require_tensor(value: object, name: str) -> torch.Tensor:
-    if not isinstance(value, torch.Tensor):
-        raise AttributeError(f"policy-quality state requires tensor {name}")
-    return value
-
-
-def _capture_rows(tensor: torch.Tensor, ids: torch.Tensor) -> _TensorImage:
-    if tensor.ndim == 0 or int(tensor.shape[0]) <= int(ids.max().item()):
-        raise ValueError(f"state tensor shape {tuple(tensor.shape)} cannot select env_ids={ids.tolist()}")
-    return _TensorImage.capture(tensor.index_select(0, ids.to(tensor.device)))
-
-
-def _restore_rows(target: torch.Tensor, ids: torch.Tensor, image: _TensorImage) -> None:
-    values = image.restore(device=target.device)
-    target_ids = ids.to(target.device)
-    expected = (int(target_ids.numel()), *tuple(target.shape[1:]))
-    if tuple(values.shape) != expected:
-        raise ValueError(f"snapshot shape {tuple(values.shape)} does not match restore target {expected}")
-    # Isaac command caches may be inference tensors. Preserve their object identity
-    # and restore rows inside the mode that created them.
-    with torch.inference_mode():
-        target.index_copy_(0, target_ids, values.to(dtype=target.dtype))

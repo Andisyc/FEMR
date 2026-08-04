@@ -13,7 +13,7 @@ SCRIPT = ROOT / "run" / "run_frontres_stage3_segment_hrl.sh"
 SUITE = ROOT / "source" / "rsl_rl" / "rsl_rl" / "tests" / "frontres_segment_all_contract_suite.py"
 
 
-def _run_contract_preflight(mode: str = "update_loop") -> subprocess.CompletedProcess[str]:
+def _run_contract_preflight(mode: str = "train") -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         checkpoint = tmp_path / "stage1_model.pt"
@@ -30,14 +30,15 @@ def _run_contract_preflight(mode: str = "update_loop") -> subprocess.CompletedPr
         env["FRONTRES_STAGE3_RUN_CONTRACTS"] = "1"
         env["FRONTRES_STAGE3_CONTRACT_SUITE"] = str(suite_stub)
         env["FRONTRES_STAGE3_CONTRACT_PYTHON"] = sys.executable
+        env["FRONTRES_V015_K_CURRICULUM"] = "8:2:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381,16:3:300:300:900:lower-k16:0.6:linear-joint-v1:900:2.381,32:4:400:300:625:lower-k32:0.7:linear-joint-v1:625:2.381"
         return subprocess.run(
             [
                 "bash",
                 str(SCRIPT),
                 str(checkpoint),
                 str(motion_path),
+                "8",
                 "1",
-                "2",
                 "1",
                 mode,
             ],
@@ -63,7 +64,7 @@ def test_contract_gate_runs_before_stage3_command_preflight() -> None:
     start_i = _line_index(lines, "[FrontRES Stage3 contract preflight] START")
     suite_i = _line_index(lines, "frontres_segment_all_contract_suite: ok")
     pass_i = _line_index(lines, "[FrontRES Stage3 contract preflight] PASS")
-    command_i = _line_index(lines, "[FrontRES Stage3 startup preflight] PASS mode=update_loop")
+    command_i = _line_index(lines, "[FrontRES Stage3 startup preflight] PASS mode=train")
     command_line_i = _line_index(lines, "Command: ")
     command_line = lines[command_line_i]
 
@@ -75,7 +76,7 @@ def test_contract_gate_runs_before_stage3_command_preflight() -> None:
         f"pass_i={pass_i} "
         f"command_i={command_i} "
         f"stage3={'--frontres_stage stage3_segment_hrl' in command_line} "
-        f"update_loop={'--frontres_segment_live_update_loop_only' in command_line} "
+        f"legacy_update={any(flag in command_line for flag in ('--frontres_segment_live_update_loop_only', '--frontres_segment_live_single_update_only'))} "
         f"default_suite={SUITE.exists()} "
         f"stub_suite={'[probe step10] stub_contract_suite: ok' in result.stdout}",
         flush=True,
@@ -84,12 +85,23 @@ def test_contract_gate_runs_before_stage3_command_preflight() -> None:
     assert result.returncode == 0, result.stderr
     assert start_i < suite_i < pass_i < command_i < command_line_i
     assert "--frontres_stage stage3_segment_hrl" in command_line
-    assert "--frontres_segment_live_update_loop_only" in command_line
+    assert "--frontres_segment_live_update_loop_only" not in command_line
+    assert "--frontres_segment_live_single_update_only" not in command_line
     assert SUITE.exists()
     assert "[probe step10] stub_contract_suite: ok" in result.stdout
     assert "frontres_segment_all_contract_suite: ok" in result.stdout
 
 
+def test_retired_optimizer_modes_fail_closed_before_command_construction() -> None:
+    for mode in ("single_update", "update_loop"):
+        result = _run_contract_preflight(mode)
+        assert result.returncode == 4
+        assert "FRS-PPO-v005 rejects retired optimizer-writing Stage 3 mode" in result.stderr
+        assert "[FrontRES Stage3 startup preflight] PASS" not in result.stdout
+        assert "Command: " not in result.stdout
+
+
 if __name__ == "__main__":
     test_contract_gate_runs_before_stage3_command_preflight()
+    test_retired_optimizer_modes_fail_closed_before_command_construction()
     print("frontres_segment_stage3_contract_preflight_contract: ok")

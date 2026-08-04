@@ -257,6 +257,34 @@ class FakeCommand:
         strength = float(kwargs["perturbation_strength"])
         return torch.full((frame_count, 65), start_frame + strength, dtype=torch.float32)
 
+    def materialize_frontres_local_scenario(self, **kwargs) -> dict[str, object]:
+        """Provide a hand-constructed Clean/deployment carrier at the command seam."""
+
+        self.materialize_calls.append(dict(kwargs))
+        start = int(kwargs["start_frame"])
+        horizon_k = int(kwargs["horizon_k"])
+        intent_horizon = int(kwargs["intent_horizon"])
+
+        def command_at(frame: int) -> torch.Tensor:
+            frame_ids = torch.tensor([frame], dtype=torch.long)
+            motion_ids = torch.zeros(1, dtype=torch.long)
+            q = self.motion_dir_loader.gather("joint_pos", motion_ids, frame_ids, self.device)[0]
+            dq = self.motion_dir_loader.gather("joint_vel", motion_ids, frame_ids, self.device)[0]
+            root_pos = self.motion_dir_loader.gather("body_pos_w", motion_ids, frame_ids, self.device)[0, 0]
+            root_quat = self.motion_dir_loader.gather("body_quat_w", motion_ids, frame_ids, self.device)[0, 0]
+            return torch.cat((q, dq, root_pos, root_quat))
+
+        clean_t = command_at(start)
+        return {
+            "current_root_artifact_t": clean_t[58:65].clone(),
+            "clean_reference_t": clean_t.clone(),
+            "intent_q29": torch.stack([command_at(start + offset)[:29] for offset in range(intent_horizon + 1)]),
+            "clean_continuation": torch.stack([command_at(start + offset) for offset in range(1, horizon_k + 1)]),
+            "expected_support": torch.ones(horizon_k, 2),
+            "expected_support_envelope": torch.zeros(horizon_k, 6),
+            "provenance": {"owner": "FakeCommand", "source": "hand_constructed_clean_motion"},
+        }
+
 
 class FakeCommandManager:
     def __init__(self, command: FakeCommand) -> None:

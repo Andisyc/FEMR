@@ -11,18 +11,15 @@ Evidence: code-confirmed and contract-confirmed. Gap: real deployment runtime.
 
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
+import hashlib
+import math
+from contextlib import contextmanager
+from dataclasses import dataclass
+from typing import Any, Mapping
+
 import torch
 
-_AUDIT_SPEC = importlib.util.spec_from_file_location(
-    "frontres_formal_runtime_probe_runtime",
-    Path(__file__).resolve().parents[1] / "frontres" / "frontres_formal_runtime_probe.py",
-)
-assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
-_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
-_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
-emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
+from rsl_rl.frontres.frontres_formal_runtime_probe import emit_formal_runtime_probe
 
 from rsl_rl.modules import FrontRESActorCritic
 from rsl_rl.modules.frontres_observation_layout import (
@@ -32,16 +29,20 @@ from rsl_rl.modules.frontres_observation_layout import (
     split_frontres_policy_obs,
 )
 from rsl_rl.frontres.runtime_diagnostics import maybe_print_frontres_restore_debug
+def _frontres_collection_batch(self):
+    resolve = getattr(self, "frontres_stage3_collection_batch", None)
+    batch = resolve() if callable(resolve) else None
+    return batch if batch is not None else getattr(self, "_frontres_segment_live_current_batch", None)
 
 
 def _fixed_noisy_context_batch(self):
-    batch = getattr(self, "_frontres_segment_live_current_batch", None)
+    batch = _frontres_collection_batch(self)
     tape = getattr(batch, "frontres_fixed_noisy_tape", None) if batch is not None else None
     return batch if isinstance(tape, torch.Tensor) else None
 
 
 def _future_intent_context_batch(self):
-    batch = getattr(self, "_frontres_segment_live_current_batch", None)
+    batch = _frontres_collection_batch(self)
     intent = getattr(batch, "frontres_local_scenario_intent_q29", None) if batch is not None else None
     return batch if isinstance(intent, torch.Tensor) else None
 
@@ -126,6 +127,7 @@ def read_frontres_v015_deployment_context(
     self,
     env_ids: torch.Tensor | None = None,
 ) -> dict[str, object]:
+    # B1: 读取 command-owned current/H snapshots, 产出 role-aligned deployment context.
     """Read the Step 5B-S2A deployment current/H carrier without consuming it.
 
     Status: connector-only. This function validates and clones command-owned
@@ -258,6 +260,7 @@ def build_frontres_v015_deployment_observation(
     *,
     snapshot: dict[str, object] | None = None,
 ) -> torch.Tensor:
+    # B1: 校验 870D base 与 58D q29 tail, 产出 928D FEMR/GMT observation.
     """Prepend deployment H to one raw 870D observation without actor execution."""
 
     authoritative = read_frontres_v015_deployment_context(self)
@@ -569,3 +572,538 @@ def apply_obs_normalizer(self, obs: torch.Tensor) -> torch.Tensor:
         normalized_obs=normalized,
     )
     return normalized
+
+
+def _deployment_object_state_hash(value: Any) -> str:
+    digest = hashlib.sha256()
+
+    def update(item: Any) -> None:
+        if isinstance(item, torch.Tensor):
+            tensor = item.detach().cpu().contiguous()
+            digest.update(f"tensor:{tensor.dtype}:{tuple(tensor.shape)}:".encode("ascii"))
+            digest.update(tensor.numpy().tobytes())
+        elif isinstance(item, Mapping):
+            digest.update(b"mapping{")
+            for key in sorted(item, key=lambda entry: str(entry)):
+                update(str(key))
+                update(item[key])
+            digest.update(b"}")
+        elif isinstance(item, (tuple, list)):
+            digest.update(f"sequence:{len(item)}[".encode("ascii"))
+            for entry in item:
+                update(entry)
+            digest.update(b"]")
+        elif item is None or isinstance(item, (str, int, float, bool)):
+            digest.update(repr(item).encode("utf-8"))
+        elif hasattr(item, "state_dict") and callable(item.state_dict):
+            update(item.state_dict())
+        elif hasattr(item, "__dict__"):
+            update({key: entry for key, entry in vars(item).items() if not callable(entry)})
+        else:
+            digest.update(type(item).__qualname__.encode("utf-8"))
+
+    update(value)
+    return digest.hexdigest()
+
+
+@dataclass(frozen=True)
+class FrontRESV015DeploymentContext:
+    """Evaluator-facing deployment cursor and Intent snapshot."""
+
+    env_ids: torch.Tensor
+    frame_indices: torch.Tensor
+    current_q29_dq29: torch.Tensor
+    intent_q29: torch.Tensor
+    future_offsets: tuple[int, ...]
+    reference_paths: tuple[str, ...]
+    reference_stream_ids: tuple[str, ...]
+    reference_file_hashes: tuple[str, ...]
+    corruption_ids: tuple[str, ...]
+    corruption_protocol_hashes: tuple[str, ...]
+    corruption_families: tuple[str, ...]
+    corruption_temporal_modes: tuple[str, ...]
+    evaluation_kinds: tuple[str, ...]
+    provenance: tuple[Mapping[str, str], ...]
+
+    def runner_snapshot(self) -> dict[str, object]:
+        # B1: 将 validated value object 投影回 runner connector 的既有 snapshot schema.
+        return {
+            "env_ids": self.env_ids,
+            "frame_indices": self.frame_indices,
+            "current_q29_dq29": self.current_q29_dq29,
+            "intent_q29": self.intent_q29,
+            "future_offsets": self.future_offsets,
+            "reference_paths": self.reference_paths,
+            "reference_stream_ids": self.reference_stream_ids,
+            "reference_file_hashes": self.reference_file_hashes,
+            "corruption_ids": self.corruption_ids,
+            "corruption_protocol_hashes": self.corruption_protocol_hashes,
+            "corruption_families": self.corruption_families,
+            "corruption_temporal_modes": self.corruption_temporal_modes,
+            "evaluation_kinds": self.evaluation_kinds,
+            "provenance": self.provenance,
+        }
+
+
+@dataclass(frozen=True)
+class FrontRESV015DeploymentFrameMetrics:
+    """Validated row-aligned Physics evidence for one simulator frame."""
+
+    fall: torch.Tensor
+    zmp_margin: torch.Tensor
+    actual_contact: torch.Tensor
+    lateral_roll_rad: torch.Tensor
+
+
+class FrontRESV015DeploymentRuntimeGateway:
+    """Narrow simulator gateway for paired v015 deployment evaluation.
+
+    The evaluator owns request semantics and report reduction. This gateway is
+    the only deployment-composition object allowed to know runner-private
+    connectors, IsaacLab scene/sensor access, or route-start restore details.
+    """
+
+    def __init__(self, runner: Any, command: Any, policy: Any) -> None:
+        self._runner = runner
+        self.command = command
+        self.policy = policy
+
+    @classmethod
+    def from_runner(cls, runner: Any) -> "FrontRESV015DeploymentRuntimeGateway":
+        """Bind and validate the runner-private deployment dependencies once."""
+
+        # B1: 读取 command、FEMR/GMT 与 runner connectors, 产出 fail-closed dependency set.
+        command = _fixed_noisy_motion_command(runner)
+        if command is None:
+            raise RuntimeError("v015 composition requires the formal motion command owner")
+        lifecycle = (
+            getattr(command, "set_frontres_v015_deployment_sequence", None),
+            getattr(command, "clear_frontres_v015_deployment_sequence", None),
+            getattr(command, "advance_frontres_v015_deployment_sequence", None),
+        )
+        if not all(callable(value) for value in lifecycle):
+            raise RuntimeError("v015 composition requires the verified command carrier lifecycle")
+        cfg = getattr(command, "cfg", None)
+        if int(getattr(cfg, "motion_horizon", 0)) != 1 or not bool(getattr(cfg, "command_velocity", False)):
+            raise RuntimeError("v015 composition requires GMT current command [q29,dq29]")
+        policy = getattr(getattr(runner, "alg", None), "policy", None)
+        if policy is None or int(getattr(policy, "num_task_corrections", 0) or 0) != 6:
+            raise RuntimeError("v015 composition requires the full-6D FEMR policy")
+        gmt = getattr(policy, "gmt_policy", None)
+        if gmt is None or bool(getattr(gmt, "training", True)) or any(
+            parameter.requires_grad for parameter in gmt.parameters()
+        ):
+            raise RuntimeError("v015 composition requires frozen GMT eval parameters")
+        connectors = (
+            getattr(policy, "get_task_correction_inference", None),
+            getattr(policy, "get_env_action", None),
+            getattr(runner, "_apply_frontres_task_corrections", None),
+            getattr(runner, "_read_frontres_v015_deployment_context", None),
+            getattr(runner, "_build_frontres_v015_deployment_observation", None),
+        )
+        if not all(callable(value) for value in connectors):
+            raise RuntimeError("v015 composition formal FEMR/GMT connectors are incomplete")
+        # B2: 安装唯一 runtime Gateway 并验证 row authority.
+        gateway = cls(runner, command, policy)
+        if gateway.row_count <= 0:
+            raise RuntimeError("v015 composition requires a positive deployment row count")
+        return gateway
+
+    @property
+    def device(self) -> torch.device:
+        return torch.device(self._runner.device)
+
+    @property
+    def row_count(self) -> int:
+        return int(getattr(self.command, "num_envs", 0))
+
+    @property
+    def config(self) -> Mapping[str, Any]:
+        cfg = getattr(self._runner, "cfg", {})
+        return cfg if isinstance(cfg, Mapping) else {}
+
+    def set_sequence(self, request: Any) -> None:
+        self.command.set_frontres_v015_deployment_sequence(request)
+
+    def clear_sequence(self) -> None:
+        self.command.clear_frontres_v015_deployment_sequence()
+
+    def advance_sequence(self) -> None:
+        self.command.advance_frontres_v015_deployment_sequence()
+
+    def capture_route_start(self, *, comparison_signature: str) -> Any:
+        # B1: 捕获 physical/command/RNG state, 产出 canonical route-start snapshot.
+        from rsl_rl.runners.frontres_policy_quality_state import capture_frontres_policy_quality_state
+
+        return capture_frontres_policy_quality_state(
+            self._runner,
+            env_ids=tuple(range(self.row_count)),
+            comparison_signature=comparison_signature,
+            role_layout=("deployment",) * self.row_count,
+        )
+
+    def restore_route_start(self, snapshot: Any, *, comparison_signature: str) -> str:
+        # B1: 恢复 canonical snapshot 并核验 identity, 产出 matched state hash.
+        from rsl_rl.runners.frontres_policy_quality_state import restore_frontres_policy_quality_state
+
+        restored = restore_frontres_policy_quality_state(
+            self._runner,
+            snapshot,
+            comparison_signature=comparison_signature,
+        )
+        if restored.initial_state_hash != snapshot.initial_state_hash:
+            raise RuntimeError("v015 composition route-start state identity drifted")
+        return str(restored.initial_state_hash)
+
+    def read_context(self) -> FrontRESV015DeploymentContext:
+        # B1: 收口 runner-owned payload, 产出 evaluator 只读 typed context.
+        snapshot = self._runner._read_frontres_v015_deployment_context()
+        if not isinstance(snapshot, Mapping):
+            raise RuntimeError("v015 composition context connector must return a validated mapping")
+        return FrontRESV015DeploymentContext(**snapshot)
+
+    def read_policy_observation(self) -> torch.Tensor:
+        # B1: 从 env observations 选择 policy rows, 产出 finite row-aligned tensor.
+        obs, extras = self._runner.env.get_observations()
+        obs_dict = extras.get("observations", {}) if isinstance(extras, Mapping) else {}
+        obs_type = getattr(self._runner, "policy_obs_type", None)
+        if obs_type is not None and obs_type in obs_dict:
+            obs = obs_dict[obs_type]
+        obs = torch.as_tensor(obs, device=self.device)
+        if obs.ndim != 2 or not torch.is_floating_point(obs) or not bool(torch.isfinite(obs).all().item()):
+            raise RuntimeError("v015 composition raw policy observation must be finite [B,D]")
+        return obs
+
+    def build_observation(
+        self,
+        obs: torch.Tensor,
+        *,
+        snapshot: FrontRESV015DeploymentContext,
+    ) -> torch.Tensor:
+        # B1: 将 typed context 转回唯一 runner connector, 产出正式 928D observation.
+        if not isinstance(snapshot, FrontRESV015DeploymentContext):
+            raise TypeError("v015 composition observation requires typed deployment context")
+        return self._runner._build_frontres_v015_deployment_observation(
+            obs,
+            snapshot=snapshot.runner_snapshot(),
+        )
+
+    def normalize_observation(self, obs: torch.Tensor) -> torch.Tensor:
+        # B1: 通过 runner normalizer 处理 928D observation, 保持 FEMR/GMT authority split.
+        if not bool(self.config.get("empirical_normalization", False)):
+            return obs
+        normalize = getattr(self._runner, "_apply_obs_normalizer", None)
+        if not callable(normalize):
+            raise RuntimeError("v015 composition requires the formal observation normalizer")
+        normalized = normalize(obs)
+        if tuple(normalized.shape) != tuple(obs.shape) or not bool(torch.isfinite(normalized).all().item()):
+            raise RuntimeError("v015 composition normalizer changed shape or produced non-finite values")
+        return normalized
+
+    def correction(self, observation: torch.Tensor, *, use_femr: bool) -> torch.Tensor:
+        # B1: 执行或禁用 FEMR, 产出 [B,6] correction 且不修改 training state.
+        correction = (
+            self.policy.get_task_correction_inference(observation)
+            if use_femr
+            else torch.zeros((int(observation.shape[0]), 6), device=observation.device, dtype=observation.dtype)
+        )
+        if (
+            not isinstance(correction, torch.Tensor)
+            or tuple(correction.shape) != (int(observation.shape[0]), 6)
+            or correction.requires_grad
+            or not bool(torch.isfinite(correction).all().item())
+        ):
+            raise RuntimeError("v015 composition FEMR correction must be detached finite [B,6]")
+        return correction
+
+    def apply_correction(self, correction: torch.Tensor) -> None:
+        self._runner._apply_frontres_task_corrections(
+            correction, int(correction.shape[0]), allow_oracle=False
+        )
+
+    def gmt_action(self, observation: torch.Tensor, correction: torch.Tensor) -> torch.Tensor:
+        # B1: 将 correction 注入 command 并调用 frozen GMT, 产出 env action rows.
+        action = self.policy.get_env_action(observation, correction)
+        if (
+            not isinstance(action, torch.Tensor)
+            or action.ndim != 2
+            or int(action.shape[0]) != self.row_count
+            or action.requires_grad
+            or not bool(torch.isfinite(action).all().item())
+        ):
+            raise RuntimeError("v015 composition frozen GMT action must be detached finite [B,A]")
+        return action
+
+    def step(self, action: torch.Tensor) -> tuple[torch.Tensor, Any]:
+        # B1: 推进 simulator 一步并拆分 dones/infos, 产出下一帧 evaluation state.
+        env = self._runner.env
+        _obs, _reward, dones, infos = env.step(action.to(env.device))
+        dones = torch.as_tensor(dones, device=self.device, dtype=torch.bool).flatten()
+        if int(dones.numel()) != self.row_count:
+            raise RuntimeError("v015 composition dones must align with command rows")
+        return dones, infos
+
+    def executed_q29(self) -> torch.Tensor:
+        value = getattr(getattr(getattr(self.command, "robot", None), "data", None), "joint_pos", None)
+        if not isinstance(value, torch.Tensor) or tuple(value.shape) != (self.row_count, 29):
+            raise RuntimeError("v015 composition requires executed robot q29 aligned to deployment intent")
+        return value
+
+    def expected_physics(
+        self,
+        request: Any,
+        *,
+        clean_body_pos: torch.Tensor,
+        clean_body_quat: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        # B1: 从 Clean continuation 派生 expected Contact 与 support envelope.
+        provider = getattr(self._runner, "_frontres_v015_deployment_expected_physics_provider", None)
+        if callable(provider):
+            support, envelope = provider(request=request, command=self.command)
+            support = torch.as_tensor(support, device=self.device, dtype=torch.bool)
+            envelope = torch.as_tensor(envelope, device=self.device, dtype=torch.float32)
+        else:
+            left = int(getattr(self.command, "left_foot_idx", -1))
+            right = int(getattr(self.command, "right_foot_idx", -1))
+            if left < 0 or right < 0 or left == right or max(left, right) >= int(clean_body_pos.shape[1]):
+                raise RuntimeError("v015 deployment Physics requires two valid Clean foot indices")
+            from rsl_rl.frontres.frontres_balance import expected_support_and_envelope_from_foot_pose
+
+            cfg = getattr(self.command, "cfg", None)
+            support, envelope = expected_support_and_envelope_from_foot_pose(
+                clean_body_pos[:, (left, right)],
+                clean_body_quat[:, (left, right)],
+                contact_height=float(getattr(cfg, "frontres_expected_contact_height", 0.08)),
+                foot_half_length=float(getattr(cfg, "frontres_expected_foot_half_length", 0.10)),
+                foot_half_width=float(getattr(cfg, "frontres_expected_foot_half_width", 0.05)),
+            )
+        if tuple(support.shape) != (int(request.frame_count), 2) or tuple(envelope.shape) != (
+            int(request.frame_count),
+            6,
+        ):
+            raise RuntimeError("v015 deployment expected Physics has an invalid trajectory shape")
+        return support.detach().clone(), envelope.detach().clone()
+
+    def prepare_metrics(self) -> None:
+        if not callable(getattr(self._runner, "_frontres_v015_deployment_metric_provider", None)):
+            from rsl_rl.frontres.frontres_balance import prepare_frontres_raw_contact_views
+
+            prepare_frontres_raw_contact_views(self._runner)
+
+    def evaluate_phase(
+        self,
+        expected: torch.Tensor,
+        actual: torch.Tensor,
+        margin: torch.Tensor,
+        valid: torch.Tensor,
+        *,
+        dt: float,
+    ) -> Mapping[str, torch.Tensor]:
+        # B1: 按 expected support phase 归约 Contact/ZMP, 产出 recovery-aware evidence.
+        provider = getattr(self._runner, "_frontres_v015_deployment_phase_provider", None)
+        if not callable(provider):
+            from rsl_rl.frontres.frontres_gain_legacy import evaluate_phase_conditioned_physics as provider
+        return provider(
+            expected,
+            actual,
+            margin,
+            valid,
+            timing_tolerance=int(self.config.get("frontres_physics_contact_timing_tolerance", 1)),
+            recovery_window=int(self.config.get("frontres_physics_zmp_recovery_window", 1)),
+            zmp_violation_scale=float(self.config.get("frontres_physics_zmp_violation_scale", 0.05)),
+            dt=float(dt),
+        )
+
+    def frame_metrics(
+        self,
+        *,
+        frame_index: int,
+        dones: torch.Tensor,
+        infos: Any,
+        expected_support: torch.Tensor,
+        expected_support_envelope: torch.Tensor,
+    ) -> FrontRESV015DeploymentFrameMetrics:
+        """Read one simulator frame and return validated row-aligned Physics evidence."""
+
+        # B1: 调用显式 provider 或 ContactSensor fallback, 产出一帧 raw Physics fields.
+        provider = getattr(self._runner, "_frontres_v015_deployment_metric_provider", None)
+        if callable(provider):
+            values = provider(
+                frame_index=frame_index,
+                dones=dones,
+                infos=infos,
+                command=self.command,
+                expected_support=expected_support,
+                expected_support_envelope=expected_support_envelope,
+            )
+        else:
+            time_outs = infos.get("time_outs") if isinstance(infos, Mapping) else None
+            time_outs = (
+                torch.as_tensor(time_outs, device=dones.device, dtype=torch.bool)
+                if time_outs is not None
+                else torch.zeros_like(dones)
+            )
+            actual_contact, zmp_margin = self._contact_wrench_frame(
+                expected_support=expected_support,
+                expected_support_envelope=expected_support_envelope,
+            )
+            values = {
+                "fall": dones & ~time_outs,
+                "zmp_margin": zmp_margin,
+                "actual_contact": actual_contact,
+                "lateral_roll_rad": self._lateral_roll(),
+            }
+        # B2: 严格校验 schema、row shape 与 finite 语义, 产出 detached metric projection.
+        required = {"fall", "zmp_margin", "actual_contact", "lateral_roll_rad"}
+        if not isinstance(values, Mapping) or set(values) != required:
+            raise RuntimeError("v015 composition metric provider returned an invalid schema")
+        output: dict[str, torch.Tensor] = {}
+        for name in required:
+            value = torch.as_tensor(values[name], device=self.device)
+            if name == "actual_contact":
+                if tuple(value.shape) != (self.row_count, 2):
+                    raise RuntimeError("v015 composition actual Contact must be row-aligned [B,2]")
+                output[name] = value.bool().detach().clone()
+                continue
+            value = value.flatten()
+            if int(value.numel()) != self.row_count:
+                raise RuntimeError(f"v015 composition metric {name} must be row-aligned [B]")
+            if name == "fall":
+                value = value.bool()
+            else:
+                value = value.float()
+                if name != "zmp_margin" and not bool(torch.isfinite(value).all().item()):
+                    raise RuntimeError(f"v015 composition metric {name} must be finite")
+            output[name] = value.detach().clone()
+        return FrontRESV015DeploymentFrameMetrics(**output)
+
+    def unplanned_contact_steps(self, expected: torch.Tensor, actual: torch.Tensor) -> torch.Tensor:
+        # B1: Gateway 解释 contact timing config, 产出 evaluator-ready unplanned transition mask.
+        expected_transition = torch.zeros(expected.shape[:2], device=expected.device, dtype=torch.bool)
+        actual_transition = torch.zeros_like(expected_transition)
+        if int(expected.shape[0]) > 1:
+            expected_transition[1:] = (expected[1:] != expected[:-1]).any(dim=-1)
+            actual_transition[1:] = (actual[1:] != actual[:-1]).any(dim=-1)
+        planned = torch.zeros_like(expected_transition)
+        tolerance = int(self.config.get("frontres_physics_contact_timing_tolerance", 1))
+        for delta in range(-tolerance, tolerance + 1):
+            source = torch.arange(int(expected.shape[0]), device=expected.device) + delta
+            inside = (source >= 0) & (source < int(expected.shape[0]))
+            planned |= expected_transition.index_select(
+                0,
+                source.clamp(0, int(expected.shape[0]) - 1),
+            ) & inside.unsqueeze(1)
+        return actual_transition & ~planned
+
+    def _contact_wrench_frame(
+        self,
+        *,
+        expected_support: torch.Tensor,
+        expected_support_envelope: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Derive actual Contact and loaded-support ZMP margin from foot sensors."""
+
+        # B1: 解析左右脚 ContactSensor, 产出 force-threshold actual Contact 与 raw contact rows.
+        env = getattr(self._runner.env, "unwrapped", self._runner.env)
+        scene = getattr(env, "scene", None)
+        if scene is None:
+            raise RuntimeError("v015 deployment Physics requires the formal IsaacLab scene")
+        from rsl_rl.frontres.frontres_balance import (
+            contact_wrench_zmp_xy,
+            expected_support_envelope_margin,
+            pad_frontres_raw_contact_slots,
+            read_frontres_raw_filtered_contact_rows,
+        )
+
+        sensors, actual = [], []
+        for name in ("frontres_left_foot_contacts", "frontres_right_foot_contacts"):
+            try:
+                sensor = scene[name]
+            except (KeyError, TypeError) as exc:
+                raise RuntimeError(f"v015 deployment Physics is missing {name}") from exc
+            force_matrix = getattr(getattr(sensor, "data", None), "force_matrix_w", None)
+            threshold = getattr(getattr(sensor, "cfg", None), "force_threshold", None)
+            if not isinstance(force_matrix, torch.Tensor) or not isinstance(threshold, (int, float)):
+                raise RuntimeError(f"v015 deployment Physics requires filtered force_matrix_w for {name}")
+            force_matrix = force_matrix.to(device=self.device, dtype=torch.float32)
+            if force_matrix.ndim != 4 or tuple(force_matrix.shape[:2]) != (self.row_count, 1):
+                raise RuntimeError(f"{name} filtered force matrix must be [B,1,F,3]")
+            if not bool(torch.isfinite(force_matrix).all()) or not math.isfinite(float(threshold)) or float(threshold) <= 0:
+                raise RuntimeError(f"{name} filtered contact forces/threshold must be finite with positive threshold")
+            actual.append(force_matrix[..., 2].sum(dim=(1, 2)).abs() >= float(threshold))
+            sensors.append(sensor)
+        actual_contact = torch.stack(actual, dim=-1)
+        raw = [
+            read_frontres_raw_filtered_contact_rows(sensor, num_envs=self.row_count, device=self.device)
+            for sensor in sensors
+        ]
+        slots = max(int(value[0].shape[2]) for value in raw)
+        raw = [pad_frontres_raw_contact_slots(value, contact_slots=slots) for value in raw]
+        # B2: 合并 contact points/forces/normals, 产出 contact-wrench ZMP 及 applicability.
+        points = torch.cat(tuple(value[0] for value in raw), dim=1)
+        forces = torch.cat(tuple(value[1] for value in raw), dim=1)
+        normals = torch.cat(tuple(value[2] for value in raw), dim=1)
+        valid = torch.cat(tuple(value[3] for value in raw), dim=1)
+        zmp_xy, zmp_valid = contact_wrench_zmp_xy(points, forces, normals, valid)
+        origins = getattr(scene, "env_origins", None)
+        if not isinstance(origins, torch.Tensor) or tuple(origins.shape[:1]) != (self.row_count,):
+            raise RuntimeError("v015 deployment Physics requires row-aligned scene.env_origins")
+        # B3: 相对 expected support envelope 计算 margin, 无实际承重时产出 ZMP N/A.
+        margin = expected_support_envelope_margin(
+            zmp_xy,
+            expected_support_envelope,
+            expected_support,
+            env_origins_xy=origins[:, :2].to(device=self.device, dtype=torch.float32),
+        )
+        required = expected_support.bool().any(dim=-1) & actual_contact.any(dim=-1)
+        if bool((required & ~zmp_valid).any()):
+            raise RuntimeError("v015 deployment loaded support is missing a finite contact-wrench resultant")
+        return actual_contact.detach().clone(), torch.where(
+            required, margin, torch.full_like(margin, float("nan"))
+        ).detach().clone()
+
+    def _lateral_roll(self) -> torch.Tensor:
+        # B1: 从 root orientation 提取 row-aligned roll, 产出 sustained-lean trajectory field.
+        quat = getattr(self.command, "robot_anchor_quat_w", None)
+        if not isinstance(quat, torch.Tensor) or tuple(quat.shape) != (self.row_count, 4):
+            raise RuntimeError("v015 deployment sustained-lean requires robot root quaternion [B,4]")
+        w, x, y, z = quat.unbind(dim=-1)
+        return torch.atan2(2 * (w * x + y * z), 1 - 2 * (x.square() + y.square())).detach().clone()
+
+    def training_state_fingerprint(self) -> dict[str, str]:
+        # B1: 哈希 policy/normalizer/optimizer/sampler facts, 产出 evaluation isolation anchor.
+        alg = getattr(self._runner, "alg", None)
+        objects = {
+            "optimizer": getattr(alg, "optimizer", None),
+            "sampler": getattr(self._runner, "_frontres_segment_sampler", None),
+            "storage": getattr(self._runner, "storage", None),
+            "transition": getattr(alg, "transition", None),
+            "prefix_normalizer": getattr(self._runner, "_frontres_extra_normalizer", None),
+            "gmt_normalizer": getattr(self._runner, "obs_normalizer", None),
+            "privileged_normalizer": getattr(self._runner, "privileged_obs_normalizer", None),
+            "teacher_normalizer": getattr(self._runner, "teacher_obs_normalizer", None),
+        }
+        return {name: _deployment_object_state_hash(value) for name, value in objects.items()}
+
+    @contextmanager
+    def inference_mode(self):
+        # B1: 捕获并冻结 policy/GMT/normalizer modes, 产出可恢复 inference context.
+        roots = (
+            self.policy,
+            getattr(self._runner, "_frontres_extra_normalizer", None),
+            getattr(self._runner, "obs_normalizer", None),
+            getattr(self._runner, "privileged_obs_normalizer", None),
+            getattr(self._runner, "teacher_obs_normalizer", None),
+        )
+        modes: dict[torch.nn.Module, bool] = {}
+        for root in roots:
+            if isinstance(root, torch.nn.Module):
+                for module in root.modules():
+                    modes.setdefault(module, bool(module.training))
+        for module in modes:
+            module.training = False
+        try:
+            yield
+        finally:
+            for module, was_training in modes.items():
+                module.training = was_training

@@ -13,12 +13,24 @@ same Code Block ID
 
 ## Current Maps
 
-- `architecture/01_repo_architecture.data.json`: editable source data for the ultra-wide Repository Reading Atlas.
-- `runtime/02_frontres_flow.data.json`: editable source data for the Concept Figure-driven Method-to-Code Reading Atlas.
-- `runtime/04_stage3_formal_runtime_audit.data.json`: permanent Runtime Audit Atlas for the Concept Figure-mapped Stage 3 Phase B probe route.
-- `runtime/05_policy_quality_audit.data.json`: Policy Quality Audit Atlas for the eight `QUALITY-*` causal owners and their Q evidence status.
-- `runtime/06_frontres_design_point_review.data.json`: human-facing grouped two-column table of FrontRES design questions and atomic design points; detailed implementation material remains in the active contracts and other atlas views.
-- `concept/03_frontres_concept_tabs.data.json`: editable source data for the paper-style FrontRES method figure.
+The human-facing page order is:
+
+```text
+01 Method Figure -> 02 Design Inspector -> 03 Module Inspector
+-> 04 Code Quality Evidence -> 05 Module Test Atlas
+```
+
+The data filenames below keep their established registry names; page numbering
+describes the human reading order rather than renaming semantic registries.
+
+- `architecture/01_repo_architecture.data.json`: single owner registry for the default FEMR Module Inspector, including the ordered A-E Evaluation function chains, and the explicit ultra-wide Repository Reading fallback.
+- `architecture/02_code_quality_evidence.data.json`: source-scanned function and B-block projection aligned with the Module Inspector order; Evaluation can switch between complete chain-ordered and file-ordered views from the same A-E registry. Exclusive, shared, and unassigned counts must conserve the full scanned function inventory.
+- `runtime/04_frontres_design_inspector.data.json`: interactive Design Inspector: ten compact parent design points highlight where their fine-grained decisions change one shared Stage-3 Transaction spine. Perturbation Data, K-step Curriculum and Actor & Critic Warmup project the human-confirmed active TRAIN-v014 nested K-DR curriculum; E-FI-109/E-FI-114/E-FI-118 close the current offline curriculum, direct-action and warmup identities.
+- `runtime/04_frontres_design_register.md`: approved interaction and language contract for the Design Inspector.
+- `testing/05_frontres_module_test_atlas.data.json`: Module Test Atlas with eighteen completed module cards plus a compact Formal Runtime Audit stage-reading card. The module cards use human-readable `伪样本 | 正确结果 | 证明什么` cases; the stage card explains the Phase A method/code alignment gate and the Phase B official-route runtime gate without pretending to be a nineteenth module test.
+- `testing/05_frontres_module_test_register.md`: source and lifecycle contract for the Module Test Atlas.
+- `concept/03_frontres_concept_tabs.data.json`: editable source data for the paper-style FrontRES method figure. Its `Repair Gain -> FrontRES` interaction records the active Clean-anchored Recovery-Aware design. E-FI-101 closes deterministic Step-1 source alignment; E-FI-102 closes baseline-capture, transaction-Aggregate and active-import P1 maintenance findings. The bounded official transaction and policy quality remain unconfirmed runtime evidence.
+- `concept/08_trajectory_conditioned_execution_alignment.data.json`: candidate paper-style Concept Figure for offline cross-Intent context learning and frozen-weight real deployment; it is not an active FrontRES contract.
 - `auxiliary/atlas_app/`: current helper viewer, local server, checks, and JS dependencies.
 - `auxiliary/legacy/`: retired viewer/render helpers kept outside the active app.
 
@@ -31,6 +43,7 @@ note/architecture/
   concept/        FrontRES design concept tabs
   auxiliary/      helper app files kept out of the map folders
   index.html      clean entry page
+  open_atlas.command durable local-server launcher
 ```
 
 ## Map Lifecycle
@@ -44,6 +57,18 @@ concept tabs, and explicitly named diagnostics pages.
 
 ## VSCode Workflow
 
+Preferred one-command launcher on macOS:
+
+```bash
+./note/architecture/open_atlas.command
+```
+
+It starts or reuses the Atlas server and opens the detailed design-contract
+review. Set `ATLAS_PAGE=/` to open the index or `PORT=...` to choose another
+local port.
+
+Manual server workflow:
+
 ```bash
 cd note/architecture
 node auxiliary/atlas_app/serve_architecture.mjs
@@ -53,11 +78,13 @@ Open one of these URLs on the right side of VSCode:
 
 ```text
 http://127.0.0.1:8765/
-http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/01_repo_architecture.data.json
-http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../runtime/02_frontres_flow.data.json
-http://127.0.0.1:8765/04_stage3_formal_runtime_audit.html
-http://127.0.0.1:8765/06_frontres_design_point_review.html
-http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../concept/03_frontres_concept_tabs.data.json
+http://127.0.0.1:8765/01_frontres_method_figure.html
+http://127.0.0.1:8765/02_frontres_design_inspector.html
+http://127.0.0.1:8765/03_femr_module_inspector.html
+http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/01_repo_architecture.data.json&view=repository_reading
+http://127.0.0.1:8765/04_code_quality_evidence_atlas.html
+http://127.0.0.1:8765/05_frontres_module_test_atlas.html
+http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../concept/08_trajectory_conditioned_execution_alignment.data.json
 ```
 
 Open the matching `*.data.json` on the left. Saving the JSON refreshes the graph
@@ -84,11 +111,19 @@ auxiliary/atlas_app/architecture_atlas.html
   -> draws rough SVG cards with shared colors, IDs, zoom, pan, editor, and live reload
 ```
 
-The three main pages are data variants, not separate applications:
+The main Atlas pages are data variants, not separate applications:
 
-- Repository Architecture uses `layout: "repository_reading_atlas"`.
+- FEMR Module Inspector is the default view of `architecture/01_repo_architecture.data.json`.
+  - `moduleInspector.stages[]` defines the unchanged seven-step Training Main Loop.
+  - The top index contains every runtime and supporting module exactly once.
+  - Selecting a module highlights its owning Training Main Loop stage without replacing or reordering the spine.
+  - The bottom card exposes only that module's responsibility, owner files, and ordered `B-step -> file -> function` chain.
+  - Chains longer than four steps wrap as a continued route rather than shrinking text or creating an ultra-wide canvas.
+  - The Inspector and the fallback share `systems[].modules[]`; no second owner or function inventory exists.
+
+- The explicit `view=repository_reading` fallback uses `layout: "repository_reading_atlas"`.
   - Source: `architecture/01_repo_architecture.data.json`.
-  - Purpose: read the whole repository as runtime-ordered module-family cards.
+  - Purpose: inspect every runtime-ordered module-family card simultaneously when a wide comparison is necessary.
   - Reading direction: module-family cards follow `runtimeOrder[]` directly
     from left to right. Inventory-style system containers are not rendered.
   - Every card shows responsibility, read-first files, key functions, core
@@ -102,18 +137,27 @@ The three main pages are data variants, not separate applications:
   - Main schema: `systems[].modules[]`, with `files[]`, `objects[]`, and
     `mainRoute[]` as the human code-reading contract.
 
-- Method to Code uses `layout: "repository_reading_atlas"`.
-  - Source: `runtime/02_frontres_flow.data.json`.
-  - Purpose: Concept Figure design point -> coherent owner module family -> internal formal route.
-  - Main schema: `runtimeOrder[]`, `supportOrder[]`, `systems[].modules[]`, matching the 01 reading-card layout.
-  - Each card names one Concept Figure design point and exposes responsibility, read-first files, functions, objects, and B1/B2/B3 route.
+- FrontRES Design Inspector uses `layout: "design_transaction_inspector"`.
+  - Source: `runtime/04_frontres_design_inspector.data.json`.
+  - Purpose: inspect how every accepted design point participates in the same formal Stage-3 Transaction.
+  - Each compact button names one canonical parent design point. Selection changes the highlighted Transaction steps and one minimal reading card below the spine; every numbered card row is a fine-grained method decision.
+  - The shared spine covers pre-Transaction initialization, Segment collection and K-step execution, paired evidence, grouped update, and committed curriculum state.
+  - The detail card contains no field-category headings, implementation evidence, source links, risk panels, matrices, or review prose; those remain in their authoritative documents.
 
-- Design Questions And Points uses `layout: "design_point_table"`.
-  - Source: `runtime/06_frontres_design_point_review.data.json`.
-  - Purpose: a minimal human index of the method, not a contract, code reader, or evidence audit.
-  - Conceptual parent headings locate atomic decisions; every visible row still contains only `设计问题` and `设计点`.
-  - No IDs, code paths, owner names, status, evidence or expandable technical detail are rendered.
-  - Active contracts and the other architecture maps remain the detailed reference material for agents and implementation review.
+- FrontRES Module Test Atlas uses `layout: "module_test_inspector"`.
+  - Source: `testing/05_frontres_module_test_atlas.data.json`.
+ - Purpose: let the human inspect concrete design-driven pseudo-sample tests for every module before tests are implemented or run.
+ - The shared spine is `确认设计规则 -> 构造简单伪样本 -> 手算正确结果 -> 确认测试题 -> 执行模块并逐项比较 -> 定位第一个错误 -> 记录通过与失败证据`.
+ - Each selected card contains one plain-language rule and a `伪样本 | 正确结果 | 证明什么` table. Generic responsibility/interface metadata is deliberately absent from the primary reading card.
+- The eighteen module cards cover the formal runtime module families and report `18 passed / 0 partial / 0 blocked`. Formal Runtime Audit Phase A has reviewed DP01-DP10 offline; every Phase B/live claim remains open.
+ - A separate `Formal Runtime Audit` stage card explains the current Phase A -> Phase B progression. It has its own reading spine and does not count as a module card or claim policy quality.
+
+- FrontRES Runtime Audit Atlas uses `layout: "repository_reading_atlas"`.
+  - Source: `runtime/06_frontres_runtime_audit_atlas.data.json`.
+  - Entrypoint: `06_frontres_runtime_audit_atlas.html`.
+  - Purpose: let the human review the eight Phase B official-route edge cards before any probe is inserted or live run starts.
+  - Every card maps to existing Concept Figure design IDs and shows the formal owner, upstream/probe/downstream route, expected runtime fact and current `PENDING_LIVE` boundary.
+  - The control surface does not claim runtime evidence. Its run card remains blocked until the real HSL-v2 artifact path is confirmed.
 
 - Concept uses `layout: "method_figure"`.
   - Source: `concept/03_frontres_concept_tabs.data.json`.
@@ -142,6 +186,7 @@ The copied folder should keep this shape:
 note/architecture/
   index.html
   README.md
+  open_atlas.command
   architecture/
     *.data.json
   runtime/
@@ -181,6 +226,8 @@ Choose the `layout` field by the thinking task:
 - Use `repository_reading_atlas` when the question is "how is the whole
   repository divided, and in what order should I read its code?".
 - Use `method_figure` when the question is "what is the method, why does it work, and how does its feedback loop close?".
+- Use `design_transaction_inspector` when the question is "where does each accepted design point act inside the same formal training Transaction?".
+- Use `module_test_inspector` when the question is "what must this module calculate or mutate correctly, and what independent artificial cases prove it?".
 - Use `repo_tree` when the question is "which file owns which code block?".
 - Use `flow_tree` when the question is "what enters a module, what does it own, what exits, and what is forbidden?".
 - Omit `layout` or use `tabs` when the question is conceptual taxonomy rather than code ownership.

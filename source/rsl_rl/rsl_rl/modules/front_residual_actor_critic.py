@@ -13,21 +13,11 @@ applies that correction to the command/reference frame before refreshing observa
 
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.distributions import Normal
 
-_AUDIT_SPEC = importlib.util.spec_from_file_location(
-    "frontres_formal_runtime_probe_actor",
-    Path(__file__).resolve().parents[1] / "frontres" / "frontres_formal_runtime_probe.py",
-)
-assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
-_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
-_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
-emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
-
+from rsl_rl.frontres.frontres_formal_runtime_probe import emit_formal_runtime_probe
 from rsl_rl.modules import ActorCritic, EmpiricalNormalization
 from rsl_rl.modules.frontres_observation_layout import split_frontres_policy_obs
 from rsl_rl.utils import resolve_nn_activation
@@ -232,14 +222,18 @@ class FrontRESActorCritic(nn.Module):
         # Task-space mode: when >0, replaces Δq+Δz with [Δpos(3), Δrpy(3)]
         # Δq patching is disabled in task-space mode.
         num_task_corrections: int = 0,
-        max_delta_pos: float = 0.3,     # tanh clip for position correction (metres)
-        max_delta_rpy: float = 0.3,     # tanh clip for orientation correction (radians)
         # FrontRES-specific observation subset: when >0, FrontRES only processes the
         # first num_frontres_obs dims of policy_obs (reference-frame data only).
         # GMT continues to receive the full policy_obs. 0 = legacy (full obs for both).
         num_frontres_obs: int = 0,
         **kwargs,
     ):
+        retired_task_bounds = {name: kwargs.pop(name) for name in ("max_delta_pos", "max_delta_rpy") if name in kwargs}
+        if retired_task_bounds:
+            raise ValueError(
+                "FRS-TRAIN-v014 rejects retired task-space action bounds: "
+                f"{tuple(sorted(retired_task_bounds))}"
+            )
         legacy_actor_hidden_dims = kwargs.pop("actor_hidden_dims", None)
         if not residual_hidden_dims and legacy_actor_hidden_dims:
             residual_hidden_dims = list(legacy_actor_hidden_dims)
@@ -268,8 +262,6 @@ class FrontRESActorCritic(nn.Module):
         self.noise_std_type = noise_std_type
         self.max_delta_q = max_delta_q          # tanh clip for Δq (rad)
         self.max_delta_z = max_delta_z          # tanh clip for Δz (m)
-        self.max_delta_pos = max_delta_pos      # tanh clip for position correction (m)
-        self.max_delta_rpy = max_delta_rpy      # tanh clip for orientation correction (rad)
 
         activation_fn = resolve_nn_activation(activation)
 
@@ -490,8 +482,8 @@ class FrontRESActorCritic(nn.Module):
 
         # ========== Action Noise ==========
 
-        # Distribution covers the full residual output. In task-space mode the
-        # bounded action has 8 dims even though num_task_corrections is 6.
+        # Distribution covers the full residual output. Task-space mode uses
+        # the same direct six coordinates for mean, sample, storage and execution.
         #
         # Task-space mode (FrontRES SE3 corrector): σ is a FIXED hyperparameter,
         # not a trainable parameter.
@@ -574,19 +566,50 @@ class FrontRESActorCritic(nn.Module):
         ):
             print(message)
 
+        self.enforce_frozen_gmt_inference()
+
+    def enforce_frozen_gmt_inference(self) -> None:
+        """Keep every frozen-GMT component outside the training lifecycle."""
+
+        for module in (self.gmt_policy, self.gmt_normalizer, self.ref_vel_estimator):
+            if module is None:
+                continue
+            module.eval()
+            for parameter in module.parameters():
+                parameter.requires_grad_(False)
+        if self.gmt_normalizer is not None and hasattr(self.gmt_normalizer, "until"):
+            self.gmt_normalizer.until = 0
+
+    def train(self, mode: bool = True):
+        """Train FrontRES Actor/Critic without reopening the frozen GMT family."""
+
+        super().train(mode)
+        self.enforce_frozen_gmt_inference()
+        return self
+
     def _frontres_raw_task_output(self, policy_obs: torch.Tensor) -> torch.Tensor:
         """Return raw full-6D task-space correction logits."""
+
+        if not isinstance(policy_obs, torch.Tensor) or policy_obs.ndim != 2:
+            raise TypeError("FrontRES actor input must be a rank-2 tensor")
+        expected = int(self.num_frontres_obs)
+        if expected <= 0 or int(policy_obs.shape[-1]) != expected:
+            raise ValueError(
+                "FrontRES actor input has the wrong deployable-prefix width: "
+                f"expected {expected}, got {int(policy_obs.shape[-1])}"
+            )
+        if not bool(torch.isfinite(policy_obs).all().item()):
+            raise ValueError("FrontRES actor input must be finite")
         return self.residual_actor(policy_obs)
 
-    def _frontres_bounded_proposal(self, raw: torch.Tensor) -> torch.Tensor:
-        """Return bounded Stage-1 Delta SE proposal from raw FrontRES output."""
+    def _frontres_task_proposal(self, raw: torch.Tensor) -> torch.Tensor:
+        """Return the direct world-frame full-6D Delta SE(3) proposal."""
 
-        raw_pos = raw[:, :3]
-        raw_rpy = raw[:, 3:6]
-        return torch.cat([
-            torch.tanh(raw_pos) * self.max_delta_pos,
-            torch.tanh(raw_rpy) * self.max_delta_rpy,
-        ], dim=-1)
+        if raw.ndim != 2 or int(raw.shape[-1]) != 6:
+            raise ValueError(f"FrontRES task proposal must have shape [B,6], got {tuple(raw.shape)}")
+        if not bool(torch.isfinite(raw).all().item()):
+            raise ValueError("FrontRES task proposal must be finite")
+        return raw
 
     def _infer_gmt_architecture(self, state_dict, activation):
         """Infer GMT policy architecture from checkpoint state_dict"""
@@ -842,6 +865,30 @@ class FrontRESActorCritic(nn.Module):
             gmt_obs = self._pad_observations_for_gmt(gmt_input)
         return self.gmt_policy.act_inference(gmt_obs)
 
+    def run_frozen_gmt_from_suffix(self, gmt_observations: torch.Tensor) -> torch.Tensor:
+        """Run the frozen GMT from its authoritative normalized suffix only.
+
+        Clean and Noisy baselines have no FrontRES action and therefore must
+        not fabricate a 158D actor prefix merely to reuse ``_parse_observations``.
+        This is the narrow GMT-owned entrypoint for those baseline executions.
+        """
+
+        if not isinstance(gmt_observations, torch.Tensor) or gmt_observations.ndim != 2:
+            raise TypeError("frozen GMT suffix must be a rank-2 tensor")
+        expected = int(self.gmt_policy_obs_dim)
+        if expected <= 0 or int(gmt_observations.shape[-1]) != expected:
+            raise ValueError(
+                "frozen GMT suffix has the wrong authority width: "
+                f"expected {expected}, got {int(gmt_observations.shape[-1])}"
+            )
+        if not bool(torch.isfinite(gmt_observations).all()):
+            raise ValueError("frozen GMT suffix must be finite")
+        with torch.inference_mode():
+            actions = self.gmt_policy.act_inference(gmt_observations)
+        if not isinstance(actions, torch.Tensor) or int(actions.shape[0]) != int(gmt_observations.shape[0]):
+            raise RuntimeError("frozen GMT must return one action per suffix row")
+        return actions.detach().clone()
+
     def _frontres_forward(self, observations):
         """
         Full FrontRES → GMT pipeline used only by act_inference (deployment / evaluation).
@@ -859,7 +906,7 @@ class FrontRESActorCritic(nn.Module):
         raw = self._frontres_raw_task_output(policy_obs)
 
         if self.num_task_corrections > 0:
-            proposal = self._frontres_bounded_proposal(raw)
+            proposal = self._frontres_task_proposal(raw)
             frontres_out = proposal
             self.last_task_correction = proposal.detach()
             self.last_delta_z = None
@@ -879,13 +926,13 @@ class FrontRESActorCritic(nn.Module):
         return robot_actions, frontres_out
 
     def get_task_correction_inference(self, observations):
-        """Deterministic bounded task-space correction for runner/env-side application."""
+        """Deterministic direct task-space correction for runner/env-side application."""
         if self.num_task_corrections <= 0:
             raise RuntimeError("get_task_correction_inference is only valid in task-space FrontRES mode")
         # B1: Parse the policy observation without narrowing the full-6D repair cone.
         policy_obs, _, _ = self._parse_observations(observations)
         raw = self._frontres_raw_task_output(policy_obs)
-        proposal = self._frontres_bounded_proposal(raw)
+        proposal = self._frontres_task_proposal(raw)
         correction = proposal
         self.last_task_correction = proposal.detach()
         self.last_delta_z = None
@@ -957,13 +1004,8 @@ class FrontRESActorCritic(nn.Module):
         raw = self._frontres_raw_task_output(policy_obs) if self.num_task_corrections > 0 else self.residual_actor(policy_obs)
 
         if self.num_task_corrections > 0:
-            raw_pos = raw[:, :3]
-            raw_rpy = raw[:, 3:6]
             frontres_mean = raw
-            self.last_task_correction = torch.cat([
-                torch.tanh(raw_pos) * self.max_delta_pos,
-                torch.tanh(raw_rpy) * self.max_delta_rpy,
-            ], dim=-1).detach()
+            self.last_task_correction = self._frontres_task_proposal(raw).detach()
             self.last_delta_z          = None
             self.last_residual_actions = self.last_task_correction
         else:
@@ -1025,23 +1067,16 @@ class FrontRESActorCritic(nn.Module):
 
         主链路:
             上游: rollout step 传入 normalized policy observation.
-            下游: bounded repair 写入 PPO transition, 同时传给 task correction
+            下游: direct repair 写入 PPO transition, 同时传给 task correction
             application 和 frozen-GMT execution.
 
         语义:
-            raw sample 与 mean/sigma 同源, bounded sample 是环境执行表示. 两种
-            representation 的 log_prob 重写必须保持同一个 rollout tuple.
+            sample 与 mean/sigma 同处于直接 full-6D Delta SE(3) 坐标，PPO
+            storage、log_prob 和环境执行不得再引入第二种动作表示。
         """
         self.update_distribution(observations)
         raw_sample = self.distribution.sample()
-        if self.num_task_corrections > 0:
-            # Raw -> bounded full-6D Delta SE(3).
-            action = torch.cat([
-                torch.tanh(raw_sample[:, :3])  * self.max_delta_pos,
-                torch.tanh(raw_sample[:, 3:6]) * self.max_delta_rpy,
-            ], dim=-1)
-        else:
-            action = raw_sample
+        action = self._frontres_task_proposal(raw_sample) if self.num_task_corrections > 0 else raw_sample
         # AUDIT-ACTION-01: Record the exact mean/sigma/action tuple at the actor owner.
         # Result: PENDING_LIVE.
         emit_formal_runtime_probe(
@@ -1093,7 +1128,7 @@ class FrontRESActorCritic(nn.Module):
                 robot_actions = self._apply_delta_q_and_run_gmt(
                     policy_obs, delta_q_only, ref_vel, ref_vel_estimator_obs)
 
-        # AUDIT-GMT-01: Confirm GMT consumed the repaired path under the no_grad boundary above.
+        # B3: AUDIT-GMT-01 confirms GMT consumed the repaired path under the no_grad boundary above.
         # Result: PENDING_LIVE.
         emit_formal_runtime_probe(
             "AUDIT-GMT-01",
@@ -1110,22 +1145,6 @@ class FrontRESActorCritic(nn.Module):
 
         `actions` here are full frontres_output values stored during rollout (NOT robot actions).
         """
-        if self.num_task_corrections > 0:
-            # Actions: bounded full-6D Delta SE(3).
-            _pos_rpy = actions[:, :6]
-            # ── pos/rpy: invert tanh ──────────────────────────────────────
-            max_d = torch.cat([
-                torch.full((3,), self.max_delta_pos, device=actions.device),
-                torch.full((3,), self.max_delta_rpy, device=actions.device),
-            ], dim=-1)
-            normalized = (_pos_rpy / max_d).clamp(-1 + 1e-6, 1 - 1e-6)
-            raw_pr = torch.atanh(normalized)
-            # Bounded full-6D action: invert task-space squash to raw logits.
-            # ── raw sample + log_prob ─────────────────────────────────────
-            log_prob = self.distribution.log_prob(raw_pr).sum(dim=-1)
-            # Jacobian
-            log_j   = (torch.log(max_d) + torch.log(1.0 - normalized.pow(2) + 1e-6)).sum(dim=-1)
-            return log_prob - log_j
         return self.distribution.log_prob(actions).sum(dim=-1)
 
     def get_actions_log_prob_selected(self, actions, selected_dims):
@@ -1140,18 +1159,6 @@ class FrontRESActorCritic(nn.Module):
         dims = dims[(dims >= 0) & (dims < actions.shape[-1])]
         if dims.numel() == 0:
             return torch.zeros(actions.shape[0], device=actions.device, dtype=actions.dtype)
-
-        if self.num_task_corrections > 0:
-            _pos_rpy = actions[:, :6]
-            max_d = torch.cat([
-                torch.full((3,), self.max_delta_pos, device=actions.device),
-                torch.full((3,), self.max_delta_rpy, device=actions.device),
-            ], dim=-1)
-            normalized = (_pos_rpy / max_d).clamp(-1 + 1e-6, 1 - 1e-6)
-            raw_pr = torch.atanh(normalized)
-            log_prob_all = self.distribution.log_prob(raw_pr)
-            log_j_pr = torch.log(max_d) + torch.log(1.0 - normalized.pow(2) + 1e-6)
-            return (log_prob_all[:, dims] - log_j_pr[:, dims]).sum(dim=-1)
 
         return self.distribution.log_prob(actions)[:, dims].sum(dim=-1)
 
@@ -1173,19 +1180,6 @@ class FrontRESActorCritic(nn.Module):
         dims = dims[(dims >= 0) & (dims < actions.shape[-1])]
         if dims.numel() == 0:
             return torch.zeros(actions.shape[0], 0, device=actions.device, dtype=actions.dtype)
-
-        if self.num_task_corrections > 0:
-            _pos_rpy = actions[:, :6]
-            max_d = torch.cat([
-                torch.full((3,), self.max_delta_pos, device=actions.device),
-                torch.full((3,), self.max_delta_rpy, device=actions.device),
-            ], dim=-1)
-            normalized = (_pos_rpy / max_d).clamp(-1 + 1e-6, 1 - 1e-6)
-            raw_pr = torch.atanh(normalized)
-            dist = Normal(mean, std)
-            log_prob_all = dist.log_prob(raw_pr)
-            log_j_pr = torch.log(max_d) + torch.log(1.0 - normalized.pow(2) + 1e-6)
-            return log_prob_all[:, dims] - log_j_pr[:, dims]
 
         dist = Normal(mean, std)
         return dist.log_prob(actions)[:, dims]

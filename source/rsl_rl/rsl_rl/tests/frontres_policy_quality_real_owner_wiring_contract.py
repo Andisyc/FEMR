@@ -37,6 +37,7 @@ from rsl_rl.frontres.frontres_policy_quality_manifest import (
 )
 from rsl_rl.runners import frontres_policy_quality_eval as quality_eval
 from rsl_rl.runners import frontres_policy_quality_formal_owners as formal
+from rsl_rl.runners import frontres_policy_quality_state as quality_state
 
 
 class _Policy(nn.Module):
@@ -44,8 +45,6 @@ class _Policy(nn.Module):
         super().__init__()
         self.residual_actor = nn.Sequential(nn.Linear(4, 6))
         self.num_actor_obs = 4
-        self.max_delta_pos = 0.1
-        self.max_delta_rpy = 0.2
 
     def get_env_action(self, observations: torch.Tensor, corrections: torch.Tensor) -> torch.Tensor:
         return torch.zeros((observations.shape[0], 2), dtype=observations.dtype)
@@ -141,7 +140,7 @@ def main() -> None:
         cached_quat = torch.tensor(
             [[0.99, 0.1, 0.0, 0.0], [0.99, 0.1, 0.0, 0.0], [0.99, 0.1, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]
         )
-        image = quality_eval._TensorImage.capture
+        image = quality_state.FrontRESPolicyQualityTensorImage.capture
         return SimpleNamespace(
             comparison_signature=kwargs["comparison_signature"],
             initial_state_hash="a" * 64,
@@ -252,7 +251,7 @@ def main() -> None:
         torch.save(policy_payload, policy_path)
 
         before = formal._training_state_signature(runner)
-        payload = quality_eval.run_frontres_policy_quality_eval(
+        payload = quality_eval.run_frontres_legacy_policy_quality_eval(
             runner,
             manifest_path=str(manifest_path),
             hsl_checkpoint_path=str(hsl_path),

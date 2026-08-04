@@ -1,6 +1,12 @@
 # FRS-v015 Physics-Constrained Intent Task Canvas
 
-Status: active volatile control surface. Updated: 2026-07-29.
+Status: superseded on 2026-08-01. Retained as the historical
+v016/v006/v004/v011 control surface; it is not the current implementation
+cursor.
+
+Current design authority is METHOD-v017 / GAIN-v007 / PPO-v005 / TRAIN-v012.
+The next control surface may be created only with a separately authorized
+Engineering Plan.
 
 ## Objective
 
@@ -8,11 +14,11 @@ Keep the accepted Physics-constrained Intent method unchanged while replacing
 the K8/M2 pilot training identity with one immutable coordinated K x exact-M
 checkpointed curriculum.
 
-## Method Authority
+## Historical Method Authority
 
 - Concept Figure: `Q-PAIR Paired Rollouts` -> `Q-01 Repair Gain`
-- Active contracts: METHOD-v016 / GAIN-v006 / PPO-v004 / TRAIN-v011
-- Current source route: METHOD-v016 / GAIN-v006 / PPO-v004 / TRAIN-v011,
+- Contract set when this canvas was active: METHOD-v016 / GAIN-v006 / PPO-v004 / TRAIN-v011
+- Source route recorded by this canvas: METHOD-v016 / GAIN-v006 / PPO-v004 / TRAIN-v011,
   exact coordinated K x M and strict checkpoint-v6 at E-FI-89
 - P0 decision record:
   `FRS-GAIN-v005-vector-physics-constrained-intent-proposal.md`
@@ -20,7 +26,8 @@ checkpointed curriculum.
 
 ## Current Cursor
 
-`P5-C K8/M2 reached model_2000; E-FI-90 actual Actor-update authority and E-FI-91 ownership refactor are offline-complete; K16/M3 critic recalibration awaits synchronization and user runtime authority`
+`historical v016 route closed; active v017/v007/v005/v012 contracts confirmed;
+next is a separately authorized Recovery-Aware Engineering Plan`
 
 ## Confirmed
 
@@ -70,6 +77,9 @@ P0 document/owner rebase [complete]
 -> P5-C K8/M2 official block to model_2000 [runtime-complete]
 -> P5-C actual Actor-update authority [offline-complete at E-FI-90]
 -> P5-C optimizer/diagnostics ownership closure [offline-complete at E-FI-91]
+-> interface-oriented formal-route closure [offline-complete at E-FI-93]
+-> live-probe responsibility-owner extraction [offline-complete at E-FI-94]
+-> domain/evidence/projection owner closure [offline-complete at E-FI-96]
 -> P5-C K16/M3 critic recalibration [next; runtime authority required]
 ```
 
@@ -103,6 +113,21 @@ P0 document/owner rebase [complete]
   logic from the runner layer: the existing PPO owner now owns the exact-one
   call and Actor/std commit, while diagnostics owns the read-only validator.
   This is offline-confirmed and deliberately does not widen runtime scope.
+- E-FI-93 places the formal transaction behind typed request/backend/receipt
+  ports and one engine-local Unit of Work.
+- E-FI-94 removes the remaining large compatibility-backend debt:
+`frontres_segment_live_probe.py` is import-only, active consumers address
+named public owners, and the owner dependency graph is acyclic. The 64/64
+deterministic suite passes without MOSAIC-host edits.
+- E-FI-95 completes Phase C: adjacent training, sampler, checkpoint and
+  evaluation hotspots now delegate to transaction, reporting, telemetry,
+  read-only quality-inspection and explicit legacy owners. The P5-C training
+  cursor is unchanged; no simulator or policy-quality claim was added.
+- E-FI-96 completes Phase D: scenario/planning, evidence/storage, grouped
+  projection/actual commit, diagnostics and policy-quality shared state now
+  have single public owners. Storage/diagnostics are compatibility-only
+  facades; production file-path loaders and hidden owner cycles fail closed.
+  The 64/64 deterministic suite passes without simulator, training or live use.
 
 ## Non-Scope
 
@@ -112,9 +137,7 @@ Critics/optimizers, Noisy physical prefix, or scalar reward-weight tuning.
 
 ## Next Action
 
-After synchronizing E-FI-90, resume strict checkpoint-v6 `model_2000.pt` into
-the declared K16/M3 critic-only recalibration. The first real M3 transaction
-must show Actor/std and Actor Adam-state freeze, actual-update KKT, exact-one
-update and unchanged curriculum fingerprint. This requires separate user
-authorization because it starts simulator/training. P4 policy-only deployment
-remains an independent open quality readout.
+This historical canvas is closed. Do not resume checkpoint-v6. The active
+cursor is maintained in
+`FRS-v017-clean-anchored-recovery-aware-task-canvas.md` and the coordinated
+v017 Engineering Plan.

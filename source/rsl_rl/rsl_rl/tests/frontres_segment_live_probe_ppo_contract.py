@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def _package(name: str) -> types.ModuleType:
     module = types.ModuleType(name)
-    module.__path__ = []
+    module.__path__ = [str((ROOT / "rsl_rl").joinpath(*name.split(".")[1:]))]
     sys.modules[name] = module
     return module
 
@@ -56,6 +56,14 @@ def _install_import_stubs():
         ROOT / "rsl_rl" / "frontres" / "frontres_segment_reset.py",
     )
     frontres_pkg.frontres_segment_reset = reset_module
+    frontres_pkg.frontres_balance = _load(
+        "rsl_rl.frontres.frontres_balance",
+        ROOT / "rsl_rl" / "frontres" / "frontres_balance.py",
+    )
+    frontres_pkg.frontres_interfaces = _load(
+        "rsl_rl.frontres.frontres_interfaces",
+        ROOT / "rsl_rl" / "frontres" / "frontres_interfaces.py",
+    )
 
     training_schedule = types.ModuleType("rsl_rl.frontres.training_schedule")
     training_schedule.resolve_frontres_mode_state = lambda *_args, **_kwargs: None
@@ -73,8 +81,8 @@ def _install_import_stubs():
     rsl_rl_pkg.modules = modules_pkg
 
     rollout_step = types.ModuleType("rsl_rl.runners.frontres_rollout_step")
-    rollout_step._append_future_intent_actor_context = lambda _runner, obs: obs
-    rollout_step._frontres_motion_command = lambda runner: runner.env.command_manager.get_term("motion")
+    rollout_step.append_frontres_future_intent_actor_context = lambda _runner, obs: obs
+    rollout_step.frontres_motion_command = lambda runner: runner.env.command_manager.get_term("motion")
     rollout_step.prepare_frontres_rollout_step = lambda *_args, **_kwargs: None
     rollout_step.prepare_frontres_v015_frozen_gmt_step = lambda *_args, **_kwargs: None
     rollout_step.prepare_frontres_v015_one_action_at_t = lambda *_args, **_kwargs: None
@@ -140,15 +148,13 @@ class FakeSegmentPolicy(torch.nn.Module):
         return FrontRESSegmentPolicyEval(log_prob=log_prob, value=value, entropy=entropy, mean=mean)
 
 
-class FakeLegacy12DFrontRESPolicy(torch.nn.Module):
+class FakeDirect6DFrontRESPolicy(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        self.actor = torch.nn.Linear(4, 12, bias=False)
+        self.actor = torch.nn.Linear(4, 6, bias=False)
         self.critic = torch.nn.Linear(4, 1, bias=False)
-        self.std = torch.nn.Parameter(torch.ones(12) * 0.5)
+        self.std = torch.nn.Parameter(torch.ones(6) * 0.5)
         self.num_task_corrections = 6
-        self.max_delta_pos = 0.3
-        self.max_delta_rpy = 0.3
         self.distribution = None
         torch.nn.init.zeros_(self.actor.weight)
         torch.nn.init.zeros_(self.critic.weight)
@@ -165,14 +171,7 @@ class FakeLegacy12DFrontRESPolicy(torch.nn.Module):
         mean = self.actor(observations)
         std = self.std.expand_as(mean)
         self.distribution = torch.distributions.Normal(mean, std)
-        return torch.cat(
-            [
-                torch.tanh(mean[:, :3]) * self.max_delta_pos,
-                torch.tanh(mean[:, 3:6]) * self.max_delta_rpy,
-                torch.sigmoid(mean[:, 6:12]),
-            ],
-            dim=-1,
-        )
+        return mean
 
     def entropy(self):
         return self.distribution.entropy().sum(dim=-1)
@@ -182,27 +181,30 @@ class FakeLegacy12DFrontRESPolicy(torch.nn.Module):
 
 
 def test_6d_old_and_new_log_prob_use_same_delta_se_transform() -> None:
-    policy = FakeLegacy12DFrontRESPolicy()
+    policy = FakeDirect6DFrontRESPolicy()
     alg = SimpleNamespace(policy=policy, use_estimate_ref_vel=False)
     adapter = FrontRESSegmentLivePolicyAdapter(alg, privileged_observations=None)
     observations = torch.tensor([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]])
-    raw_actions = torch.tensor(
+    actions = torch.tensor(
         [
-            [0.05, 0.00, 0.00, 0.02, 0.00, 0.00, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50],
-            [0.00, -0.05, 0.00, 0.00, -0.02, 0.00, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50],
+            [0.05, 0.00, 0.00, 0.02, 0.00, 0.00],
+            [0.00, -0.05, 0.00, 0.00, -0.02, 0.00],
         ]
     )
+    old_log_probs = torch.distributions.Normal(
+        torch.zeros(2, 6), torch.ones(2, 6) * 0.5
+    ).log_prob(actions).sum(dim=-1)
     runner = SimpleNamespace(
         alg=SimpleNamespace(
             transition=SimpleNamespace(
-                actions_log_prob=torch.zeros(2),
-                action_mean=torch.zeros(2, 12),
-                action_sigma=torch.ones(2, 12) * 0.5,
+                actions_log_prob=old_log_probs,
+                action_mean=torch.zeros(2, 6),
+                action_sigma=torch.ones(2, 6) * 0.5,
             ),
             policy=policy,
         )
     )
-    segment_actions, old_log_prob = live_probe._select_segment_transition_actions(runner, actions=raw_actions)
+    segment_actions, old_log_prob = live_probe._select_segment_transition_actions(runner, actions=actions)
     policy.act(observations)
     new_log_prob = adapter.evaluate_segment_actions(observations, segment_actions)["log_prob"]
     raw_log_ratio = new_log_prob.detach() - old_log_prob
@@ -210,7 +212,7 @@ def test_6d_old_and_new_log_prob_use_same_delta_se_transform() -> None:
     _probe_tensor("segment_actions", segment_actions, "6D Delta SE actions shared by old and new log_prob")
     _probe_tensor("old_log_prob", old_log_prob, "old log_prob rebuilt from rollout stats")
     _probe_tensor("new_log_prob", new_log_prob, "new log_prob evaluated by live PPO adapter")
-    _probe_tensor("raw_log_ratio", raw_log_ratio, "should stay near zero when policy stats match")
+    _probe_tensor("raw_log_ratio", raw_log_ratio, "must be zero when the same direct Gaussian stats are reused")
 
     torch.testing.assert_close(old_log_prob, new_log_prob.detach())
     torch.testing.assert_close(raw_log_ratio, torch.zeros_like(raw_log_ratio), atol=1e-6, rtol=1e-6)
@@ -361,41 +363,21 @@ def test_live_probe_storage_batch_backpropagates_only_valid_segment() -> None:
     assert torch.count_nonzero(policy.critic.weight.grad[:, 1:]) == 0
 
 
-def test_live_probe_adapter_evaluates_6d_actions_against_12d_policy_distribution() -> None:
-    policy = FakeLegacy12DFrontRESPolicy()
+def test_live_probe_adapter_rejects_legacy_12d_policy_distribution() -> None:
+    policy = FakeDirect6DFrontRESPolicy()
+    policy.actor = torch.nn.Linear(4, 12, bias=False)
+    policy.std = torch.nn.Parameter(torch.ones(12) * 0.5)
     alg = SimpleNamespace(policy=policy, use_estimate_ref_vel=False)
     adapter = FrontRESSegmentLivePolicyAdapter(alg, privileged_observations=None)
     observations = torch.tensor([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]])
     actions = torch.tensor([[0.05, 0.00, 0.00, 0.00, 0.00, 0.00], [0.00, -0.05, 0.00, 0.00, 0.00, 0.00]])
 
-    evaluation = adapter.evaluate_segment_actions(observations, actions)
-    result = compute_frontres_segment_ppo_loss(
-        adapter,
-        FrontRESSegmentPPOBatch(
-            observations=observations,
-            actions=actions,
-            old_log_probs=evaluation["log_prob"].detach() + 0.1,
-            old_values=torch.zeros(2),
-            returns=torch.ones(2),
-            advantages=torch.ones(2),
-            valid_mask=torch.tensor([True, True]),
-        ),
-        FrontRESSegmentPPOConfig(entropy_coef=0.0),
-    )
-
-    _probe_tensor("legacy_policy.action_mean", policy.action_mean, "12D policy distribution after act")
-    _probe_tensor("segment_batch.actions", actions, "6D Delta SE actions stored by Segment Replay")
-    _probe_tensor("adapter.log_prob", evaluation["log_prob"], "6D log_prob evaluated against first 6 policy dims")
-    _probe_tensor("adapter.mean", evaluation["mean"], "first 6 policy mean dims returned to PPO validator")
-    _probe_tensor("adapter.sigma", evaluation["sigma"], "first 6 policy sigma dims returned to PPO validator")
-    _probe_result("legacy_12d_policy_result", result)
-
-    assert policy.action_mean.shape == (2, 12)
-    assert evaluation["log_prob"].shape == (2,)
-    assert evaluation["mean"].shape == (2, 6)
-    assert evaluation["sigma"].shape == (2, 6)
-    assert result.should_step
-    assert result.total_loss.requires_grad
+    try:
+        adapter.evaluate_segment_actions(observations, actions)
+    except ValueError as exc:
+        assert "matching [B,6]" in str(exc)
+    else:
+        raise AssertionError("legacy 12D policy distributions must be rejected before PPO evaluation")
 
 
 if __name__ == "__main__":
@@ -403,5 +385,5 @@ if __name__ == "__main__":
     test_multi_trial_search_rows_remain_priority_evidence_not_ppo_rows()
     test_live_probe_storage_batch_masks_invalid_segment_before_ppo_loss()
     test_live_probe_storage_batch_backpropagates_only_valid_segment()
-    test_live_probe_adapter_evaluates_6d_actions_against_12d_policy_distribution()
+    test_live_probe_adapter_rejects_legacy_12d_policy_distribution()
     print("frontres_segment_live_probe_ppo_contract: ok")

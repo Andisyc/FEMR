@@ -60,14 +60,12 @@ def _agent_cfg() -> SimpleNamespace:
         "frontres_segment_live_runner_enabled": True,
         "frontres_segment_live_train_enabled": True,
         "frontres_segment_live_sentinel_only": True,
-        "frontres_v015_local_sentinel_only": True,
+        "frontres_local_sentinel_only": True,
         "frontres_segment_live_probe_only": True,
         "frontres_segment_live_storage_write_only": True,
         "frontres_segment_live_single_update_only": True,
         "frontres_segment_live_update_loop_only": True,
-        "frontres_segment_offline_eval_only": True,
-        "frontres_segment_sequence_offline_eval_only": True,
-        "frontres_v015_formal_transaction_enabled": False,
+        "frontres_formal_transaction_enabled": False,
         "frontres_segment_critic_warmup_iterations": 200,
         "frontres_segment_actor_warmup_iterations": 500,
         "frontres_future_offsets": (),
@@ -156,7 +154,7 @@ def test_t_agent_config_and_dispatch_are_eval_only(tmp_path: Path) -> None:
     assert agent_cfg.supervised_warmup_iterations == 0
     assert agent_cfg.critic_warmup_iterations == 0
     assert alg.frontres_training_objective == "deployment_composition_eval"
-    assert alg.frontres_v015_formal_transaction_enabled is True
+    assert alg.frontres_formal_transaction_enabled is True
     assert alg.frontres_segment_critic_warmup_iterations == 0
     assert alg.frontres_segment_actor_warmup_iterations == 0
     assert alg.frontres_future_offsets == (1, 2)
@@ -177,7 +175,7 @@ def test_t_agent_config_and_dispatch_are_eval_only(tmp_path: Path) -> None:
 
     class FakeRunner:
         def __init__(self):
-            self.alg = SimpleNamespace(optimizer=SimpleNamespace(frontres_v015_step_count=11))
+            self.alg = SimpleNamespace(optimizer=SimpleNamespace(frontres_step_count=11))
             self.calls = 0
 
         def run_frontres_v015_deployment_composition_eval(self, *, config):
@@ -215,7 +213,7 @@ def test_t_agent_config_and_dispatch_are_eval_only(tmp_path: Path) -> None:
         cli.build_frontres_v015_deployment_run_config(contract, sequence_module=sequence_module),
     )
     assert runner.calls == 1
-    assert runner.alg.optimizer.frontres_v015_step_count == 11
+    assert runner.alg.optimizer.frontres_step_count == 11
     sentinel = cli.format_frontres_v015_deployment_sentinel(report, contract, optimizer_step_delta=0)
     assert "evaluated_frames=7" in sentinel
     assert "femr_actions=7" in sentinel
@@ -252,7 +250,7 @@ def test_t_source_uses_formal_owners_without_training_route() -> None:
         "CUDA_VISIBLE_DEVICES",
     ):
         assert required in cli_source, required
-    for forbidden in ("runner.learn(", "optimizer.step(", "sampler.update", "run_frontres_segment_sequence_offline_eval"):
+    for forbidden in ("runner.learn(", "optimizer.step(", "sampler.update"):
         assert forbidden not in cli_source, forbidden
     assert 'id="FrontRES-Unified-Tracking-Flat-G1-v0"' in task_registry
     configure_at = cli_source.index("configure_frontres_v015_deployment_agent_cfg(agent_cfg, contract)")
@@ -260,7 +258,7 @@ def test_t_source_uses_formal_owners_without_training_route() -> None:
     load_at = cli_source.index("runner.load(contract.frontres_checkpoint")
     dispatch_at = cli_source.index("report = dispatch_frontres_v015_deployment_composition(")
     assert configure_at < runner_at < load_at < dispatch_at
-    assert 'self.alg_cfg.get("frontres_v015_formal_transaction_enabled", False)' in runner_source
+    assert 'self.alg_cfg.get("frontres_formal_transaction_enabled", False)' in runner_source
     print("[T-owner/T-formal-entry/T-no-training] IsaacLab runner and checkpoint owners precede the sole S2B dispatch", flush=True)
 
 

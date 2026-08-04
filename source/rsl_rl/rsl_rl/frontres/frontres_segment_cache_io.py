@@ -2,47 +2,40 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
-import importlib.util
 import json
 from pathlib import Path
-import sys
 from typing import Any, Iterable
 
 import torch
 
-try:
-    from rsl_rl.frontres.frontres_segment_cache_schema import (
-        FrontRESNoisyVariant,
-        FrontRESPerturbationDescriptor,
-        FrontRESRobotRolloutState,
-        FrontRESSegmentIndex,
-    )
-except ModuleNotFoundError:
-    _SCHEMA_PATH = Path(__file__).with_name("frontres_segment_cache_schema.py")
-    _SCHEMA_SPEC = importlib.util.spec_from_file_location("frontres_segment_cache_schema", _SCHEMA_PATH)
-    if _SCHEMA_SPEC is None or _SCHEMA_SPEC.loader is None:
-        raise
-    _SCHEMA_MODULE = importlib.util.module_from_spec(_SCHEMA_SPEC)
-    sys.modules[_SCHEMA_SPEC.name] = _SCHEMA_MODULE
-    _SCHEMA_SPEC.loader.exec_module(_SCHEMA_MODULE)
-    FrontRESNoisyVariant = _SCHEMA_MODULE.FrontRESNoisyVariant
-    FrontRESPerturbationDescriptor = _SCHEMA_MODULE.FrontRESPerturbationDescriptor
-    FrontRESRobotRolloutState = _SCHEMA_MODULE.FrontRESRobotRolloutState
-    FrontRESSegmentIndex = _SCHEMA_MODULE.FrontRESSegmentIndex
+from rsl_rl.frontres.frontres_segment_cache_schema import (
+    FrontRESCleanSegmentArtifact,
+    FrontRESNoisyVariant,
+    FrontRESPerturbationDescriptor,
+    FrontRESRobotRolloutState,
+    FrontRESSegmentIndex,
+)
 
 
 @dataclass(frozen=True)
 class FrontRESCleanStateEntry:
     segment: FrontRESSegmentIndex
     clean_state: FrontRESRobotRolloutState
+    clean_artifact: FrontRESCleanSegmentArtifact | None = None
 
     @property
     def segment_id(self) -> int:
         return int(self.segment.segment_id)
 
-    def validate(self) -> None:
+    def validate(self, *, require_v017_artifact: bool = False) -> None:
         self.segment.validate()
         self.clean_state.validate(name="clean_state")
+        if require_v017_artifact and self.clean_artifact is None:
+            raise ValueError("active v017 clean cache entry requires immutable K-step artifact evidence")
+        if self.clean_artifact is not None:
+            if self.clean_artifact.segment != self.segment:
+                raise ValueError("clean artifact segment identity does not match clean replay entry")
+            self.clean_artifact.validate(clean_state=self.clean_state)
 
     def probe(self) -> dict[str, Any]:
         self.validate()
@@ -53,6 +46,9 @@ class FrontRESCleanStateEntry:
             "horizon_k": int(self.segment.horizon_k),
         }
         result.update(self.clean_state.probe(prefix="clean_state"))
+        result["clean_artifact"] = self.clean_artifact is not None
+        if self.clean_artifact is not None:
+            result["clean_artifact_hash"] = self.clean_artifact.artifact_hash
         return result
 
 
@@ -675,6 +671,7 @@ def clean_entry_to_record(entry: FrontRESCleanStateEntry) -> dict[str, Any]:
     return {
         "segment": segment_to_record(entry.segment),
         "clean_state": rollout_state_to_record(entry.clean_state),
+        "clean_artifact": None if entry.clean_artifact is None else clean_artifact_to_record(entry.clean_artifact),
     }
 
 
@@ -682,9 +679,39 @@ def clean_entry_from_record(record: dict[str, Any]) -> FrontRESCleanStateEntry:
     entry = FrontRESCleanStateEntry(
         segment=segment_from_record(record["segment"]),
         clean_state=rollout_state_from_record(record["clean_state"]),
+        clean_artifact=None
+        if record.get("clean_artifact") is None
+        else clean_artifact_from_record(record["clean_artifact"]),
     )
     entry.validate()
     return entry
+
+
+def clean_artifact_to_record(artifact: FrontRESCleanSegmentArtifact) -> dict[str, Any]:
+    artifact.validate()
+    return {
+        "segment": segment_to_record(artifact.segment),
+        "source_identity": artifact.source_identity,
+        "x_t_identity": artifact.x_t_identity,
+        "clean_continuation": artifact.clean_continuation.detach().cpu(),
+        "expected_support": artifact.expected_support.detach().cpu(),
+        "expected_support_envelope": artifact.expected_support_envelope.detach().cpu(),
+        "artifact_hash": artifact.artifact_hash,
+    }
+
+
+def clean_artifact_from_record(record: dict[str, Any]) -> FrontRESCleanSegmentArtifact:
+    artifact = FrontRESCleanSegmentArtifact(
+        segment=segment_from_record(record["segment"]),
+        source_identity=str(record["source_identity"]),
+        x_t_identity=str(record["x_t_identity"]),
+        clean_continuation=_tensor(record["clean_continuation"]),
+        expected_support=_tensor(record["expected_support"]),
+        expected_support_envelope=_tensor(record["expected_support_envelope"]),
+        artifact_hash=str(record["artifact_hash"]),
+    )
+    artifact.validate()
+    return artifact
 
 
 def noisy_variant_to_record(variant: FrontRESNoisyVariant) -> dict[str, Any]:

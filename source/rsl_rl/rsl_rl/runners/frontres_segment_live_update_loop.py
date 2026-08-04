@@ -1,24 +1,21 @@
 from __future__ import annotations
 
-import importlib.util
 import math
-from pathlib import Path
-import sys
 from typing import Any
 
 _LOG_SEPARATOR = "-" * 80
-_LIVE_SAMPLER_PATH = Path(__file__).resolve().with_name("frontres_segment_live_sampler.py")
-_LIVE_SAMPLER_SPEC = importlib.util.spec_from_file_location(
-    "frontres_segment_live_sampler_update_loop_module",
-    _LIVE_SAMPLER_PATH,
-)
-if _LIVE_SAMPLER_SPEC is None or _LIVE_SAMPLER_SPEC.loader is None:
-    raise RuntimeError(f"Could not load FrontRES Segment live sampler from {_LIVE_SAMPLER_PATH}.")
-_LIVE_SAMPLER_MODULE = importlib.util.module_from_spec(_LIVE_SAMPLER_SPEC)
-sys.modules[_LIVE_SAMPLER_SPEC.name] = _LIVE_SAMPLER_MODULE
-_LIVE_SAMPLER_SPEC.loader.exec_module(_LIVE_SAMPLER_MODULE)
-run_frontres_segment_sampler_step = _LIVE_SAMPLER_MODULE.run_frontres_segment_sampler_step
-_V015_MAX_REJECTED_COLLECTIONS = 8
+_LEGACY_SAMPLER_STEP: Any | None = None
+
+
+def _run_frontres_legacy_sampler_step(runner: Any, **kwargs: Any) -> Any:
+    """Load the sampler only when the explicitly legacy loop runs."""
+
+    global _LEGACY_SAMPLER_STEP
+    if _LEGACY_SAMPLER_STEP is None:
+        from rsl_rl.runners.frontres_segment_live_sampler import run_frontres_segment_sampler_step
+
+        _LEGACY_SAMPLER_STEP = run_frontres_segment_sampler_step
+    return _LEGACY_SAMPLER_STEP(runner, **kwargs)
 
 
 def _fmt_num(value: Any) -> str:
@@ -121,7 +118,41 @@ def _should_print_update_loop_summary(runner: Any) -> bool:
     return count <= warmup or count % interval == 0
 
 
-def run_frontres_v015_formal_transaction_update_loop(runner: Any) -> Any:
+def _frontres_stage3_engine(runner: Any) -> Any:
+    """Compose the concrete MOSAIC adapter at the outer runner boundary."""
+
+    from rsl_rl.runners.frontres_stage3_engine import (
+        FrontRESStage3Bindings,
+        MosaicFrontRESStage3Backend,
+        get_frontres_stage3_engine,
+    )
+
+    def backend_factory() -> Any:
+        from rsl_rl.frontres.frontres_segment_storage_records import FrontRESV015RejectedTransactionEvidence
+        from rsl_rl.runners.frontres_segment_formal_transaction import (
+            abort_frontres_formal_training_collection,
+            build_frontres_formal_training_request,
+            close_frontres_formal_training_request,
+            run_frontres_formal_transaction_update,
+        )
+        from rsl_rl.runners.frontres_segment_runtime_types import (
+            open_frontres_checkpoint_transaction_barrier,
+        )
+
+        bindings = FrontRESStage3Bindings(
+            rejected_error=FrontRESV015RejectedTransactionEvidence,
+            abort_collection=abort_frontres_formal_training_collection,
+            build_request=build_frontres_formal_training_request,
+            close_request=close_frontres_formal_training_request,
+            open_barrier=open_frontres_checkpoint_transaction_barrier,
+            commit_update=run_frontres_formal_transaction_update,
+        )
+        return MosaicFrontRESStage3Backend(runner, bindings)
+
+    return get_frontres_stage3_engine(runner, backend_factory=backend_factory)
+
+
+def run_frontres_formal_transaction_update_loop(runner: Any, provider: Any) -> Any:
     """Dispatch an explicit v015 provider, never the legacy update loop.
 
     The provider may be a CPU fake contract or the dedicated pre-live local
@@ -129,95 +160,21 @@ def run_frontres_v015_formal_transaction_update_loop(runner: Any) -> Any:
     opens; optimizer steps during collection fail before loss evaluation.
     """
 
-    # 只在新 fake-S2 被显式调用时加载 probe owner, 保持 legacy static contracts
-    # 不需要构造 v015 formal dependency graph.
-    from rsl_rl.runners.frontres_segment_live_probe import (
-        _v015_formal_optimizer_step_count,
-        open_frontres_v015_checkpoint_transaction_barrier,
-        run_frontres_v015_formal_transaction_update,
-    )
-
-    alg = getattr(runner, "alg", None)
-    if alg is None or not bool(getattr(alg, "frontres_v015_formal_transaction_enabled", False)):
-        raise RuntimeError("v015 formal transaction update loop requires its explicit v015 transaction flag")
-    optimizer = getattr(alg, "optimizer", None)
-    before_provider = _v015_formal_optimizer_step_count(optimizer)
-    provider = getattr(runner, "_frontres_v015_formal_transaction_provider", None)
     if not callable(provider):
         raise RuntimeError("v015 formal transaction requires an injected request provider")
-    open_frontres_v015_checkpoint_transaction_barrier(runner)
-    request = provider()
-    after_provider = _v015_formal_optimizer_step_count(optimizer)
-    if after_provider != before_provider:
-        raise RuntimeError(
-            "optimizer step occurred while v015 formal transaction provider collected attempts: "
-            f"before={before_provider} after={after_provider}"
-        )
-    return run_frontres_v015_formal_transaction_update(runner, request)
+    return _frontres_stage3_engine(runner).run_transaction(provider)
 
 
-def run_frontres_v015_formal_training_update_loop(
+def run_frontres_formal_training_update_loop(
     runner: Any,
     *,
     init_at_random_ep_len: bool = True,
 ) -> Any:
     """Collect one ordinary v015 request, commit one update, then close carriers."""
 
-    from rsl_rl.runners.frontres_segment_live_probe import (
-        FrontRESV015RejectedTransactionEvidence,
-        _v015_formal_optimizer_step_count,
-        abort_frontres_v015_formal_training_collection,
-        build_frontres_v015_formal_training_request,
-        close_frontres_v015_formal_training_request,
+    return _frontres_stage3_engine(runner).run_training_transaction(
+        init_at_random_ep_len=init_at_random_ep_len
     )
-
-    alg = getattr(runner, "alg", None)
-    if alg is None or not bool(getattr(alg, "frontres_segment_live_train_enabled", False)):
-        raise RuntimeError("v015 formal training dispatch requires ordinary live training")
-    if bool(getattr(alg, "frontres_v015_local_sentinel_only", False)):
-        raise RuntimeError("v015 formal training dispatch rejects sentinel mode")
-
-    def provider() -> Any:
-        return build_frontres_v015_formal_training_request(
-            runner,
-            init_at_random_ep_len=init_at_random_ep_len,
-        )
-
-    if hasattr(runner, "_frontres_v015_formal_transaction_provider"):
-        raise RuntimeError("v015 formal training refuses an existing transaction provider")
-    runner._frontres_v015_formal_transaction_provider = provider
-    try:
-        optimizer = getattr(alg, "optimizer", None)
-        first_step_count = _v015_formal_optimizer_step_count(optimizer)
-        last_rejection: FrontRESV015RejectedTransactionEvidence | None = None
-        for rejection_count in range(_V015_MAX_REJECTED_COLLECTIONS + 1):
-            try:
-                return run_frontres_v015_formal_transaction_update_loop(runner)
-            except FrontRESV015RejectedTransactionEvidence as exc:
-                last_rejection = exc
-                abort_frontres_v015_formal_training_collection(runner)
-                current_step_count = _v015_formal_optimizer_step_count(optimizer)
-                if current_step_count != first_step_count:
-                    raise RuntimeError(
-                        "v015 rejected transaction changed optimizer state before recollection: "
-                        f"before={first_step_count} after={current_step_count}"
-                    ) from exc
-                if rejection_count >= _V015_MAX_REJECTED_COLLECTIONS:
-                    break
-                print(
-                    "[FrontRES v015 Transaction Rejected] "
-                    f"rejection={rejection_count + 1}/{_V015_MAX_REJECTED_COLLECTIONS} "
-                    f"optimizer_step_delta=0 reason={exc}",
-                    flush=True,
-                )
-        raise RuntimeError(
-            "v015 formal training exhausted its bounded invalid-evidence recollection budget "
-            f"({_V015_MAX_REJECTED_COLLECTIONS}); optimizer_step_delta=0; last={last_rejection}"
-        ) from last_rejection
-    finally:
-        if hasattr(runner, "_frontres_v015_formal_transaction_provider"):
-            delattr(runner, "_frontres_v015_formal_transaction_provider")
-        close_frontres_v015_formal_training_request(runner)
 
 
 def run_frontres_segment_live_update_loop(
@@ -239,7 +196,7 @@ def run_frontres_segment_live_update_loop(
     metrics = []
     for update_step in range(update_steps):
         metrics.append(
-            run_frontres_segment_sampler_step(
+            _run_frontres_legacy_sampler_step(
                 runner,
                 init_at_random_ep_len=bool(init_at_random_ep_len and update_step == 0),
                 update_step=update_step,

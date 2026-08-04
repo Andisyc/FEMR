@@ -11,6 +11,8 @@ from types import SimpleNamespace
 
 import torch
 
+from frontres_contract_imports import install_frontres_contract_packages
+
 
 ROOT = Path(__file__).resolve().parents[4]
 SOURCE_ROOT = ROOT / "source" / "rsl_rl"
@@ -45,6 +47,7 @@ def _load_modules():
     rsl_rl.modules = modules
     rsl_rl.frontres = frontres
     rsl_rl.runners = runners
+    install_frontres_contract_packages(SOURCE_ROOT / "rsl_rl")
     modules.FrontRESActorCritic = type("FrontRESActorCritic", (), {})
     layout = _load("rsl_rl.modules.frontres_observation_layout", LAYOUT_PATH)
     modules.frontres_observation_layout = layout
@@ -103,7 +106,7 @@ class _Env:
         self.command_manager = _CommandManager(command)
 
 
-def _intent(batch_size: int = 2, hmax: int = 3) -> torch.Tensor:
+def _intent(batch_size: int = 2, hmax: int = 2) -> torch.Tensor:
     rows = torch.arange(batch_size, dtype=torch.float32).reshape(batch_size, 1, 1) * 1000.0
     frames = torch.arange(hmax + 1, dtype=torch.float32).reshape(1, hmax + 1, 1) * 100.0
     joints = torch.arange(29, dtype=torch.float32).reshape(1, 1, 29)
@@ -141,7 +144,7 @@ def _runner(layout, batch, *, raw_dim: int = 5, gmt_dim: int = 3):
     )
 
 
-def _batch(intent_q29: torch.Tensor, *, provenance=None, offsets=(1, 3)):
+def _batch(intent_q29: torch.Tensor, *, provenance=None, offsets=(1, 2)):
     if provenance is None:
         provenance = _provenance(int(intent_q29.shape[0]))
     return SimpleNamespace(
@@ -169,14 +172,14 @@ def _expect_error(error_type, fn, text: str) -> None:
 def test_t_shape_and_offset() -> None:
     layout_module, runtime = _load_modules()
     layout = layout_module.resolve_frontres_future_intent_layout(
-        (1, 3), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
+        (1, 2), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
     )
     intent = _intent()
     runner = _runner(layout, _batch(intent))
     raw_obs = torch.arange(10, dtype=torch.float32).reshape(2, 5)
 
     augmented = runtime.append_frontres_future_intent_context(runner, raw_obs)
-    expected_tail = torch.cat([intent[:, 1], intent[:, 3]], dim=-1)
+    expected_tail = torch.cat([intent[:, 1], intent[:, 2]], dim=-1)
 
     assert tuple(augmented.shape) == (2, 5 + 2 * 29)
     torch.testing.assert_close(augmented[:, : 2 * 29], expected_tail)
@@ -192,7 +195,7 @@ def test_t_shape_and_offset() -> None:
 def test_t_provenance() -> None:
     layout_module, runtime = _load_modules()
     layout = layout_module.resolve_frontres_future_intent_layout(
-        (1, 3), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
+        (1, 2), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
     )
     intent = _intent()
     bad_provenance = list(_provenance(2))
@@ -210,7 +213,7 @@ def test_t_provenance() -> None:
 def test_t_clean_isolation() -> None:
     layout_module, runtime = _load_modules()
     layout = layout_module.resolve_frontres_future_intent_layout(
-        (1, 3), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
+        (1, 2), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
     )
     intent = _intent()
     first = _batch(intent)
@@ -230,7 +233,7 @@ def test_t_clean_isolation() -> None:
 def test_t_normalizer_layout_rejects_incompatible_stats() -> None:
     layout_module, runtime = _load_modules()
     layout = layout_module.resolve_frontres_future_intent_layout(
-        (1, 3), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
+        (1, 2), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
     )
     batch = _batch(_intent())
     runner = _runner(layout, batch)
@@ -261,7 +264,7 @@ def test_t_normalizer_layout_rejects_incompatible_stats() -> None:
 def test_t_legacy_reject() -> None:
     layout_module, runtime = _load_modules()
     layout = layout_module.resolve_frontres_future_intent_layout(
-        (1, 3), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
+        (1, 2), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
     )
     legacy_intent = torch.zeros(2, 4, 65)
     _expect_error(
@@ -284,6 +287,13 @@ def test_t_legacy_reject() -> None:
         lambda: layout_module.resolve_frontres_future_intent_layout((1, 3), "v013-fixed-noisy"),
         "layout version",
     )
+    _expect_error(
+        ValueError,
+        lambda: layout_module.resolve_frontres_future_intent_layout(
+            (1, 3), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
+        ),
+        "exact deployment offsets (1, 2)",
+    )
     assert "frontres_future_intent_layout_version" in RSL_CFG_PATH.read_text()
     assert "frontres_future_intent_layout_version" in WBT_CFG_PATH.read_text()
     runner_text = ON_POLICY_PATH.read_text()
@@ -294,7 +304,7 @@ def test_t_legacy_reject() -> None:
     assert "layout.actor_tail_dim" in layout_block
     assert "* 65" not in layout_block
     print(
-        "[T-legacy-reject] 65D tail, absent local scenario, and wrong layout version all fail closed; "
+        "[T-legacy-reject] 65D tail, absent local scenario, wrong offsets, and wrong layout version fail closed; "
         "runner config owns q29-only dimensions",
         flush=True,
     )

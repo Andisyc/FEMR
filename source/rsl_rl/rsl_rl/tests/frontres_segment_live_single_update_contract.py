@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def _package(name: str) -> types.ModuleType:
     module = types.ModuleType(name)
-    module.__path__ = []
+    module.__path__ = [str((ROOT / "rsl_rl").joinpath(*name.split(".")[1:]))]
     sys.modules[name] = module
     return module
 
@@ -57,6 +57,14 @@ def _install_import_stubs():
         ROOT / "rsl_rl" / "frontres" / "frontres_segment_reset.py",
     )
     frontres_pkg.frontres_segment_reset = reset_module
+    frontres_pkg.frontres_balance = _load(
+        "rsl_rl.frontres.frontres_balance",
+        ROOT / "rsl_rl" / "frontres" / "frontres_balance.py",
+    )
+    frontres_pkg.frontres_interfaces = _load(
+        "rsl_rl.frontres.frontres_interfaces",
+        ROOT / "rsl_rl" / "frontres" / "frontres_interfaces.py",
+    )
     warmup_module = _load(
         "rsl_rl.frontres.frontres_segment_warmup",
         ROOT / "rsl_rl" / "frontres" / "frontres_segment_warmup.py",
@@ -84,8 +92,8 @@ def _install_import_stubs():
     rsl_rl_pkg.modules = modules_pkg
 
     rollout_step = types.ModuleType("rsl_rl.runners.frontres_rollout_step")
-    rollout_step._append_future_intent_actor_context = lambda _runner, obs: obs
-    rollout_step._frontres_motion_command = lambda runner: runner.env.command_manager.get_term("motion")
+    rollout_step.append_frontres_future_intent_actor_context = lambda _runner, obs: obs
+    rollout_step.frontres_motion_command = lambda runner: runner.env.command_manager.get_term("motion")
     rollout_step.prepare_frontres_rollout_step = lambda *_args, **_kwargs: None
     rollout_step.prepare_frontres_v015_frozen_gmt_step = lambda *_args, **_kwargs: None
     rollout_step.prepare_frontres_v015_one_action_at_t = lambda *_args, **_kwargs: None
@@ -308,7 +316,7 @@ def test_dp09_critic_only_phase_holds_actor_and_updates_critic() -> None:
     assert not torch.equal(runner.alg.policy.critic.weight, before_critic)
 
 
-def test_dp09_actor_warmup_phase_uses_linear_actor_weight() -> None:
+def test_dp09_actor_ramp_phase_uses_linear_actor_weight() -> None:
     runner = FakeRunner()
     runner.alg.frontres_segment_critic_warmup_iterations = 2
     runner.alg.frontres_segment_actor_warmup_iterations = 4
@@ -317,7 +325,7 @@ def test_dp09_actor_warmup_phase_uses_linear_actor_weight() -> None:
 
     result = run_frontres_segment_single_update(runner, _storage_batch(torch.tensor([True, False])))
 
-    assert result.warmup_phase == "actor_warmup"
+    assert result.warmup_phase == "actor_ramp"
     assert result.actor_loss_weight == 0.25
     assert not torch.equal(runner.alg.policy.actor.weight, before_actor)
 
@@ -494,31 +502,21 @@ def test_single_update_reports_post_update_trust_region_kl() -> None:
     assert abs(result.approx_kl - result.post_update_distribution_kl_mean) < 1e-8
 
 
-def test_bounded_delta_se_logprob_uses_same_raw_source_as_policy_stats() -> None:
-    policy = types.SimpleNamespace(
-        num_task_corrections=6,
-        max_delta_pos=0.20,
-        max_delta_rpy=0.40,
-    )
-    raw = torch.tensor([[0.30, -0.20, 0.10, 0.50, -0.40, 0.20]])
+def test_direct_delta_se_logprob_uses_same_action_source_as_policy_stats() -> None:
+    policy = types.SimpleNamespace(num_task_corrections=6)
+    actions = torch.tensor([[0.30, -0.20, 0.10, 0.50, -0.40, 0.20]])
     mean = torch.tensor([[0.10, -0.05, 0.00, 0.20, -0.10, 0.00]])
     std = torch.full((1, 6), 0.50)
-    max_d = torch.tensor([[0.20, 0.20, 0.20, 0.40, 0.40, 0.40]])
-    bounded_actions = torch.tanh(raw) * max_d
-
     observed = live_probe._evaluate_segment_delta_se_log_prob_from_stats(
         policy,
-        bounded_actions,
+        actions,
         mean,
         std,
     )
-    expected_log_prob = torch.distributions.Normal(mean, std).log_prob(raw).sum(dim=-1)
-    expected_log_jacobian = (torch.log(max_d) + torch.log(1.0 - torch.tanh(raw).pow(2) + 1e-6)).sum(dim=-1)
-    expected = expected_log_prob - expected_log_jacobian
+    expected = torch.distributions.Normal(mean, std).log_prob(actions).sum(dim=-1)
     print(
         "[probe step3] bounded_logprob_source: "
-        f"raw={raw[0].tolist()} "
-        f"bounded_action={bounded_actions[0].tolist()} "
+        f"action={actions[0].tolist()} "
         f"observed={observed.item():.9f} "
         f"expected={expected.item():.9f}",
         flush=True,
@@ -630,14 +628,14 @@ if __name__ == "__main__":
     test_single_update_steps_optimizer_with_valid_segment()
     test_single_update_captures_real_credit_tuple_before_optimizer()
     test_dp09_critic_only_phase_holds_actor_and_updates_critic()
-    test_dp09_actor_warmup_phase_uses_linear_actor_weight()
+    test_dp09_actor_ramp_phase_uses_linear_actor_weight()
     test_segment_live_update_uses_scale_only_advantages_independent_of_base_ppo_flag()
     test_single_update_does_not_step_optimizer_without_valid_segments()
     test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl()
     test_single_update_uses_mosaic_pre_step_lr_for_optimizer_step()
     test_segment_adaptive_lr_does_not_pre_increase_from_near_zero_pre_kl()
     test_single_update_reports_post_update_trust_region_kl()
-    test_bounded_delta_se_logprob_uses_same_raw_source_as_policy_stats()
+    test_direct_delta_se_logprob_uses_same_action_source_as_policy_stats()
     test_single_update_reports_post_update_mean_delta_from_old_distribution()
     test_single_update_rejects_explosive_adaptive_post_kl_and_reports_post_ratio_max()
     test_single_update_requires_separate_pre_and_post_ratio_diagnostics()

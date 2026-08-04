@@ -5,8 +5,10 @@ import sys
 from pathlib import Path
 
 import torch
+from frontres_contract_imports import install_frontres_contract_packages
 
 ROOT = Path(__file__).resolve().parents[2]
+install_frontres_contract_packages(ROOT / "rsl_rl")
 
 SAMPLER_PATH = ROOT / "rsl_rl" / "frontres" / "frontres_segment_sampler.py"
 sampler_spec = importlib.util.spec_from_file_location("frontres_segment_sampler", SAMPLER_PATH)

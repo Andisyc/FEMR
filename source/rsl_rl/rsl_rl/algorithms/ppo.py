@@ -411,16 +411,9 @@ class PPO:
             # is trained by PPO via r_delta — decoupled from this loss.
             supervised_loss = torch.tensor(0.0, device=self.device)
             if self.lambda_supervised > 0 and supervised_target_batch is not None:
-                _n = min(mu_batch.shape[-1] - 2, supervised_target_batch.shape[-1])
-                if _n >= 6 and isinstance(self.policy, FrontRESActorCritic):
-                    _pred = torch.cat([
-                        torch.tanh(mu_batch[:, :3]) * self.policy.max_delta_pos,
-                        torch.tanh(mu_batch[:, 3:6]) * self.policy.max_delta_rpy,
-                    ], dim=-1)
-                    supervised_loss = self.supervised_loss_fn(_pred, supervised_target_batch[:, :_n])
-                else:
-                    supervised_loss = self.supervised_loss_fn(
-                        mu_batch[:, :_n], supervised_target_batch[:, :_n])
+                _n = min(mu_batch.shape[-1], supervised_target_batch.shape[-1])
+                supervised_loss = self.supervised_loss_fn(
+                    mu_batch[:, :_n], supervised_target_batch[:, :_n])
 
             loss = ppo_loss + self.lambda_supervised * supervised_loss
 

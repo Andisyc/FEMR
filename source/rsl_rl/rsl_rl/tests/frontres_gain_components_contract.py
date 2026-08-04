@@ -12,7 +12,7 @@ import torch
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
     "frontres_gain_contract_target",
-    ROOT / "rsl_rl" / "frontres" / "frontres_gain.py",
+    ROOT / "rsl_rl" / "frontres" / "frontres_gain_legacy.py",
 )
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)

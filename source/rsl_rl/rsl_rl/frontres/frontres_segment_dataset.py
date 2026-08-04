@@ -1,22 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-import importlib.util
 import json
 from pathlib import Path
-import sys
 from typing import Any, Callable, Iterable, Sequence
 
 import torch
 
-_AUDIT_SPEC = importlib.util.spec_from_file_location(
-    "frontres_formal_runtime_probe_dataset",
-    Path(__file__).resolve().with_name("frontres_formal_runtime_probe.py"),
+from rsl_rl.frontres.frontres_formal_runtime_probe import emit_formal_runtime_probe
+from rsl_rl.frontres.frontres_segment_cache_indexer import read_amass_segment_index
+from rsl_rl.frontres.frontres_segment_cache_io import (
+    FrontRESSegmentShardLRU,
+    read_cache_metadata,
+    read_noisy_variant_manifest_records,
+    read_noisy_variant_record,
+    read_noisy_variant_shard,
 )
-assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
-_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
-_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
-emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
 
 
 _LOG_SEPARATOR = "-" * 80
@@ -26,43 +25,9 @@ def _log_block(*lines: str) -> str:
     return "\n".join(("", _LOG_SEPARATOR, "", *lines))
 
 
-def _load_same_dir(module_name: str):
-    path = Path(__file__).with_name(f"{module_name}.py")
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        raise ModuleNotFoundError(module_name)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 def _read_stage1_metadata_raw(cache_dir: str | Path) -> dict[str, Any]:
     with (Path(cache_dir) / "metadata.json").open("r", encoding="utf-8") as f:
         return json.load(f)
-
-
-try:
-    from rsl_rl.frontres.frontres_segment_cache_io import (
-        FrontRESSegmentShardLRU,
-        read_cache_metadata,
-        read_noisy_variant_manifest_records,
-        read_noisy_variant_record,
-        read_noisy_variant_shard,
-    )
-except ModuleNotFoundError:
-    _cache_io = _load_same_dir("frontres_segment_cache_io")
-    FrontRESSegmentShardLRU = _cache_io.FrontRESSegmentShardLRU
-    read_cache_metadata = _cache_io.read_cache_metadata
-    read_noisy_variant_manifest_records = _cache_io.read_noisy_variant_manifest_records
-    read_noisy_variant_record = _cache_io.read_noisy_variant_record
-    read_noisy_variant_shard = _cache_io.read_noisy_variant_shard
-
-try:
-    from rsl_rl.frontres.frontres_segment_cache_indexer import read_amass_segment_index
-except ModuleNotFoundError:
-    _cache_indexer = _load_same_dir("frontres_segment_cache_indexer")
-    read_amass_segment_index = _cache_indexer.read_amass_segment_index
 
 
 @dataclass(frozen=True)

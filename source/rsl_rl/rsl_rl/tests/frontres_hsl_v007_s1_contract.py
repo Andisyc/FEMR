@@ -13,6 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import torch
+from frontres_contract_imports import install_frontres_contract_packages
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -27,6 +28,16 @@ LAYOUT_PATH = SOURCE_ROOT / "rsl_rl" / "modules" / "frontres_observation_layout.
 UNIFIED_PATH = SOURCE_ROOT / "rsl_rl" / "algorithms" / "frontres_unified.py"
 ON_POLICY_PATH = RUNNERS_ROOT / "on_policy_runner.py"
 TRAIN_PATH = ROOT / "scripts" / "rsl_rl" / "train.py"
+OBSERVATIONS_PATH = (
+    ROOT
+    / "source"
+    / "whole_body_tracking"
+    / "whole_body_tracking"
+    / "tasks"
+    / "tracking"
+    / "mdp"
+    / "observations.py"
+)
 G1_CFG_PATH = (
     ROOT
     / "source"
@@ -51,6 +62,26 @@ def _load(name: str, path: Path):
     return module
 
 
+def _load_hsl_target_owner():
+    """Load only the real target owner body without importing the IsaacLab host."""
+
+    tree = ast.parse(OBSERVATIONS_PATH.read_text())
+    owner = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "get_supervision_target_task_space"
+    )
+    isolated = ast.Module(body=[owner], type_ignores=[])
+    ast.fix_missing_locations(isolated)
+    namespace = {
+        "torch": torch,
+        "ManagerBasedEnv": object,
+        "MotionCommand": object,
+    }
+    exec(compile(isolated, str(OBSERVATIONS_PATH), "exec"), namespace)
+    return namespace["get_supervision_target_task_space"]
+
+
 def _expect_error(exc_type, callback, contains: str) -> None:
     try:
         callback()
@@ -70,6 +101,7 @@ def _package(name: str) -> types.ModuleType:
 def _load_checkpointing():
     if str(SOURCE_ROOT) not in sys.path:
         sys.path.insert(0, str(SOURCE_ROOT))
+    install_frontres_contract_packages(SOURCE_ROOT / "rsl_rl")
     return _load("frontres_checkpointing_h1_s1_contract", CHECKPOINT_PATH)
 
 
@@ -123,7 +155,7 @@ def _load_stage1_preset():
     return namespace["_apply_frontres_stage_preset"]
 
 
-def _intent(batch_size: int = 2, hmax: int = 3) -> torch.Tensor:
+def _intent(batch_size: int = 2, hmax: int = 2) -> torch.Tensor:
     rows = torch.arange(batch_size, dtype=torch.float32).reshape(batch_size, 1, 1) * 1000.0
     frames = torch.arange(hmax + 1, dtype=torch.float32).reshape(1, hmax + 1, 1) * 100.0
     joints = torch.arange(29, dtype=torch.float32).reshape(1, 1, 29)
@@ -224,7 +256,7 @@ def _q29_runner(layout, runtime, *, provenance=None):
     batch = SimpleNamespace(
         frontres_local_scenario_intent_q29=intent,
         frontres_local_scenario_provenance=_provenance(intent.shape[0]) if provenance is None else provenance,
-        frontres_future_offsets=(1, 3),
+        frontres_future_offsets=(1, 2),
     )
     normalizer = _Normalizer()
     runner = SimpleNamespace(
@@ -297,7 +329,7 @@ def test_t_hsl_proposal_command_carrier() -> None:
 def test_t_hsl_proposal_runtime_route() -> None:
     layout_module, runtime, warmup = _load_q29_modules()
     layout = layout_module.resolve_frontres_future_intent_layout(
-        (1, 3), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
+        (1, 2), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
     )
     intent = _intent()
     provenance = tuple(
@@ -315,7 +347,7 @@ def test_t_hsl_proposal_runtime_route() -> None:
         "current_root_artifact_ids": ("c" * 64, "d" * 64),
         "motion_indices": (0, 0),
         "frame_indices": (2, 4),
-        "future_offsets": (1, 3),
+        "future_offsets": (1, 2),
         "provenance": provenance,
     }
     command = _HSLProposalCommand(snapshot)
@@ -335,9 +367,9 @@ def test_t_hsl_proposal_runtime_route() -> None:
     runner._apply_obs_normalizer = normalizer
     raw_obs = torch.arange(10, dtype=torch.float32).reshape(2, 5)
     prepared = warmup.prepare_frontres_hsl_actor_observation(runner, raw_obs)
-    assert command.calls == [(1, 3)]
+    assert command.calls == [(1, 2)]
     assert tuple(prepared.shape) == (2, 63)
-    torch.testing.assert_close(normalizer.calls[0][:, :58], intent[:, (1, 3), :].reshape(2, 58))
+    torch.testing.assert_close(normalizer.calls[0][:, :58], intent[:, (1, 2), :].reshape(2, 58))
     torch.testing.assert_close(normalizer.calls[0][:, 58:], raw_obs)
     print("[T-HSL-runtime/T-local-isolation] proposal snapshot reuses the q29 bridge without Segment state", flush=True)
 
@@ -349,7 +381,7 @@ def test_t_hsl_formal_stage1_config_and_layout() -> None:
         lambda_supervised=1.0,
         lambda_supervised_min=1.0,
         frontres_segment_replay_enabled=True,
-        frontres_v015_formal_transaction_enabled=True,
+        frontres_formal_transaction_enabled=True,
         frontres_future_offsets=(),
         frontres_future_intent_layout_version="",
         frontres_hsl_rollout_label_enabled=True,
@@ -374,13 +406,11 @@ def test_t_hsl_formal_stage1_config_and_layout() -> None:
         experiment_name=None,
         frontres_v015_future_offsets=None,
         frontres_segment_live_sentinel_only=False,
-        frontres_v015_local_sentinel_only=False,
+        frontres_local_sentinel_only=False,
         frontres_segment_live_probe_only=False,
         frontres_segment_live_storage_write_only=False,
         frontres_segment_live_single_update_only=False,
         frontres_segment_live_update_loop_only=False,
-        frontres_segment_offline_eval_only=False,
-        frontres_segment_sequence_offline_eval_only=False,
         frontres_hsl_live_smoke=False,
         num_envs=8,
     )
@@ -390,7 +420,7 @@ def test_t_hsl_formal_stage1_config_and_layout() -> None:
     assert agent.critic_warmup_iterations == 0
     assert alg.frontres_training_objective == "supervised_restore"
     assert alg.frontres_segment_replay_enabled is False
-    assert alg.frontres_v015_formal_transaction_enabled is False
+    assert alg.frontres_formal_transaction_enabled is False
     assert alg.frontres_future_offsets == (1, 2)
     assert alg.frontres_future_intent_layout_version == "frontres-v015-future-intent-q29-v1"
     assert alg.lambda_supervised == 0.0
@@ -415,7 +445,7 @@ def test_t_hsl_formal_stage1_config_and_layout() -> None:
     args.frontres_hsl_live_smoke = False
 
     args.frontres_v015_future_offsets = "1,3"
-    _expect_error(ValueError, lambda: apply_preset(agent, args), "requires offsets (1,2)")
+    _expect_error(ValueError, lambda: apply_preset(agent, args), "exactly '1,2'")
 
     runner_source = ON_POLICY_PATH.read_text()
     assert "self._frontres_hsl_proposal_context_enabled" in runner_source
@@ -509,8 +539,6 @@ def _hsl_checkpoint_runner(checkpointing, layout, gmt_path: Path, *, seed: int):
     policy.num_frontres_obs = 158
     policy.num_task_corrections = 6
     policy.total_output_dim = 6
-    policy.max_delta_pos = 0.3
-    policy.max_delta_rpy = 0.4
     policy.gmt_policy_obs_dim = 770
     policy.gmt_normalizer = _CheckpointNormalizer(770, value=3.0)
     optimizer = _CheckpointOptimizer()
@@ -551,7 +579,7 @@ def _stage3_hsl_initializer_runner(checkpointing, layout, gmt_path: Path, *, see
     runner = _hsl_checkpoint_runner(checkpointing, layout, gmt_path, seed=seed)
     runner._frontres_hsl_proposal_context_enabled = False
     runner.alg.frontres_training_objective = "segment_replay_hrl"
-    runner.alg.frontres_v015_formal_transaction_enabled = True
+    runner.alg.frontres_formal_transaction_enabled = True
     runner.alg.frontres_segment_advantage_normalization = "grouped_scale_only"
     runner.alg.frontres_future_offsets = (1, 2)
     runner.alg.frontres_future_intent_layout_version = "frontres-v015-future-intent-q29-v1"
@@ -626,13 +654,7 @@ def _hsl_fresh_trace(runner, warmup, raw_obs: torch.Tensor) -> dict[str, torch.T
     normalized = warmup.prepare_frontres_hsl_actor_observation(runner, raw_obs)
     actor_input = normalized[:, :158]
     raw_proposal = runner.alg.policy.residual_actor(actor_input)
-    proposal = torch.cat(
-        [
-            torch.tanh(raw_proposal[:, :3]) * runner.alg.policy.max_delta_pos,
-            torch.tanh(raw_proposal[:, 3:6]) * runner.alg.policy.max_delta_rpy,
-        ],
-        dim=-1,
-    )
+    proposal = raw_proposal
     return {
         "combined": runner._fresh_trace_combined.detach().clone(),
         "normalized": runner._fresh_trace_normalized.detach().clone(),
@@ -689,11 +711,17 @@ def test_t_hsl_checkpoint_identity_and_pre_mutation() -> None:
         }
         assert set(payload["model_state_dict"]) == {"residual_actor", "std"}
         identity = payload["frontres_v015_hsl_checkpoint_identity"]
-        assert identity["format"] == "frontres-v015-hsl-proposal-v1"
+        assert identity["format"] == "frontres-v017-hsl-proposal-v2"
+        assert identity["method_contract_id"] == "FRS-METHOD-v017"
+        assert identity["training_contract_id"] == "FRS-TRAIN-v014"
         assert identity["future_intent_layout"]["actor_dim"] == 928
         assert identity["future_intent_layout"]["prefix_dim"] == 158
         assert identity["future_intent_layout"]["gmt_dim"] == 770
-        assert identity["action"] == {"kind": "delta_se3", "dim": 6}
+        assert identity["action"] == {
+            "kind": "delta_se3",
+            "dim": 6,
+            "semantics": "direct-world-full6-v1",
+        }
         forbidden = {
             "critic",
             "privileged_obs_norm_state_dict",
@@ -743,6 +771,12 @@ def test_t_hsl_checkpoint_identity_and_pre_mutation() -> None:
             "frontres_warmup_complete": True,
         }
         tamper_cases.append(("legacy", legacy_payload, "identity"))
+        old_hsl_v1 = copy.deepcopy(payload)
+        old_hsl_v1["frontres_v015_hsl_checkpoint_identity"]["format"] = "frontres-v015-hsl-proposal-v1"
+        old_hsl_v1["frontres_v015_hsl_checkpoint_identity"]["method_contract_id"] = "FRS-METHOD-v015"
+        old_hsl_v1["frontres_v015_hsl_checkpoint_identity"]["training_contract_id"] = "FRS-TRAIN-v007"
+        old_hsl_v1["frontres_v015_hsl_checkpoint_identity"]["action"] = {"kind": "delta_se3", "dim": 6}
+        tamper_cases.append(("old-hsl-v1", old_hsl_v1, "incompatible identity"))
 
         for name, bad_payload, message in tamper_cases:
             bad_path = root / f"{name}.pt"
@@ -789,7 +823,7 @@ def test_t_stage3_explicit_hsl_initializer_actor_only() -> None:
         )
         _assert_checkpoint_state_equal(_checkpoint_mutable_state(target), protected_before)
 
-        receipt = checkpointing.load_v015_hsl_initializer(target, str(checkpoint_path))
+        receipt = checkpointing.load_frontres_hsl_initializer(target, str(checkpoint_path))
         source_state = _checkpoint_mutable_state(source)
         loaded_state = _checkpoint_mutable_state(target)
         for name in ("actor", "prefix"):
@@ -805,9 +839,9 @@ def test_t_stage3_explicit_hsl_initializer_actor_only() -> None:
         )
         assert target.alg.optimizer.load_calls == 0
         assert target._frontres_segment_sampler is sampler_before
-        assert not hasattr(target, "_frontres_v015_checkpoint_transaction_state")
+        assert not hasattr(target, "_frontres_checkpoint_transaction_state")
         assert target.alg.frontres_hsl_init_enabled is False
-        assert receipt["format"] == "frontres-v015-hsl-proposal-v1"
+        assert receipt["format"] == "frontres-v017-hsl-proposal-v2"
         assert receipt["restored"] == ("residual_actor", "std", "frontres_prefix_norm_state_dict")
 
         rejected = _stage3_hsl_initializer_runner(checkpointing, layout, gmt_path, seed=53)
@@ -815,7 +849,7 @@ def test_t_stage3_explicit_hsl_initializer_actor_only() -> None:
         before = _checkpoint_mutable_state(rejected)
         _expect_error(
             RuntimeError,
-            lambda: checkpointing.load_v015_hsl_initializer(rejected, str(checkpoint_path)),
+            lambda: checkpointing.load_frontres_hsl_initializer(rejected, str(checkpoint_path)),
             "before the first Stage-3 iteration",
         )
         _assert_checkpoint_state_equal(_checkpoint_mutable_state(rejected), before)
@@ -828,7 +862,7 @@ def test_t_stage3_explicit_hsl_initializer_actor_only() -> None:
                 "existing transaction state",
                 lambda runner: setattr(
                     runner,
-                    "_frontres_v015_checkpoint_transaction_state",
+                    "_frontres_checkpoint_transaction_state",
                     {"state": "collecting", "phase": "provider"},
                 ),
             ),
@@ -840,14 +874,14 @@ def test_t_stage3_explicit_hsl_initializer_actor_only() -> None:
             sampler = case._frontres_segment_sampler
             _expect_error(
                 RuntimeError,
-                lambda r=case: checkpointing.load_v015_hsl_initializer(r, str(checkpoint_path)),
+                lambda r=case: checkpointing.load_frontres_hsl_initializer(r, str(checkpoint_path)),
                 message,
             )
             _assert_checkpoint_state_equal(_checkpoint_mutable_state(case), before)
             assert case._frontres_segment_sampler is sampler
 
     print(
-        "[T-Stage3-HSL-init] explicit HSL-v1 restores actor/std/158D prefix only; generic load and post-iteration migration reject unchanged",
+        "[T-Stage3-HSL-init] explicit HSL-v2 restores actor/std/158D prefix only; generic load and post-iteration migration reject unchanged",
         flush=True,
     )
 
@@ -927,15 +961,15 @@ def test_t_hsl_live_smoke_connector() -> None:
         source = _hsl_checkpoint_runner(checkpointing, layout, gmt_path, seed=5)
         source._frontres_hsl_live_smoke_enabled = True
         _wire_hsl_fresh_runner(source, runtime, snapshot)
-        shadow = checkpointing.capture_v015_hsl_fresh_reload_shadow(source)
-        tolerance_shadow = checkpointing.capture_v015_hsl_fresh_reload_shadow(source)
-        reject_shadow = checkpointing.capture_v015_hsl_fresh_reload_shadow(source)
+        shadow = checkpointing.capture_frontres_hsl_fresh_reload_shadow(source)
+        tolerance_shadow = checkpointing.capture_frontres_hsl_fresh_reload_shadow(source)
+        reject_shadow = checkpointing.capture_frontres_hsl_fresh_reload_shadow(source)
         with torch.no_grad():
             next(source.alg.policy.residual_actor.parameters()).add_(0.125)
             source._frontres_extra_normalizer._mean.add_(0.25)
         source_trace = _hsl_fresh_trace(source, warmup, raw_obs)
         checkpointing.save_runner(source, str(checkpoint_path))
-        result = checkpointing.verify_v015_hsl_fresh_reload(
+        result = checkpointing.verify_frontres_hsl_fresh_reload(
             shadow,
             checkpoint_path=str(checkpoint_path),
             combined_obs=source_trace["combined"],
@@ -952,8 +986,11 @@ def test_t_hsl_live_smoke_connector() -> None:
         assert tuple(source._frontres_hsl_smoke_combined_obs.shape) == (2, 928)
         assert tuple(source._frontres_hsl_smoke_normalized_obs[:, :158].shape) == (2, 158)
 
-        near_proposal = source_trace["proposal"] + torch.full_like(source_trace["proposal"], 5.0e-7)
-        near_result = checkpointing.verify_v015_hsl_fresh_reload(
+        near_proposal = torch.nextafter(
+            source_trace["proposal"],
+            torch.full_like(source_trace["proposal"], float("inf")),
+        )
+        near_result = checkpointing.verify_frontres_hsl_fresh_reload(
             tolerance_shadow,
             checkpoint_path=str(checkpoint_path),
             combined_obs=source_trace["combined"],
@@ -962,12 +999,13 @@ def test_t_hsl_live_smoke_connector() -> None:
         )
         assert near_result["proposal_6_close"] is True
         assert near_result["proposal_6_bitwise_equal"] is False
-        assert 0.0 < near_result["proposal_6_max_abs_error"] <= 5.1e-7
+        direct_tolerance = 1.0e-6 + 1.0e-5 * float(source_trace["proposal"].abs().max())
+        assert 0.0 < near_result["proposal_6_max_abs_error"] <= direct_tolerance
 
         far_proposal = source_trace["proposal"] + torch.full_like(source_trace["proposal"], 1.0e-3)
         _expect_error(
             RuntimeError,
-            lambda: checkpointing.verify_v015_hsl_fresh_reload(
+            lambda: checkpointing.verify_frontres_hsl_fresh_reload(
                 reject_shadow,
                 checkpoint_path=str(checkpoint_path),
                 combined_obs=source_trace["combined"],
@@ -988,7 +1026,7 @@ def test_t_hsl_live_smoke_connector() -> None:
     ):
         assert sentinel in warmup_source
     print(
-        "[T-HSL-live-smoke/T-telemetry/T-shadow-reload] exact state/input plus bounded cross-device proposal tolerance",
+        "[T-HSL-live-smoke/T-telemetry/T-shadow-reload] exact state/input plus numerical cross-device proposal tolerance",
         flush=True,
     )
 
@@ -998,19 +1036,26 @@ def test_t_hsl_loss_reject() -> None:
     _expect_error(
         ValueError,
         lambda: unified.validate_frontres_v015_stage3_supervision_config(
-            future_offsets=(1, 3), lambda_supervised=1.0, lambda_supervised_min=0.0
+            future_offsets=(1, 3), lambda_supervised=0.0, lambda_supervised_min=0.0
         ),
-        "FRS-TRAIN-v011",
+        "exact deployment offsets (1, 2)",
     )
     _expect_error(
         ValueError,
         lambda: unified.validate_frontres_v015_stage3_supervision_config(
-            future_offsets=(1, 3), lambda_supervised=0.0, lambda_supervised_min=0.2
+            future_offsets=(1, 2), lambda_supervised=1.0, lambda_supervised_min=0.0
         ),
-        "FRS-TRAIN-v011",
+        "FRS-TRAIN-v014",
+    )
+    _expect_error(
+        ValueError,
+        lambda: unified.validate_frontres_v015_stage3_supervision_config(
+            future_offsets=(1, 2), lambda_supervised=0.0, lambda_supervised_min=0.2
+        ),
+        "FRS-TRAIN-v014",
     )
     unified.validate_frontres_v015_stage3_supervision_config(
-        future_offsets=(1, 3), lambda_supervised=0.0, lambda_supervised_min=0.0
+        future_offsets=(1, 2), lambda_supervised=0.0, lambda_supervised_min=0.0
     )
     unified_source = UNIFIED_PATH.read_text()
     init_start = unified_source.index("def __init__(")
@@ -1025,7 +1070,7 @@ def test_t_hsl_loss_reject() -> None:
 def test_t_hsl_layout_and_provenance() -> None:
     layout_module, runtime, warmup = _load_q29_modules()
     layout = layout_module.resolve_frontres_future_intent_layout(
-        (1, 3), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
+        (1, 2), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
     )
     runner, normalizer, intent = _q29_runner(layout, runtime)
     raw_obs = torch.arange(10, dtype=torch.float32).reshape(2, 5)
@@ -1034,7 +1079,7 @@ def test_t_hsl_layout_and_provenance() -> None:
 
     assert tuple(prepared.shape) == (2, 63)
     assert len(normalizer.calls) == 1
-    torch.testing.assert_close(normalizer.calls[0][:, :58], intent[:, (1, 3), :].reshape(2, 58))
+    torch.testing.assert_close(normalizer.calls[0][:, :58], intent[:, (1, 2), :].reshape(2, 58))
     torch.testing.assert_close(normalizer.calls[0][:, 58:], raw_obs)
     torch.testing.assert_close(prepared, normalizer.calls[0] / 2.0)
 
@@ -1066,8 +1111,13 @@ def test_t_hsl_current_antidr_target() -> None:
         clean_future=torch.full((2, 4, 65), 99.0),
     )
     target = torch.tensor(
-        [[-0.25, 0.50, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, -0.10, 0.0, 0.0, 0.0]]
+        [[-0.25, 0.50, 0.40, 0.0, 0.0, 0.0], [0.0, 0.0, -0.10, 0.0, 0.0, 0.0]]
     )
+    env = SimpleNamespace(
+        command_manager=SimpleNamespace(get_term=lambda _name: command)
+    )
+    produced = _load_hsl_target_owner()(env, "motion")
+    torch.testing.assert_close(produced, target)
     validated = warmup.validate_frontres_hsl_current_frame_target(target, command)
     torch.testing.assert_close(validated, target)
 
@@ -1086,7 +1136,11 @@ def test_t_hsl_current_antidr_target() -> None:
     warmup_source = WARMUP_PATH.read_text()
     assert "get_supervision_target_task_space as _get_warmup_target" in warmup_source
     assert "build_frontres_hsl_rollout_target" not in warmup_source
-    print("[T-HSL-target] current anti-DR [B,6] target is checked without Clean rollout input", flush=True)
+    torch.testing.assert_close(validated[:, 2], torch.tensor([0.40, -0.10]))
+    print(
+        "[T-HSL-target] current anti-DR [B,6] preserves both dz signs without Clean input or axis clamp",
+        flush=True,
+    )
 
 
 def _load_legacy_label_owner():
@@ -1133,7 +1187,7 @@ def test_t_hsl_direct_write_reject() -> None:
     rollout_step = _load("frontres_rollout_step_h1_s1_contract", ROLLOUT_STEP_PATH)
     transition = SimpleNamespace(sentinel="unchanged")
     runner = SimpleNamespace(
-        alg=SimpleNamespace(lambda_supervised=1.0, frontres_future_offsets=(1, 3)),
+        alg=SimpleNamespace(lambda_supervised=1.0, frontres_future_offsets=(1, 2)),
         transition=transition,
     )
     _expect_error(
@@ -1146,7 +1200,7 @@ def test_t_hsl_direct_write_reject() -> None:
             is_task_space_mode=True,
             n_train=1,
         ),
-        "FRS-TRAIN-v011",
+        "FRS-TRAIN-v014",
     )
     runner.alg.lambda_supervised = 0.0
     rollout_step._write_supervised_target_before_step(

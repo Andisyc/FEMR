@@ -78,6 +78,17 @@ def _load_owners():
     diagnostics.maybe_print_frontres_restore_debug = lambda *_args, **_kwargs: None
     sys.modules[diagnostics.__name__] = diagnostics
     frontres.runtime_diagnostics = diagnostics
+    formal_probe = types.ModuleType("rsl_rl.frontres.frontres_formal_runtime_probe")
+    formal_probe.emit_formal_runtime_probe = lambda *_args, **_kwargs: None
+    sys.modules[formal_probe.__name__] = formal_probe
+    frontres.frontres_formal_runtime_probe = formal_probe
+    segment_warmup = types.ModuleType("rsl_rl.frontres.frontres_segment_warmup")
+    segment_warmup.frontres_k_stage_schedule_fingerprint = lambda *_args, **_kwargs: "test-schedule"
+    segment_warmup.frontres_k_stage_schedule_tuple = lambda value: tuple(value)
+    segment_warmup.normalize_frontres_k_stage_schedule = lambda value: tuple(value)
+    segment_warmup.require_frontres_v013_campaign_schedule = lambda value: value
+    sys.modules[segment_warmup.__name__] = segment_warmup
+    frontres.frontres_segment_warmup = segment_warmup
 
     runtime = _load("rsl_rl.runners.frontres_runtime", RUNTIME_PATH)
     warmup = _load("frontres_warmup_h1_s2_contract", WARMUP_PATH)
@@ -89,7 +100,7 @@ def _load_owners():
     return layout, runtime, warmup, rollout_step, storage, unified
 
 
-def _intent(batch_size: int = 2, hmax: int = 3) -> torch.Tensor:
+def _intent(batch_size: int = 2, hmax: int = 2) -> torch.Tensor:
     rows = torch.arange(batch_size, dtype=torch.float32).reshape(batch_size, 1, 1) * 1000.0
     frames = torch.arange(hmax + 1, dtype=torch.float32).reshape(1, hmax + 1, 1) * 100.0
     joints = torch.arange(29, dtype=torch.float32).reshape(1, 1, 29)
@@ -164,7 +175,7 @@ def _make_runner(layout, runtime, normalizer: _TraceNormalizer):
     batch = SimpleNamespace(
         frontres_local_scenario_intent_q29=intent,
         frontres_local_scenario_provenance=_provenance(intent.shape[0]),
-        frontres_future_offsets=(1, 3),
+        frontres_future_offsets=(1, 2),
         frontres_local_scenario_current_root_artifact=torch.full((2, 7), -313.0),
         frontres_local_scenario_clean_continuation=torch.full((2, 2, 65), 701.0),
         frontres_local_scenario_id=("s2-connect-0", "s2-connect-1"),
@@ -204,7 +215,7 @@ def test_t_hsl_connect_stage1(layout, runtime, warmup) -> tuple[torch.Tensor, to
         ),
     )
     target = torch.tensor(
-        [[-0.25, 0.50, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, -0.10, 0.0, 0.0, 0.0]]
+        [[-0.25, 0.50, 0.40, 0.0, 0.0, 0.0], [0.0, 0.0, -0.10, 0.0, 0.0, 0.0]]
     )
 
     normalized = warmup.prepare_frontres_hsl_actor_observation(runner, raw_obs)
@@ -213,7 +224,7 @@ def test_t_hsl_connect_stage1(layout, runtime, warmup) -> tuple[torch.Tensor, to
     checked_target = warmup.validate_frontres_hsl_current_frame_target(target, command)
     proposal_loss = (prediction - checked_target).square().mean()
 
-    expected_tail = intent[:, (1, 3), :].reshape(2, layout.actor_tail_dim)
+    expected_tail = intent[:, (1, 2), :].reshape(2, layout.actor_tail_dim)
     assert len(normalizer.calls) == 1
     assert tuple(normalizer.calls[0].shape) == (2, 63)
     torch.testing.assert_close(normalizer.calls[0][:, : layout.actor_tail_dim], expected_tail)
@@ -224,6 +235,7 @@ def test_t_hsl_connect_stage1(layout, runtime, warmup) -> tuple[torch.Tensor, to
     assert not bool((normalizer.calls[0] == 701.0).any().item())
     assert not bool((actor_input == 701.0).any().item())
     assert not checked_target.requires_grad
+    torch.testing.assert_close(checked_target[:, 2], torch.tensor([0.40, -0.10]))
     assert float(proposal_loss.item()) > 0.0
     assert getattr(batch, "frontres_local_scenario_clean_continuation").shape == (2, 2, 65)
     warmup_source = WARMUP_PATH.read_text()
@@ -331,7 +343,7 @@ def test_t_hsl_connect_stage3_zero_path(layout, rollout_step, storage, unified, 
 def main() -> None:
     layout_module, runtime, warmup, rollout_step, storage, unified = _load_owners()
     layout = layout_module.resolve_frontres_future_intent_layout(
-        (1, 3), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
+        (1, 2), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
     )
     stage1_target, normalized = test_t_hsl_connect_stage1(layout, runtime, warmup)
     test_t_hsl_connect_stage3_zero_path(

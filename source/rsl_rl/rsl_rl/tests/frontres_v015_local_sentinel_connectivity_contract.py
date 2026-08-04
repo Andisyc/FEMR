@@ -218,7 +218,7 @@ def test_t_sentinel_prepare_accepts_kernel_immutable_provenance() -> None:
     runner = SimpleNamespace(
         alg=SimpleNamespace(
             policy=policy,
-            frontres_v015_local_sentinel_only=True,
+            frontres_local_sentinel_only=True,
             frontres_segment_max_horizon_k=32,
             frontres_segment_k_curriculum=((8, 2, 200, 500, 1300), (16, 3, 300, 300, 900), (32, 4, 400, 300, 625)),
             frontres_segment_k_curriculum_fingerprint="",
@@ -269,7 +269,7 @@ def test_t_sentinel_prepare_accepts_kernel_immutable_provenance() -> None:
     live_sampler._build_current_segment_batch = lambda *_args, **_kwargs: local_batch
     try:
         prepared = live_sampler.prepare_frontres_v015_local_sentinel_batch(runner)
-        runner.alg.frontres_v015_local_sentinel_only = False
+        runner.alg.frontres_local_sentinel_only = False
         runner.alg.frontres_segment_live_train_enabled = True
         formal_prepared = live_sampler.prepare_frontres_v015_formal_training_batch(runner)
     finally:
@@ -349,8 +349,8 @@ def test_t_formal_source_selection_excludes_k_ineligible_edge_segments_before_se
 def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> None:
     formal, candidate_contract, owners, live_sampler, live_probe = _load_owners()
     fixture = formal._build_request(candidate_contract, owners, live_sampler)
-    fixture.runner.alg.frontres_v015_local_sentinel_only = True
-    accumulator = live_probe.FrontRESV015FormalTransactionAccumulator(
+    fixture.runner.alg.frontres_local_sentinel_only = True
+    accumulator = live_probe.FrontRESFormalTransactionAccumulator(
         fixture.request.plan,
         optimizer_step_count=lambda: fixture.optimizer.step_count,
     )
@@ -375,18 +375,19 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
         local_batch.frontres_local_scenario_provenance[1],
     )
     trace: list[str] = []
+    formal_owner = sys.modules["rsl_rl.runners.frontres_segment_formal_transaction"]
     originals = {
-        "physics_prepare": live_probe._prepare_frontres_raw_contact_views,
-        "prepare": live_probe.prepare_frontres_v015_local_sentinel_batch,
-        "layout": live_probe.configure_frontres_pair_layout,
-        "reset": live_probe._apply_current_segment_reset,
-        "observations": live_probe._read_live_observations,
-        "capture": live_probe.collect_frontres_v015_gain_return_priority_evidence,
-        "candidate": live_probe.build_frontres_v015_grouped_candidate_batch,
-        "diagnostics": live_probe.build_frontres_v015_local_evaluation_report,
+        "physics_prepare": formal_owner.prepare_frontres_raw_contact_views,
+        "prepare": formal_owner.prepare_frontres_v015_local_sentinel_batch,
+        "layout": formal_owner.configure_frontres_pair_layout,
+        "reset": formal_owner._apply_current_segment_reset,
+        "observations": formal_owner._read_live_observations,
+        "capture": formal_owner.collect_frontres_v015_gain_return_priority_evidence,
+        "candidate": formal_owner.build_frontres_v015_grouped_candidate_batch,
+        "diagnostics": formal_owner.build_frontres_v015_local_evaluation_report,
     }
 
-    live_probe._prepare_frontres_raw_contact_views = lambda _runner: trace.append("physics_prepare")
+    formal_owner.prepare_frontres_raw_contact_views = lambda _runner: trace.append("physics_prepare")
 
     def prepare(_runner):
         trace.append("prepare")
@@ -427,14 +428,14 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
         assert kwargs["policy_snapshot_id"] == fixture.request.plan.policy_snapshot_id
         return complete_candidate
 
-    live_probe.prepare_frontres_v015_local_sentinel_batch = prepare
-    live_probe.configure_frontres_pair_layout = lambda _runner, **_kwargs: SimpleNamespace(
+    formal_owner.prepare_frontres_v015_local_sentinel_batch = prepare
+    formal_owner.configure_frontres_pair_layout = lambda _runner, **_kwargs: SimpleNamespace(
         n_train=4, n_base=4, n_candidate=0, n_clean=0
     )
-    live_probe._apply_current_segment_reset = reset
-    live_probe._read_live_observations = observations
-    live_probe.collect_frontres_v015_gain_return_priority_evidence = capture
-    live_probe.build_frontres_v015_grouped_candidate_batch = candidate
+    formal_owner._apply_current_segment_reset = reset
+    formal_owner._read_live_observations = observations
+    formal_owner.collect_frontres_v015_gain_return_priority_evidence = capture
+    formal_owner.build_frontres_v015_grouped_candidate_batch = candidate
     report_a, report_b = fixture.request.diagnostic_reports
     row_updates = {
         field.name: getattr(report_a, field.name) + getattr(report_b, field.name)
@@ -458,21 +459,21 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
         gain_total_pos_frac=sum(value > 0 for value in combined_gain) / 4,
         gain_total_neg_frac=sum(value < 0 for value in combined_gain) / 4,
     )
-    live_probe.build_frontres_v015_local_evaluation_report = lambda _evidence, *, transaction_id: combined_report
+    formal_owner.build_frontres_v015_local_evaluation_report = lambda _evidence, *, transaction_id: combined_report
     try:
         request = live_probe._build_frontres_v015_local_identity_sentinel_request(
             fixture.runner,
             init_at_random_ep_len=True,
         )
     finally:
-        live_probe._prepare_frontres_raw_contact_views = originals["physics_prepare"]
-        live_probe.prepare_frontres_v015_local_sentinel_batch = originals["prepare"]
-        live_probe.configure_frontres_pair_layout = originals["layout"]
-        live_probe._apply_current_segment_reset = originals["reset"]
-        live_probe._read_live_observations = originals["observations"]
-        live_probe.collect_frontres_v015_gain_return_priority_evidence = originals["capture"]
-        live_probe.build_frontres_v015_grouped_candidate_batch = originals["candidate"]
-        live_probe.build_frontres_v015_local_evaluation_report = originals["diagnostics"]
+        formal_owner.prepare_frontres_raw_contact_views = originals["physics_prepare"]
+        formal_owner.prepare_frontres_v015_local_sentinel_batch = originals["prepare"]
+        formal_owner.configure_frontres_pair_layout = originals["layout"]
+        formal_owner._apply_current_segment_reset = originals["reset"]
+        formal_owner._read_live_observations = originals["observations"]
+        formal_owner.collect_frontres_v015_gain_return_priority_evidence = originals["capture"]
+        formal_owner.build_frontres_v015_grouped_candidate_batch = originals["candidate"]
+        formal_owner.build_frontres_v015_local_evaluation_report = originals["diagnostics"]
 
     assert trace == ["physics_prepare", "prepare", "reset", "observations", "capture", "candidate"]
     assert request.plan is fixture.request.plan
@@ -484,12 +485,16 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
 def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
     formal, candidate_contract, owners, _sampler, live_probe = _load_owners()
     fixture = formal._build_request(candidate_contract, owners, sys.modules["rsl_rl.runners.frontres_segment_live_sampler"])
-    fixture.runner.alg.frontres_v015_local_sentinel_only = True
+    fixture.runner.alg.frontres_local_sentinel_only = True
+    live_update_loop = sys.modules["frontres_v015_transaction_live_update_loop"]
+    fixture.runner.run_frontres_formal_transaction = lambda: (
+        live_update_loop.run_frontres_formal_transaction_update_loop(fixture.runner)
+    )
     calls: list[str] = []
 
     def provider_builder(runner, *, init_at_random_ep_len):
         assert init_at_random_ep_len
-        assert runner._frontres_v015_checkpoint_transaction_state == {"state": "collecting", "phase": "provider"}
+        assert runner._frontres_checkpoint_transaction_state == {"state": "collecting", "phase": "provider"}
         calls.append("provider")
         plan = fixture.request.plan
         runner._frontres_v015_local_sentinel_preupdate_diagnostics = {
@@ -522,8 +527,9 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
         }
         return fixture.request
 
-    original = live_probe._build_frontres_v015_local_identity_sentinel_request
-    live_probe._build_frontres_v015_local_identity_sentinel_request = provider_builder
+    formal_owner = sys.modules["rsl_rl.runners.frontres_segment_formal_transaction"]
+    original = formal_owner._build_frontres_v015_local_identity_sentinel_request
+    formal_owner._build_frontres_v015_local_identity_sentinel_request = provider_builder
     original_legacy = fixture.storage.FrontRESSegmentStorageBatch.to_ppo_batch
 
     def legacy_forbidden(*_args, **_kwargs):
@@ -531,12 +537,12 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
 
     fixture.storage.FrontRESSegmentStorageBatch.to_ppo_batch = legacy_forbidden
     try:
-        result = live_probe.run_frontres_v015_local_identity_sentinel(
+        result = live_probe.run_frontres_local_identity_sentinel(
             fixture.runner,
             init_at_random_ep_len=True,
         )
     finally:
-        live_probe._build_frontres_v015_local_identity_sentinel_request = original
+        formal_owner._build_frontres_v015_local_identity_sentinel_request = original
         fixture.storage.FrontRESSegmentStorageBatch.to_ppo_batch = original_legacy
 
     assert calls == ["provider"]
@@ -544,7 +550,7 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
     assert result.optimizer_step_delta == 1
     assert result.policy_attempt_count == 4
     assert result.diagnostics["grouped_attempt_mass_shares"] == (0.25, 0.25, 0.25, 0.25)
-    telemetry = fixture.runner._frontres_v015_local_sentinel_telemetry
+    telemetry = fixture.runner._frontres_local_sentinel_telemetry
     assert telemetry["observation_route"]["raw_observation_dim"] == 870
     assert telemetry["observation_route"]["femr_visible_dim"] == 158
     assert telemetry["observation_route"]["gmt_input_dim"] == 770
@@ -599,7 +605,7 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
                         "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
                         "projection_schema_id": "grouped-first-order-constraint-projection-v1",
                         "physics_evidence": physics_evidence,
-                        "transaction": fixture.runner._frontres_v015_checkpoint_transaction_state,
+                        "transaction": fixture.runner._frontres_checkpoint_transaction_state,
                         "curriculum": {"absolute_iteration": fixture.runner.current_learning_iteration},
                     }
                 },
@@ -621,7 +627,7 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
 
         fixture.runner._record_frontres_checkpoint_probe = reject_checkpoint_probe
         try:
-            training.finalize_frontres_v015_local_sentinel_checkpoint(fixture.runner, result)
+            training.finalize_frontres_local_sentinel_checkpoint(fixture.runner, result)
         except RuntimeError as exc:
             assert "checkpoint probe failed" in str(exc)
         else:
@@ -632,7 +638,7 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
         fixture.runner._record_frontres_checkpoint_probe = lambda _summary, _path: None
         valid_identity = False
         try:
-            training.finalize_frontres_v015_local_sentinel_checkpoint(fixture.runner, result)
+            training.finalize_frontres_local_sentinel_checkpoint(fixture.runner, result)
         except RuntimeError as exc:
             assert "Physics evidence identity" in str(exc)
         else:
@@ -641,10 +647,10 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
         assert not Path(tmp, "model_203.pt").exists()
 
         valid_identity = True
-        checkpoint_path = training.finalize_frontres_v015_local_sentinel_checkpoint(fixture.runner, result)
+        checkpoint_path = training.finalize_frontres_local_sentinel_checkpoint(fixture.runner, result)
         assert checkpoint_path.endswith("model_203.pt")
         assert fixture.runner.current_learning_iteration == 203
-        checkpoint = fixture.runner._frontres_v015_local_sentinel_telemetry["checkpoint_v6"]
+        checkpoint = fixture.runner._frontres_local_sentinel_telemetry["checkpoint_v6"]
         assert checkpoint["format"] == "frontres-v015-checkpoint-v6"
         assert checkpoint["gain_contract_id"] == "FRS-GAIN-v006"
         assert checkpoint["transaction_id"] == result.transaction_id

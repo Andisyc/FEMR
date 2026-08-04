@@ -401,17 +401,8 @@ def get_supervision_target_task_space(env: ManagerBasedEnv, command_name: str) -
     """
     command: MotionCommand = env.command_manager.get_term(command_name)
 
-    # Position: undo DR perturbation (world-frame delta)
-    delta_pos = -command.anchor_dr_delta_pos  # (N, 3)  anti-DR
-
-    # ── Asymmetric Z: only supervise float, not sink ─────────────────────
-    # Float (anchor too high): Δz < 0 → passes clamp(max=0) → FrontRES
-    #   learns to push anchor down.
-    # Sink  (anchor too low):  Δz > 0 → blocked → FrontRES learns to
-    #   output 0.  Sink is self-correcting via ground contact physics;
-    #   correcting it fights the physics engine and adds noise.
-    delta_pos[:, 2] = torch.clamp(delta_pos[:, 2], max=0.0)
-    # ── end asymmetric Z ────────────────────────────────────────────────
+    # B1: 直接反转当前 world-frame DR, 产出不带逐轴权限的 full-6D anti-DR target.
+    delta_pos = -command.anchor_dr_delta_pos  # (N, 3) anti-DR
 
     # Orientation: convert the quaternion correction to RPY
     q_corr = command.anchor_dr_delta_quat_correction  # (N, 4) wxyz

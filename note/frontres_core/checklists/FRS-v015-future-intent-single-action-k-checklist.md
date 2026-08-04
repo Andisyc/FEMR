@@ -1,6 +1,9 @@
 # FRS-v015 Physics-Constrained Intent Migration Checklist
 
-Status: active, volatile acceptance surface. Updated: 2026-07-29.
+Status: superseded on 2026-08-01. This checklist preserves evidence for the
+historical v016/v006/v004/v011 route and must not be used to accept the active
+v017/v007/v005/v012 design. A new checklist belongs to the next, separately
+authorized Engineering Plan.
 
 | Step | Owner / tier | Acceptance assertion | Status | Evidence / stop |
 | --- | --- | --- | --- | --- |
@@ -47,17 +50,33 @@ Status: active, volatile acceptance surface. Updated: 2026-07-29.
 | P5-C | K8/M2 official block | strict v011 campaign reaches absolute iteration 2000 with exact M2, grouped exact-one updates and checkpoint-v6 | runtime-complete with actual-update defect | P5-C log; 240 actor-enabled no-direction rows changed Actor/std through historical Adam momentum |
 | P5-C | actual Actor-update authority | no-direction/critic-only restores Actor/std parameters and Adam state exactly; permitted post-Adam delta satisfies the active PPO-v004 halfspaces | completed offline | E-FI-90; red momentum regression, post-Adam KKT/restore tests, 63/63 aggregate suite |
 | P5-C | update-owner maintainability | existing PPO owner performs the one shared optimizer call and actual Actor/std commit; diagnostics owns the read-only postcondition validator; live probe/training remain orchestration/serialization only | completed offline | E-FI-91; focused owner/route/Atlas/checkpoint contracts plus 63/63 aggregate suite; no runtime claimed |
+| ENG-IFACE | S1 typed boundary | engine validates exact METHOD/GAIN/PPO/TRAIN/checkpoint identity and K x M request shape before commit; receipt must match the same request | completed offline | E-FI-93; missing request port, wrong M, mixed transaction/policy identity and non-exact receipt reject |
+| ENG-IFACE | S2 composition/consumer | update loop is the explicit concrete composition root; engine has no `live_probe` import or service location; active Physics consumers use public owner accessors | completed offline | E-FI-93; active owners contain no file-path loader or cross-module private import |
+| ENG-IFACE | S2 Unit of Work | one engine-local lifecycle admits idle -> collecting -> committing -> idle, rolls rejected collection back and closes on every exception | completed offline | E-FI-93; recollection, nested/mixed request and exception cleanup contracts pass |
+| ENG-IFACE | final consumer | production telemetry serializer requires checkpoint-v6 plus exact request shape and rejects missing/drifted/non-finite identity | completed offline | E-FI-93; positive/negative serializer contracts and 64/64 aggregate suite pass |
+| ENG-OWNER | responsibility split | legacy 5840-line live probe is replaced by named reset/storage/policy/one-action-K/formal/Physics/rollout/reporting owners; facade contains no implementation body | completed offline | E-FI-94; facade 225 lines, every owner below 1000 lines |
+| ENG-OWNER | dependency discipline | active consumers import public owners directly; cross-owner private imports, cycles and new production facade consumers fail structurally | completed offline | E-FI-94; interface structural contract plus 64/64 aggregate suite |
+| ENG-C-TRANSACTION | S1/S2 owner closure | exact-M frozen-policy plan/accumulator has one public owner shared by sampler, runtime records and formal commit; no reverse dependency remains | completed offline | E-FI-95; transaction + sampler-reporting owners |
+| ENG-C-TELEMETRY | S1/S2 final consumer | formal telemetry projection and serializer are independent of the training-loop shell and preserve missing/non-finite/identity rejection | completed offline | E-FI-95; training telemetry owner + transaction contracts |
+| ENG-C-PERSIST | S3 persistence ownership | quality inspection is read-only and separate from the mutable HSL-v1/Stage3-v6 save/load gateway; payload and pre-mutation rejection remain exact | completed offline | E-FI-95; identity/save-reload/resume contracts |
+| ENG-C-EVAL | S1/S2 legacy isolation | active deployment and held-out evaluation owners do not contain legacy sequence/counterfactual implementations | completed offline | E-FI-95; explicit legacy sequence/policy owners |
+| ENG-C-GATE | cross-file acceptance | focused contracts, aggregate suite, Architecture links, frozen-host diff and final-gate review pass | completed offline | E-FI-95; deterministic closure, no live claim |
+| ENG-D-SCENARIO | domain owner closure | immutable local scenario, retired fixed-Noisy lifecycle, planning and stateful sampler each have one public owner | completed offline | E-FI-96; lifecycle/provenance/sampler contracts and compatibility re-exports pass |
+| ENG-D-EVIDENCE | evidence/storage closure | one-action-K facts, storage records, grouped adaptation and mutable rollout storage are separate owners; storage facade owns no behavior | completed offline | E-FI-96; storage/grouped/one-action-K contracts pass |
+| ENG-D-UPDATE | algorithm/diagnostic closure | grouped loss is separate from projection/actual Adam authority; local evaluation, update validation and formatting are separate owners | completed offline | E-FI-96; grouped PPO/transaction/diagnostics contracts pass |
+| ENG-D-DEPS | dependency closure | production FrontRES uses normal package imports; formal dispatch and policy-quality state/interfaces are acyclic | completed offline | E-FI-96; structural contract, 64/64 aggregate and Atlas source links pass |
+| ENG-OWNER | documentation | repository/runtime/policy-quality Architecture links resolve to extracted owners without changing Concept Figure semantics | completed offline | E-FI-94; Atlas contracts and JSON parse pass |
 | P5-C | first-live stage evidence | first K16/M3 and K32/M4 formal transactions prove active stage, required env width, actor freeze, same-Critic delta, KKT, exact-one and unchanged fingerprint inside the real block | ready; runtime authority required | no separate sentinel when existing telemetry is complete |
 | P5-C | checkpointed quality | boundaries 2000/3500/4825/6500/8000 receive committed save plus rolling Intent/repair/Contact/ZMP/survival/lean/step/action/value review and CONTINUE/PAUSE-REPAIR/STOP-DESIGN | ready; runtime authority required | systematic no-op/lean/unplanned support/Physics regression stops design; one bad transaction does not |
 
-## Pass Rule
+## Historical Pass Rule
 
 Engineering passes only when the formal route contains one scalar Intent
 objective/Critic and explicit non-compensatory Physics constraints through
 storage, actor update, diagnostics, and persistence. Retaining Noisy is required;
 using it as the Physics threshold is forbidden.
 
-## Fail Rule
+## Historical Fail Rule
 
 Stop on a single scalar Physics utility, severe-state saturation, adverse-row
 masking, Clean/Contact/ZMP leakage to actor input, second actor/Critic/optimizer,

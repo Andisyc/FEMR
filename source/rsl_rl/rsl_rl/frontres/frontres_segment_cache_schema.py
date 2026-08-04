@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from typing import Any, Mapping
 
 import torch
@@ -116,6 +117,131 @@ class FrontRESRobotRolloutState:
             f"{prefix}.finite": all(bool(torch.isfinite(value).all().item()) for _, value in self.tensor_items()),
             f"{prefix}.requires_grad": any(bool(value.requires_grad) for _, value in self.tensor_items()),
         }
+
+
+@dataclass(frozen=True)
+class FrontRESCleanSegmentArtifact:
+    """Immutable Clean x_t identity and GMT/Physics-only K-step evidence."""
+
+    segment: FrontRESSegmentIndex
+    source_identity: str
+    x_t_identity: str
+    clean_continuation: torch.Tensor
+    expected_support: torch.Tensor
+    expected_support_envelope: torch.Tensor
+    artifact_hash: str
+
+    def validate(self, *, clean_state: FrontRESRobotRolloutState | None = None) -> None:
+        self.segment.validate()
+        k_steps = int(self.segment.horizon_k)
+        if not self.source_identity:
+            raise ValueError("clean segment artifact source_identity must be non-empty")
+        if not self.x_t_identity:
+            raise ValueError("clean segment artifact x_t_identity must be non-empty")
+        _require_shape("clean_continuation", self.clean_continuation, (k_steps, 65))
+        _require_shape("expected_support", self.expected_support, (k_steps, 2))
+        _require_shape("expected_support_envelope", self.expected_support_envelope, (k_steps, 6))
+        for name, value in (
+            ("clean_continuation", self.clean_continuation),
+            ("expected_support", self.expected_support),
+            ("expected_support_envelope", self.expected_support_envelope),
+        ):
+            _require_floating_tensor(name, value)
+            _require_finite(name, value)
+            if value.requires_grad:
+                raise ValueError(f"{name} must be detached cache data")
+        if bool(((self.expected_support != 0.0) & (self.expected_support != 1.0)).any()):
+            raise ValueError("expected_support must contain binary left/right support evidence")
+        if clean_state is not None:
+            clean_state.validate(name="clean_state")
+            expected_x_t = clean_state_identity(clean_state, source_identity=self.source_identity)
+            if self.x_t_identity != expected_x_t:
+                raise ValueError("clean segment artifact x_t_identity does not match the cached replay state")
+        expected_hash = clean_segment_artifact_hash(
+            segment=self.segment,
+            source_identity=self.source_identity,
+            x_t_identity=self.x_t_identity,
+            clean_continuation=self.clean_continuation,
+            expected_support=self.expected_support,
+            expected_support_envelope=self.expected_support_envelope,
+        )
+        if self.artifact_hash != expected_hash:
+            raise ValueError("clean segment artifact hash does not match its immutable payload")
+
+
+def build_clean_segment_artifact(
+    *,
+    segment: FrontRESSegmentIndex,
+    clean_state: FrontRESRobotRolloutState,
+    source_identity: str,
+    clean_continuation: torch.Tensor,
+    expected_support: torch.Tensor,
+    expected_support_envelope: torch.Tensor,
+) -> FrontRESCleanSegmentArtifact:
+    """Detach one cache-owned Clean continuation artifact and seal its identity."""
+
+    continuation = clean_continuation.detach().to(dtype=torch.float32, device="cpu").clone().contiguous()
+    support = expected_support.detach().to(dtype=torch.float32, device="cpu").clone().contiguous()
+    envelope = expected_support_envelope.detach().to(dtype=torch.float32, device="cpu").clone().contiguous()
+    source = str(source_identity)
+    x_t_identity = clean_state_identity(clean_state, source_identity=source)
+    artifact = FrontRESCleanSegmentArtifact(
+        segment=segment,
+        source_identity=source,
+        x_t_identity=x_t_identity,
+        clean_continuation=continuation,
+        expected_support=support,
+        expected_support_envelope=envelope,
+        artifact_hash=clean_segment_artifact_hash(
+            segment=segment,
+            source_identity=source,
+            x_t_identity=x_t_identity,
+            clean_continuation=continuation,
+            expected_support=support,
+            expected_support_envelope=envelope,
+        ),
+    )
+    artifact.validate(clean_state=clean_state)
+    return artifact
+
+
+def clean_state_identity(state: FrontRESRobotRolloutState, *, source_identity: str) -> str:
+    """Hash the replay start together with its source identity."""
+
+    state.validate(name="clean_state")
+    digest = hashlib.sha256(str(source_identity).encode("utf-8"))
+    for name, value in state.tensor_items():
+        digest.update(name.encode("utf-8"))
+        _update_tensor_hash(digest, value)
+    return digest.hexdigest()
+
+
+def clean_segment_artifact_hash(
+    *,
+    segment: FrontRESSegmentIndex,
+    source_identity: str,
+    x_t_identity: str,
+    clean_continuation: torch.Tensor,
+    expected_support: torch.Tensor,
+    expected_support_envelope: torch.Tensor,
+) -> str:
+    """Hash source, frame identity and all immutable Clean K-step evidence."""
+
+    digest = hashlib.sha256()
+    digest.update(str(source_identity).encode("utf-8"))
+    digest.update(str(x_t_identity).encode("ascii"))
+    digest.update(str(segment.motion_rel_path).encode("utf-8"))
+    digest.update(f"{int(segment.start_frame)}:{int(segment.horizon_k)}".encode("ascii"))
+    for value in (clean_continuation, expected_support, expected_support_envelope):
+        _update_tensor_hash(digest, value)
+    return digest.hexdigest()
+
+
+def _update_tensor_hash(digest: Any, value: torch.Tensor) -> None:
+    tensor = value.detach().to(device="cpu").contiguous()
+    digest.update(str(tensor.dtype).encode("ascii"))
+    digest.update(str(tuple(tensor.shape)).encode("ascii"))
+    digest.update(tensor.numpy().tobytes())
 
 
 @dataclass(frozen=True)

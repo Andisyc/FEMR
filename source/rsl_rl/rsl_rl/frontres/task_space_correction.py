@@ -5,44 +5,35 @@
 
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
 import torch
 from rsl_rl.frontres.frontres_executability import rotvec_to_quat_wxyz as _rotvec_to_quat_wxyz
+from rsl_rl.frontres.frontres_formal_runtime_probe import emit_formal_runtime_probe
 from rsl_rl.modules import FrontRESActorCritic
 
-_AUDIT_SPEC = importlib.util.spec_from_file_location(
-    "frontres_formal_runtime_probe_correction",
-    Path(__file__).resolve().with_name("frontres_formal_runtime_probe.py"),
-)
-assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
-_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
-_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
-emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
+
+def _quat_mul_wxyz(lhs: torch.Tensor, rhs: torch.Tensor) -> torch.Tensor:
+    """Multiply batches of wxyz quaternions without depending on simulator utilities."""
+
+    lw, lx, ly, lz = lhs.unbind(dim=-1)
+    rw, rx, ry, rz = rhs.unbind(dim=-1)
+    return torch.stack(
+        (
+            lw * rw - lx * rx - ly * ry - lz * rz,
+            lw * rx + lx * rw + ly * rz - lz * ry,
+            lw * ry - lx * rz + ly * rw + lz * rx,
+            lw * rz + lx * ry - ly * rx + lz * rw,
+        ),
+        dim=-1,
+    )
 
 
-def _frontres_contact_consistent_position_correction(
-    runner,
-    cmd_term,
-    pos_corr: torch.Tensor,
-    n_rows: int,
-) -> torch.Tensor:
-    """Keep horizontal and upward root corrections compatible with contact state."""
-    if hasattr(cmd_term, "jump_degree"):
-        jump_degree = cmd_term.jump_degree[:n_rows].to(device=pos_corr.device, dtype=pos_corr.dtype).clamp(0.0, 1.0)
-        pos_corr[:, :2] *= (1.0 - jump_degree).unsqueeze(-1)
-        if hasattr(cmd_term, "anchor_penetration_depth"):
-            penetration = cmd_term.anchor_penetration_depth[:n_rows].to(device=pos_corr.device, dtype=pos_corr.dtype)
-            z_upper = jump_degree * penetration
-        else:
-            z_upper = torch.zeros_like(pos_corr[:, 2])
-    else:
-        z_upper = torch.zeros_like(pos_corr[:, 2])
+def _world_delta_to_command_local_quat(raw_quat: torch.Tensor, world_delta_quat: torch.Tensor) -> torch.Tensor:
+    """Convert a world-left Delta R into the host command's local-right buffer."""
 
-    max_delta_pos = float(getattr(runner.alg.policy, "max_delta_pos", 0.3))
-    z_lower = torch.full_like(z_upper, -max_delta_pos)
-    pos_corr[:, 2] = torch.minimum(torch.maximum(pos_corr[:, 2], z_lower), z_upper)
-    return pos_corr
+    raw_unit = raw_quat / raw_quat.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    raw_inverse = raw_unit.clone()
+    raw_inverse[..., 1:] = -raw_inverse[..., 1:]
+    return _quat_mul_wxyz(_quat_mul_wxyz(raw_inverse, world_delta_quat), raw_unit)
 
 
 def _write_frontres_command_correction(
@@ -55,13 +46,24 @@ def _write_frontres_command_correction(
     n_train: int,
     n_candidate: int,
 ) -> None:
+    # B1: host 使用 raw * buffer, 因此这里只转换 world-left Delta R 的表示.
+    raw_quat = cmd_term.anchor_quat_w_raw[:n_train].to(device=rpy_corr.device, dtype=rpy_corr.dtype)
+    train_quat = _world_delta_to_command_local_quat(raw_quat, _rotvec_to_quat_wxyz(rpy_corr))
     cmd_term._frontres_pos_correction[:n_train].copy_(pos_corr)
-    cmd_term._frontres_quat_correction[:n_train].copy_(_rotvec_to_quat_wxyz(rpy_corr))
+    cmd_term._frontres_quat_correction[:n_train].copy_(train_quat)
     if n_candidate > 0 and candidate_pos_corr is not None and candidate_rpy_corr is not None:
         start = n_train
         end = start + n_candidate
+        candidate_raw_quat = cmd_term.anchor_quat_w_raw[start:end].to(
+            device=candidate_rpy_corr.device,
+            dtype=candidate_rpy_corr.dtype,
+        )
+        candidate_quat = _world_delta_to_command_local_quat(
+            candidate_raw_quat,
+            _rotvec_to_quat_wxyz(candidate_rpy_corr),
+        )
         cmd_term._frontres_pos_correction[start:end].copy_(candidate_pos_corr)
-        cmd_term._frontres_quat_correction[start:end].copy_(_rotvec_to_quat_wxyz(candidate_rpy_corr))
+        cmd_term._frontres_quat_correction[start:end].copy_(candidate_quat)
 
     zero_start = n_train + n_candidate
     if zero_start < runner.env.num_envs:
@@ -100,12 +102,16 @@ def apply_frontres_task_corrections(
         兼容性, 当前方法不存在 oracle/stable/authority 分支.
     """
     del allow_oracle
-    # B1: 验证 active policy 拥有 full-6D Delta SE(3) action.
+    # B1: 验证 active policy 拥有 finite full-6D world-frame Delta SE(3) action.
     if task_corr is None:
         return None
     policy = getattr(getattr(runner, "alg", None), "policy", None)
     if not isinstance(policy, FrontRESActorCritic) or getattr(policy, "num_task_corrections", 0) != 6:
         return task_corr
+    if task_corr.ndim != 2 or int(task_corr.shape[1]) != 6:
+        raise ValueError(f"FrontRES task correction must have shape [B,6], got {tuple(task_corr.shape)}")
+    if not bool(torch.isfinite(task_corr).all()):
+        raise ValueError("FrontRES task correction must contain only finite values")
 
     env_raw = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
     command_manager = getattr(env_raw, "command_manager", None)
@@ -117,13 +123,14 @@ def apply_frontres_task_corrections(
         n_train = int(task_corr.shape[0])
     n_train = max(0, min(int(n_train), int(task_corr.shape[0]), int(runner.env.num_envs)))
     n_candidate = max(0, min(int(n_candidate), int(runner.env.num_envs) - n_train))
-    # B2: 转换 position/rotation 表示并写入 command-owned correction buffers.
+    # B2: 平移原样写入; rotation 只做 world-left -> host local-right 表示转换.
     for cmd_term in terms.values():
         if not hasattr(cmd_term, "_frontres_pos_correction"):
             continue
+        if not hasattr(cmd_term, "anchor_quat_w_raw"):
+            raise RuntimeError("FrontRES command term must expose anchor_quat_w_raw for world-frame rotation")
         pos_corr = task_corr[:n_train, :3].clone()
         rpy_corr = task_corr[:n_train, 3:6].clone()
-        pos_corr = _frontres_contact_consistent_position_correction(runner, cmd_term, pos_corr, n_train)
         candidate_pos_corr = pos_corr[:n_candidate].clone() if n_candidate else None
         candidate_rpy_corr = rpy_corr[:n_candidate].clone() if n_candidate else None
         _write_frontres_command_correction(

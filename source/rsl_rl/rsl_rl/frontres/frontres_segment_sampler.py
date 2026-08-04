@@ -1,1182 +1,43 @@
+"""Stateful Segment selection, priority, budget and persistence owner.
+
+Scenario aggregates are re-exported only for compatibility. Active consumers
+should import their narrow scenario or planning owner directly.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import IntEnum
-import hashlib
-import importlib.util
-from pathlib import Path
-from types import MappingProxyType
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any, Iterable
 
 import torch
 
-_AUDIT_SPEC = importlib.util.spec_from_file_location(
-    "frontres_formal_runtime_probe_sampler",
-    Path(__file__).resolve().with_name("frontres_formal_runtime_probe.py"),
+from rsl_rl.frontres.frontres_formal_runtime_probe import emit_formal_runtime_probe
+from rsl_rl.frontres.frontres_local_scenario import (
+    FrontRESLocalScenario,
+    FrontRESLocalScenarioLifecycle,
+    FrontRESLocalScenarioMaterialization,
+    FrontRESLocalScenarioRequest,
+    FrontRESLocalScenarioRows,
 )
-assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
-_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
-_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
-emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
-
-
-class FrontRESSegmentState(IntEnum):
-    """Segment replay budget state owned by the sampler."""
-
-    UNKNOWN = 0
-    PROMISING = 1
-    FRONTIER = 2
-    DELAYED_REGRET = 3
-    SOLVED = 4
-    HOPELESS = 5
-
-
-SEGMENT_STATE_NAMES = tuple(state.name.lower() for state in FrontRESSegmentState)
-
-
-@dataclass(frozen=True)
-class FrontRESSegmentSample:
-    segment_ids: torch.Tensor
-    source: tuple[str, ...]
-    priority: torch.Tensor
-    staleness: torch.Tensor
-    valid_mask: torch.Tensor
-    segment_state: torch.Tensor | None = None
-    rollout_trial_count: torch.Tensor | None = None
-    horizon_k: torch.Tensor | None = None
-    budget_reason: tuple[str, ...] = ()
-    trial_role: tuple[str, ...] = ()
-    source_index: torch.Tensor | None = None
-    trial_index: torch.Tensor | None = None
-
-
-@dataclass(frozen=True)
-class FrontRESSegmentRolloutEvidence:
-    segment_ids: torch.Tensor
-    reset_success: torch.Tensor
-    score_noisy: torch.Tensor
-    score_repaired: torch.Tensor
-    score_clean: torch.Tensor
-    gain_over_noisy: torch.Tensor
-    fall_repaired: torch.Tensor
-    contact_consistency: torch.Tensor
-    action_norm: torch.Tensor
-    valid_reward: torch.Tensor
-    horizon_k: torch.Tensor
-    gain_total: torch.Tensor | None = None
-    gain_style: torch.Tensor | None = None
-    gain_physics: torch.Tensor | None = None
-    repair_cost: torch.Tensor | None = None
-    gain_source: str = "legacy"
-
-
-@dataclass(frozen=True)
-class FrontRESV015PriorityEvidence:
-    """Scenario-keyed v003 replay-priority evidence, 不是 sampler-state update.
-
-    状态: candidate-only.
-    上游: one-row v003 return evidence.
-    下游: 后续携带 stable segment/trial identities 的 transaction owner.
-    该对象没有 actor loss, optimizer, 或 legacy sampler mutation path.
-    """
-
-    scenario_ids: tuple[str, ...]
-    noisy_segment_hashes: tuple[str, ...]
-    x_t_identities: tuple[str, ...]
-    horizon_k: torch.Tensor
-    gain_total: torch.Tensor
-    intent_gain: torch.Tensor
-    physics_gain: torch.Tensor
-    repair_cost: torch.Tensor
-    valid_mask: torch.Tensor
-    intent_q29_provenance: str
-    intent_q29_source: str
-    gain_source: str = "FRS-GAIN-v006-loaded-support-zmp-applicability"
-
-    def validate(self) -> None:
-        count = int(self.gain_total.numel())
-        if count <= 0:
-            raise ValueError("v015 priority evidence requires at least one policy row")
-        for name, value in (
-            ("horizon_k", self.horizon_k),
-            ("gain_total", self.gain_total),
-            ("intent_gain", self.intent_gain),
-            ("physics_gain", self.physics_gain),
-            ("repair_cost", self.repair_cost),
-            ("valid_mask", self.valid_mask),
-        ):
-            if value.ndim != 1 or int(value.numel()) != count:
-                raise ValueError(f"v015 priority evidence {name} must be [B]")
-        if (
-            len(self.scenario_ids) != count
-            or len(self.noisy_segment_hashes) != count
-            or len(self.x_t_identities) != count
-            or not bool((self.horizon_k > 0).all())
-            or self.intent_q29_provenance != "deployment_noisy_q29"
-            or self.gain_source != "FRS-GAIN-v006-loaded-support-zmp-applicability"
-        ):
-            raise ValueError("v015 priority evidence has invalid identity, provenance, or Gain source")
-        source = self.intent_q29_source.lower()
-        if not source or any(token in source for token in ("clean", "root", "global")):
-            raise ValueError("v015 priority evidence rejects non-deployment q29 provenance")
-        valid = self.valid_mask.bool()
-        for name, value in (
-            ("gain_total", self.gain_total),
-            ("intent_gain", self.intent_gain),
-            ("physics_gain", self.physics_gain),
-            ("repair_cost", self.repair_cost),
-        ):
-            finite = torch.isfinite(value)
-            if not bool(finite[valid].all()) or bool(finite[~valid].any()):
-                raise ValueError(f"v015 priority evidence {name} must be finite exactly on valid rows")
-
-    @property
-    def priority_signal(self) -> torch.Tensor:
-        """返回 raw canonical Gain evidence, 不施加 loss mass 或 sampler update."""
-
-        return self.gain_total
-
-
-def build_frontres_v015_priority_evidence(return_evidence: Any) -> FrontRESV015PriorityEvidence:
-    """将 v003 decomposition 复制到 scenario-keyed priority-evidence carrier."""
-
-    validate = getattr(return_evidence, "validate", None)
-    if not callable(validate):
-        raise TypeError("v015 priority evidence requires a validated v003 return carrier")
-    validate()
-    if getattr(return_evidence, "gain_source", None) != "FRS-GAIN-v006-loaded-support-zmp-applicability":
-        raise ValueError("v015 priority evidence rejects legacy or unspecified Gain source")
-    result = FrontRESV015PriorityEvidence(
-        scenario_ids=tuple(str(value) for value in return_evidence.scenario_ids),
-        noisy_segment_hashes=tuple(str(value) for value in return_evidence.noisy_segment_hashes),
-        x_t_identities=tuple(str(value) for value in return_evidence.x_t_identities),
-        horizon_k=return_evidence.horizon_k.detach().clone(),
-        gain_total=return_evidence.gain_total.detach().clone(),
-        intent_gain=return_evidence.intent_gain.detach().clone(),
-        physics_gain=return_evidence.physics_gain.detach().clone(),
-        repair_cost=return_evidence.repair_cost.detach().clone(),
-        valid_mask=return_evidence.policy_row_valid.detach().clone(),
-        intent_q29_provenance=str(return_evidence.intent_q29_provenance),
-        intent_q29_source=str(return_evidence.intent_q29_source),
-        gain_source=str(return_evidence.gain_source),
-    )
-    result.validate()
-    return result
-
-
-@dataclass(frozen=True)
-class FrontRESSegmentTrialEvidence:
-    segment_ids: torch.Tensor
-    trial_count: torch.Tensor
-    valid_trial_count: torch.Tensor
-    policy_gain: torch.Tensor
-    best_gain: torch.Tensor
-    mean_gain: torch.Tensor
-    success_frac: torch.Tensor
-    fall_frac: torch.Tensor
-    oracle_gap: torch.Tensor
-    confidence: torch.Tensor
-    score_noisy: torch.Tensor
-    score_repaired: torch.Tensor
-    horizon_k: torch.Tensor
-    valid_mask: torch.Tensor
-
-
-@dataclass(frozen=True)
-class FrontRESSegmentRolloutBudget:
-    segment_ids: torch.Tensor
-    trial_count: torch.Tensor
-    horizon_k: torch.Tensor
-    segment_state: torch.Tensor
-    reason: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class FrontRESSegmentTrialPlan:
-    segment_ids: torch.Tensor
-    source_index: torch.Tensor
-    trial_index: torch.Tensor
-    horizon_k: torch.Tensor
-    trial_role: tuple[str, ...]
-    base_segment_ids: torch.Tensor
-    base_trial_count: torch.Tensor
-
-
-@dataclass(frozen=True)
-class FrontRESFrozenPolicyTransactionPlan:
-    """Pure row layout for a future frozen-policy Double Segment transaction.
-
-    The caller owns snapshot capture.  This object only preserves the supplied
-    snapshot identity and proves that every scheduled attempt is an ordinary
-    policy sample before runner/storage wiring is added.
-    """
-
-    transaction_id: str
-    policy_snapshot_id: str
-    segment_ids: torch.Tensor
-    source_index: torch.Tensor
-    trial_index: torch.Tensor
-    horizon_k: torch.Tensor
-    trial_role: tuple[str, ...]
-    base_segment_ids: torch.Tensor
-    base_trial_count: torch.Tensor
-    base_horizon_k: torch.Tensor
-    minimum_policy_attempts: int
-    exact_policy_attempts: int | None = None
-
-    def validate(self) -> None:
-        if not self.transaction_id:
-            raise ValueError("transaction_id must be non-empty")
-        if not self.policy_snapshot_id:
-            raise ValueError("policy_snapshot_id must be non-empty")
-        if int(self.minimum_policy_attempts) < 2:
-            raise ValueError("minimum_policy_attempts must be at least two")
-        if self.exact_policy_attempts is not None and int(self.exact_policy_attempts) < 2:
-            raise ValueError("exact_policy_attempts must be at least two")
-
-        source_count = int(self.base_segment_ids.numel())
-        if source_count < 2:
-            raise ValueError("frozen policy transaction requires at least two selected segments")
-        if self.base_segment_ids.ndim != 1:
-            raise ValueError("base_segment_ids must be a one-dimensional tensor")
-        if self.base_trial_count.ndim != 1 or int(self.base_trial_count.numel()) != source_count:
-            raise ValueError("base_trial_count must be source-aligned [S] data")
-        if self.base_horizon_k.ndim != 1 or int(self.base_horizon_k.numel()) != source_count:
-            raise ValueError("base_horizon_k must be source-aligned [S] data")
-        if int(torch.unique(self.base_segment_ids).numel()) != source_count:
-            raise ValueError("frozen policy transaction selected duplicate segment groups")
-        if bool((self.base_trial_count < int(self.minimum_policy_attempts)).any()):
-            raise ValueError("every selected segment requires the configured minimum policy attempts")
-        if self.exact_policy_attempts is not None and bool(
-            (self.base_trial_count != int(self.exact_policy_attempts)).any()
-        ):
-            raise ValueError("every selected segment requires the configured exact policy attempts")
-        if bool((self.base_horizon_k <= 0).any()):
-            raise ValueError("base_horizon_k must be positive")
-
-        row_count = int(self.segment_ids.numel())
-        expected_rows = int(self.base_trial_count.sum().item())
-        if row_count != expected_rows:
-            raise ValueError(f"transaction row count {row_count} does not match planned attempts {expected_rows}")
-        if any(tensor.ndim != 1 or int(tensor.numel()) != row_count for tensor in (
-            self.source_index,
-            self.trial_index,
-            self.horizon_k,
-        )):
-            raise ValueError("transaction row tensors must be source-expanded [sum(M_s)] data")
-        if len(self.trial_role) != row_count:
-            raise ValueError("trial_role must have one entry per transaction row")
-        if any(role != "policy" for role in self.trial_role):
-            raise ValueError("frozen policy transaction may contain only policy-sampled attempts")
-        if bool((self.horizon_k <= 0).any()):
-            raise ValueError("transaction horizon_k must be positive")
-
-        expected_source_index = torch.repeat_interleave(
-            torch.arange(source_count, dtype=torch.long, device=self.source_index.device),
-            self.base_trial_count.to(device=self.source_index.device, dtype=torch.long),
-        )
-        expected_segment_ids = torch.repeat_interleave(
-            self.base_segment_ids.to(device=self.segment_ids.device, dtype=torch.long),
-            self.base_trial_count.to(device=self.segment_ids.device, dtype=torch.long),
-        )
-        expected_horizon_k = torch.repeat_interleave(
-            self.base_horizon_k.to(device=self.horizon_k.device, dtype=torch.long),
-            self.base_trial_count.to(device=self.horizon_k.device, dtype=torch.long),
-        )
-        expected_trial_index = torch.cat(
-            [
-                torch.arange(int(count), dtype=torch.long, device=self.trial_index.device)
-                for count in self.base_trial_count.detach().cpu().tolist()
-            ],
-            dim=0,
-        )
-        if not torch.equal(self.source_index, expected_source_index):
-            raise ValueError("transaction rows must be source-major")
-        if not torch.equal(self.segment_ids, expected_segment_ids):
-            raise ValueError("transaction rows must preserve each selected segment identity")
-        if not torch.equal(self.horizon_k, expected_horizon_k):
-            raise ValueError("transaction rows must preserve one K value per selected segment")
-        if not torch.equal(self.trial_index, expected_trial_index):
-            raise ValueError("transaction rows must be trial-major inside each segment group")
-
-
-@dataclass(frozen=True)
-class FrontRESFixedNoisyScenarioRequest:
-    """Describe one selection-time Noisy reference scenario."""
-
-    transaction_id: str
-    scenario_id: str
-    segment_id: int
-    source_index: int
-    horizon_k: int
-    future_offsets: tuple[int, ...]
-
-    @property
-    def required_frame_count(self) -> int:
-        """Return the tape length needed by K rollout steps and every H offset."""
-        return int(self.horizon_k) + max(self.future_offsets)
-
-    def validate(self) -> None:
-        if not self.transaction_id:
-            raise ValueError("transaction_id must be non-empty")
-        if not self.scenario_id:
-            raise ValueError("scenario_id must be non-empty")
-        if int(self.segment_id) < 0:
-            raise ValueError(f"segment_id must be non-negative, got {self.segment_id}")
-        if int(self.source_index) < 0:
-            raise ValueError(f"source_index must be non-negative, got {self.source_index}")
-        if int(self.horizon_k) <= 0:
-            raise ValueError(f"horizon_k must be positive, got {self.horizon_k}")
-        if not self.future_offsets:
-            raise ValueError("future_offsets must be non-empty")
-        if any(int(offset) <= 0 for offset in self.future_offsets):
-            raise ValueError(f"future_offsets must be positive, got {self.future_offsets}")
-        if tuple(sorted(set(int(offset) for offset in self.future_offsets))) != tuple(self.future_offsets):
-            raise ValueError(f"future_offsets must be strictly ordered and unique, got {self.future_offsets}")
-
-
-@dataclass(frozen=True)
-class FrontRESNoisyReferenceMaterialization:
-    """Return the deployable Noisy sequence produced by one selected scenario."""
-
-    reference_sequence: torch.Tensor
-    provenance: Mapping[str, Any]
-
-
-@dataclass(frozen=True)
-class FrontRESFixedNoisyScenario:
-    """Seal one Noisy reference tape so retries cannot alter its content."""
-
-    request: FrontRESFixedNoisyScenarioRequest
-    noisy_segment_hash: str
-    _reference_sequence: torch.Tensor
-    provenance: Mapping[str, str | int | float | bool]
-
-    @classmethod
-    def from_materialization(
-        cls,
-        request: FrontRESFixedNoisyScenarioRequest,
-        materialization: FrontRESNoisyReferenceMaterialization,
-    ) -> "FrontRESFixedNoisyScenario":
-        request.validate()
-        if not isinstance(materialization, FrontRESNoisyReferenceMaterialization):
-            raise TypeError(
-                "materialize_reference must return FrontRESNoisyReferenceMaterialization, "
-                f"got {type(materialization)!r}"
-            )
-        sequence = _validate_fixed_noisy_sequence(materialization.reference_sequence, request=request)
-        return cls(
-            request=request,
-            noisy_segment_hash=_fixed_noisy_sequence_hash(sequence),
-            _reference_sequence=sequence,
-            provenance=_freeze_noisy_provenance(materialization.provenance),
-        )
-
-    def __post_init__(self) -> None:
-        self.request.validate()
-        sequence = _validate_fixed_noisy_sequence(self._reference_sequence, request=self.request)
-        observed_hash = _fixed_noisy_sequence_hash(sequence)
-        if self.noisy_segment_hash != observed_hash:
-            raise ValueError(
-                "noisy_segment_hash does not match the immutable reference sequence: "
-                f"expected {observed_hash}, got {self.noisy_segment_hash}"
-            )
-        object.__setattr__(self, "_reference_sequence", sequence)
-        object.__setattr__(self, "provenance", _freeze_noisy_provenance(self.provenance))
-
-    @property
-    def scenario_id(self) -> str:
-        return self.request.scenario_id
-
-    @property
-    def required_frame_count(self) -> int:
-        return self.request.required_frame_count
-
-    @property
-    def reference_sequence(self) -> torch.Tensor:
-        """Return a copy so external retry code cannot mutate the sealed tape."""
-        return self._reference_sequence.detach().clone()
-
-    def probe(self) -> dict[str, Any]:
-        return {
-            "scenario_id": self.scenario_id,
-            "segment_id": int(self.request.segment_id),
-            "source_index": int(self.request.source_index),
-            "horizon_k": int(self.request.horizon_k),
-            "future_offsets": tuple(self.request.future_offsets),
-            "required_frame_count": self.required_frame_count,
-            "reference_shape": tuple(self._reference_sequence.shape),
-            "reference_dtype": str(self._reference_sequence.dtype),
-            "reference_device": str(self._reference_sequence.device),
-            "reference_finite": bool(torch.isfinite(self._reference_sequence).all().item()),
-            "noisy_segment_hash": self.noisy_segment_hash,
-        }
-
-
-@dataclass(frozen=True)
-class FrontRESFixedNoisyScenarioRows:
-    """Attach one immutable selected scenario to every expanded trial row."""
-
-    scenarios: tuple[FrontRESFixedNoisyScenario, ...]
-    segment_ids: torch.Tensor
-    source_index: torch.Tensor
-    trial_index: torch.Tensor
-    horizon_k: torch.Tensor
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "segment_ids", _immutable_row_tensor("segment_ids", self.segment_ids))
-        object.__setattr__(self, "source_index", _immutable_row_tensor("source_index", self.source_index))
-        object.__setattr__(self, "trial_index", _immutable_row_tensor("trial_index", self.trial_index))
-        object.__setattr__(self, "horizon_k", _immutable_row_tensor("horizon_k", self.horizon_k))
-        self.validate()
-
-    @property
-    def batch_size(self) -> int:
-        return len(self.scenarios)
-
-    @property
-    def scenario_ids(self) -> tuple[str, ...]:
-        return tuple(scenario.scenario_id for scenario in self.scenarios)
-
-    @property
-    def noisy_segment_hashes(self) -> tuple[str, ...]:
-        return tuple(scenario.noisy_segment_hash for scenario in self.scenarios)
-
-    @property
-    def required_frame_counts(self) -> torch.Tensor:
-        return torch.tensor(
-            [scenario.required_frame_count for scenario in self.scenarios],
-            dtype=torch.long,
-            device=self.segment_ids.device,
-        )
-
-    def scenario_for_row(self, row_index: int) -> FrontRESFixedNoisyScenario:
-        if not 0 <= int(row_index) < self.batch_size:
-            raise IndexError(f"row_index {row_index} is outside batch size {self.batch_size}")
-        return self.scenarios[int(row_index)]
-
-    def validate(self) -> None:
-        count = self.batch_size
-        for name, value in (
-            ("segment_ids", self.segment_ids),
-            ("source_index", self.source_index),
-            ("trial_index", self.trial_index),
-            ("horizon_k", self.horizon_k),
-        ):
-            if int(value.numel()) != count:
-                raise ValueError(f"{name} must have {count} rows, got {int(value.numel())}")
-        by_source: dict[int, tuple[str, str]] = {}
-        for row, scenario in enumerate(self.scenarios):
-            scenario.request.validate()
-            source_index = int(self.source_index[row].item())
-            segment_id = int(self.segment_ids[row].item())
-            horizon_k = int(self.horizon_k[row].item())
-            if source_index != int(scenario.request.source_index):
-                raise ValueError(f"row {row} source_index does not match scenario identity")
-            if segment_id != int(scenario.request.segment_id):
-                raise ValueError(f"row {row} segment_id does not match scenario identity")
-            if horizon_k != int(scenario.request.horizon_k):
-                raise ValueError(f"row {row} horizon_k does not match scenario identity")
-            identity = (scenario.scenario_id, scenario.noisy_segment_hash)
-            previous = by_source.setdefault(source_index, identity)
-            if previous != identity:
-                raise ValueError(f"source_index={source_index} maps to multiple Noisy scenario identities")
-
-    def probe(self) -> dict[str, Any]:
-        self.validate()
-        return {
-            "row_count": self.batch_size,
-            "scenario_count": len(set(self.scenario_ids)),
-            "source_index": self.source_index.detach().cpu().tolist(),
-            "trial_index": self.trial_index.detach().cpu().tolist(),
-            "scenario_ids": self.scenario_ids,
-            "noisy_segment_hashes": self.noisy_segment_hashes,
-            "required_frame_counts": self.required_frame_counts.detach().cpu().tolist(),
-        }
-
-
-class FrontRESFixedNoisyScenarioLifecycle:
-    """Own selection-time Noisy scenario creation and closing for one transaction."""
-
-    def __init__(
-        self,
-        *,
-        transaction_id: str,
-        future_offsets: Iterable[int],
-        materialize_reference: Callable[[FrontRESFixedNoisyScenarioRequest], FrontRESNoisyReferenceMaterialization],
-    ) -> None:
-        self.transaction_id = str(transaction_id)
-        self.future_offsets = tuple(int(offset) for offset in future_offsets)
-        if not callable(materialize_reference):
-            raise TypeError("materialize_reference must be callable")
-        FrontRESFixedNoisyScenarioRequest(
-            transaction_id=self.transaction_id,
-            scenario_id="validation",
-            segment_id=0,
-            source_index=0,
-            horizon_k=1,
-            future_offsets=self.future_offsets,
-        ).validate()
-        self._materialize_reference = materialize_reference
-        self._open_scenarios: dict[str, FrontRESFixedNoisyScenario] = {}
-        self._closed_scenarios: dict[str, FrontRESFixedNoisyScenario] = {}
-
-    def bind_rows(self, sample: FrontRESSegmentSample) -> FrontRESFixedNoisyScenarioRows:
-        """为每个 selected base source 绑定一次 Noisy scenario, 并复用于全部展开行.
-
-        函数名说明:
-            这是 selection-time lifecycle owner. 它不执行 reset, 不写 command,
-            不改变 PPO role 或 optimizer.
-
-        主链路:
-            上游: FrontRESSegmentSampler 的 expanded source/trial rows.
-            下游: 后续 reset/command connector 消费按行对齐的 immutable scenario.
-
-        语义:
-            同一 source_index 必须有同一 segment/K/scenario/hash. 关闭后的 identity
-            只能保留证据, 不得在本 transaction 下重新 materialize.
-
-        Status: S1 lifecycle is consumed by the S2 command/reset/actor connector.
-        Evidence: S1 frontres_fixed_noisy_segment_lifecycle_contract.py; S2 offline
-        command/reset/actor-context contracts.
-        Boundary: this owner remains selection-only; it does not reset command state,
-        evaluate the actor, or update PPO.
-        """
-        # B1: 读取并验证 expanded rows 的 source/trial/K identity.
-        segment_ids, source_index, trial_index, horizon_k = _scenario_row_fields(sample)
-        source_specs: dict[int, tuple[int, int]] = {}
-        for row, (segment_id, source, horizon) in enumerate(
-            zip(segment_ids.tolist(), source_index.tolist(), horizon_k.tolist(), strict=True)
-        ):
-            if int(source) < 0:
-                raise ValueError(f"row {row} has negative source_index={source}")
-            spec = (int(segment_id), int(horizon))
-            previous = source_specs.setdefault(int(source), spec)
-            if previous != spec:
-                raise ValueError(
-                    f"source_index={source} has inconsistent Segment/K identity: "
-                    f"first={previous}, row_{row}={spec}"
-                )
-
-        # B2: 每个 source 只调用一次 materializer, 并封存 sequence/hash.
-        scenario_by_source: dict[int, FrontRESFixedNoisyScenario] = {}
-        for source, (segment_id, horizon) in source_specs.items():
-            scenario_id = self._scenario_id(source_index=source, segment_id=segment_id)
-            if scenario_id in self._closed_scenarios:
-                raise RuntimeError(
-                    f"closed Noisy scenario {scenario_id} cannot be rematerialized under the same identity"
-                )
-            scenario = self._open_scenarios.get(scenario_id)
-            if scenario is None:
-                request = FrontRESFixedNoisyScenarioRequest(
-                    transaction_id=self.transaction_id,
-                    scenario_id=scenario_id,
-                    segment_id=segment_id,
-                    source_index=source,
-                    horizon_k=horizon,
-                    future_offsets=self.future_offsets,
-                )
-                materialization = self._materialize_reference(request)
-                scenario = FrontRESFixedNoisyScenario.from_materialization(request, materialization)
-                self._open_scenarios[scenario_id] = scenario
-            scenario_by_source[source] = scenario
-
-        # B3: 以原始行顺序返回同一 scenario 的 M 次复用视图.
-        rows = FrontRESFixedNoisyScenarioRows(
-            scenarios=tuple(scenario_by_source[int(source)] for source in source_index.tolist()),
-            segment_ids=segment_ids,
-            source_index=source_index,
-            trial_index=trial_index,
-            horizon_k=horizon_k,
-        )
-        rows.validate()
-        return rows
-
-    def close_scenario(self, scenario_id: str) -> FrontRESFixedNoisyScenario:
-        """Close the semantic binding while retaining immutable evidence."""
-        scenario = self._open_scenarios.pop(str(scenario_id), None)
-        if scenario is None:
-            if str(scenario_id) in self._closed_scenarios:
-                raise RuntimeError(f"Noisy scenario {scenario_id} is already closed")
-            raise KeyError(f"unknown open Noisy scenario {scenario_id}")
-        self._closed_scenarios[scenario.scenario_id] = scenario
-        return scenario
-
-    def closed_scenario(self, scenario_id: str) -> FrontRESFixedNoisyScenario | None:
-        return self._closed_scenarios.get(str(scenario_id))
-
-    def _scenario_id(self, *, source_index: int, segment_id: int) -> str:
-        return f"{self.transaction_id}:source-{int(source_index)}:segment-{int(segment_id)}"
-
-
-def _scenario_row_fields(sample: FrontRESSegmentSample) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    segment_ids = _immutable_row_tensor("segment_ids", sample.segment_ids)
-    source_index = getattr(sample, "source_index", None)
-    trial_index = getattr(sample, "trial_index", None)
-    horizon_k = getattr(sample, "horizon_k", None)
-    if not isinstance(source_index, torch.Tensor):
-        raise ValueError("fixed Noisy scenario lifecycle requires sample.source_index")
-    if not isinstance(trial_index, torch.Tensor):
-        raise ValueError("fixed Noisy scenario lifecycle requires sample.trial_index")
-    if not isinstance(horizon_k, torch.Tensor):
-        raise ValueError("fixed Noisy scenario lifecycle requires sample.horizon_k")
-    source_index = _immutable_row_tensor("source_index", source_index)
-    trial_index = _immutable_row_tensor("trial_index", trial_index)
-    horizon_k = _immutable_row_tensor("horizon_k", horizon_k)
-    count = int(segment_ids.numel())
-    for name, value in (("source_index", source_index), ("trial_index", trial_index), ("horizon_k", horizon_k)):
-        if int(value.numel()) != count:
-            raise ValueError(f"sample.{name} must have {count} rows, got {int(value.numel())}")
-    if bool((horizon_k <= 0).any().item()):
-        raise ValueError("sample.horizon_k must be positive")
-    return segment_ids, source_index, trial_index, horizon_k
-
-
-def _immutable_row_tensor(name: str, value: torch.Tensor) -> torch.Tensor:
-    if not isinstance(value, torch.Tensor):
-        raise TypeError(f"{name} must be a torch.Tensor")
-    if value.ndim != 1:
-        raise ValueError(f"{name} must be rank-1, got shape {tuple(value.shape)}")
-    if value.requires_grad:
-        raise ValueError(f"{name} must be detached lifecycle metadata")
-    return value.detach().to(dtype=torch.long).clone()
-
-
-def _validate_fixed_noisy_sequence(
-    reference_sequence: torch.Tensor,
-    *,
-    request: FrontRESFixedNoisyScenarioRequest,
-) -> torch.Tensor:
-    if not isinstance(reference_sequence, torch.Tensor):
-        raise TypeError("reference_sequence must be a torch.Tensor")
-    if reference_sequence.ndim != 2:
-        raise ValueError(
-            "reference_sequence must have shape [frames, deployable_features], "
-            f"got {tuple(reference_sequence.shape)}"
-        )
-    if reference_sequence.requires_grad:
-        raise ValueError("reference_sequence must be detached scenario data")
-    if not torch.is_floating_point(reference_sequence):
-        raise TypeError(f"reference_sequence must be floating point, got {reference_sequence.dtype}")
-    if not bool(torch.isfinite(reference_sequence).all().item()):
-        raise ValueError("reference_sequence contains non-finite values")
-    if int(reference_sequence.shape[0]) < request.required_frame_count:
-        raise ValueError(
-            "reference_sequence coverage is shorter than K + H_max: "
-            f"got {int(reference_sequence.shape[0])}, required {request.required_frame_count}"
-        )
-    if int(reference_sequence.shape[1]) <= 0:
-        raise ValueError("reference_sequence must expose at least one deployable feature")
-    return reference_sequence.detach().clone().contiguous()
-
-
-def _fixed_noisy_sequence_hash(reference_sequence: torch.Tensor) -> str:
-    value = reference_sequence.detach().to(device="cpu").contiguous()
-    digest = hashlib.sha256()
-    digest.update(str(tuple(value.shape)).encode("ascii"))
-    digest.update(str(value.dtype).encode("ascii"))
-    digest.update(value.numpy().tobytes())
-    return digest.hexdigest()
-
-
-def _freeze_noisy_provenance(provenance: Mapping[str, Any]) -> Mapping[str, str | int | float | bool]:
-    if not isinstance(provenance, Mapping):
-        raise TypeError("Noisy scenario provenance must be a mapping")
-    frozen: dict[str, str | int | float | bool] = {}
-    for key, value in provenance.items():
-        name = str(key)
-        if not name:
-            raise ValueError("Noisy scenario provenance keys must be non-empty")
-        if "clean" in name.lower():
-            raise ValueError(f"Noisy scenario provenance must not carry Clean reference data: {name}")
-        if isinstance(value, torch.Tensor):
-            raise ValueError(f"Noisy scenario provenance must not carry tensor payloads: {name}")
-        if not isinstance(value, (str, int, float, bool)):
-            raise TypeError(f"Noisy scenario provenance value {name} must be scalar, got {type(value)!r}")
-        frozen[name] = value
-    return MappingProxyType(frozen)
-
-
-@dataclass(frozen=True)
-class FrontRESLocalScenarioRequest:
-    """Selection-time identity for one v015 local reference scenario."""
-
-    transaction_id: str
-    scenario_id: str
-    segment_id: int
-    source_index: int
-    x_t_identity: str
-    horizon_k: int
-    future_offsets: tuple[int, ...]
-
-    @property
-    def intent_frame_count(self) -> int:
-        """Dense q29 carrier covers current t through the largest H offset."""
-        return max(self.future_offsets) + 1
-
-    def validate(self) -> None:
-        if not isinstance(self.transaction_id, str) or not self.transaction_id:
-            raise ValueError("transaction_id must be non-empty")
-        if not isinstance(self.scenario_id, str) or not self.scenario_id:
-            raise ValueError("scenario_id must be non-empty")
-        if not isinstance(self.x_t_identity, str) or not self.x_t_identity:
-            raise ValueError("x_t_identity must be non-empty")
-        if int(self.segment_id) < 0:
-            raise ValueError(f"segment_id must be non-negative, got {self.segment_id}")
-        if int(self.source_index) < 0:
-            raise ValueError(f"source_index must be non-negative, got {self.source_index}")
-        if int(self.horizon_k) <= 0:
-            raise ValueError(f"horizon_k must be positive, got {self.horizon_k}")
-        if not self.future_offsets:
-            raise ValueError("future_offsets must be non-empty")
-        if any(int(offset) <= 0 for offset in self.future_offsets):
-            raise ValueError(f"future_offsets must be positive, got {self.future_offsets}")
-        if tuple(sorted(set(int(offset) for offset in self.future_offsets))) != tuple(self.future_offsets):
-            raise ValueError(f"future_offsets must be strictly ordered and unique, got {self.future_offsets}")
-
-
-@dataclass(frozen=True)
-class FrontRESLocalScenarioMaterialization:
-    """Unsealed command-owner output with explicit H/K provenance separation."""
-
-    current_root_artifact_t: torch.Tensor
-    intent_q29: torch.Tensor
-    clean_continuation: torch.Tensor
-    expected_support: torch.Tensor
-    expected_support_envelope: torch.Tensor
-    provenance: Mapping[str, Any]
-
-
-@dataclass(frozen=True)
-class FrontRESLocalScenario:
-    """Seal one local scenario so M attempts cannot mutate or resample it."""
-
-    request: FrontRESLocalScenarioRequest
-    noisy_segment_hash: str
-    _current_root_artifact_t: torch.Tensor
-    _intent_q29: torch.Tensor
-    _clean_continuation: torch.Tensor
-    _expected_support: torch.Tensor
-    _expected_support_envelope: torch.Tensor
-    provenance: Mapping[str, str | int | float | bool]
-
-    @classmethod
-    def from_materialization(
-        cls,
-        request: FrontRESLocalScenarioRequest,
-        materialization: FrontRESLocalScenarioMaterialization,
-    ) -> "FrontRESLocalScenario":
-        request.validate()
-        if not isinstance(materialization, FrontRESLocalScenarioMaterialization):
-            raise TypeError(
-                "materialize_scenario must return FrontRESLocalScenarioMaterialization, "
-                f"got {type(materialization)!r}"
-            )
-        artifact, intent, continuation, expected_support, expected_support_envelope = _validate_local_scenario_payload(
-            materialization.current_root_artifact_t,
-            materialization.intent_q29,
-            materialization.clean_continuation,
-            materialization.expected_support,
-            materialization.expected_support_envelope,
-            request=request,
-        )
-        provenance = _freeze_local_scenario_provenance(materialization.provenance)
-        return cls(
-            request=request,
-            noisy_segment_hash=_local_scenario_hash(
-                request, artifact, intent, continuation, expected_support, expected_support_envelope, provenance
-            ),
-            _current_root_artifact_t=artifact,
-            _intent_q29=intent,
-            _clean_continuation=continuation,
-            _expected_support=expected_support,
-            _expected_support_envelope=expected_support_envelope,
-            provenance=provenance,
-        )
-
-    def __post_init__(self) -> None:
-        self.request.validate()
-        artifact, intent, continuation, expected_support, expected_support_envelope = _validate_local_scenario_payload(
-            self._current_root_artifact_t,
-            self._intent_q29,
-            self._clean_continuation,
-            self._expected_support,
-            self._expected_support_envelope,
-            request=self.request,
-        )
-        provenance = _freeze_local_scenario_provenance(self.provenance)
-        observed_hash = _local_scenario_hash(
-            self.request, artifact, intent, continuation, expected_support, expected_support_envelope, provenance
-        )
-        if self.noisy_segment_hash != observed_hash:
-            raise ValueError(
-                "noisy_segment_hash does not match the immutable local scenario: "
-                f"expected {observed_hash}, got {self.noisy_segment_hash}"
-            )
-        object.__setattr__(self, "_current_root_artifact_t", artifact)
-        object.__setattr__(self, "_intent_q29", intent)
-        object.__setattr__(self, "_clean_continuation", continuation)
-        object.__setattr__(self, "_expected_support", expected_support)
-        object.__setattr__(self, "_expected_support_envelope", expected_support_envelope)
-        object.__setattr__(self, "provenance", provenance)
-
-    @property
-    def scenario_id(self) -> str:
-        return self.request.scenario_id
-
-    @property
-    def current_root_artifact_t(self) -> torch.Tensor:
-        return self._current_root_artifact_t.detach().clone()
-
-    @property
-    def intent_q29(self) -> torch.Tensor:
-        return self._intent_q29.detach().clone()
-
-    @property
-    def clean_continuation(self) -> torch.Tensor:
-        return self._clean_continuation.detach().clone()
-
-    @property
-    def expected_support(self) -> torch.Tensor:
-        return self._expected_support.detach().clone()
-
-    @property
-    def expected_support_envelope(self) -> torch.Tensor:
-        return self._expected_support_envelope.detach().clone()
-
-    def probe(self) -> dict[str, Any]:
-        return {
-            "scenario_id": self.scenario_id,
-            "segment_id": int(self.request.segment_id),
-            "source_index": int(self.request.source_index),
-            "x_t_identity": self.request.x_t_identity,
-            "horizon_k": int(self.request.horizon_k),
-            "future_offsets": tuple(self.request.future_offsets),
-            "current_root_artifact_shape": tuple(self._current_root_artifact_t.shape),
-            "intent_q29_shape": tuple(self._intent_q29.shape),
-            "clean_continuation_shape": tuple(self._clean_continuation.shape),
-            "expected_support_shape": tuple(self._expected_support.shape),
-            "expected_support_envelope_shape": tuple(self._expected_support_envelope.shape),
-            "intent_q29_provenance": self.provenance["intent_q29_provenance"],
-            "clean_continuation_provenance": self.provenance["clean_continuation_provenance"],
-            "noisy_segment_hash": self.noisy_segment_hash,
-        }
-
-
-@dataclass(frozen=True)
-class FrontRESLocalScenarioRows:
-    """Row-aligned immutable local scenarios for M attempts over selected sources."""
-
-    scenarios: tuple[FrontRESLocalScenario, ...]
-    segment_ids: torch.Tensor
-    source_index: torch.Tensor
-    trial_index: torch.Tensor
-    horizon_k: torch.Tensor
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "segment_ids", _immutable_row_tensor("segment_ids", self.segment_ids))
-        object.__setattr__(self, "source_index", _immutable_row_tensor("source_index", self.source_index))
-        object.__setattr__(self, "trial_index", _immutable_row_tensor("trial_index", self.trial_index))
-        object.__setattr__(self, "horizon_k", _immutable_row_tensor("horizon_k", self.horizon_k))
-        self.validate()
-
-    @property
-    def batch_size(self) -> int:
-        return len(self.scenarios)
-
-    @property
-    def scenario_ids(self) -> tuple[str, ...]:
-        return tuple(scenario.scenario_id for scenario in self.scenarios)
-
-    @property
-    def noisy_segment_hashes(self) -> tuple[str, ...]:
-        return tuple(scenario.noisy_segment_hash for scenario in self.scenarios)
-
-    @property
-    def intent_frame_counts(self) -> torch.Tensor:
-        return torch.tensor(
-            [scenario.request.intent_frame_count for scenario in self.scenarios],
-            dtype=torch.long,
-            device=self.segment_ids.device,
-        )
-
-    @property
-    def continuation_lengths(self) -> torch.Tensor:
-        return self.horizon_k.detach().clone()
-
-    def scenario_for_row(self, row_index: int) -> FrontRESLocalScenario:
-        if not 0 <= int(row_index) < self.batch_size:
-            raise IndexError(f"row_index {row_index} is outside batch size {self.batch_size}")
-        return self.scenarios[int(row_index)]
-
-    def validate(self) -> None:
-        count = self.batch_size
-        for name, value in (
-            ("segment_ids", self.segment_ids),
-            ("source_index", self.source_index),
-            ("trial_index", self.trial_index),
-            ("horizon_k", self.horizon_k),
-        ):
-            if int(value.numel()) != count:
-                raise ValueError(f"{name} must have {count} rows, got {int(value.numel())}")
-        by_source: dict[int, tuple[str, str, str]] = {}
-        for row, scenario in enumerate(self.scenarios):
-            scenario.request.validate()
-            source = int(self.source_index[row].item())
-            if source != int(scenario.request.source_index):
-                raise ValueError(f"row {row} source_index does not match local scenario identity")
-            if int(self.segment_ids[row].item()) != int(scenario.request.segment_id):
-                raise ValueError(f"row {row} segment_id does not match local scenario identity")
-            if int(self.horizon_k[row].item()) != int(scenario.request.horizon_k):
-                raise ValueError(f"row {row} horizon_k does not match local scenario identity")
-            identity = (scenario.scenario_id, scenario.noisy_segment_hash, scenario.request.x_t_identity)
-            previous = by_source.setdefault(source, identity)
-            if previous != identity:
-                raise ValueError(f"source_index={source} maps to multiple local scenario identities")
-
-    def probe(self) -> dict[str, Any]:
-        self.validate()
-        return {
-            "row_count": self.batch_size,
-            "scenario_count": len(set(self.scenario_ids)),
-            "scenario_ids": self.scenario_ids,
-            "noisy_segment_hashes": self.noisy_segment_hashes,
-            "intent_frame_counts": self.intent_frame_counts.detach().cpu().tolist(),
-            "continuation_lengths": self.continuation_lengths.detach().cpu().tolist(),
-        }
-
-
-class FrontRESLocalScenarioLifecycle:
-    """Selection-time owner for immutable v015 local scenarios only."""
-
-    def __init__(
-        self,
-        *,
-        transaction_id: str,
-        future_offsets: Iterable[int],
-        x_t_identity_by_source: Mapping[int, str],
-        materialize_scenario: Callable[[FrontRESLocalScenarioRequest], FrontRESLocalScenarioMaterialization],
-    ) -> None:
-        self.transaction_id = str(transaction_id)
-        self.future_offsets = tuple(int(offset) for offset in future_offsets)
-        if not callable(materialize_scenario):
-            raise TypeError("materialize_scenario must be callable")
-        if not isinstance(x_t_identity_by_source, Mapping):
-            raise TypeError("x_t_identity_by_source must be a mapping")
-        if any(not isinstance(identity, str) or not identity for identity in x_t_identity_by_source.values()):
-            raise ValueError("x_t_identity_by_source values must be nonempty strings")
-        self._x_t_identity_by_source = {int(source): identity for source, identity in x_t_identity_by_source.items()}
-        FrontRESLocalScenarioRequest(
-            transaction_id=self.transaction_id,
-            scenario_id="validation",
-            segment_id=0,
-            source_index=0,
-            x_t_identity=self._x_t_identity_by_source.get(0, "validation-x_t"),
-            horizon_k=1,
-            future_offsets=self.future_offsets,
-        ).validate()
-        if any(source < 0 or not identity for source, identity in self._x_t_identity_by_source.items()):
-            raise ValueError("x_t_identity_by_source must use nonnegative sources and nonempty identities")
-        self._materialize_scenario = materialize_scenario
-        self._open_scenarios: dict[str, FrontRESLocalScenario] = {}
-        self._closed_scenarios: dict[str, FrontRESLocalScenario] = {}
-
-    def bind_rows(self, sample: FrontRESSegmentSample) -> FrontRESLocalScenarioRows:
-        """Materialize once per selected source and reuse the sealed local scenario for M rows."""
-
-        segment_ids, source_index, trial_index, horizon_k = _scenario_row_fields(sample)
-        source_specs: dict[int, tuple[int, int]] = {}
-        for row, (segment_id, source, horizon) in enumerate(
-            zip(segment_ids.tolist(), source_index.tolist(), horizon_k.tolist(), strict=True)
-        ):
-            if int(source) < 0:
-                raise ValueError(f"row {row} has negative source_index={source}")
-            spec = (int(segment_id), int(horizon))
-            previous = source_specs.setdefault(int(source), spec)
-            if previous != spec:
-                raise ValueError(
-                    f"source_index={source} has inconsistent Segment/K identity: "
-                    f"first={previous}, row_{row}={spec}"
-                )
-
-        scenario_by_source: dict[int, FrontRESLocalScenario] = {}
-        for source, (segment_id, horizon) in source_specs.items():
-            scenario_id = self._scenario_id(source_index=source, segment_id=segment_id)
-            if scenario_id in self._closed_scenarios:
-                raise RuntimeError(
-                    f"closed local scenario {scenario_id} cannot be rematerialized under the same identity"
-                )
-            scenario = self._open_scenarios.get(scenario_id)
-            if scenario is None:
-                x_t_identity = self._x_t_identity_by_source.get(source)
-                if not x_t_identity:
-                    raise ValueError(f"missing x_t_identity for selected source_index={source}")
-                request = FrontRESLocalScenarioRequest(
-                    transaction_id=self.transaction_id,
-                    scenario_id=scenario_id,
-                    segment_id=segment_id,
-                    source_index=source,
-                    x_t_identity=x_t_identity,
-                    horizon_k=horizon,
-                    future_offsets=self.future_offsets,
-                )
-                materialization = self._materialize_scenario(request)
-                scenario = FrontRESLocalScenario.from_materialization(request, materialization)
-                self._open_scenarios[scenario_id] = scenario
-            scenario_by_source[source] = scenario
-
-        rows = FrontRESLocalScenarioRows(
-            scenarios=tuple(scenario_by_source[int(source)] for source in source_index.tolist()),
-            segment_ids=segment_ids,
-            source_index=source_index,
-            trial_index=trial_index,
-            horizon_k=horizon_k,
-        )
-        rows.validate()
-        return rows
-
-    def close_scenario(self, scenario_id: str) -> FrontRESLocalScenario:
-        scenario = self._open_scenarios.pop(str(scenario_id), None)
-        if scenario is None:
-            if str(scenario_id) in self._closed_scenarios:
-                raise RuntimeError(f"local scenario {scenario_id} is already closed")
-            raise KeyError(f"unknown open local scenario {scenario_id}")
-        self._closed_scenarios[scenario.scenario_id] = scenario
-        return scenario
-
-    def closed_scenario(self, scenario_id: str) -> FrontRESLocalScenario | None:
-        return self._closed_scenarios.get(str(scenario_id))
-
-    def _scenario_id(self, *, source_index: int, segment_id: int) -> str:
-        return f"{self.transaction_id}:source-{int(source_index)}:segment-{int(segment_id)}"
-
-
-def _validate_local_scenario_payload(
-    current_root_artifact_t: torch.Tensor,
-    intent_q29: torch.Tensor,
-    clean_continuation: torch.Tensor,
-    expected_support: torch.Tensor,
-    expected_support_envelope: torch.Tensor,
-    *,
-    request: FrontRESLocalScenarioRequest,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    def freeze(name: str, value: torch.Tensor) -> torch.Tensor:
-        if not isinstance(value, torch.Tensor):
-            raise TypeError(f"{name} must be a torch.Tensor")
-        if value.requires_grad:
-            raise ValueError(f"{name} must be detached scenario data")
-        if not torch.is_floating_point(value):
-            raise TypeError(f"{name} must be floating point, got {value.dtype}")
-        if not bool(torch.isfinite(value).all().item()):
-            raise ValueError(f"{name} contains non-finite values")
-        return value.detach().clone().contiguous()
-
-    artifact = freeze("current_root_artifact_t", current_root_artifact_t)
-    intent = freeze("intent_q29", intent_q29)
-    continuation = freeze("clean_continuation", clean_continuation)
-    support = freeze("expected_support", expected_support)
-    envelope = freeze("expected_support_envelope", expected_support_envelope)
-    if artifact.ndim != 1 or tuple(artifact.shape) != (7,):
-        raise ValueError(f"current_root_artifact_t must have shape [7], got {tuple(artifact.shape)}")
-    if intent.ndim != 2 or tuple(intent.shape) != (request.intent_frame_count, 29):
-        raise ValueError(
-            "intent_q29 must have shape "
-            f"[{request.intent_frame_count},29], got {tuple(intent.shape)}"
-        )
-    if continuation.ndim != 2 or tuple(continuation.shape) != (int(request.horizon_k), 65):
-        raise ValueError(
-            "clean_continuation must have shape "
-            f"[{int(request.horizon_k)},65], got {tuple(continuation.shape)}"
-        )
-    if tuple(support.shape) != (int(request.horizon_k), 2):
-        raise ValueError(f"expected_support must have shape [{int(request.horizon_k)},2], got {tuple(support.shape)}")
-    if bool(((support != 0.0) & (support != 1.0)).any()):
-        raise ValueError("expected_support must contain only binary left/right support states")
-    if tuple(envelope.shape) != (int(request.horizon_k), 6):
-        raise ValueError(
-            f"expected_support_envelope must have shape [{int(request.horizon_k)},6], got {tuple(envelope.shape)}"
-        )
-    if bool((envelope[:, 4:6] <= 0.0).any()):
-        raise ValueError("expected_support_envelope half extents must be positive")
-    return artifact, intent, continuation, support, envelope
-
-
-def _freeze_local_scenario_provenance(provenance: Mapping[str, Any]) -> Mapping[str, str | int | float | bool]:
-    if not isinstance(provenance, Mapping):
-        raise TypeError("local scenario provenance must be a mapping")
-    frozen: dict[str, str | int | float | bool] = {}
-    for key, value in provenance.items():
-        name = str(key)
-        if not name:
-            raise ValueError("local scenario provenance keys must be non-empty")
-        if isinstance(value, torch.Tensor):
-            raise ValueError(f"local scenario provenance must not carry tensor payloads: {name}")
-        if not isinstance(value, (str, int, float, bool)):
-            raise TypeError(f"local scenario provenance value {name} must be scalar, got {type(value)!r}")
-        frozen[name] = value
-    required = {
-        "current_root_artifact_provenance": "noisy_root_artifact_t",
-        "intent_q29_provenance": "deployment_noisy_q29",
-        "clean_continuation_provenance": "clean_gmt_only",
-        "expected_support_provenance": "clean_gmt_physics_only",
-        "expected_support_envelope_provenance": "clean_gmt_physics_only",
-        "intent_q29_source": None,
-    }
-    for key, expected in required.items():
-        if key not in frozen:
-            raise ValueError(f"local scenario provenance is missing {key}")
-        if expected is not None and frozen[key] != expected:
-            raise ValueError(f"local scenario {key} must be {expected!r}, got {frozen[key]!r}")
-    intent_source = str(frozen["intent_q29_source"]).lower()
-    if "root" in intent_source or "global" in intent_source or "clean" in intent_source:
-        raise ValueError("intent_q29_source must exclude root/global/Clean actor-reference fields")
-    return MappingProxyType(frozen)
-
-
-def _local_scenario_hash(
-    request: FrontRESLocalScenarioRequest,
-    current_root_artifact_t: torch.Tensor,
-    intent_q29: torch.Tensor,
-    clean_continuation: torch.Tensor,
-    expected_support: torch.Tensor,
-    expected_support_envelope: torch.Tensor,
-    provenance: Mapping[str, str | int | float | bool],
-) -> str:
-    digest = hashlib.sha256()
-    for name, value in (
-        ("transaction_id", request.transaction_id),
-        ("scenario_id", request.scenario_id),
-        ("segment_id", int(request.segment_id)),
-        ("source_index", int(request.source_index)),
-        ("x_t_identity", request.x_t_identity),
-        ("horizon_k", int(request.horizon_k)),
-        ("future_offsets", tuple(int(offset) for offset in request.future_offsets)),
-    ):
-        digest.update(str(name).encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(repr(value).encode("utf-8"))
-        digest.update(b"\0")
-    for name, tensor in (
-        ("current_root_artifact_t", current_root_artifact_t),
-        ("intent_q29", intent_q29),
-        ("clean_continuation", clean_continuation),
-        ("expected_support", expected_support),
-        ("expected_support_envelope", expected_support_envelope),
-    ):
-        value = tensor.detach().to(device="cpu").contiguous()
-        digest.update(str(name).encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(str(tuple(value.shape)).encode("ascii"))
-        digest.update(b"\0")
-        digest.update(str(value.dtype).encode("ascii"))
-        digest.update(b"\0")
-        digest.update(value.numpy().tobytes())
-    for key, value in sorted(provenance.items(), key=lambda item: str(item[0])):
-        digest.update(str(key).encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(repr(value).encode("utf-8"))
-        digest.update(b"\0")
-    return digest.hexdigest()
+from rsl_rl.frontres.frontres_segment_legacy_scenario import (
+    FrontRESFixedNoisyScenario,
+    FrontRESFixedNoisyScenarioLifecycle,
+    FrontRESFixedNoisyScenarioRequest,
+    FrontRESFixedNoisyScenarioRows,
+    FrontRESNoisyReferenceMaterialization,
+)
+from rsl_rl.frontres.frontres_segment_planning import (
+    SEGMENT_STATE_NAMES,
+    FrontRESFrozenPolicyTransactionPlan,
+    FrontRESSegmentRolloutBudget,
+    FrontRESSegmentRolloutEvidence,
+    FrontRESSegmentSample,
+    FrontRESSegmentState,
+    FrontRESSegmentTrialEvidence,
+    FrontRESSegmentTrialPlan,
+    FrontRESV015PriorityEvidence,
+    build_frontres_v015_priority_evidence,
+)
 
 
 @dataclass(frozen=True)
@@ -1219,6 +80,23 @@ class FrontRESSegmentSamplerUpdateProbe:
     trial_count: int = 0
     oracle_gap_mean: float = 0.0
     confidence_mean: float = 0.0
+
+
+@dataclass(frozen=True)
+class FrontRESSegmentCandidate:
+    """Identity-bearing candidate used by transaction-level Segment selection."""
+
+    segment_id: int
+    motion_id: str
+    start_frame: int
+
+    def validate(self, *, num_segments: int) -> None:
+        if int(self.segment_id) < 0 or int(self.segment_id) >= int(num_segments):
+            raise ValueError(f"candidate segment_id={self.segment_id} is outside sampler range")
+        if not self.motion_id:
+            raise ValueError("candidate motion_id must be non-empty")
+        if int(self.start_frame) < 0:
+            raise ValueError("candidate start_frame must be non-negative")
 
 
 class FrontRESSegmentSampler:
@@ -1359,6 +237,50 @@ class FrontRESSegmentSampler:
             source_index=torch.arange(int(segment_ids.numel()), dtype=torch.long, device=self.device),
             trial_index=torch.zeros(int(segment_ids.numel()), dtype=torch.long, device=self.device),
         )
+
+    def sample_transaction_segments(
+        self,
+        candidates: Iterable[FrontRESSegmentCandidate],
+        *,
+        segment_count: int = 2,
+    ) -> torch.Tensor:
+        """Select distinct Segment identities with a soft preference for earlier starts."""
+
+        rows = tuple(candidates)
+        if int(segment_count) <= 1:
+            raise ValueError("transaction Segment selection requires segment_count > 1")
+        if not rows:
+            raise ValueError("transaction Segment selection requires candidates")
+        for row in rows:
+            row.validate(num_segments=self.num_segments)
+        identities = [int(row.segment_id) for row in rows]
+        if len(set(identities)) != len(identities):
+            raise ValueError("transaction Segment candidates must have unique identities")
+        valid_rows = [row for row in rows if not bool(self.invalid[int(row.segment_id)].item())]
+        if len(valid_rows) < int(segment_count):
+            raise ValueError("transaction Segment selection has too few valid distinct candidates")
+
+        # B1: start_frame 只形成正 soft weight; 任何合法靠后 Segment 仍可被抽中.
+        weights = torch.tensor(
+            [1.0 / (1.0 + float(row.start_frame)) ** 0.5 for row in valid_rows],
+            dtype=torch.float64,
+            device=self.device,
+        )
+        selected_positions = torch.multinomial(
+            weights,
+            num_samples=int(segment_count),
+            replacement=False,
+            generator=self.generator,
+        )
+        selected = torch.tensor(
+            [int(valid_rows[int(index)].segment_id) for index in selected_positions.tolist()],
+            dtype=torch.long,
+            device=self.device,
+        )
+        self.seen[selected] = True
+        self.staleness += 1.0
+        self.staleness[selected] = 0.0
+        return selected
 
     def sample_rollout_rows(self, row_budget: int, *, max_horizon_k: int = 8) -> FrontRESSegmentSample:
         """展开 per-segment trial budget, 生成正式 live rollout rows.
@@ -1637,10 +559,10 @@ class FrontRESSegmentSampler:
             segment_state=states,
             reason=tuple(reasons),
         )
-        # B3: AUDIT-KPLAN-01 截获 row expansion 前的 per-segment K 和 trial budget.
+        # AUDIT-LEGACY-KPLAN-01: 检查旧 state-driven budget, 位于 legacy sampler -> legacy trial expansion.
         # Result: PENDING_LIVE.
         emit_formal_runtime_probe(
-            "AUDIT-KPLAN-01",
+            "AUDIT-LEGACY-KPLAN-01",
             segment_ids=budget.segment_ids,
             segment_state=budget.segment_state,
             trial_count=budget.trial_count,
@@ -1696,10 +618,10 @@ class FrontRESSegmentSampler:
             base_segment_ids=budget.segment_ids.clone(),
             base_trial_count=budget.trial_count.clone(),
         )
-        # B3: AUDIT-KROLLOUT-01 截获 reset/rollout 实际消费的 expanded rows.
+        # AUDIT-LEGACY-KROLLOUT-01: 检查旧 expanded rows, 位于 legacy K plan -> legacy rollout.
         # Result: PENDING_LIVE.
         emit_formal_runtime_probe(
-            "AUDIT-KROLLOUT-01",
+            "AUDIT-LEGACY-KROLLOUT-01",
             segment_ids=plan.segment_ids,
             source_index=plan.source_index,
             trial_index=plan.trial_index,
@@ -1726,6 +648,7 @@ class FrontRESSegmentSampler:
         executing these rows.  The sampler owns only row grouping, M and K.
         """
 
+        # B1: 校验 Segment、transaction 与 sealed K/M identity, 产出可信规划输入.
         ids = self._ids_tensor(segment_ids)
         self._validate_ids(ids)
         if int(ids.numel()) < 2:
@@ -1741,8 +664,22 @@ class FrontRESSegmentSampler:
         if exact_policy_attempts is not None and int(exact_policy_attempts) < 2:
             raise ValueError("exact_policy_attempts must be at least two")
 
-        budget = self.plan_rollout_budget(ids, max_horizon_k=max_horizon_k)
-        if active_horizon_k is not None:
+        # B2: formal TRAIN-v013 直接消费 sealed K/M; compatibility 调用才读取旧 budget.
+        sealed_curriculum = exact_policy_attempts is not None and active_horizon_k is not None
+        if sealed_curriculum:
+            active_horizon = int(active_horizon_k)
+            if active_horizon <= 0 or active_horizon > int(max_horizon_k):
+                raise ValueError("active_horizon_k must be positive and no larger than max_horizon_k")
+            budget = FrontRESSegmentRolloutBudget(
+                segment_ids=ids.clone(),
+                trial_count=torch.full_like(ids, int(exact_policy_attempts)),
+                horizon_k=torch.full_like(ids, active_horizon),
+                segment_state=torch.full_like(ids, int(FrontRESSegmentState.UNKNOWN)),
+                reason=tuple(f"train_v013_sealed_k_{active_horizon}" for _ in range(int(ids.numel()))),
+            )
+        else:
+            budget = self.plan_rollout_budget(ids, max_horizon_k=max_horizon_k)
+        if active_horizon_k is not None and not sealed_curriculum:
             active_horizon = int(active_horizon_k)
             if active_horizon <= 0 or active_horizon > int(max_horizon_k):
                 raise ValueError("active_horizon_k must be positive and no larger than max_horizon_k")
@@ -1751,7 +688,7 @@ class FrontRESSegmentSampler:
                 trial_count=budget.trial_count,
                 horizon_k=torch.full_like(budget.horizon_k, active_horizon),
                 segment_state=budget.segment_state,
-                reason=tuple(f"v011_global_k_{active_horizon}" for _ in budget.reason),
+                reason=tuple(f"sealed_global_k_{active_horizon}" for _ in budget.reason),
             )
         if exact_policy_attempts is None:
             trial_count = torch.clamp_min(
@@ -1763,6 +700,7 @@ class FrontRESSegmentSampler:
                 budget.trial_count.to(device=self.device, dtype=torch.long),
                 int(exact_policy_attempts),
             )
+        # B3: 展开 exact-M policy rows, 不修改 sampler 或 curriculum state.
         expanded_ids: list[int] = []
         source_index: list[int] = []
         trial_index: list[int] = []
@@ -1852,6 +790,7 @@ class FrontRESSegmentSampler:
             "last_confidence": self.last_confidence.cpu(),
             "invalid_reasons": dict(self.invalid_reasons),
             "fractions": (self.global_frac, self.replay_frac, self.review_frac),
+            "generator_state": self.generator.get_state().cpu(),
         }
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
@@ -1883,6 +822,11 @@ class FrontRESSegmentSampler:
         else:
             self._derive_segment_state_from_legacy_flags()
         self.invalid_reasons = {int(k): str(v) for k, v in state.get("invalid_reasons", {}).items()}
+        if "generator_state" in state:
+            generator_state = state["generator_state"]
+            if not isinstance(generator_state, torch.Tensor) or generator_state.dtype != torch.uint8:
+                raise ValueError("sampler generator_state must be a uint8 tensor")
+            self.generator.set_state(generator_state.detach().cpu())
 
     def _choose_source(self) -> str:
         draw = float(torch.rand((), generator=self.generator, device=self.device).item())

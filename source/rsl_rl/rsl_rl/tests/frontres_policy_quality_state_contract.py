@@ -8,27 +8,33 @@ from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import torch
+from frontres_contract_imports import install_frontres_contract_packages
 
 
 ROOT = Path(__file__).resolve().parents[4]
 SOURCE_ROOT = ROOT / "source" / "rsl_rl"
+install_frontres_contract_packages(SOURCE_ROOT / "rsl_rl")
 manifest_path = SOURCE_ROOT / "rsl_rl" / "frontres" / "frontres_policy_quality_manifest.py"
 manifest_spec = importlib.util.spec_from_file_location(
     "rsl_rl.frontres.frontres_policy_quality_manifest", manifest_path
 )
 manifest_module = importlib.util.module_from_spec(manifest_spec)
 assert manifest_spec.loader is not None
-sys.modules.setdefault("rsl_rl", ModuleType("rsl_rl"))
-sys.modules.setdefault("rsl_rl.frontres", ModuleType("rsl_rl.frontres"))
 sys.modules[manifest_spec.name] = manifest_module
 manifest_spec.loader.exec_module(manifest_module)
 
-MODULE_PATH = SOURCE_ROOT / "rsl_rl" / "runners" / "frontres_policy_quality_eval.py"
-spec = importlib.util.spec_from_file_location("frontres_policy_quality_eval", MODULE_PATH)
+MODULE_PATH = SOURCE_ROOT / "rsl_rl" / "runners" / "frontres_policy_quality_state.py"
+spec = importlib.util.spec_from_file_location("rsl_rl.runners.frontres_policy_quality_state", MODULE_PATH)
 state_module = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 sys.modules[spec.name] = state_module
 spec.loader.exec_module(state_module)
+legacy_path = SOURCE_ROOT / "rsl_rl" / "runners" / "frontres_policy_quality_legacy.py"
+legacy_spec = importlib.util.spec_from_file_location("rsl_rl.runners.frontres_policy_quality_legacy", legacy_path)
+legacy_module = importlib.util.module_from_spec(legacy_spec)
+assert legacy_spec.loader is not None
+sys.modules[legacy_spec.name] = legacy_module
+legacy_spec.loader.exec_module(legacy_module)
 
 
 class _FakeRobot:
@@ -88,7 +94,7 @@ def _runner(rows: int = 4) -> SimpleNamespace:
 
 def test_zero_preroll_has_no_policy_route() -> None:
     observed: list[torch.Tensor] = []
-    state_module.run_zero_frontres_preroll(
+    legacy_module.run_zero_frontres_preroll(
         lambda actions: observed.append(actions), num_envs=3, steps=4, device="cpu"
     )
     assert len(observed) == 4
@@ -171,7 +177,9 @@ def test_restore_rejects_comparison_mismatch_and_missing_cache() -> None:
 def test_restore_rows_supports_isaac_inference_tensors() -> None:
     with torch.inference_mode():
         target = torch.zeros((4, 2), dtype=torch.float32)
-    image = state_module._TensorImage.capture(torch.tensor([[1.0, 2.0], [3.0, 4.0]]))
+    image = state_module.FrontRESPolicyQualityTensorImage.capture(
+        torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+    )
 
     state_module._restore_rows(target, torch.tensor([1, 3]), image)
 
@@ -227,6 +235,51 @@ def test_active_local_scenario_rejects_missing_lifecycle_state() -> None:
         raise AssertionError("active local scenario must reject an incomplete route-start lifecycle snapshot")
 
 
+def test_clean_noisy_and_all_repairs_share_one_canonical_route_start() -> None:
+    runner = _runner(rows=4)
+    command = runner.env.unwrapped.command_manager.get_term("motion")
+    command._frontres_local_scenario_active = torch.ones(4, dtype=torch.bool)
+    command._frontres_local_scenario_current_frame_ready = torch.ones(4, dtype=torch.bool)
+    command._frontres_local_scenario_k_execution_active = torch.zeros(4, dtype=torch.bool)
+    command._frontres_local_scenario_k_execution_cursor = torch.full((4,), -1, dtype=torch.long)
+    command._frontres_local_scenario_ids = ("scenario-a",) * 4
+    command._frontres_local_scenario_hashes = ("hash-a",) * 4
+    signature = "f" * 64
+    canonical_roles = ("canonical",) * 4
+    snapshot = state_module.capture_frontres_policy_quality_state(
+        runner,
+        env_ids=(0, 1, 2, 3),
+        comparison_signature=signature,
+        role_layout=canonical_roles,
+    )
+
+    def run_order(order: tuple[str, ...]) -> dict[str, str]:
+        observed: dict[str, str] = {}
+        robot = runner.env.unwrapped.scene["robot"]
+        for route in order:
+            robot.data.root_state_w.add_(17.0)
+            command.time_steps.add_(5)
+            command.perturber._roll_state.add_(0.25)
+            random.random()
+            np.random.random()
+            torch.rand(3)
+            identity = state_module.restore_frontres_policy_quality_state(
+                runner,
+                snapshot,
+                comparison_signature=signature,
+            )
+            observed[route] = identity.initial_state_hash
+            assert command._frontres_local_scenario_ids == ("scenario-a",) * 4
+            assert command._frontres_local_scenario_hashes == ("hash-a",) * 4
+        return observed
+
+    routes = ("clean", "noisy", "repair-0", "repair-1")
+    forward = run_order(routes)
+    reverse = run_order(tuple(reversed(routes)))
+    assert set(forward.values()) == {snapshot.initial_state_hash}
+    assert reverse == forward
+
+
 if __name__ == "__main__":
     test_zero_preroll_has_no_policy_route()
     test_complete_scoring_state_round_trip_restores_hash_and_rng()
@@ -234,4 +287,5 @@ if __name__ == "__main__":
     test_restore_rows_supports_isaac_inference_tensors()
     test_local_scenario_route_start_restores_command_lifecycle()
     test_active_local_scenario_rejects_missing_lifecycle_state()
+    test_clean_noisy_and_all_repairs_share_one_canonical_route_start()
     print("PASS: policy-quality scoring state capture and restore are closed offline.")

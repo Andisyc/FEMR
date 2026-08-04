@@ -11,7 +11,6 @@ environment actions.  The runner keeps the main loop and calls env.step().
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -36,13 +35,16 @@ class FrontRESV015FrozenGMTStepPlan:
     cursor: torch.Tensor
 
 
-def _append_future_intent_actor_context(runner: Any, obs: torch.Tensor) -> torch.Tensor:
+def append_frontres_future_intent_actor_context(runner: Any, obs: torch.Tensor) -> torch.Tensor:
     """Route the actor-only v015 q29 tail without admitting the legacy 65D tape."""
 
     append = getattr(runner, "_append_frontres_future_intent_context", None)
     if callable(append):
         return append(obs)
-    batch = getattr(runner, "_frontres_segment_live_current_batch", None)
+    resolve = getattr(runner, "frontres_stage3_collection_batch", None)
+    batch = resolve() if callable(resolve) else None
+    if batch is None:
+        batch = getattr(runner, "_frontres_segment_live_current_batch", None)
     if isinstance(getattr(batch, "frontres_local_scenario_intent_q29", None), torch.Tensor):
         raise RuntimeError("v015 future-intent Segment Replay requires runner actor-context connectivity")
     return obs
@@ -76,52 +78,23 @@ def _record_velocity_estimator_error(runner: Any, vel_est_error_buffer: Any) -> 
     vel_est_error_buffer.extend(vel_error.cpu().numpy().tolist())
 
 
-def _task_space_raw_proposal(policy: Any, actions: torch.Tensor) -> torch.Tensor:
-    proposal_dim = min(6, actions.shape[-1])
-    if proposal_dim <= 0:
-        return actions[:, :0]
-    scales = torch.empty(proposal_dim, device=actions.device, dtype=actions.dtype)
-    pos_dim = min(3, proposal_dim)
-    scales[:pos_dim] = float(getattr(policy, "max_delta_pos", 1.0))
-    if proposal_dim > 3:
-        scales[3:] = float(getattr(policy, "max_delta_rpy", 1.0))
-    normalized = (actions[:, :proposal_dim] / scales.view(1, -1)).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
-    return torch.atanh(normalized)
-
-
 def _task_space_log_prob_from_stats(
-    policy: Any,
     actions: torch.Tensor,
     mean: torch.Tensor,
     sigma: torch.Tensor,
 ) -> torch.Tensor:
     dim = min(actions.shape[-1], mean.shape[-1], sigma.shape[-1])
-    if hasattr(policy, "get_actions_log_prob_per_dim_from_stats"):
-        dims = torch.arange(dim, device=actions.device)
-        return policy.get_actions_log_prob_per_dim_from_stats(actions, mean, sigma, dims).sum(dim=-1)
-    raw = _task_space_raw_proposal(policy, actions)
-    dim = min(raw.shape[-1], mean.shape[-1], sigma.shape[-1])
     dist = torch.distributions.Normal(mean[:, :dim], sigma[:, :dim])
-    log_prob = dist.log_prob(raw[:, :dim]).sum(dim=-1)
-    proposal_dim = raw.shape[-1]
-    scales = torch.empty(proposal_dim, device=actions.device, dtype=actions.dtype)
-    pos_dim = min(3, proposal_dim)
-    scales[:pos_dim] = float(getattr(policy, "max_delta_pos", 1.0))
-    if proposal_dim > 3:
-        scales[3:] = float(getattr(policy, "max_delta_rpy", 1.0))
-    normalized = (actions[:, :proposal_dim] / scales.view(1, -1)).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
-    log_j = (torch.log(scales).view(1, -1) + torch.log(1.0 - normalized.pow(2) + 1e-6)).sum(dim=-1)
-    return log_prob - log_j
+    return dist.log_prob(actions[:, :dim]).sum(dim=-1)
 
 
-def _rewrite_task_space_log_prob(runner: Any, actions: torch.Tensor) -> None:
+def _record_direct_task_space_log_prob(runner: Any, actions: torch.Tensor) -> None:
     runner.alg.transition.actions = actions.detach()
     policy = runner.alg.policy
     action_mean = getattr(runner.alg.transition, "action_mean", getattr(policy, "action_mean", None))
     action_sigma = getattr(runner.alg.transition, "action_sigma", getattr(policy, "action_std", None))
     if action_mean is not None and action_sigma is not None:
         runner.alg.transition.actions_log_prob = _task_space_log_prob_from_stats(
-            policy,
             actions,
             action_mean,
             action_sigma,
@@ -158,11 +131,6 @@ def _apply_frontres_baseline_transition_override(
         mean_gmt = runner.alg.policy.action_mean[n_train:].clone()
         std_gmt = runner.alg.policy.action_std[n_train:]
         logp_zeros = torch.distributions.Normal(mean_gmt, std_gmt).log_prob(zeros_gmt).sum(dim=-1)
-        if is_task_space_mode:
-            logp_zeros = logp_zeros - (
-                3 * math.log(runner.alg.policy.max_delta_pos)
-                + 3 * math.log(runner.alg.policy.max_delta_rpy)
-            )
     runner.alg.transition.actions_log_prob[n_train:] = logp_zeros
 
     frontres_mask = torch.zeros(runner.env.num_envs, 1, device=runner.device)
@@ -192,7 +160,7 @@ def _build_env_actions_from_policy_actions(
         obs_corr_dict = extras_corr.get("observations", {})
         if runner.policy_obs_type is not None and runner.policy_obs_type in obs_corr_dict:
             obs_corr = obs_corr_dict[runner.policy_obs_type]
-        obs_corr = _append_future_intent_actor_context(runner, obs_corr.to(runner.device))
+        obs_corr = append_frontres_future_intent_actor_context(runner, obs_corr.to(runner.device))
         obs_corr = runner._apply_obs_normalizer(obs_corr)
         task_actions = runner.alg.transition.actions if use_transition_actions_for_task_env_action else actions
         return runner.alg.policy.get_env_action(obs_corr, task_actions)
@@ -213,7 +181,7 @@ def _write_supervised_target_before_step(
     if is_task_space_mode and _uses_v015_future_intent_route(runner):
         if float(getattr(runner.alg, "lambda_supervised", 0.0)) > 0.0:
             raise RuntimeError(
-            "FRS-TRAIN-v011 forbids a nonzero Stage-3 online HSL target writer on the v016 route"
+            "FRS-TRAIN-v014 forbids a nonzero Stage-3 online HSL target writer on the v017 route"
             )
         return
     if not (is_task_space_mode and getattr(runner.alg, "lambda_supervised", 0.0) > 0):
@@ -222,7 +190,6 @@ def _write_supervised_target_before_step(
     for cmd_sup in env_for_sup.command_manager._terms.values():
         if hasattr(cmd_sup, "supervised_target"):
             sup_target = cmd_sup.supervised_target.clone().to(runner.device)
-            sup_target = runner._frontres_action_cone.project_task_target(cmd_sup, sup_target)
             runner.alg.transition.supervised_target = sup_target
             runner._maybe_print_frontres_restore_debug(
                 it=iteration,
@@ -249,7 +216,7 @@ def _capture_hsl_snapshot_before_step(
         return None, None
     if _uses_v015_future_intent_route(runner):
         raise RuntimeError(
-            "FRS-TRAIN-v011 forbids legacy HSL rollout snapshots on the v016 Stage-3 route"
+            "FRS-TRAIN-v014 forbids legacy HSL rollout snapshots on the v017 Stage-3 route"
         )
     env_for_hsl_pre = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
     if not hasattr(env_for_hsl_pre, "command_manager"):
@@ -298,7 +265,7 @@ def prepare_frontres_rollout_step(
             motion_groups=_motion_groups_for_runner(runner),
         )
         if is_task_space_mode:
-            _rewrite_task_space_log_prob(runner, actions)
+            _record_direct_task_space_log_prob(runner, actions)
         _record_velocity_estimator_error(runner, vel_est_error_buffer)
         if is_frontres:
             _apply_frontres_baseline_transition_override(
@@ -329,7 +296,7 @@ def prepare_frontres_rollout_step(
     else:
         actions = runner.alg.act(obs, privileged_obs)
         if is_task_space_mode:
-            _rewrite_task_space_log_prob(runner, actions)
+            _record_direct_task_space_log_prob(runner, actions)
         if is_frontres:
             _apply_frontres_baseline_transition_override(
                 runner,
@@ -374,7 +341,7 @@ def prepare_frontres_rollout_step(
     )
 
 
-def _frontres_motion_command(runner: Any) -> Any:
+def frontres_motion_command(runner: Any) -> Any:
     """Return the sole command owner used by the candidate-only K collector."""
 
     env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
@@ -387,6 +354,12 @@ def _frontres_motion_command(runner: Any) -> Any:
     if command is None:
         raise RuntimeError("v015 one-action K collector requires env.command_manager motion command")
     return command
+
+
+# Historical tests may still patch the private names. Active modules use the
+# public seams above.
+_append_future_intent_actor_context = append_frontres_future_intent_actor_context
+_frontres_motion_command = frontres_motion_command
 
 
 def prepare_frontres_v015_one_action_at_t(
@@ -433,28 +406,25 @@ def prepare_frontres_v015_one_action_at_t(
     quality_route = getattr(runner, "_frontres_v015_quality_action_route", None)
     if quality_route is not None:
         if quality_route not in {"zero", "hsl", "policy"} or not bool(
-            getattr(getattr(runner, "alg", None), "frontres_v015_formal_transaction_enabled", False)
+            getattr(getattr(runner, "alg", None), "frontres_formal_transaction_enabled", False)
         ):
             delattr(runner, "_frontres_v015_one_action_k_phase")
             raise RuntimeError("v015 deterministic quality action is restricted to the formal quality route")
         transition = getattr(runner.alg, "transition", None)
         mean = getattr(transition, "action_mean", None)
-        policy = runner.alg.policy
         if not isinstance(mean, torch.Tensor) or tuple(mean.shape[:2]) != (n_repair + n_noisy, 6):
             delattr(runner, "_frontres_v015_one_action_k_phase")
             raise RuntimeError("v015 quality route requires one raw 6D proposal mean per role row")
         if quality_route == "zero":
-            deterministic = torch.zeros_like(mean[:, :6])
+            if mean.ndim != 2 or int(mean.shape[-1]) != 6:
+                raise ValueError(f"FrontRES deterministic action mean must be exact [B,6], got {tuple(mean.shape)}")
+            deterministic = torch.zeros_like(mean)
         else:
-            deterministic = torch.cat(
-                (
-                    torch.tanh(mean[:, :3]) * float(policy.max_delta_pos),
-                    torch.tanh(mean[:, 3:6]) * float(policy.max_delta_rpy),
-                ),
-                dim=-1,
-            )
+            if mean.ndim != 2 or int(mean.shape[-1]) != 6:
+                raise ValueError(f"FrontRES deterministic action mean must be exact [B,6], got {tuple(mean.shape)}")
+            deterministic = mean.detach().clone()
         deterministic[n_repair:] = 0.0
-        _rewrite_task_space_log_prob(runner, deterministic)
+        _record_direct_task_space_log_prob(runner, deterministic)
         _apply_frontres_baseline_transition_override(
             runner,
             actions=deterministic,
@@ -497,7 +467,7 @@ def prepare_frontres_v015_frozen_gmt_step(
 
     if getattr(runner, "_frontres_v015_one_action_k_phase", None) != "frozen":
         raise RuntimeError("v015 frozen-GMT step requires the unique t action to be sampled first")
-    command = _frontres_motion_command(runner)
+    command = frontres_motion_command(runner)
     advance = getattr(command, "advance_frontres_local_scenario_k_execution", None)
     if not callable(advance):
         raise RuntimeError("v015 frozen-GMT step requires command Clean-continuation advancement")

@@ -1,0 +1,1327 @@
+{
+  "title": "FrontRES Module Test Atlas",
+  "subtitle": "TRAIN-v014 direct full-6D 回归：18 passed、0 partial、0 blocked；Phase A 已审查 DP01-DP10，Phase B 测试卡已建立但 probes / live 未授权",
+  "humanStatus": "confirmed",
+  "layout": "module_test_inspector",
+  "defaultZoom": 0.8,
+  "spineName": "模块机制测试流程",
+  "footerText": "选择模块查看伪样本测试；表中的正确结果来自设计规则和手算，不来自当前代码输出。",
+  "transaction": {
+    "phaseTitles": {
+      "pre": "先把问题算清楚",
+      "collection": "再运行模块比较",
+      "update": "最后定位错误留证"
+    },
+    "steps": [
+      {
+        "id": "purpose",
+        "phase": "pre",
+        "label": "确认设计规则",
+        "detail": "先说清这个模块按照设计应该产生什么行为"
+      },
+      {
+        "id": "oracle",
+        "phase": "pre",
+        "label": "构造简单伪样本",
+        "detail": "用人能看懂的小数字隔离一个设计机制"
+      },
+      {
+        "id": "cases",
+        "phase": "pre",
+        "label": "手算正确结果",
+        "detail": "运行代码前先算出数值、顺序、次数或拒绝结果"
+      },
+      {
+        "id": "confirm",
+        "phase": "collection",
+        "label": "确认测试题",
+        "detail": "由人确认伪样本确实在测试想要的机制"
+      },
+      {
+        "id": "run",
+        "phase": "collection",
+        "label": "执行模块并逐项比较",
+        "detail": "只运行当前模块，逐项对照手算结果"
+      },
+      {
+        "id": "classify",
+        "phase": "update",
+        "label": "定位第一个错误",
+        "detail": "判断是设计、代码还是测试翻译错误，失败后不改答案"
+      },
+      {
+        "id": "evidence",
+        "phase": "update",
+        "label": "记录通过与失败证据",
+        "detail": "保留实际输入、实际输出和差异"
+      }
+    ]
+  },
+  "stageCards": [
+    {
+      "designId": "STAGE-02",
+      "cardKind": "stage-reading",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "E-FI-119 已完成 DP01-DP10 的 Phase A 离线审查。Phase B 的八张正式运行卡已投影到 06 Runtime Audit Atlas；probe 插入和 live 仍待人类确认。",
+      "blockId": "FORMAL-RUNTIME",
+      "title": "Formal Runtime Audit",
+      "color": "#9a6718",
+      "footerText": "本卡说明当前阶段怎样推进；它不替代 Phase A 人工核对，也不授权 Phase B live run。",
+      "highlightSteps": [
+        "design",
+        "route",
+        "official"
+      ],
+      "transaction": {
+        "phaseTitles": {
+          "pre": "Phase A",
+          "collection": "Phase B",
+          "update": "完成"
+        },
+        "steps": [
+          {
+            "id": "design",
+            "phase": "pre",
+            "label": "按设计点逐项核对",
+            "detail": "从 Concept Figure 的十个设计点出发，不从文件列表出发"
+          },
+          {
+            "id": "route",
+            "phase": "pre",
+            "label": "确认正式上下游",
+            "detail": "检查 active contract、唯一 owner、正式 producer 和 consumer 是否一致"
+          },
+          {
+            "id": "repair",
+            "phase": "pre",
+            "label": "错位先退回修复",
+            "detail": "缺 owner、旧路径混入或模块语义错误时，不允许带病进入 live"
+          },
+          {
+            "id": "probe",
+            "phase": "collection",
+            "label": "只补 live 才能回答的观察",
+            "detail": "只为 Phase A 留下的真实运行缺口设计最小诊断项"
+          },
+          {
+            "id": "official",
+            "phase": "collection",
+            "label": "运行极小正式链路",
+            "detail": "可以降低环境数和迭代数，但不能换成 toy、offline 或旁路入口"
+          },
+          {
+            "id": "evidence",
+            "phase": "update",
+            "label": "记录真实传递事实",
+            "detail": "确认对象身份、shape、次数和 intended effect 到达正式 consumer"
+          },
+          {
+            "id": "quality",
+            "phase": "update",
+            "label": "交给 Policy Quality Audit",
+            "detail": "正式因果链闭合后，才讨论策略为什么学得好或不好"
+          }
+        ]
+      },
+      "details": [
+        {
+          "heading": "这一阶段回答什么",
+          "text": "E-FI-110 已在人类确认测试题后重新证明 TRAIN-v013 的 18/18 模块正确性。它只说明模块自身计算和状态行为正确。E-FI-109 的离线 Method-Code Alignment 是另一份证据，不能由模块 PASS 自动推出。"
+        },
+        {
+          "heading": "Phase A：Method-Code Alignment",
+          "text": "按十个 Concept Figure 设计点逐项核对 active contract、语义对象、唯一 owner、正式上游和下游。E-FI-111 至 E-FI-119 已完成 DP01-DP10 的离线审查；不存在带入 Phase B 的已知 contract、owner 或 legacy 冲突。"
+        },
+        {
+          "heading": "Phase B：Formal Runtime Audit",
+          "text": "只检查 Phase A 无法离线确认的事实。06 Runtime Audit Atlas 已按正式运行顺序列出八张卡：启动身份、情境封存、Observation、one-action-K、paired Gain、storage、exact-one update、committed checkpoint。诊断项和 live 尚未执行。"
+        },
+        {
+          "heading": "怎样判断问题属于哪一层",
+          "text": "模块自身算错，退回 Module Test；模块正确但正式路径没有传到正确 consumer，留在 Formal Runtime Audit 修复；正式链路正确但策略效果差，交给 Policy Quality Audit。三种问题不能互相替代。"
+        },
+        {
+          "heading": "完成标准",
+          "text": "十个设计点都没有 contract/code/legacy 冲突；正式入口真实到达每个必要 owner；关键对象的身份、shape、有效行、一次动作 K、Gain 到 update、exact-one optimizer 和 checkpoint 身份均有正式运行证据。它只证明系统按设计运行，不证明策略已经有效。"
+        }
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "designId": "TEST-01",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "call-recorder 已证明 fresh/resume/evaluation 的唯一模式、固定顺序、单次 dispatch、零 evaluation update 与失败即停。",
+      "blockId": "MOD-ENTRY",
+      "title": "Launch Entry",
+      "color": "#3b6f9c",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "每组启动参数只能选择一个明确模式；冲突或旧接口必须在任何状态修改前拒绝。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "用假的命令参数判断入口到底选择哪个模式。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "只给 HSL-v2 checkpoint",
+                "进入 fresh Stage3；只初始化一次 HSL",
+                "fresh 路径唯一"
+              ],
+              [
+                "只给 checkpoint-v9 resume",
+                "恢复 v9；绝不再加载 HSL",
+                "resume 与 HSL 互斥"
+              ],
+              [
+                "HSL 和 v8 resume 同时给出",
+                "状态修改前直接拒绝",
+                "冲突不会被静默忽略"
+              ],
+              [
+                "选择 evaluation",
+                "optimizer update 次数为 0",
+                "评估不会进入训练"
+              ],
+              [
+                "给 legacy resume flag 或旧 checkpoint",
+                "状态修改前直接拒绝",
+                "旧入口不能混入正式路径"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-02",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "TRAIN-v014 保留的 K/M/phase、每个 K 的 DR restart/advance、显式 DRStageSpec、committed-only progress 与无隐藏默认值均通过独立边界测试。",
+      "blockId": "MOD-CONFIG",
+      "title": "Training Config",
+      "color": "#3b6f9c",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "配置必须把 committed absolute iteration 唯一映射到 K、M、环境数、训练阶段和当前 d_cap；每次换 K 都回到该阶段显式给出的低 DR，且不得从隐藏默认值恢复。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "在 curriculum 边界前后逐点检查配置。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "K8/M2 阶段任一点",
+                "K=8，M=2，num_envs=8",
+                "环境数始终等于 4M"
+              ],
+          [
+            "K16/M3 切换点前一轮、当轮、后一轮",
+            "前一轮仍是 K8/M2；当轮起全为 K16/M3、critic_only、actor weight=0，并恢复 K16 的 start d_cap",
+            "K/M 与 DR restart 在同一 committed 边界发生且没有 off-by-one"
+              ],
+              [
+                "K32/M4 切换点前一轮、当轮、后一轮",
+                "前一轮仍是 K16/M3；当轮起全为 K32/M4",
+                "第二次切换正确"
+              ],
+              [
+                "M=3 但 num_envs=8",
+                "配置阶段拒绝",
+                "不允许缺 attempt"
+              ],
+              [
+                "future offsets 不是 (1,2) 或 FrontRES obs 不是 158",
+                "配置阶段拒绝",
+                "928/158/770 authority 固定"
+              ],
+          [
+            "旧 contract/checkpoint identity",
+            "状态修改前拒绝",
+            "active v017/v9 身份唯一"
+          ],
+          [
+            "只发生 partial/failed collection，committed iteration 不变",
+            "K、M、phase、DR progress 和 d_cap 全部不变",
+            "只有 committed transaction 能推进 curriculum"
+          ],
+          [
+            "缺少 start_distribution、start d_cap、advance rule 或 advance_updates",
+            "配置阶段拒绝，不补默认值",
+            "TRAIN-v014 DRStageSpec 必须显式"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-03",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "observable startup lifecycle 已接到真实 layout/load/dispatch pinch point，并证明 exactly-once、失败即停与 partial receipt 拒绝。",
+      "blockId": "MOD-RUNNER",
+      "title": "OnPolicyRunner",
+      "color": "#3b6f9c",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "Runner 只按固定顺序编排已定义模块，每个关键动作恰好一次，失败后不能继续形成半个 Transaction。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "用会记录调用顺序的轻量假模块检查编排。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "fresh 请求，所有依赖成功",
+                "config→layout→HSL actor-only→dispatch，各一次",
+                "正式顺序唯一"
+              ],
+              [
+                "resume 请求，所有依赖成功",
+                "config→layout→v8 full resume→dispatch；HSL 次数 0",
+                "resume 不会重做初始化"
+              ],
+              [
+                "layout 解析失败",
+                "后续 load、dispatch、update 次数全为 0",
+                "失败不会留下半状态"
+              ],
+              [
+                "同一个请求被 dispatch 两次",
+                "第二次拒绝",
+                "不会重复 Transaction"
+              ],
+              [
+                "下游返回 partial receipt",
+                "不保存、不提交",
+                "Runner 不替下游补全事实"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-04",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "current/H q29 exact offsets (1,2)、row permutation、Clean exclusion、cursor fail-closed、(1,3) reject 与 sealed identity 已测；E-FI-119。",
+      "blockId": "MOD-REFERENCE",
+      "title": "Motion Command",
+      "color": "#2f7f78",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "Actor 当前 q29 和 t+1、t+2 Intent 必须来自同一 sealed Noisy/deployment reference，并按角色行对齐。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "令 q[row,frame,joint]=1000row+10frame+joint，可直接手算每个元素。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "B=8，cursor=t",
+                "current 返回每行 t 的 q29+dq29，future 返回 t+1、t+2",
+                "帧偏移和 shape 正确"
+              ],
+              [
+                "打乱 8 个 role rows",
+                "输出按相同身份一起重排",
+                "不会错配 Repair/Noisy"
+              ],
+              [
+                "Clean 值故意设成完全不同",
+                "Actor snapshot 仍只等于 Noisy/deployment 值",
+                "Clean 不进入 Actor"
+              ],
+              [
+                "cursor 已到末尾而缺 t+2",
+                "直接拒绝，不 clamp 到最后一帧",
+                "越界不会伪造 future"
+              ],
+              [
+                "future offsets 配成 (1,3)",
+                "在读取 Actor context 前直接拒绝",
+                "正式窗口只能是 t+1、t+2"
+              ],
+              [
+                "同一 scenario reset M 次",
+                "值、reference id、hash 每次完全相同",
+                "reset 不重采样"
+              ],
+              [
+                "尝试替换 active scenario",
+                "直接拒绝",
+                "sealed carrier 不被混合"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-05",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "exact (1,2) tail、870+58=928、158/770 authority、row permutation、bad tail、(1,3) reject 与 num_frontres_obs=0 已测；E-FI-119。",
+      "blockId": "MOD-OBS",
+      "title": "Observation Layout",
+      "color": "#7656a8",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "完整 observation 必须是 870D raw 加 58D q29 tail；FEMR 只看前 158D，GMT 只看后 770D。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "用连续整数填充各区间，直接检查拼接和切片。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "870D=0..869，58D=1000..1057",
+                "combined 恰为 928D 且顺序不变",
+                "拼接没有遗漏或覆盖"
+              ],
+              [
+                "切分 combined",
+                "FEMR=前158D；GMT=后770D",
+                "authority split 精确"
+              ],
+              [
+                "只修改 GMT suffix",
+                "FEMR 输入逐元素不变",
+                "FEMR 看不到 GMT-only 数据"
+              ],
+              [
+                "tail 为 57D 或 59D",
+                "直接拒绝",
+                "不 padding、不截断"
+              ],
+              [
+                "打乱 batch rows",
+                "combined 与两个切片同步重排",
+                "行身份不漂移"
+              ],
+              [
+                "num_frontres_obs=0",
+                "v017 配置拒绝",
+                "不会回退旧 870D Actor"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-06",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "single-local_rp、scenario no-resample、d_cap 四档 20/30/40/10、确定性抽样和 no-feedback 均通过独立伪样本测试。",
+      "blockId": "MOD-PERTURB",
+      "title": "Perturbation Data",
+      "color": "#2f7f78",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "单次只生成一个 local_rp root artifact；当前 d_cap 将强度分成 Easy/Medium/Hard/Broken-tail 四档并按 20/30/40/10 抽样。class、strength、artifact 与 hash 在 scenario 内不可变，Gain/PPO/evaluation/diagnostics 不能改变它们。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "用单位位姿和单轴扰动检查 artifact 数值与身份。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "零扰动",
+                "Noisy root 与 Clean root 相同，但 provenance 仍标为 deployment/Noisy",
+                "数值相同不等于 Clean 输入"
+              ],
+              [
+                "只施加 +0.1 roll",
+                "只改变 root roll，q29 逐元素不变",
+                "single-family 边界"
+              ],
+              [
+                "只施加 -0.1 pitch",
+                "只改变 root pitch，q29 逐元素不变",
+                "扰动轴没有串扰"
+              ],
+              [
+                "同 seed、同 source、同 protocol 两次 materialize",
+                "artifact 与 hash 完全相同",
+                "确定性"
+              ],
+          [
+            "scenario 内 reset M 次",
+            "artifact 与 hash 不变",
+            "no-resample"
+          ],
+          [
+            "固定 d_cap，构造大量独立 sample_key",
+            "四档支持严格为 [0,.25d_cap)、[.25,.70)、[.70,1.0]、(1.0,min(1.10,2.381/d_cap)]，频率接近 20/30/40/10",
+            "TRAIN-v014 四档分布计算正确"
+          ],
+          [
+            "改变 Gain、PPO、evaluation 或 diagnostics 数值，但保持 committed iteration 与 sample_key 不变",
+            "class 与 strength 完全相同",
+            "训练结果不能反馈控制 DR"
+          ],
+              [
+                "请求 roll+pitch composite",
+                "当前单扰动阶段拒绝",
+                "不会提前混合扰动"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-07",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "Cache 现持有不可变 x_t identity、Clean continuation、expected support/envelope 与 hash；精确切片、源修改隔离、短窗/缺失/空身份拒绝及 roundtrip 均通过。",
+      "blockId": "MOD-CACHE",
+      "title": "Segment Cache",
+      "color": "#2f7f78",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "Cache 必须保存可重放的 Clean x_t、GMT-only Clean continuation 和所需 Physics reference evidence，且保存后不可被源数据修改。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "用 0..9 的短序列手算 t 与 continuation 切片。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "frames=0..9，t=2，K=3",
+                "x_t=frame2；continuation=frames3,4,5",
+                "K-step 切片语义正确"
+              ],
+              [
+                "materialize 后修改源数组 frame4",
+                "cache 中 frame4 不变",
+                "carrier 不可变"
+              ],
+              [
+                "只剩 2 帧却请求 K=3",
+                "直接拒绝",
+                "不缩短或重复 continuation"
+              ],
+              [
+                "缺 expected support/contact evidence",
+                "直接拒绝",
+                "Physics reference 不补零"
+              ],
+              [
+                "save 后 reload",
+                "所有字段、shape、hash 逐项相同",
+                "持久化不漂移"
+              ],
+              [
+                "两个不同 source 使用相同数值",
+                "source identity/hash 仍不同",
+                "identity 不只由浮点值决定"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-08",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "Sampler 选择两个不同 Segment 并展开 exact-M；较早帧仅有正 soft weight，晚段可达，身份权重不依赖候选排列，RNG resume 连续。",
+      "blockId": "MOD-SAMPLER",
+      "title": "Segment Sampler",
+      "color": "#2f7f78",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "每个 Transaction 选两个不同 Segment，每个 Segment 恰好 M 次尝试；较早 Segment 只是软性偏好，不是固定选择。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "用四个带 start_frame 的候选 Segment 检查选择、计数和 RNG 延续。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "候选 A,B,C,D，M=2",
+                "选出两个不同 Segment，各 2 attempts，共4行",
+                "固定 two-Segment × exact-M"
+              ],
+              [
+                "相同候选，M=3 / M=4",
+                "分别产生6行 / 8行，不多不少",
+                "M curriculum 改变真实 transaction"
+              ],
+              [
+                "候选数只有1",
+                "Transaction 拒绝",
+                "不会复制同一 Segment 冒充两个"
+              ],
+              [
+                "早/晚 Segment 混合，遍历固定的一组 seeds",
+                "早 Segment 被选频率更高，但晚 Segment 仍会出现",
+                "软性效率偏好而非硬锁定"
+              ],
+              [
+                "保存 sampler RNG 后继续3次，再 resume",
+                "resume 后3次选择序列完全相同",
+                "采样状态可恢复"
+              ],
+              [
+                "重排候选输入顺序但保留 identity",
+                "合法性和每个 identity 的统计权重不变",
+                "不依赖列表位置作弊"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-09",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "一次 canonical snapshot 被 Clean、Noisy 与全部 Repair 共用；12-field/RNG identity、route permutation、异常清理与 active-scenario reject 均通过。",
+      "blockId": "MOD-RESET",
+      "title": "Trial Plan & Reset",
+      "color": "#7656a8",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "Clean、Noisy 和全部 Repair 必须从同一个 canonical route-start 动态状态开始，并复用同一 sealed scenario。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "给 12 个状态字段各放唯一数字，检查每条 route 起点。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "canonical reset 后依次运行 Clean/Noisy/Repair",
+                "三条 route 的12字段 hash 完全相同",
+                "动力学起点公平"
+              ],
+              [
+                "M 个 Repair attempts",
+                "起点与 scenario hash 全相同，只有 action 不同",
+                "attempt 只比较修复动作"
+              ],
+              [
+                "route 间故意消耗 Python/NumPy/Torch/CUDA RNG",
+                "下一 route 恢复后 RNG hash 相同",
+                "随机性起点公平"
+              ],
+              [
+                "打乱 zero/HSL/policy route 顺序",
+                "每条 route 起点 identity 不变",
+                "结果不依赖执行顺序"
+              ],
+              [
+                "中途抛异常",
+                "carrier 和 batch lifecycle 均关闭",
+                "异常不会污染下一 item"
+              ],
+              [
+                "active scenario 未关闭时安装新 scenario",
+                "直接拒绝",
+                "不会混合两个情境"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-10",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "固定权重 exact-(1,2) 158D→direct 6D 手算、正负 anti-DR dz 原样进入 HSL target、行置换、GMT suffix 隔离、旧 12D 与 tanh/scale 身份拒绝、157/159D 和 NaN/Inf 拒绝、HSL-v2 actor-only 均通过；E-FI-119。",
+      "blockId": "MOD-POLICY",
+      "title": "FrontRES Policy",
+      "color": "#b14f5f",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "同一个 full-6D Actor 只能读取 158D deployable prefix，并直接输出有限的 6D proposal；HSL 与 Stage 3 不再对 action 使用 tanh、per-axis scale、clip、clamp 或 mask，HSL 只初始化 Actor。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "用固定小权重网络和小整数输入手算输出与可见性。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+          [
+            "固定 158D 输入与固定权重",
+            "输出等于手算的 [B,6] 数值",
+            "Actor 前向计算正确"
+          ],
+          [
+            "令 Actor raw output 超过旧 position/rotation scale",
+            "HSL、sample、mean、storage 和 log-prob 全部保留同一 raw 6D 数值",
+            "没有 tanh × scale 或二次 action transform"
+          ],
+          [
+            "给出旧 12D policy distribution 或旧 HSL-v1/checkpoint-v8",
+            "任何参数和训练状态修改前直接拒绝",
+            "旧接口不能靠截取前六维混入"
+          ],
+              [
+                "只修改 770D GMT suffix",
+                "6D proposal 完全不变",
+                "Actor 无法访问 suffix"
+              ],
+              [
+                "打乱 batch rows",
+                "proposal 按相同顺序重排",
+                "无跨行混合"
+              ],
+              [
+                "加载 HSL-v2",
+                "Actor、std、158D normalizer 按 payload 恢复；Critic 不变",
+                "proposal-only 初始化"
+              ],
+              [
+                "输入为157D或159D",
+                "直接拒绝",
+                "不 padding、不裁剪"
+              ],
+              [
+                "任一输入含 NaN/Inf",
+                "直接拒绝，不生成 action",
+                "异常输入 fail-closed"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-11",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "full-6D action 不再 scale/clamp；平移原样写入，world-left rotation 转为 host local-right buffer，current-only、置换与非有限 pre-mutation reject 均通过。",
+      "blockId": "MOD-CORRECTION",
+      "title": "Task-Space Correction",
+      "color": "#b14f5f",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "一次 full-6D Delta SE(3) 只修当前 root command；平移和旋转按既定 world-frame 组合，未来参考不被改写。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "用单位位姿和单维动作手算修复后的命令。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "action 全0",
+                "修复后的 current command 与输入逐元素相同",
+                "零动作是真 no-op"
+              ],
+              [
+                "仅 dx=+0.1",
+                "world x 增加0.1，其余分量不变",
+                "平移坐标系明确"
+              ],
+              [
+                "仅 droll=小角度",
+                "得到解析可算的 roll 旋转，平移不变",
+                "旋转组合顺序明确"
+              ],
+              [
+                "只修 t 时刻",
+                "t+1、t+2 和 Clean continuation 数值不变",
+                "一次动作不污染未来"
+              ],
+              [
+                "打乱 batch rows",
+                "修复结果随 action/identity 一起重排",
+                "无跨行组合"
+              ],
+              [
+                "action 含 NaN/Inf",
+                "直接拒绝",
+                "不使用 clip/clamp 掩盖错误"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-12",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "two-Segment x exact-M sealed transaction、partial/mixed reject、one-action-K 与 exact-one commit 已测。",
+      "blockId": "MOD-STAGE3-LOOP",
+      "title": "Stage 3 Live Loop",
+      "color": "#b87333",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "一个 sealed Transaction 必须完整收集两个 Segment 的 baseline 和 exact-M Repair 后，才允许恰好一次 grouped update。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "用计数器代替 simulator，直接检查 rollout、seal、update 和 commit 次数。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "2 Segments，M=2",
+                "Clean=2，Noisy=2，Repair=4，update=1，commit=1",
+                "完整最小 Transaction"
+              ],
+              [
+                "M=3 / M=4",
+                "Repair=6 / 8；update 始终各1次",
+                "exact-M 与 exact-one update"
+              ],
+              [
+                "少收集一个 Repair",
+                "seal、update、commit 全为0",
+                "partial transaction 不能训练"
+              ],
+              [
+                "同一 Segment 混入另一个 noisy hash",
+                "立即拒绝，update=0",
+                "scenario identity 不混合"
+              ],
+              [
+                "K 内请求第二次 FEMR action",
+                "立即拒绝",
+                "one-action-K"
+              ],
+              [
+                "seal 前异常",
+                "transaction 关闭且无 checkpoint receipt",
+                "失败保持原子性"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-13",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "Clean anchor、Noisy-Repair ordering、pressure、beta cost、permutation、missing evidence 与 baseline reuse 已测。",
+      "blockId": "MOD-GAIN",
+      "title": "Repair Gain",
+      "color": "#b87333",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "Clean 指出理想执行，Noisy 给出修复起点；Gain 比较每次 Repair 关闭了多少缺口，并由剩余 Physics 压力协调 Intent、Physics 和 full-6D repair cost。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "全部数值先按 GAIN-v007 公式独立手算，再与模块输出比较。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "两个 Repair 中 A 比 B 更接近 Clean，其他量相同",
+                "Gain(A) > Gain(B)",
+                "Repair 更接近 Clean 时 Gain 提高"
+              ],
+              [
+                "两组同等 Intent 改善，但第一组剩余 Physics 压力更大",
+                "第一组 Physics improvement 对总分影响更大",
+                "失衡状态获得更高 Physics influence"
+              ],
+              [
+                "Intent、Physics 都相同，只把 full-6D cost 从0.01增到0.03",
+                "Gain 严格降低 β×0.02",
+                "Repair cost 增大时 Gain 降低"
+              ],
+              [
+                "将 M 个 attempt rows 任意重排",
+                "每个 attempt 的分解与 Gain 只随 identity 重排",
+                "排序不依赖行位置"
+              ],
+              [
+                "缺 Contact 或 Intent 必要证据",
+                "整个 transaction 拒绝；不生成 Gain",
+                "缺失证据不能补零"
+              ],
+              [
+                "同一 Segment 的 M 次 Repair",
+                "Clean/Noisy baseline 只读取一次并被全部 attempts 复用",
+                "基线噪声不会随 attempt 重采样"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-14",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "one Repair row、baseline evidence-only、metadata/valid mask、immutability 与 identity reject 已测。",
+      "blockId": "MOD-STORAGE",
+      "title": "Segment Storage",
+      "color": "#b87333",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "Storage 只保存每个 Repair attempt 的一条 policy row，并把 immutable scenario、Segment、attempt 和 evidence identity 一起封存。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "给每个 Segment 和 attempt 唯一编号，检查行数、mask 和 metadata。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "2 Segments，M=3",
+                "恰好6条 policy rows",
+                "一 attempt 一 row"
+              ],
+              [
+                "Clean/Noisy baseline 同时存在",
+                "它们只进 evidence，不新增 policy row",
+                "baseline 不冒充 Actor action"
+              ],
+              [
+                "重排 attempts",
+                "action、Gain、hash、attempt id 同步重排",
+                "metadata 不错位"
+              ],
+              [
+                "一行 valid mask=false",
+                "该行保留证据但 policy mass 为0",
+                "无效行不会更新 Actor"
+              ],
+              [
+                "缺 transaction id 或 noisy hash",
+                "seal 失败，不补默认值",
+                "identity 必填"
+              ],
+              [
+                "seal 后修改源 evidence",
+                "storage 内容不变",
+                "封存后不可变"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-15",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "clipped scalar PPO、grouped mass、sign/mask/permutation、exact-one update 与 legacy projection isolation 已测。",
+      "blockId": "MOD-PPO",
+      "title": "Segment PPO",
+      "color": "#a5548b",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "PPO 必须先让每条动作序列拥有相同发言权，再让每个 Segment 拥有相同发言权，最后让同一 Segment 的每次有效尝试拥有相同发言权；不能因为某组数据行更多就压倒其他组。每个 committed Transaction 只调用一次 optimizer。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "用两组小 logits、advantages 和 masks 手算 clipped surrogate 与 group mass。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "ratio=1，advantages=[+1,-1]",
+                "两行保留各自正负方向，不取绝对值",
+                "sign-preserving"
+              ],
+              [
+                "ratio 超出 clip 区间",
+                "逐行采用 PPO 手算 clipped surrogate",
+                "clipping 数学正确"
+              ],
+              [
+                "重排 motion、Segment 或 attempt rows",
+                "总 loss 不变",
+                "归约不依赖排列"
+              ],
+              [
+                "M=2 与 M=4 的两个 Segment",
+                "每个 Segment/motion 的结构质量相等，不因 attempts 多而压倒其他组",
+                "grouped mass 正确"
+              ],
+              [
+                "valid mask 去掉一行",
+                "该行对 loss 和 gradient 贡献均为0",
+                "mask 真正生效"
+              ],
+              [
+                "一个 committed Transaction",
+                "optimizer.step 恰好1次",
+                "exact-one update"
+              ],
+              [
+                "尝试进入旧 projection",
+                "active v017 路径拒绝",
+                "旧 Physics projection 已退役"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-16",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "checkpoint-v9 原子 round-trip、exact future offsets (1,2)、direct 6D action identity、完整 DR/RNG/receipt 身份，以及 offset drift、v8/v7/g_K/partial/tampered pre-mutation reject 均通过；E-FI-119。",
+      "blockId": "MOD-CHECKPOINT",
+      "title": "Checkpointing",
+      "color": "#3f826d",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "checkpoint-v9 必须原子保存并严格恢复 direct 6D action identity 和完整训练身份，包括每个 DRStageSpec、当前 d_cap/progress、RNG、optimizer、normalizers、sampler 和相邻 committed receipt；任何旧、缺失或被篡改的 payload 都要在修改内存状态前拒绝。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "给每个 payload 字段放不同 sentinel，保存后由 fresh runner 逐项核对。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+            "完整 v9 payload round-trip",
+            "Actor、std、同一 Critic、optimizer、sampler、normalizers、K/M/DR schedule、d_cap/progress、RNG、receipt 全相同",
+                "full resume"
+              ],
+              [
+                "只篡改 contract identity",
+                "加载前拒绝，内存参数零变化",
+                "身份严格"
+              ],
+              [
+                "receipt 标记 partial",
+                "拒绝 resume",
+                "只恢复 committed Transaction"
+              ],
+              [
+            "给 checkpoint-v8/v7、带 g_K 或 unversioned payload",
+                "pre-mutation reject",
+                "旧格式不兼容加载"
+              ],
+              [
+                "模拟写临时文件后失败",
+                "旧正式 checkpoint 仍完整可读",
+                "atomic save"
+              ],
+              [
+                "resume 后继续一次采样",
+                "absolute iteration、K/M phase 和 sampler 序列接续",
+                "不是重新冷启动"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-17",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "v017 report 只投影 sealed Clean/Noisy/Repair evidence；Contact/load/flight、ZMP applicability/violation/recovery、survival、lean、非计划接触与零训练写入均通过。",
+      "blockId": "MOD-EVAL",
+      "title": "Evaluation",
+      "color": "#3f826d",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "Evaluation 必须在训练状态零写入的前提下，用固定 Clean/Noisy baseline 和 Repair trajectories 计算 Demo 质量证据。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "输入人工编写的短轨迹，直接手算 Contact、ZMP、survival、lean 和 unplanned step。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "expected support=左脚，actual 左脚 loaded",
+                "Contact 合格；按左脚 support envelope 评价 ZMP",
+                "phase-conditioned ZMP"
+              ],
+              [
+                "expected supported，但 actual 双脚 unloaded",
+                "Contact violation；ZMP=N/A",
+                "失去承重不会伪造 ZMP"
+              ],
+              [
+                "expected flight，actual unloaded",
+                "Contact 合格；ZMP=N/A 且无 ZMP violation",
+                "腾空语义正确"
+              ],
+              [
+                "参考不迈步，Repair 出现额外接触切换",
+                "unplanned step=true",
+                "检测脚步补偿 hacking"
+              ],
+              [
+                "root roll 持续偏向一侧但未摔倒",
+                "sustained lean=true",
+                "检测原地持续倾斜"
+              ],
+              [
+                "一个 item、M Repairs",
+                "Clean/Noisy 各执行1次，Repair 执行M次",
+                "paired rollout 生命周期"
+              ],
+              [
+                "评估前后训练 state signature",
+                "逐字段相同，report 原子生成",
+                "evaluation 不反馈训练"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "designId": "TEST-18",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "v007 的归一化 Intent/Physics 各项、I_N/I_R/P_N/P_R、支撑脚漂移、G_I/G_P/lambda_RA、加权 Physics Gain、完整 6D 修复代价、cost-free score、beta/penalty/G_total，以及动作、mask、identity、Contact/ZMP/lean、group mass 和 exact-one facts 均原样投影；ZMP 不适用保持 N/A，置换保持行身份且不重算、不补零、不反馈训练。",
+      "blockId": "MOD-DIAGNOSTICS",
+      "title": "Runtime Diagnostics",
+      "color": "#3f826d",
+      "highlightSteps": [
+        "purpose",
+        "oracle",
+        "cases"
+      ],
+      "details": [
+        {
+          "heading": "要验证的设计规则",
+          "text": "Diagnostics 只能忠实投影已有事实，必须区分数值、NaN、N/A 和缺失，绝不能重算或反馈训练。"
+        },
+        {
+          "heading": "伪样本测试",
+          "text": "给每个诊断字段不同 sentinel，检查序列化结果和输入状态。",
+          "table": {
+            "columns": [
+              "伪样本",
+              "正确结果",
+              "证明什么"
+            ],
+            "rows": [
+              [
+                "每个字段放不同数字或字符串",
+                "报告逐字段原样保留",
+                "没有错接字段"
+              ],
+              [
+                "必要字段缺失",
+                "标记 UNCONFIRMED 或直接拒绝，绝不写0",
+                "缺失不会伪装成功"
+              ],
+              [
+                "一个字段是 NaN，另一个是 N/A",
+                "输出保持两种不同语义",
+                "数值异常与不适用可区分"
+              ],
+              [
+                "重排 attempt rows",
+                "diagnostics 随 identity 同步重排",
+                "不会错配 action/Gain"
+              ],
+              [
+                "调用 diagnostics 前后比较输入对象",
+                "逐字段不变",
+                "只读投影"
+              ],
+              [
+                "给已有 Gain 分解 sentinel",
+                "报告完全照抄，不调用 Gain 计算",
+                "diagnostics 不成为第二 owner"
+              ],
+              [
+                "update_count=1，group mass 已给定",
+                "输出仍为1和原 group mass",
+                "exact-one 事实不被重新解释"
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

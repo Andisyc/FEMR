@@ -8,9 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import torch
+from frontres_contract_imports import install_frontres_contract_packages
 
 
 ROOT = Path(__file__).resolve().parents[2]
+install_frontres_contract_packages(ROOT / "rsl_rl")
 
 
 def _load(name: str, path: Path):

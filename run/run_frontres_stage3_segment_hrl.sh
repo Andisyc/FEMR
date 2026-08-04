@@ -5,16 +5,13 @@ if [[ $# -lt 2 ]]; then
   echo "Usage: bash run/run_frontres_stage3_segment_hrl.sh HSL_CHECKPOINT MOTION_PATH [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE] [TRAIN_ARGS...]"
   echo
   echo "Stage 3 loads an HSL Delta SE proposal checkpoint and trains Segment Replay HRL."
-echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop, offline_eval, sequence_eval, policy_quality_eval, policy_quality_q2d_eval."
+  echo "MODE can be: train, sentinel, probe, storage."
   echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
- echo "offline_eval loads the checkpoint, samples NUM_ENVS indexed segments, runs OFFLINE_EVAL_STEPS rollout steps, and exits."
- echo "sequence_eval loads the checkpoint, evaluates OFFLINE_EVAL_SEQUENCES unique motions from frame 0 to sampled segment starts, and exits."
- echo "OFFLINE_EVAL_MAX_PREROLL_STEPS caps sampled segment starts for smoke tests; set 0 for unbounded full evaluation."
- echo "FRONTRES_SPECIALIST_MODE selects the perturbation preset for train/eval; default rp."
+  echo "Evaluation is launched independently through Held-out Policy Quality, Deployment Composition, or DR Sweep."
+  echo "FRONTRES_SPECIALIST_MODE selects the perturbation preset for train/eval; default rp."
   echo "Append --frontres_segment_ppo_schedule adaptive --frontres_segment_ppo_lr 1e-6 to test adaptive Segment PPO trust-region control."
   echo "Example:"
   echo "  SHARD_CACHE_SIZE=8 bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 12000 2000 4 train"
-  echo "  bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 1 1 1 update_loop"
   exit 1
 fi
 
@@ -31,11 +28,9 @@ RUN_NAME="${RUN_NAME:-FEMR_STAGE3_SEGMENT_HRL}"
 CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"
 CHECKPOINT_INTERVAL="${FRONTRES_CHECKPOINT_INTERVAL:-1}"
 SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"
-PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"
-PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
 FRONTRES_SPECIALIST_MODE="${FRONTRES_SPECIALIST_MODE:-rp}"
 FRONTRES_V015_FUTURE_OFFSETS="${FRONTRES_V015_FUTURE_OFFSETS:-1,2}"
-FRONTRES_V015_K_CURRICULUM="${FRONTRES_V015_K_CURRICULUM:-8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625}"
+FRONTRES_V015_K_CURRICULUM="${FRONTRES_V015_K_CURRICULUM:-}"
 FRONTRES_V015_RESUME_CHECKPOINT="${FRONTRES_V015_RESUME_CHECKPOINT:-}"
 
 if ! [[ "${CHECKPOINT_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
@@ -43,8 +38,8 @@ if ! [[ "${CHECKPOINT_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
-if [[ "${MODE}" == "train" && "${FRONTRES_V015_K_CURRICULUM}" != "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625" ]]; then
-  echo "FRS-TRAIN-v011 requires the frozen K8/M2,K16/M3,K32/M4 schedule" >&2
+if [[ "${MODE}" == "train" && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
+  echo "FRS-TRAIN-v014 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
   exit 4
 fi
 FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"
@@ -52,7 +47,7 @@ CONTRACT_SUITE="${FRONTRES_STAGE3_CONTRACT_SUITE:-source/rsl_rl/rsl_rl/tests/fro
 CONTRACT_PYTHON="${FRONTRES_STAGE3_CONTRACT_PYTHON:-python}"
 
 if [[ -n "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${FRONTRES_V015_RESUME_CHECKPOINT}" ]]; then
-  echo "checkpoint-v6 resume checkpoint not found: ${FRONTRES_V015_RESUME_CHECKPOINT}" >&2
+  echo "checkpoint-v9 resume checkpoint not found: ${FRONTRES_V015_RESUME_CHECKPOINT}" >&2
   exit 2
 fi
 if [[ -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${HSL_CHECKPOINT}" ]]; then
@@ -60,20 +55,15 @@ if [[ -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${HSL_CHECKPOINT}" ]]; th
   exit 2
 fi
 if [[ "${MODE}" == "train" && -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && "${NUM_ENVS}" != "8" ]]; then
-  echo "FRS-TRAIN-v011 fresh K8/M2 campaign requires NUM_ENVS=8" >&2
-  exit 4
-fi
-
-if [[ "${PERIODIC_EVAL_ENABLED}" != "0" ]]; then
-  echo "v015 Stage 3 forbids legacy periodic evaluation" >&2
+  echo "FRS-TRAIN-v014 fresh K8/M2 campaign requires NUM_ENVS=8" >&2
   exit 4
 fi
 
 if [[ ${#EXTRA_TRAIN_ARGS[@]} -gt 0 ]]; then
   for arg in "${EXTRA_TRAIN_ARGS[@]}"; do
     case "${arg}" in
-      --resume|--resume=*|--resume_student_checkpoint|--resume_student_checkpoint=*|--is_full_resume|--is_full_resume=*|--frontres_segment_periodic_eval_enabled|--frontres_segment_periodic_eval_enabled=*)
-        echo "v015 Stage 3 forbids resume and legacy periodic-evaluation arguments: ${arg}" >&2
+      --resume|--resume=*|--resume_student_checkpoint|--resume_student_checkpoint=*|--is_full_resume|--is_full_resume=*)
+        echo "v015 Stage 3 forbids legacy resume arguments: ${arg}" >&2
         exit 4
         ;;
     esac
@@ -109,54 +99,13 @@ case "${MODE}" in
   storage)
     MODE_ARGS=(--frontres_segment_live_storage_write_only)
     ;;
-  single_update)
-    MODE_ARGS=(--frontres_segment_live_single_update_only)
+  single_update|update_loop)
+    echo "FRS-PPO-v005 rejects retired optimizer-writing Stage 3 mode: ${MODE}" >&2
+    exit 4
     ;;
-  update_loop)
-    MODE_ARGS=(--frontres_segment_live_update_loop_only)
-    ;;
-  offline_eval)
-    MODE_ARGS=(
-      --frontres_segment_offline_eval_only
-      --frontres_segment_offline_eval_segments "${OFFLINE_EVAL_SEGMENTS:-${NUM_ENVS}}"
-      --frontres_segment_offline_eval_steps "${OFFLINE_EVAL_STEPS:-500}"
-    )
-    ;;
-  sequence_eval)
-    MODE_ARGS=(
-      --frontres_segment_sequence_offline_eval_only
-      --frontres_segment_sequence_eval_sequences "${OFFLINE_EVAL_SEQUENCES:-10}"
-      --frontres_segment_sequence_eval_max_preroll_steps "${OFFLINE_EVAL_MAX_PREROLL_STEPS:-2000}"
-      --frontres_segment_offline_eval_steps "${OFFLINE_EVAL_STEPS:-500}"
-    )
-    ;;
-  policy_quality_eval)
-    : "${POLICY_QUALITY_MANIFEST:?Set POLICY_QUALITY_MANIFEST for policy_quality_eval}"
-    : "${POLICY_QUALITY_HSL_CHECKPOINT:?Set POLICY_QUALITY_HSL_CHECKPOINT for policy_quality_eval}"
-    : "${POLICY_QUALITY_POLICY_CHECKPOINT:?Set POLICY_QUALITY_POLICY_CHECKPOINT for policy_quality_eval}"
-    : "${POLICY_QUALITY_RESULT:?Set POLICY_QUALITY_RESULT for policy_quality_eval}"
-    # Quality selection is manifest-owned; never restore checkpoint sampler,
-    # optimizer, or warmup state into the runner used for evaluation.
-    MODE_ARGS=(
-      --frontres_policy_quality_eval_only
-      --frontres_policy_quality_manifest "${POLICY_QUALITY_MANIFEST}"
-      --frontres_policy_quality_hsl_checkpoint "${POLICY_QUALITY_HSL_CHECKPOINT}"
-      --frontres_policy_quality_policy_checkpoint "${POLICY_QUALITY_POLICY_CHECKPOINT}"
-      --frontres_policy_quality_result "${POLICY_QUALITY_RESULT}"
-    )
-    ;;
-  policy_quality_q2d_eval)
-    : "${POLICY_QUALITY_MANIFEST:?Set POLICY_QUALITY_MANIFEST for policy_quality_q2d_eval}"
-    : "${POLICY_QUALITY_HSL_CHECKPOINT:?Set POLICY_QUALITY_HSL_CHECKPOINT for policy_quality_q2d_eval}"
-    : "${POLICY_QUALITY_POLICY_CHECKPOINT:?Set POLICY_QUALITY_POLICY_CHECKPOINT for policy_quality_q2d_eval}"
-    : "${POLICY_QUALITY_Q2D_RESULT:?Set POLICY_QUALITY_Q2D_RESULT for policy_quality_q2d_eval}"
-    MODE_ARGS=(
-      --frontres_policy_quality_q2d_eval_only
-      --frontres_policy_quality_manifest "${POLICY_QUALITY_MANIFEST}"
-      --frontres_policy_quality_hsl_checkpoint "${POLICY_QUALITY_HSL_CHECKPOINT}"
-      --frontres_policy_quality_policy_checkpoint "${POLICY_QUALITY_POLICY_CHECKPOINT}"
-      --frontres_policy_quality_q2d_result "${POLICY_QUALITY_Q2D_RESULT}"
-    )
+  offline_eval|sequence_eval|policy_quality_eval|policy_quality_q2d_eval)
+    echo "FRS-EVAL-v004 rejects legacy v002/v006/quartet local evaluation mode: ${MODE}" >&2
+    exit 4
     ;;
   *)
     echo "Unknown Stage 3 MODE: ${MODE}" >&2

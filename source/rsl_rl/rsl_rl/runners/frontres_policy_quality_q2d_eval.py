@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from rsl_rl.frontres.frontres_policy_quality_q2d import Q2D_SCALE_FACTORS, run_q2d_scale_sweep
-from rsl_rl.runners.frontres_policy_quality_eval import (
+from rsl_rl.runners.frontres_policy_quality_interfaces import (
     FrontRESPolicyQualityEvalRequest,
-    restore_frontres_policy_quality_state,
 )
+from rsl_rl.runners.frontres_policy_quality_state import restore_frontres_policy_quality_state
 from rsl_rl.runners.frontres_policy_quality_formal_owners import (
-    _json_value as _formal_json_value,
     build_frontres_policy_quality_formal_owner_bundle,
+    frontres_policy_quality_json_value,
 )
 
 
@@ -74,9 +74,9 @@ def run_frontres_policy_quality_q2d_scale_eval(
                     result.route: {
                         "scale": result.scale,
                         "initial_state_hash": result.initial_state_hash,
-                        "actions": _formal_json_value(result.actions),
-                        "gain": _formal_json_value(result.gain),
-                        "execution": _formal_json_value(result.execution),
+                        "actions": frontres_policy_quality_json_value(result.actions),
+                        "gain": frontres_policy_quality_json_value(result.gain),
+                        "execution": frontres_policy_quality_json_value(result.execution),
                     }
                     for result in results
                 },

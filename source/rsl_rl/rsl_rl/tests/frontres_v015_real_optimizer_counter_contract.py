@@ -57,8 +57,8 @@ def _build_algorithm(module, *, formal: bool):
             frontres_training_objective="segment_replay_hrl",
             frontres_segment_replay_enabled=True,
             frontres_segment_live_runner_enabled=True,
-            frontres_v015_formal_transaction_enabled=True,
-            frontres_v015_local_sentinel_only=True,
+            frontres_formal_transaction_enabled=True,
+            frontres_local_sentinel_only=True,
             frontres_segment_advantage_normalization="grouped_scale_only",
             lambda_supervised=0.0,
             lambda_supervised_min=0.0,
@@ -78,16 +78,16 @@ def test_t_real_adam_counter_is_exact_and_persistent() -> None:
     optimizer = algorithm.optimizer
 
     assert isinstance(optimizer, torch.optim.Adam)
-    assert optimizer.frontres_v015_step_count == 0
+    assert optimizer.frontres_step_count == 0
     _take_optimizer_step(optimizer, algorithm.policy)
-    assert optimizer.frontres_v015_step_count == 1
+    assert optimizer.frontres_step_count == 1
 
     state = copy.deepcopy(optimizer.state_dict())
     restored = _build_algorithm(module, formal=True)
     restored.optimizer.load_state_dict(state)
-    assert restored.optimizer.frontres_v015_step_count == 1
+    assert restored.optimizer.frontres_step_count == 1
     _take_optimizer_step(restored.optimizer, restored.policy)
-    assert restored.optimizer.frontres_v015_step_count == 2
+    assert restored.optimizer.frontres_step_count == 2
     print("[T-real-adam/T-exact/T-persist] v015 Adam counts every step and survives optimizer state restore", flush=True)
 
 
@@ -96,7 +96,7 @@ def test_t_non_v015_optimizer_remains_plain_adam() -> None:
     algorithm = _build_algorithm(module, formal=False)
 
     assert type(algorithm.optimizer) is torch.optim.Adam
-    assert not hasattr(algorithm.optimizer, "frontres_v015_step_count")
+    assert not hasattr(algorithm.optimizer, "frontres_step_count")
     print("[T-isolation] non-v015 FrontRES keeps the plain Adam owner", flush=True)
 
 

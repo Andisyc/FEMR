@@ -1,25 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import importlib.util
 import json
 from pathlib import Path
-import sys
 from typing import Any, Iterable
 
 import numpy as np
 
-try:
-    from rsl_rl.frontres.frontres_segment_cache_schema import FrontRESSegmentIndex
-except ModuleNotFoundError:
-    _SCHEMA_PATH = Path(__file__).with_name("frontres_segment_cache_schema.py")
-    _SCHEMA_SPEC = importlib.util.spec_from_file_location("frontres_segment_cache_schema", _SCHEMA_PATH)
-    if _SCHEMA_SPEC is None or _SCHEMA_SPEC.loader is None:
-        raise
-    _SCHEMA_MODULE = importlib.util.module_from_spec(_SCHEMA_SPEC)
-    sys.modules[_SCHEMA_SPEC.name] = _SCHEMA_MODULE
-    _SCHEMA_SPEC.loader.exec_module(_SCHEMA_MODULE)
-    FrontRESSegmentIndex = _SCHEMA_MODULE.FrontRESSegmentIndex
+from rsl_rl.frontres.frontres_segment_cache_schema import FrontRESSegmentIndex
 
 
 AMASS_G1_REQUIRED_KEYS = (

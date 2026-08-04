@@ -1,31 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import importlib.util
-from pathlib import Path
-import sys
 from typing import Any, Sequence
 
-try:
-    from rsl_rl.frontres.frontres_dr_curriculum import (
-        allowed_perturbation_bases,
-        sample_per_env_dr_strength,
-        sample_perturbation_mix,
-    )
-except ModuleNotFoundError:
-    _CURRICULUM_PATH = Path(__file__).with_name("frontres_dr_curriculum.py")
-    _CURRICULUM_SPEC = importlib.util.spec_from_file_location(
-        "frontres_dr_curriculum",
-        _CURRICULUM_PATH,
-    )
-    if _CURRICULUM_SPEC is None or _CURRICULUM_SPEC.loader is None:
-        raise
-    _CURRICULUM_MODULE = importlib.util.module_from_spec(_CURRICULUM_SPEC)
-    sys.modules[_CURRICULUM_SPEC.name] = _CURRICULUM_MODULE
-    _CURRICULUM_SPEC.loader.exec_module(_CURRICULUM_MODULE)
-    allowed_perturbation_bases = _CURRICULUM_MODULE.allowed_perturbation_bases
-    sample_per_env_dr_strength = _CURRICULUM_MODULE.sample_per_env_dr_strength
-    sample_perturbation_mix = _CURRICULUM_MODULE.sample_perturbation_mix
+from rsl_rl.frontres.frontres_dr_curriculum import (
+    allowed_perturbation_bases,
+    sample_per_env_dr_strength,
+    sample_perturbation_mix,
+)
 
 
 MIX_CLASS_NAMES = ("low", "mid", "frontier", "hard")

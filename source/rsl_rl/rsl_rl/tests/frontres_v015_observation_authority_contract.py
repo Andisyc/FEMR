@@ -99,6 +99,55 @@ def test_actor_sees_prefix_while_gmt_sees_unchanged_suffix() -> None:
     print("T-770-GMT/T-frozen-GMT-isolation", flush=True)
 
 
+def test_frontres_actor_fixed_weights_match_hand_computed_6d_output() -> None:
+    policy = _policy(num_frontres_obs=158)
+    torch.nn.Module.__init__(policy)
+    policy.residual_actor = torch.nn.Linear(158, 6)
+    with torch.no_grad():
+        policy.residual_actor.weight.zero_()
+        policy.residual_actor.bias.copy_(torch.arange(6, dtype=torch.float32) * 0.5)
+        for output in range(6):
+            policy.residual_actor.weight[output, output] = float(output + 1)
+    visible = torch.zeros(2, 158)
+    visible[0, :6] = torch.arange(1, 7, dtype=torch.float32)
+    visible[1, :6] = torch.arange(7, 13, dtype=torch.float32)
+    expected = torch.stack(
+        [
+            visible[:, output] * float(output + 1) + float(output) * 0.5
+            for output in range(6)
+        ],
+        dim=-1,
+    )
+    actual = FrontRESActorCritic._frontres_raw_task_output(policy, visible)
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(
+        FrontRESActorCritic._frontres_raw_task_output(policy, visible.flip(0)),
+        expected.flip(0),
+    )
+
+
+def test_frontres_actor_rejects_wrong_width_and_nonfinite_input() -> None:
+    policy = _policy(num_frontres_obs=158)
+    torch.nn.Module.__init__(policy)
+    policy.residual_actor = torch.nn.Linear(158, 6)
+    for width in (157, 159):
+        try:
+            FrontRESActorCritic._frontres_raw_task_output(policy, torch.zeros(2, width))
+        except ValueError as exc:
+            assert "wrong deployable-prefix width" in str(exc)
+        else:
+            raise AssertionError(f"FrontRES actor must reject {width}D input")
+    for invalid in (float("nan"), float("inf")):
+        value = torch.zeros(2, 158)
+        value[0, 17] = invalid
+        try:
+            FrontRESActorCritic._frontres_raw_task_output(policy, value)
+        except ValueError as exc:
+            assert "must be finite" in str(exc)
+        else:
+            raise AssertionError("FrontRES actor must reject NaN/Inf before action generation")
+
+
 def test_task_space_actor_rejects_zero_visibility_boundary() -> None:
     policy = _policy(num_frontres_obs=0)
     combined = torch.zeros(2, 928)
@@ -123,6 +172,8 @@ if __name__ == "__main__":
     test_v015_layout_resolves_928_to_158_plus_770()
     test_v015_layout_rejects_zero_frontres_prefix()
     test_actor_sees_prefix_while_gmt_sees_unchanged_suffix()
+    test_frontres_actor_fixed_weights_match_hand_computed_6d_output()
+    test_frontres_actor_rejects_wrong_width_and_nonfinite_input()
     test_task_space_actor_rejects_zero_visibility_boundary()
     test_v015_config_and_runner_bind_the_authority_resolver()
     print("frontres_v015_observation_authority_contract: ok", flush=True)

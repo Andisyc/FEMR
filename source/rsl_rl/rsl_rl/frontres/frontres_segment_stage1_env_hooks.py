@@ -1,40 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import importlib.util
 import math
 from pathlib import Path
-import sys
 from typing import Any, Iterable
 
 import torch
 
-
-def _load_same_dir(module_name: str):
-    path = Path(__file__).with_name(f"{module_name}.py")
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        raise ModuleNotFoundError(module_name)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-try:
-    from rsl_rl.frontres.frontres_segment_cache_noisy_capture import FrontRESNoisyBaselineResult
-    from rsl_rl.frontres.frontres_segment_cache_schema import (
-        FrontRESPerturbationDescriptor,
-        FrontRESRobotRolloutState,
-        FrontRESSegmentIndex,
-    )
-except ModuleNotFoundError:
-    _noisy_capture = _load_same_dir("frontres_segment_cache_noisy_capture")
-    _schema = _load_same_dir("frontres_segment_cache_schema")
-    FrontRESNoisyBaselineResult = _noisy_capture.FrontRESNoisyBaselineResult
-    FrontRESPerturbationDescriptor = _schema.FrontRESPerturbationDescriptor
-    FrontRESRobotRolloutState = _schema.FrontRESRobotRolloutState
-    FrontRESSegmentIndex = _schema.FrontRESSegmentIndex
+from rsl_rl.frontres.frontres_segment_cache_noisy_capture import FrontRESNoisyBaselineResult
+from rsl_rl.frontres.frontres_segment_cache_schema import (
+    FrontRESPerturbationDescriptor,
+    FrontRESRobotRolloutState,
+    FrontRESSegmentIndex,
+)
 
 
 @dataclass
@@ -126,6 +104,8 @@ class FrontRESStage1EnvAdapter:
     ) -> torch.Tensor:
         """Route one selection-time scenario to the command-owned tape materializer."""
 
+        if str(perturbation_family) != "local_rp":
+            raise ValueError("active v017 fixed Noisy materialization requires the single local_rp family")
         motion_index = self._motion_index_for_key(str(motion_id))
         frame_index = self._frame_index_for_values(int(start_frame), motion_index)
         materialize = getattr(self.command, "materialize_frontres_fixed_noisy_tape", None)
@@ -169,6 +149,8 @@ class FrontRESStage1EnvAdapter:
     ) -> dict[str, Any]:
         """Route the v015 split local carrier to the command-owned materializer."""
 
+        if str(perturbation_family) != "local_rp":
+            raise ValueError("active v017 local scenario requires the single local_rp family")
         motion_index = self._motion_index_for_key(str(motion_id))
         frame_index = self._frame_index_for_values(int(start_frame), motion_index)
         materialize = getattr(self.command, "materialize_frontres_local_scenario", None)
@@ -188,6 +170,7 @@ class FrontRESStage1EnvAdapter:
             raise RuntimeError(f"command local scenario materializer returned {type(payload)!r}, expected dict")
         required = {
             "current_root_artifact_t",
+            "clean_reference_t",
             "intent_q29",
             "clean_continuation",
             "expected_support",
@@ -200,6 +183,7 @@ class FrontRESStage1EnvAdapter:
                 f"{sorted(required)}, got {sorted(payload)}"
             )
         artifact = payload["current_root_artifact_t"]
+        clean_reference_t = payload["clean_reference_t"]
         intent = payload["intent_q29"]
         continuation = payload["clean_continuation"]
         expected_support = payload["expected_support"]
@@ -207,26 +191,31 @@ class FrontRESStage1EnvAdapter:
         provenance = payload["provenance"]
         if (
             not isinstance(artifact, torch.Tensor)
+            or not isinstance(clean_reference_t, torch.Tensor)
             or not isinstance(intent, torch.Tensor)
             or not isinstance(continuation, torch.Tensor)
             or not isinstance(expected_support, torch.Tensor)
             or not isinstance(expected_support_envelope, torch.Tensor)
             or artifact.requires_grad
+            or clean_reference_t.requires_grad
             or intent.requires_grad
             or continuation.requires_grad
             or expected_support.requires_grad
             or expected_support_envelope.requires_grad
             or not torch.is_floating_point(artifact)
+            or not torch.is_floating_point(clean_reference_t)
             or not torch.is_floating_point(intent)
             or not torch.is_floating_point(continuation)
             or not torch.is_floating_point(expected_support)
             or not torch.is_floating_point(expected_support_envelope)
             or not bool(torch.isfinite(artifact).all().item())
+            or not bool(torch.isfinite(clean_reference_t).all().item())
             or not bool(torch.isfinite(intent).all().item())
             or not bool(torch.isfinite(continuation).all().item())
             or not bool(torch.isfinite(expected_support).all().item())
             or not bool(torch.isfinite(expected_support_envelope).all().item())
             or tuple(artifact.shape) != (7,)
+            or tuple(clean_reference_t.shape) != (65,)
             or tuple(intent.shape) != (int(intent_horizon) + 1, 29)
             or tuple(continuation.shape) != (int(horizon_k), 65)
             or tuple(expected_support.shape) != (int(horizon_k), 2)
@@ -234,7 +223,7 @@ class FrontRESStage1EnvAdapter:
         ):
             raise RuntimeError(
                 "command local scenario materializer must return detached finite "
-                f"[7], [{int(intent_horizon) + 1},29], [{int(horizon_k)},65] payloads"
+                f"[7], [65], [{int(intent_horizon) + 1},29], [{int(horizon_k)},65] payloads"
             )
         if bool(((expected_support != 0.0) & (expected_support != 1.0)).any()):
             raise ValueError("v015 local expected support must be binary left/right phase evidence")
@@ -242,6 +231,9 @@ class FrontRESStage1EnvAdapter:
             raise RuntimeError("command local scenario provenance must be a dict")
         return {
             "current_root_artifact_t": artifact.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous(),
+            "clean_reference_t": clean_reference_t.detach().to(
+                device=self.command.device, dtype=torch.float32
+            ).clone().contiguous(),
             "intent_q29": intent.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous(),
             "clean_continuation": continuation.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous(),
             "expected_support": expected_support.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous(),
@@ -249,6 +241,28 @@ class FrontRESStage1EnvAdapter:
                 device=self.command.device, dtype=torch.float32
             ).clone().contiguous(),
             "provenance": dict(provenance),
+        }
+
+    def materialize_frontres_clean_segment_artifact(
+        self,
+        *,
+        segment: FrontRESSegmentIndex,
+    ) -> dict[str, torch.Tensor | str]:
+        """Read cache-owned Clean K-step evidence from the command materializer."""
+
+        payload = self.materialize_frontres_local_scenario(
+            motion_id=segment.motion_rel_path,
+            start_frame=int(segment.start_frame),
+            horizon_k=int(segment.horizon_k),
+            intent_horizon=1,
+            perturbation_family="local_rp",
+            perturbation_strength=0.0,
+        )
+        return {
+            "source_identity": str(segment.motion_rel_path),
+            "clean_continuation": payload["clean_continuation"],
+            "expected_support": payload["expected_support"],
+            "expected_support_envelope": payload["expected_support_envelope"],
         }
 
     def frontres_local_scenario_is_materializable(
@@ -350,6 +364,7 @@ class FrontRESStage1EnvAdapter:
                     raise RuntimeError("v015 local scenario reset requires command.set_frontres_local_scenario()")
                 applied = set_local_scenario(
                     current_root_artifact_t=local_scenario["current_root_artifact_t"].index_select(0, source_rows),
+                    clean_reference_t=local_scenario["clean_reference_t"].index_select(0, source_rows),
                     intent_q29=local_scenario["intent_q29"].index_select(0, source_rows),
                     clean_continuation=local_scenario["clean_continuation"].index_select(0, source_rows),
                     expected_support=local_scenario["expected_support"].index_select(0, source_rows),
@@ -469,14 +484,16 @@ class FrontRESStage1EnvAdapter:
         if getattr(request, "frontres_fixed_noisy_tape", None) is not None:
             raise ValueError("v015 local reset cannot mix a local scenario with a legacy fixed Noisy tape")
         artifact = getattr(request, "frontres_local_scenario_current_root_artifact_t", None)
+        clean_reference_t = getattr(request, "frontres_local_scenario_clean_reference_t", None)
         intent = getattr(request, "frontres_local_scenario_intent_q29", None)
         continuation = getattr(request, "frontres_local_scenario_clean_continuation", None)
         expected_support = getattr(request, "frontres_local_scenario_expected_support", None)
         expected_support_envelope = getattr(request, "frontres_local_scenario_expected_support_envelope", None)
-        if not isinstance(artifact, torch.Tensor) or not isinstance(intent, torch.Tensor) or not isinstance(continuation, torch.Tensor) or not isinstance(expected_support, torch.Tensor) or not isinstance(expected_support_envelope, torch.Tensor):
+        if not isinstance(artifact, torch.Tensor) or not isinstance(clean_reference_t, torch.Tensor) or not isinstance(intent, torch.Tensor) or not isinstance(continuation, torch.Tensor) or not isinstance(expected_support, torch.Tensor) or not isinstance(expected_support_envelope, torch.Tensor):
             raise ValueError("v015 local reset requires tensor artifact, q29 intent, and Clean continuation fields")
         for name, value in (
             ("current_root_artifact_t", artifact),
+            ("clean_reference_t", clean_reference_t),
             ("intent_q29", intent),
             ("clean_continuation", continuation),
             ("expected_support", expected_support),
@@ -493,6 +510,7 @@ class FrontRESStage1EnvAdapter:
             raise ValueError(f"v015 local reset requires nonempty positive ordered future offsets, got {offsets}")
         if (
             tuple(artifact.shape) != (int(source_count), 7)
+            or tuple(clean_reference_t.shape) != (int(source_count), 65)
             or intent.ndim != 3
             or tuple(intent.shape) != (int(source_count), max(offsets) + 1, 29)
             or continuation.ndim != 3
@@ -546,6 +564,7 @@ class FrontRESStage1EnvAdapter:
         for row, value in enumerate(provenance):
             if (
                 value.get("current_root_artifact_provenance") != "noisy_root_artifact_t"
+                or value.get("clean_reference_t_provenance") != "clean_gmt_physics_only"
                 or value.get("intent_q29_provenance") != "deployment_noisy_q29"
                 or value.get("clean_continuation_provenance") != "clean_gmt_only"
                 or value.get("expected_support_provenance") != "clean_gmt_physics_only"
@@ -557,6 +576,7 @@ class FrontRESStage1EnvAdapter:
                 raise ValueError(f"v015 local q29 source row {row} may not carry Clean/root/global actor input")
         return {
             "current_root_artifact_t": artifact.detach().to(device=device, dtype=torch.float32).clone().contiguous(),
+            "clean_reference_t": clean_reference_t.detach().to(device=device, dtype=torch.float32).clone().contiguous(),
             "intent_q29": intent.detach().to(device=device, dtype=torch.float32).clone().contiguous(),
             "clean_continuation": continuation.detach().to(device=device, dtype=torch.float32).clone().contiguous(),
             "expected_support": expected_support.detach().to(device=device, dtype=torch.float32).clone().contiguous(),

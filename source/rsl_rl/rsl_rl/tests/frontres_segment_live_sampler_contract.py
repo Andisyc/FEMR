@@ -30,7 +30,7 @@ def _load(name: str, path: Path):
 
 def _package(name: str) -> types.ModuleType:
     module = types.ModuleType(name)
-    module.__path__ = []
+    module.__path__ = [str((ROOT / "rsl_rl").joinpath(*name.split(".")[1:]))]
     sys.modules[name] = module
     return module
 
@@ -50,9 +50,8 @@ def _install_import_stubs() -> None:
     ppo_module.FrontRESSegmentPPOBatch = object
     ppo_module.FrontRESSegmentPPOConfig = object
     ppo_module.compute_frontres_segment_ppo_loss = lambda *_args, **_kwargs: None
-    ppo_module.install_frontres_v004_projected_gradients = lambda *_args, **_kwargs: None
-    ppo_module.project_frontres_v004_actual_parameter_delta = lambda *_args, **_kwargs: None
-    ppo_module.step_frontres_v004_optimizer_with_actor_authority = lambda *_args, **_kwargs: None
+    ppo_module.install_frontres_v005_scalar_gradients = lambda *_args, **_kwargs: None
+    ppo_module.step_frontres_v005_scalar_optimizer = lambda *_args, **_kwargs: None
     sys.modules[ppo_module.__name__] = ppo_module
     algorithms_pkg.frontres_segment_ppo = ppo_module
 
@@ -76,6 +75,14 @@ def _install_import_stubs() -> None:
         ROOT / "rsl_rl" / "frontres" / "frontres_segment_reset.py",
     )
     frontres_pkg.frontres_segment_reset = reset_module
+    frontres_pkg.frontres_balance = _load(
+        "rsl_rl.frontres.frontres_balance",
+        ROOT / "rsl_rl" / "frontres" / "frontres_balance.py",
+    )
+    frontres_pkg.frontres_interfaces = _load(
+        "rsl_rl.frontres.frontres_interfaces",
+        ROOT / "rsl_rl" / "frontres" / "frontres_interfaces.py",
+    )
 
     class _FakeFrontRESActorCritic:
         pass
@@ -96,8 +103,8 @@ def _install_import_stubs() -> None:
     modules_pkg.frontres_observation_layout = layout_module
 
     rollout_step = types.ModuleType("rsl_rl.runners.frontres_rollout_step")
-    rollout_step._append_future_intent_actor_context = lambda obs, *_args, **_kwargs: obs
-    rollout_step._frontres_motion_command = lambda *_args, **_kwargs: None
+    rollout_step.append_frontres_future_intent_actor_context = lambda obs, *_args, **_kwargs: obs
+    rollout_step.frontres_motion_command = lambda *_args, **_kwargs: None
     rollout_step.prepare_frontres_rollout_step = lambda *_args, **_kwargs: None
     rollout_step.prepare_frontres_v015_frozen_gmt_step = lambda *_args, **_kwargs: None
     rollout_step.prepare_frontres_v015_one_action_at_t = lambda *_args, **_kwargs: None
