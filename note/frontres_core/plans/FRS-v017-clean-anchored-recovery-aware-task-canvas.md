@@ -25,8 +25,10 @@ Affected Module Test Cards          updated and passed (E-FI-109)
 Step 1 / 2 offline migration        complete (E-FI-109)
 Direct full-6D action closure       completed offline (E-FI-114)
 Formal Runtime Audit Phase A        DP-01 through DP-10 reviewed offline
-Formal Runtime Audit Phase B        B01-B08 instrumented and offline-tested; live not run
-Step 2 / 2 bounded live sentinel    not authorized
+Formal Runtime Audit Phase B        runtime-complete; B01-B08 emitted once (E-FI-128)
+Step 2 / 2 bounded live sentinel    complete; checkpoint-v9 iteration 1 saved
+Policy Quality support-frame Q0     completed offline (E-FI-129)
+Policy Quality efficacy             unconfirmed; evaluation pending
 ```
 
 ## Current Contract Flow
@@ -97,32 +99,43 @@ action. TEST-04/05/10/16 and the 49/49 deterministic aggregate pass.
   formal owners and passes the focused offline instrumentation regressions.
   The HSL-v2 artifact is runtime-confirmed; the single live transaction remains
   unexecuted and separately authorized.
-- E-FI-122 records the first live attempt: B01 passed, then the command correctly
+- Before E-FI-128, E-FI-122 records the first live attempt: B01 passed, then the command correctly
   rejected execution-mode selection before sealed-scenario installation. The
   existing reset seam now owns `install -> mode -> refresh` and focused offline
-  regressions pass; B02-B08 still require the bounded live rerun.
+  regressions passed; B02-B08 were still pending at that point.
 - E-FI-123 records that the rerun crossed reset, observation, one-action and
   frozen-GMT execution, then exposed `[K,4]` versus `[K,8]` Repair evidence.
   The one-action-K owner now applies `repair_rows` exactly once to every
-  trajectory field; focused offline regressions pass and B02-B08 remain live.
+  trajectory field; focused offline regressions passed before the next rerun.
 - E-FI-124 records that the next rerun crossed those repairs and reached grouped
   candidate conversion, where the formal request owner lacked its explicit PPO
   batch-type import. The dependency is now direct and contract-checked; the
-  active 49-contract suite passes, while B02-B08 remain live-pending.
+  active 49-contract suite passed before the next rerun.
 - E-FI-125 records that the following run reached the final observation trace
   check with correct live tensors but missing v017 command/Critic trace fields.
   The Repair collector now publishes measured 58D/289D identities with strict
-  role-row validation; the active 49-contract suite passes and B02-B08 remain
-  live-pending.
+  role-row validation; the active 49-contract suite passed before the next
+  rerun.
 - E-FI-126 records that the next run live-confirmed B02/B05 and stopped at an
   audit-only float32-vs-Python return mean mismatch. B06 now reproduces the
-  formal float32 reduction, rejects a corrupted mean, and passes the active
-  49-contract suite; B06-B08 remain live-pending.
+  formal float32 reduction, rejects a corrupted mean, and passed the active
+  49-contract suite before the final rerun.
 - E-FI-127 records that B03/B04 were still called only by the legacy evaluator
   collector. The active v017 Repair collector now sends its existing sealed
   snapshot, observation trace, policy action and eight frozen-GMT step facts to
-  the shared audit owner; focused and 49/49 aggregate contracts pass. B03/B04
-  remain live-pending rather than being inferred from isolated probes.
+  the shared audit owner; focused and 49/49 aggregate contracts passed before
+  E-FI-128 supplied the required live evidence.
+- E-FI-128 records the final official K8/M2 transaction. B01-B08 each emit
+  exactly once; four policy rows receive one grouped optimizer update;
+  critic-only changes the Critic but not Actor/std; committed checkpoint-v9 is
+  saved with matching GMT SHA, 928/158/770 layout and transaction receipt.
+- The same log is not policy-efficacy evidence. It exposes the first Q-mechanism
+  contradiction: attempts on the second environment row of each Segment show
+  `48.675 m` and `64.481 m` support-foot drift because world-frame Repair feet
+  are compared with the once-per-Segment Clean baseline from another env row.
+- E-FI-129 closes that first-invalid owner offline: execution capture subtracts
+  each selected `scene.env_origins` before sealing `foot_pos`; cross-origin,
+  row-permutation, malformed-origin and unchanged-v007-ordering contracts pass.
 E-FI-109 proves offline code and persistence semantics. It does not prove
 simulator/live class populations, policy quality or deployment behavior.
 
@@ -136,9 +149,8 @@ simulator/live class populations, policy quality or deployment behavior.
 
 ## Open Risks
 
-- bounded live inputs must still provide exact per-K starting distributions,
-  advance-rule IDs and update counts explicitly; no hidden default may fill
-  them;
+- E-FI-128's extreme Physics rows remain invalid historical evidence; E-FI-129
+  repairs the coordinate owner, but actual policy quality has not been rerun;
 - the old `frontres_dr_curriculum.py` episode-length/frontier controller remains
   code but must stay unreachable from the active route;
 - real IsaacLab class/strength distribution and policy effect remain S4 facts.
@@ -152,8 +164,8 @@ MOSAIC host change or an unresolvable P0/P1.
 
 ## Next Action
 
-`AUDIT-B01`, `AUDIT-B02` and `AUDIT-B05` are runtime-confirmed. E-FI-126 closes
-the B06 float32 return-audit oracle offline, and E-FI-127 connects B03/B04 to
-the active formal collector offline. The next action is to rerun the same
-bounded official 8-env, K8/M2, one-transaction, one-update command and observe
-B03/B04 plus B06-B08; no new policy-quality claim is available.
+Formal Runtime Audit Phase B is complete at E-FI-128 and the support-foot Q0
+coordinate blocker is closed offline at E-FI-129. The next bounded action is to
+run the existing policy-quality evaluation on the current policy/checkpoint and
+judge Intent, Contact, phase-ZMP, survival, sustained lean and unplanned steps
+using the corrected evidence. No training or long run is implied.

@@ -7944,3 +7944,88 @@ Verdict: B03/B04 are active-collector-connected and contract-confirmed offline.
 They remain live-pending until the same bounded official transaction emits the
 sentinels. No one-action-K, Gain, PPO, checkpoint or policy-quality semantics
 changed.
+
+## E-FI-128: Phase B Runtime Completion And Policy-Quality Support-Frame Blocker
+
+Date: 2026-08-05
+
+Raw evidence:
+
+- `v017_phase_b_runtime_audit_final_gpu7.log`;
+- committed checkpoint
+  `/hdd1/cyx/FEMR/g1_flat_frontres_stage3_segment_hrl/2026-08-05_15-29-31_G5_S4_BOUND_V015/model_1.pt`.
+
+Runtime-confirmed formal facts:
+
+- `AUDIT-B01` through `AUDIT-B08` each emit exactly once in one official K8/M2,
+  eight-role transaction;
+- the formal observation route is `870D + 58D -> 928D`, with FrontRES limited
+  to 158D and frozen GMT retaining 770D;
+- four direct finite `[6]` Repair actions each execute once, followed by eight
+  frozen-GMT steps; GMT remains eval and non-trainable;
+- two Segments each contribute two attempts, all four policy rows are valid,
+  segment mass is `0.5/0.5`, and exactly one optimizer update commits;
+- critic-only leaves Actor/std unchanged and changes the Critic;
+- checkpoint-v9 saves iteration 1 with matching transaction receipt, GMT SHA,
+  GMT normalizer fingerprint and `928/158/770` layout identity;
+- no Traceback, runtime assertion, CUDA failure or non-finite required field is
+  present.
+
+Policy-quality mechanism finding:
+
+- attempts 0 and 2 report plausible Repair support-foot drift near `0.03 m`,
+  while attempts 1 and 3 report `48.675 m` and `64.481 m`;
+- the active execution gateway stores `robot_body_pos_w` feet directly as
+  world-frame `foot_pos`. FRS-GAIN-v007 then subtracts each Repair trajectory
+  from the once-per-Segment Clean trajectory without removing each role row's
+  `scene.env_origins`;
+- the two extreme rows are the second attempt of each Segment, exactly where a
+  different IsaacLab environment row is compared with the shared Clean
+  baseline. The resulting Physics remaining values `1621.124/2147.974`,
+  pressure `811.298/1075.809`, and `G_total` near `-1.31e6/-2.31e6` therefore
+  contain environment-layout displacement rather than only robot behavior.
+
+Verdict:
+
+- Formal Runtime Audit Phase B is `runtime-confirmed` and closed for B01-B08.
+- Policy efficacy remains unconfirmed. The first invalid quality boundary is
+  the executed support-foot coordinate authority in
+  `frontres_segment_physics.py::capture_frontres_v017_execution_frame`, before
+  `frontres_gain.py::_recovery_physics_channels` consumes the evidence.
+- This is a production-code contradiction, not evidence that the v007
+  Recovery-Aware formula or current policy is harmful. The next bounded action
+  is an offline environment-local foot-coordinate repair plus cross-row,
+  permutation and malformed-origin contracts. No further live run is admitted
+  until that boundary is closed.
+
+## E-FI-129: Policy-Quality Support-Foot Coordinate Offline Closure
+
+Date: 2026-08-05
+
+Root cause and repair:
+
+- `frontres_segment_physics.py::_capture_v017_execution_frame()` was the first
+  invalid owner: it sealed world-frame `robot_body_pos_w` feet, so a shared
+  once-per-Segment Clean baseline was compared with Repair attempts executed in
+  different IsaacLab env rows;
+- the owner now validates finite selected `scene.env_origins` and subtracts the
+  corresponding origin before sealing `foot_pos [N,2,3]`;
+- world-frame raw contact-wrench ZMP and its existing origin-aware Clean support
+  envelope remain unchanged. FRS-GAIN-v007, `lambda_RA`, scales, PPO, HSL,
+  sampler and one-action-K were not modified.
+
+Deterministic evidence:
+
+- different env origins with identical hand-constructed local foot poses yield
+  exactly zero cross-row drift;
+- a hand-constructed `0.03125 m` local displacement remains identical under env
+  row permutation;
+- missing, wrong-shape and non-finite origins fail closed;
+- `frontres_contact_wrench_zmp_contract.py`, `frontres_gain_v007_contract.py`,
+  `frontres_v017_step1_contract.py` and Python compilation pass. The existing
+  v007 Clean-anchor/pressure/cost ordering is unchanged.
+
+Verdict: the Policy Quality Q0 support-frame blocker is closed offline. Policy
+efficacy is still unconfirmed until the existing policy-quality evaluation is
+rerun with valid environment-local support-foot evidence; this evidence does
+not authorize training or a live run.

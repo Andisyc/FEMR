@@ -458,6 +458,7 @@ def _capture_v017_execution_frame(
 ) -> FrontRESV017ExecutionFrame:
     """Capture only the selected scored rows from vectorized sensors."""
 
+    # B1: 校验 sealed scenario 与 scored role rows, 产出本次 capture identity.
     command = _motion_command_for_runner(runner)
     if command is None:
         raise RuntimeError("v017 execution capture requires the formal motion command")
@@ -488,6 +489,7 @@ def _capture_v017_execution_frame(
     scene = getattr(env, "scene", None)
     if scene is None:
         raise RuntimeError("v017 execution capture requires the formal IsaacLab scene")
+    # B2: 读取 ContactSensor 与 raw wrench, 产出 role-aligned Contact/ZMP evidence.
     actual_feet: list[torch.Tensor] = []
     raw_rows: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = []
     for name in ("frontres_left_foot_contacts", "frontres_right_foot_contacts"):
@@ -526,6 +528,8 @@ def _capture_v017_execution_frame(
     if not isinstance(origins, torch.Tensor) or tuple(origins.shape) != (allocated_rows, 3):
         raise RuntimeError("v017 execution capture requires scene.env_origins [N,3]")
     origins = origins.index_select(0, ids)
+    if not bool(torch.isfinite(origins.float()).all()):
+        raise RuntimeError("v017 execution capture requires finite scene.env_origins")
     margin = expected_support_envelope_margin(
         zmp_xy,
         envelope.to(device=runner.device),
@@ -537,6 +541,7 @@ def _capture_v017_execution_frame(
         raise RuntimeError("v017 loaded support is missing a finite contact-wrench ZMP")
     zmp_margin = torch.where(applicable, margin, torch.full_like(margin, float("nan")))
 
+    # B3: 捕获 dynamic state, 并将脚位置从 world frame 转成 environment-local frame.
     state_names = (
         "robot_joint_pos",
         "robot_anchor_pos_w",
@@ -554,6 +559,11 @@ def _capture_v017_execution_frame(
     right_index = int(getattr(command, "right_foot_idx", -1))
     if min(left_index, right_index) < 0 or max(left_index, right_index) >= int(body.shape[1]):
         raise RuntimeError("v017 execution capture cannot resolve the two support feet")
+    foot_pos_local = body[:, (left_index, right_index)] - origins.to(
+        device=body.device,
+        dtype=body.dtype,
+    ).unsqueeze(1)
+    # B4: 封存 immutable execution frame, 供 one-action-K evidence 与 Gain consumer 使用.
     frame = FrontRESV017ExecutionFrame(
         joint_pos=state["robot_joint_pos"].detach().clone(),
         root_pos=state["robot_anchor_pos_w"].detach().clone(),
@@ -561,7 +571,7 @@ def _capture_v017_execution_frame(
         key_body_pos=body.detach().clone(),
         root_lin_vel=state["robot_anchor_lin_vel_w"].detach().clone(),
         root_ang_vel=state["robot_anchor_ang_vel_w"].detach().clone(),
-        foot_pos=body[:, (left_index, right_index)].detach().clone(),
+        foot_pos=foot_pos_local.detach().clone(),
         expected_support=expected.detach().clone(),
         contact=contact.detach().clone(),
         zmp_margin=zmp_margin.detach().clone(),

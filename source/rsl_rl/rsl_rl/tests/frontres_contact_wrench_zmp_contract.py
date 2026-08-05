@@ -10,6 +10,13 @@ from typing import Any
 
 import torch
 
+from frontres_contract_imports import install_frontres_contract_packages
+
+
+install_frontres_contract_packages()
+
+from rsl_rl.runners import frontres_segment_physics as execution_owner
+
 
 ROOT = Path(__file__).resolve().parents[4]
 BALANCE = ROOT / "source/rsl_rl/rsl_rl/frontres/frontres_balance.py"
@@ -17,6 +24,8 @@ PHYSICS_OWNER = ROOT / "source/rsl_rl/rsl_rl/runners/frontres_segment_physics.py
 FORMAL_TRANSACTION = ROOT / "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py"
 G1_CFG = ROOT / "source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/flat_env_cfg.py"
 TRACKING_CFG = ROOT / "source/whole_body_tracking/whole_body_tracking/tasks/tracking/tracking_env_cfg.py"
+_USE_PHYSICAL_ORIGINS = object()
+_MISSING_ORIGINS = object()
 
 
 def _owner():
@@ -25,6 +34,129 @@ def _owner():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def _capture_execution_fixture(
+    *,
+    physical_origins: torch.Tensor,
+    local_foot_pos: torch.Tensor,
+    selected_rows: torch.Tensor,
+    scene_origins: object = _USE_PHYSICAL_ORIGINS,
+):
+    num_envs = int(physical_origins.shape[0])
+    world_foot_pos = local_foot_pos + physical_origins[:, None, :]
+    body_pos_w = torch.zeros(num_envs, 3, 3)
+    body_pos_w[:, 0] = physical_origins + torch.tensor([0.0, 0.0, 1.0])
+    body_pos_w[:, 1:] = world_foot_pos
+
+    class _Scene(dict):
+        pass
+
+    def _sensor(side: int) -> Any:
+        force_matrix = torch.zeros(num_envs, 1, 1, 3)
+        force_matrix[..., 2] = 100.0
+        return SimpleNamespace(
+            side=side,
+            data=SimpleNamespace(force_matrix_w=force_matrix),
+            cfg=SimpleNamespace(force_threshold=10.0),
+        )
+
+    scene = _Scene(
+        frontres_left_foot_contacts=_sensor(0),
+        frontres_right_foot_contacts=_sensor(1),
+    )
+    if scene_origins is _USE_PHYSICAL_ORIGINS:
+        scene.env_origins = physical_origins.clone()
+    elif scene_origins is not _MISSING_ORIGINS:
+        scene.env_origins = scene_origins
+    command = SimpleNamespace(
+        num_envs=num_envs,
+        left_foot_idx=1,
+        right_foot_idx=2,
+        robot_joint_pos=torch.zeros(num_envs, 29),
+        robot_anchor_pos_w=body_pos_w[:, 0].clone(),
+        robot_anchor_quat_w=torch.tensor([1.0, 0.0, 0.0, 0.0]).repeat(num_envs, 1),
+        robot_body_pos_w=body_pos_w,
+        robot_anchor_lin_vel_w=torch.zeros(num_envs, 3),
+        robot_anchor_ang_vel_w=torch.zeros(num_envs, 3),
+        frontres_local_scenario_k_execution_snapshot=lambda: {
+            "expected_support": torch.ones(num_envs, 2),
+            "expected_support_envelope": torch.tensor([0.0, 0.0, 1.0, 0.0, 1.0, 1.0]).repeat(
+                num_envs, 1
+            ),
+        },
+    )
+    runner = SimpleNamespace(
+        device=torch.device("cpu"),
+        env=SimpleNamespace(scene=scene),
+    )
+
+    def _raw(sensor: Any, *, num_envs: int, device: torch.device):
+        points = world_foot_pos[:, sensor.side : sensor.side + 1, None, :].to(device=device)
+        forces = torch.full((num_envs, 1, 1), 100.0, device=device)
+        normals = torch.zeros_like(points)
+        normals[..., 2] = 1.0
+        return points, forces, normals, torch.ones_like(forces, dtype=torch.bool)
+
+    original_command = execution_owner._motion_command_for_runner
+    original_raw = execution_owner.read_frontres_raw_filtered_contact_rows
+    try:
+        execution_owner._motion_command_for_runner = lambda _runner: command
+        execution_owner.read_frontres_raw_filtered_contact_rows = _raw
+        return execution_owner.capture_frontres_v017_execution_frame(
+            runner,
+            selected_rows=selected_rows,
+        )
+    finally:
+        execution_owner._motion_command_for_runner = original_command
+        execution_owner.read_frontres_raw_filtered_contact_rows = original_raw
+
+
+def test_execution_foot_pos_is_environment_local_and_row_aligned() -> None:
+    origins = torch.tensor([[0.0, 0.0, 0.0], [48.0, -32.0, 0.0], [-16.0, 64.0, 0.0]])
+    shared = torch.tensor([[-0.125, 0.0625, 0.03125], [0.125, -0.0625, 0.03125]])
+    local = shared.repeat(3, 1, 1)
+    local[1, :, 0] += 0.03125
+    frame = _capture_execution_fixture(
+        physical_origins=origins,
+        local_foot_pos=local,
+        selected_rows=torch.tensor([0, 1, 2]),
+    )
+    torch.testing.assert_close(frame.foot_pos, local)
+    assert float(torch.linalg.vector_norm(frame.foot_pos[0] - frame.foot_pos[2])) == 0.0
+    torch.testing.assert_close(
+        torch.linalg.vector_norm(frame.foot_pos[1] - frame.foot_pos[0], dim=-1),
+        torch.full((2,), 0.03125),
+    )
+
+    permutation = torch.tensor([2, 0, 1])
+    permuted = _capture_execution_fixture(
+        physical_origins=origins,
+        local_foot_pos=local,
+        selected_rows=permutation,
+    )
+    torch.testing.assert_close(permuted.foot_pos, local.index_select(0, permutation))
+
+
+def test_execution_foot_pos_origin_identity_fails_closed() -> None:
+    origins = torch.tensor([[0.0, 0.0, 0.0], [8.0, -4.0, 0.0]])
+    local = torch.tensor([[[-0.1, 0.1, 0.02], [0.1, -0.1, 0.02]]]).repeat(2, 1, 1)
+    for malformed in (
+        _MISSING_ORIGINS,
+        torch.zeros(2, 2),
+        torch.tensor([[0.0, 0.0, 0.0], [float("nan"), 0.0, 0.0]]),
+    ):
+        try:
+            _capture_execution_fixture(
+                physical_origins=origins,
+                local_foot_pos=local,
+                selected_rows=torch.tensor([0, 1]),
+                scene_origins=malformed,
+            )
+        except (RuntimeError, ValueError) as exc:
+            assert "env_origins" in str(exc) or "finite" in str(exc) or "ZMP" in str(exc)
+        else:
+            raise AssertionError("missing or malformed scene.env_origins did not fail closed")
 
 
 def test_contact_wrench_golden_and_permutation() -> None:
@@ -351,7 +483,7 @@ def test_raw_views_are_installed_before_reset_and_never_lazily_on_read() -> None
         "prepare_frontres_v015_local_sentinel_batch(runner)"
     )
     assert builder.index("prepare_frontres_raw_contact_views(runner)") < builder.index(
-        "_apply_current_segment_reset(runner"
+        'reset_phase("clean_baseline")'
     )
     raw_reader = balance[
         balance.index("def read_frontres_raw_filtered_contact_rows") : balance.index(
@@ -435,6 +567,8 @@ def test_asymmetric_foot_contact_slots_pad_without_changing_evidence() -> None:
 
 
 if __name__ == "__main__":
+    test_execution_foot_pos_is_environment_local_and_row_aligned()
+    test_execution_foot_pos_origin_identity_fails_closed()
     test_contact_wrench_golden_and_permutation()
     test_expected_envelope_and_physical_no_load_is_na()
     test_expected_support_envelope_is_derived_from_clean_foot_pose()

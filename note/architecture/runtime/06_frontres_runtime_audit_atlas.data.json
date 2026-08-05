@@ -1,6 +1,6 @@
 {
   "title": "FrontRES Formal Runtime Audit Atlas",
-  "subtitle": "Phase B 内部检查清单：B01-B08 已完成离线 instrumentation；等待一次 8-env / 1-transaction / 1-update 正式 Stage3 运行确认真实链路",
+  "subtitle": "Phase B 已完成：E-FI-128 在同一次 8-env / 1-transaction / 1-update 正式 Stage3 运行中确认 B01-B08",
   "layout": "repository_reading_atlas",
   "canvasWidth": 4300,
   "defaultZoom": 1.0,
@@ -42,7 +42,7 @@
           "mainRouteTitles": ["解析唯一运行模式", "创建正式 Runner", "确认 active 身份"],
           "review": ["AUDIT-B01：打印 contract、HSL/checkpoint、offset、K/M/DR fingerprint", "正确结果：train + K8/M2 + offsets(1,2)，且无 legacy route"],
           "tests": ["Offline instrumentation contract passed; actual composed config remains live-only"],
-          "gap": "INSTRUMENTED_OFFLINE；HSL-v2 artifact 已确认；等待唯一一次正式 live observation"
+          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B01"
         },
         {
           "id": "AUDIT-R02",
@@ -64,7 +64,7 @@
           "mainRouteTitles": ["读取当前 Curriculum", "封存两个情境", "收齐 exact M"],
           "review": ["AUDIT-B02：打印 segment/attempt/role counts 与 scenario/noisy hashes", "正确结果：2 Segment × 2 attempts；同 Segment 的 identity 全相同"],
           "tests": ["Offline instrumentation contract passed; actual sampler population remains live-only"],
-          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
+          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B02"
         },
         {
           "id": "AUDIT-R03",
@@ -86,7 +86,7 @@
           "mainRouteTitles": ["恢复同一动力学起点", "读取 Noisy Future Intent", "切分 Actor 与 GMT 权限"],
           "review": ["AUDIT-B03：打印 role identity、provenance 和全部 shape", "正确结果：8 role rows；Actor provenance 仅 deployment/Noisy"],
           "tests": ["Active v017 collector connectivity and fail-closed shape/provenance contracts passed; real env observation remains live-only"],
-          "gap": "ACTIVE_COLLECTOR_CONNECTED_OFFLINE；等待唯一一次正式 live observation"
+          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B03"
         },
         {
           "id": "AUDIT-R04",
@@ -108,7 +108,7 @@
           "mainRouteTitles": ["采样一次 Repair", "冻结 FEMR", "执行 K-step 后果"],
           "review": ["AUDIT-B04：打印 action shape/finite、per-attempt actor count、K frame count、GMT mode", "正确结果：4 个 attempt 各一次 Actor；GMT 始终 eval/no-grad"],
           "tests": ["Active v017 collector connectivity, eight-step and fail-closed contracts passed; simulator action count remains live-only"],
-          "gap": "ACTIVE_COLLECTOR_CONNECTED_OFFLINE；等待唯一一次正式 live observation"
+          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B04"
         },
         {
           "id": "AUDIT-R05",
@@ -130,7 +130,7 @@
           "mainRouteTitles": ["封存 Paired Evidence", "计算 Recovery Pressure", "形成唯一 Scalar Gain"],
           "review": ["AUDIT-B05：打印 baseline/Repair counts、valid mask 和完整 Gain 分解", "正确结果：所有四条 attempt 有同 identity 的 finite G_total；语义 N/A 不伪装成缺失"],
           "tests": ["Offline instrumentation contract passed; real Contact/ZMP/survival remains live-only"],
-          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
+          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B05；quality scale is separately blocked"
         },
         {
           "id": "AUDIT-R06",
@@ -152,7 +152,7 @@
           "mainRouteTitles": ["写入一条 Policy Row", "计算 Scalar Credit", "交给 Grouped PPO"],
           "review": ["AUDIT-B06：打印 row count、shape、valid count、return==G_total 和 identity hash", "正确结果：4 rows，不是 4×K；所有必需字段存在"],
           "tests": ["Offline instrumentation contract passed; official storage write remains live-only"],
-          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
+          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B06"
         },
         {
           "id": "AUDIT-R07",
@@ -174,7 +174,7 @@
           "mainRouteTitles": ["公平归约 Transaction", "执行一次 Optimizer", "核验 Phase 参数变化"],
           "review": ["AUDIT-B07：打印 group mass、loss/advantage、before/after steps 与 parameter deltas", "正确结果：step_delta=1；fresh K8 critic_only 的 Actor/std delta=0"],
           "tests": ["Offline instrumentation contract passed; real optimizer state remains live-only"],
-          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
+          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B07"
         },
         {
           "id": "AUDIT-R08",
@@ -196,7 +196,7 @@
           "mainRouteTitles": ["封存 Transaction Receipt", "推进唯一训练状态", "保存严格 Checkpoint"],
           "review": ["AUDIT-B08：打印 receipt、iteration、schedule fingerprint、GMT hash、save identity", "正确结果：commit=1、iteration=1、checkpoint-v9；无 partial/mixed state"],
           "tests": ["Offline instrumentation contract passed; actual committed save remains live-only"],
-          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
+          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B08"
         }
       ]
     },
@@ -226,7 +226,7 @@
           "mainRouteTitles": ["核验 Artifact", "安装正式边界诊断", "执行一次 Tiny Train"],
           "review": ["HSL_V2=/hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt", "成本：一个 K8/M2 transaction、一次 optimizer update、一个 checkpoint"],
           "tests": ["Artifact and offline instrumentation confirmed; no live run executed"],
-          "gap": "READY_FOR_SEPARATE_LIVE_AUTHORIZATION"
+          "gap": "COMPLETED；E-FI-128；no further Phase B live run required"
         }
       ]
     }

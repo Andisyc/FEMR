@@ -38,12 +38,13 @@ historical evidence only; the direct full-6D route uses HSL-v2/checkpoint-v9.
 | V014-DP10-PERSIST | S3 | checkpoint-v9 preserves exact future-layout identity and rejects offset drift before mutation | completed offline | TEST-16 strict checkpoint contract; E-FI-119 |
 | PHASE-B-01 | live S4 | official train entry emits active contract/HSL-v2/K8-M2/offset `(1,2)` identity with no legacy route | runtime-confirmed | AUDIT-B01 / Runtime Audit Atlas R01 / E-FI-122 |
 | PHASE-B-02 | live S4 | sampler emits two sealed Segments x exact M=2 with four immutable policy rows and no reset resampling | runtime-confirmed | AUDIT-B02 / R02 / E-FI-123 / E-FI-124 / E-FI-126 |
-| PHASE-B-03 | live S4 | real reset/command/observation route proves B=8 roles and `870+58 -> 928 -> 158/770` with Noisy provenance | active v017 collector connected and contract-confirmed offline; live sentinel pending | AUDIT-B03 / R03 / E-FI-121 / E-FI-125 / E-FI-127 |
-| PHASE-B-04 | live S4 | each attempt has one finite `[6]` action, then FEMR freezes while eval/no-grad GMT executes K8 | active v017 collector connected and contract-confirmed offline; live pending | AUDIT-B04 / R04 / E-FI-121 / E-FI-127 |
+| PHASE-B-03 | live S4 | real reset/command/observation route proves B=8 roles and `870+58 -> 928 -> 158/770` with Noisy provenance | runtime-confirmed | AUDIT-B03 / R03 / E-FI-128 |
+| PHASE-B-04 | live S4 | each attempt has one finite `[6]` action, then FEMR freezes while eval/no-grad GMT executes K8 | runtime-confirmed | AUDIT-B04 / R04 / E-FI-128 |
 | PHASE-B-05 | live S4 | Clean=2, Noisy=2 and Repair=4 feed complete v007 `G_I/G_P/P_N/P_R/lambda/cost/G_total` evidence | runtime-confirmed | AUDIT-B05 / R05 / E-FI-121 / E-FI-126 |
-| PHASE-B-06 | live S4 | storage writes four policy rows, not K-expanded rows; return equals G_total and identity remains sealed | formal float32 reduction oracle repaired and contract-confirmed; live sentinel pending | AUDIT-B06 / R06 / E-FI-121 / E-FI-126 |
-| PHASE-B-07 | live S4 | grouped loss gives two Segments equal influence and exactly one optimizer update; K8 critic-only freezes Actor/std | instrumented; offline contract passed; live pending | AUDIT-B07 / R07 / E-FI-121 |
-| PHASE-B-08 | live S4/S3 | one committed receipt advances iteration/curriculum and saves checkpoint-v9 with GMT/layout identity | instrumented; offline contract passed; live pending | AUDIT-B08 / R08 / E-FI-121 |
+| PHASE-B-06 | live S4 | storage writes four policy rows, not K-expanded rows; return equals G_total and identity remains sealed | runtime-confirmed | AUDIT-B06 / R06 / E-FI-128 |
+| PHASE-B-07 | live S4 | grouped loss gives two Segments equal influence and exactly one optimizer update; K8 critic-only freezes Actor/std | runtime-confirmed | AUDIT-B07 / R07 / E-FI-128 |
+| PHASE-B-08 | live S4/S3 | one committed receipt advances iteration/curriculum and saves checkpoint-v9 with GMT/layout identity | runtime-confirmed | AUDIT-B08 / R08 / E-FI-128 |
+| QUALITY-Q0-SUPPORT-FRAME | Q-mechanism | support-foot drift compares Clean and Repair in one shared environment-local coordinate before Physics aggregation | completed offline; policy efficacy pending | cross-origin zero-drift, row-permutation and malformed-origin contracts; E-FI-129 |
 | PHASE-B-ARTIFACT | authority | a real `frontres-v017-hsl-proposal-v2` absolute path is verified before command release | runtime-confirmed | `/hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt`; E-FI-121 |
 | V014-DP09-PHASE | S1/S2 | resolver, typed request, formal transaction and telemetry use only `critic_only`, `actor_ramp`, `joint`; old `actor_warmup` rejects | completed offline | warmup/interface/formal transaction contracts; E-FI-118 |
 | V014-DP09-CONTINUITY | S2 | K8->K16 and K16->K32 retain the same Critic identity and learned state while critic-only updates it | completed offline | K16/M3 and K32/M4 formal transaction fixture; E-FI-118 |
@@ -51,9 +52,9 @@ historical evidence only; the direct full-6D route uses HSL-v2/checkpoint-v9.
 | V014-DP09-PERSIST | S3 | checkpoint-v9 stores `actor_ramp`, restores it exactly and rejects `actor_warmup` before mutation | completed offline | strict checkpoint-v9 roundtrip/tamper contract; E-FI-118 |
 | V013-FINAL | code discipline | complete diff has no open P0/P1 or added wrapper/owner/hotspot reason | completed for module closure | E-FI-110; P0=0/P1=0, three explicit existing P2 risks |
 | V013-DOC | governance | Test Atlas/inventory/evidence/checklist match observed module facts and do not claim connectivity | completed for module closure | E-FI-110 |
-| S4-LIFECYCLE | live | one bounded K8/M2 transaction proves real class/strength/no-resample/exact-M | not authorized | Step 2 material boundary |
-| S4-PERSIST | live/S3 | one committed checkpoint-v9 and independent fresh reload are exact | not authorized | no second update/fallback |
-| S4-QUALITY | live | real Gain/Contact/ZMP/survival/action facts are finite or semantic N/A | not authorized | harmful/no-op facts stop |
+| S4-LIFECYCLE | live | one bounded K8/M2 transaction proves real class/strength/no-resample/exact-M | runtime-confirmed | E-FI-128 |
+| S4-PERSIST | live/S3 | one committed checkpoint-v9 and independent fresh reload are exact | partial: committed save runtime-confirmed; independent fresh reload remains separate | E-FI-128; no fallback or second update |
+| S4-QUALITY | live | real Gain/Contact/ZMP/survival/action facts are finite or semantic N/A | ready for a new policy-quality evaluation; not yet confirmed | E-FI-129 closes the coordinate blocker offline; E-FI-128 quality rows remain invalid |
 
 ## Preserved Completed Surface
 

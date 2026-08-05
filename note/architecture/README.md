@@ -149,15 +149,15 @@ The main Atlas pages are data variants, not separate applications:
  - Purpose: let the human inspect concrete design-driven pseudo-sample tests for every module before tests are implemented or run.
  - The shared spine is `确认设计规则 -> 构造简单伪样本 -> 手算正确结果 -> 确认测试题 -> 执行模块并逐项比较 -> 定位第一个错误 -> 记录通过与失败证据`.
  - Each selected card contains one plain-language rule and a `伪样本 | 正确结果 | 证明什么` table. Generic responsibility/interface metadata is deliberately absent from the primary reading card.
-- The eighteen module cards cover the formal runtime module families and report `18 passed / 0 partial / 0 blocked`. Formal Runtime Audit Phase A has reviewed DP01-DP10 offline; every Phase B/live claim remains open.
+- The eighteen module cards cover the formal runtime module families and report `18 passed / 0 partial / 0 blocked`. Formal Runtime Audit Phase A reviewed DP01-DP10 offline; E-FI-128 runtime-confirms the complete B01-B08 official transaction. Policy quality remains separate: E-FI-129 closes the cross-environment support-foot coordinate blocker offline, while actual policy efficacy still requires evaluation.
  - A separate `Formal Runtime Audit` stage card explains the current Phase A -> Phase B progression. It has its own reading spine and does not count as a module card or claim policy quality.
 
 - FrontRES Runtime Audit Atlas uses `layout: "repository_reading_atlas"`.
   - Source: `runtime/06_frontres_runtime_audit_atlas.data.json`.
   - Entrypoint: `06_frontres_runtime_audit_atlas.html`.
   - Purpose: let the human review the eight Phase B official-route edge cards before any probe is inserted or live run starts.
-  - Every card maps to existing Concept Figure design IDs and shows the formal owner, upstream/probe/downstream route, expected runtime fact and current `PENDING_LIVE` boundary.
-  - The control surface does not claim runtime evidence. Its run card remains blocked until the real HSL-v2 artifact path is confirmed.
+  - Every card maps to existing Concept Figure design IDs and shows the formal owner, upstream/probe/downstream route, expected runtime fact and E-FI-128 runtime result.
+  - The control surface proves formal connectivity only. It does not promote the bounded critic-only transaction to policy-quality evidence.
 
 - Concept uses `layout: "method_figure"`.
   - Source: `concept/03_frontres_concept_tabs.data.json`.

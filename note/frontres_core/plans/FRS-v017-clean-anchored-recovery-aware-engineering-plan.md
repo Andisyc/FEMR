@@ -10,15 +10,17 @@ offline-closed mixed `[K,4]`/`[K,8]` Repair trajectory rows. E-FI-124 and
 E-FI-125 close the following grouped-batch and observation-trace boundaries.
 E-FI-126 records live B02/B05 and closes the audit-only float32 return
 reduction mismatch. E-FI-127 connects B03/B04 to the active formal v017 Repair
-collector and proves the connection offline; B03/B04 and B06-B08 still require
-the same bounded live rerun. No
-Gain/PPO semantics or live boundary was reopened
+collector and proves the connection offline. E-FI-128 records the final bounded
+official transaction: B01-B08 all emit exactly once, the grouped update commits
+exactly once, critic-only keeps Actor/std unchanged, and checkpoint-v9 saves the
+matching GMT/layout/transaction identity. Formal Runtime Audit Phase B is
+runtime-complete. No Gain/PPO semantics were changed
 under `FRS-METHOD-v017 / FRS-GAIN-v007 / FRS-PPO-v005 / FRS-TRAIN-v014 /
 FRS-EVAL-v004`. E-FI-105 proves the previous v012 module surface;
 E-FI-106 isolates legacy updater selection. Those facts remain valid only for
 unchanged behavior. TRAIN-v013 curriculum, checkpoint-v8 and affected Test
 Cards are now covered by E-FI-109 S1/S2/S3 evidence. Simulator, training and
-live remain closed.
+Long training, policy-quality efficacy and deployment remain closed.
 
 The current closure removes the formal HSL/Stage-3 `tanh` plus per-axis action
 scale mismatch found by the DP04 Phase A review. It versions HSL as
@@ -418,20 +420,17 @@ unifying the formal phase identity and proving same-Critic K-transition
 recalibration plus critic-only Actor/std optimizer-state preservation. E-FI-119
 then fixes the only legal future deployment/Noisy offsets to `(1,2)` and proves
 the unmocked offline `870D + 58D -> 928D -> FrontRES 158D / GMT 770D` route.
-Formal Runtime Audit Phase B has runtime evidence only for B01. E-FI-122 closes
-the first-invalid reset lifecycle offline. E-FI-123 closes the next
-first-invalid one-action-K row alignment offline. E-FI-124 closes the formal
-request builder's missing grouped-batch dependency and checks the remaining
-request-to-checkpoint owner chain for unresolved production symbols; B02-B08
-remain live-pending. E-FI-125 then closes the active v017 Repair collector's
-missing 58D command and 289D Critic trace producers without weakening the final
-authority assertion. E-FI-126 then live-confirms B02/B05 and closes the B06
-float32 reduction oracle offline without changing Gain or returns; B06-B08
-remain live-pending. E-FI-127 then removes the legacy-only B03/B04 audit edge:
-the active v017 Repair collector now projects its existing sealed snapshot,
-928/158/770 observation trace, four policy actions and eight frozen-GMT action
-steps into the shared fail-closed audit owner. The active 49-contract suite
-passes; B03/B04 still require live confirmation.
+The Phase B repair sequence is preserved in E-FI-122 through E-FI-127: it
+closed reset lifecycle, one-action-K row alignment, grouped-batch dependency,
+observation-trace production, float32 audit reduction, and active-collector
+B03/B04 connectivity without changing method semantics. E-FI-128 then
+live-confirms the resulting complete B01-B08 route in one committed official
+transaction. No Phase B sentinel remains live-pending.
+E-FI-129 closes the support-foot coordinate contradiction found in that run:
+the existing execution capture Gateway now seals environment-local foot
+positions, while raw-wrench ZMP and FRS-GAIN-v007 remain unchanged. Cross-origin,
+row-permutation, malformed-origin and existing Gain-ordering contracts pass.
+This admits policy-quality evaluation but is not itself policy-efficacy evidence.
 
 ### DP10 Future Motion Context Offline Readiness Closure
 
@@ -481,13 +480,18 @@ bash run_stage3.sh \
 /hdd1/cyx/AMASS_G1NPZ_Final 8 1 1 train
 ```
 
-Instrumentation and artifact verification are complete. The first GPU7 run
-confirmed B01 and then stopped because formal collection selected
-`clean_baseline` before reset installed the sealed scenario. E-FI-122 moves the
-mode through the reset request so the environment owner now performs
-`install -> mode -> refresh`; focused offline regressions pass without weakening
-the command fail-closed check. Rerunning the same bounded command is the
-remaining live boundary for B02-B08.
+Instrumentation and artifact verification are complete. The final GPU7 run in
+`v017_phase_b_runtime_audit_final_gpu7.log` emits B01-B08 exactly once and saves
+`frontres-v017-checkpoint-v9` at iteration 1. This closes the official
+connectivity question only. The same run exposes a separate Policy Quality
+mechanism blocker: the second Repair attempt of each Segment reports
+`support_foot_drift_repaired` of `48.675 m` and `64.481 m`, while the first
+attempts remain near `0.03 m`. The execution gateway stores world-frame foot
+positions and v007 compares them directly against the once-per-Segment Clean
+baseline, so attempts on different IsaacLab environment rows inherit the
+environment-origin displacement. Until foot evidence is canonicalized to a
+shared environment-local frame, the extreme Physics pressure and `G_total`
+values are not valid policy-quality evidence.
 
 ### DP09 Actor & Critic Warmup Offline Readiness Closure
 
