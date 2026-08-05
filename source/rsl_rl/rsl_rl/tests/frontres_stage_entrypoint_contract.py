@@ -86,6 +86,11 @@ def main() -> None:
     assert train.index("_FRONTRES_RUNTIME_TMPDIR = _prepare_frontres_runtime_temp_dir()") < train.index(
         "from isaaclab.app import AppLauncher"
     )
+    assert "def _configure_frontres_asset_converter_dir(env_cfg, temp_root: str, *, rank: int) -> str:" in train
+    assert "spawn_cfg.usd_dir = usd_dir" in train
+    assert "_FRONTRES_RUNTIME_TEMP_HANDLES.append(converter_temp)" in train
+    assert "[FrontRES Runtime Temp] temp_root=" in train
+    assert train.index("_configure_frontres_asset_converter_dir(\n            env_cfg,") < train.index("gym.make(")
     assert 'temp_root = os.path.join("/tmp", f"femr_{os.getuid()}")' in train
     assert 'tempfile.tempdir = temp_root' in train
     assert train.index("_prefer_local_femr_sources()") < train.index("from isaaclab.app import AppLauncher")

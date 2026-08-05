@@ -46,6 +46,33 @@ def _prepare_frontres_runtime_temp_dir() -> str:
 
 
 _FRONTRES_RUNTIME_TMPDIR = _prepare_frontres_runtime_temp_dir()
+_FRONTRES_RUNTIME_TEMP_HANDLES: list[object] = []
+
+
+def _configure_frontres_asset_converter_dir(env_cfg, temp_root: str, *, rank: int) -> str:
+    """Bind the formal robot URDF converter to one private writable directory."""
+
+    # B1: 定位正式 robot spawn converter 配置, 拒绝缺失的公开 usd_dir 边界.
+    scene_cfg = getattr(env_cfg, "scene", None)
+    robot_cfg = getattr(scene_cfg, "robot", None)
+    spawn_cfg = getattr(robot_cfg, "spawn", None)
+    if spawn_cfg is None or not hasattr(spawn_cfg, "usd_dir"):
+        raise AttributeError("FrontRES robot spawn config must expose converter usd_dir")
+
+    # B2: 为每个运行进程安装独立 converter output root, 避免共享 /tmp 和并发作业互相覆盖.
+    asset_root = os.path.realpath(os.path.join(str(temp_root), "isaaclab_assets"))
+    os.makedirs(asset_root, mode=0o700, exist_ok=True)
+    if not os.path.isdir(asset_root) or not os.access(asset_root, os.W_OK | os.X_OK):
+        raise PermissionError(f"FrontRES asset converter root is not writable: {asset_root}")
+    converter_temp = tempfile.TemporaryDirectory(prefix=f"rank{int(rank)}_", dir=asset_root)
+    _FRONTRES_RUNTIME_TEMP_HANDLES.append(converter_temp)
+    usd_dir = os.path.realpath(converter_temp.name)
+    spawn_cfg.usd_dir = usd_dir
+    if os.path.realpath(str(spawn_cfg.usd_dir)) != usd_dir:
+        raise RuntimeError("FrontRES asset converter usd_dir assignment did not persist")
+
+    print(f"[FrontRES Runtime Temp] temp_root={temp_root} asset_usd_dir={usd_dir} rank={int(rank)}")
+    return usd_dir
 
 os.environ.setdefault("WANDB_SILENT", "true")
 # B1: 将 wandb 本地文件绑定到当前 checkout 的日志根目录, 避免服务器绝对路径成为隐式依赖.
@@ -1522,6 +1549,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         _configure_frontres_stage3_segment_hrl_env_cfg(env_cfg)
     _configure_frontres_motion_perturbations(env_cfg, agent_cfg)
     _sanitize_env_cfg_for_training(env_cfg)
+    if args_cli.frontres_stage is not None:
+        _configure_frontres_asset_converter_dir(
+            env_cfg,
+            _FRONTRES_RUNTIME_TMPDIR,
+            rank=rank,
+        )
 
     # specify directory for logging experiments
     # log_root_path 根据 experiment_name 自动派生，避免不同训练阶段的 checkpoint 混入同一目录。

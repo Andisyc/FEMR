@@ -49,6 +49,7 @@ def _load_stage_preset():
     tree = ast.parse(TRAIN_PATH.read_text())
     wanted = {
         "_prepare_frontres_runtime_temp_dir",
+        "_configure_frontres_asset_converter_dir",
         "_default_frontres_segment_cache_dir",
         "_set_if_present",
         "_parse_frontres_v015_future_offsets",
@@ -66,10 +67,12 @@ def _load_stage_preset():
         "os": os,
         "tempfile": tempfile,
         "_FEMR_DATA_ROOT": str(ROOT.parent),
+        "_FRONTRES_RUNTIME_TEMP_HANDLES": [],
     }
     exec(compile(module, str(TRAIN_PATH), "exec"), namespace)
     return (
         namespace["_prepare_frontres_runtime_temp_dir"],
+        namespace["_configure_frontres_asset_converter_dir"],
         namespace["_apply_frontres_stage_preset"],
         namespace["_apply_frontres_segment_ppo_schedule_override"],
         namespace["_apply_frontres_segment_ppo_lr_override"],
@@ -79,6 +82,7 @@ def _load_stage_preset():
 
 (
     _prepare_frontres_runtime_temp_dir,
+    _configure_frontres_asset_converter_dir,
     _apply_frontres_stage_preset,
     _apply_frontres_segment_ppo_schedule_override,
     _apply_frontres_segment_ppo_lr_override,
@@ -123,6 +127,41 @@ def test_runtime_temp_dir_is_private_writable_and_fail_closed() -> None:
         else:
             os.environ["TMPDIR"] = original_tmpdir
         tempfile.tempdir = original_tempfile_dir
+
+
+def test_asset_converter_dir_reaches_formal_spawn_and_fails_closed() -> None:
+    with tempfile.TemporaryDirectory() as parent:
+        spawn = SimpleNamespace(usd_dir="/tmp/IsaacLab")
+        env_cfg = SimpleNamespace(
+            scene=SimpleNamespace(robot=SimpleNamespace(spawn=spawn))
+        )
+
+        resolved = _configure_frontres_asset_converter_dir(env_cfg, parent, rank=3)
+
+        expected_root = (Path(parent) / "isaaclab_assets").resolve()
+        assert Path(resolved).parent == expected_root
+        assert Path(resolved).name.startswith("rank3_")
+        assert spawn.usd_dir == resolved
+        assert Path(resolved).is_dir()
+        assert os.access(resolved, os.W_OK | os.X_OK)
+
+        second_spawn = SimpleNamespace(usd_dir=None)
+        second_cfg = SimpleNamespace(
+            scene=SimpleNamespace(robot=SimpleNamespace(spawn=second_spawn))
+        )
+        second = _configure_frontres_asset_converter_dir(second_cfg, parent, rank=3)
+        assert second != resolved
+        assert Path(second).parent == expected_root
+
+        malformed = SimpleNamespace(
+            scene=SimpleNamespace(robot=SimpleNamespace(spawn=SimpleNamespace()))
+        )
+        try:
+            _configure_frontres_asset_converter_dir(malformed, parent, rank=0)
+        except AttributeError as exc:
+            assert "usd_dir" in str(exc)
+        else:
+            raise AssertionError("missing converter usd_dir must fail closed")
 
 
 def _alg_cfg() -> SimpleNamespace:
