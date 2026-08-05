@@ -6,6 +6,7 @@ import importlib.util
 import os
 from pathlib import Path
 import sys
+import tempfile
 import types
 from types import SimpleNamespace
 
@@ -47,6 +48,7 @@ def _load_stage_preset():
     warmup_spec.loader.exec_module(warmup_module)
     tree = ast.parse(TRAIN_PATH.read_text())
     wanted = {
+        "_prepare_frontres_runtime_temp_dir",
         "_default_frontres_segment_cache_dir",
         "_set_if_present",
         "_parse_frontres_v015_future_offsets",
@@ -62,10 +64,12 @@ def _load_stage_preset():
     namespace = {
         "RslRlOnPolicyRunnerCfg": object,
         "os": os,
+        "tempfile": tempfile,
         "_FEMR_DATA_ROOT": str(ROOT.parent),
     }
     exec(compile(module, str(TRAIN_PATH), "exec"), namespace)
     return (
+        namespace["_prepare_frontres_runtime_temp_dir"],
         namespace["_apply_frontres_stage_preset"],
         namespace["_apply_frontres_segment_ppo_schedule_override"],
         namespace["_apply_frontres_segment_ppo_lr_override"],
@@ -74,11 +78,51 @@ def _load_stage_preset():
 
 
 (
+    _prepare_frontres_runtime_temp_dir,
     _apply_frontres_stage_preset,
     _apply_frontres_segment_ppo_schedule_override,
     _apply_frontres_segment_ppo_lr_override,
     _configure_frontres_stage3_segment_hrl_env_cfg,
 ) = _load_stage_preset()
+
+
+def test_runtime_temp_dir_is_private_writable_and_fail_closed() -> None:
+    original_frontres_tmpdir = os.environ.get("FRONTRES_TMPDIR")
+    original_tmpdir = os.environ.get("TMPDIR")
+    original_tempfile_dir = tempfile.tempdir
+    try:
+        with tempfile.TemporaryDirectory() as parent:
+            private_root = Path(parent) / "frontres-private"
+            os.environ["FRONTRES_TMPDIR"] = str(private_root)
+            os.environ["TMPDIR"] = "/tmp"
+            tempfile.tempdir = "/tmp"
+
+            resolved = _prepare_frontres_runtime_temp_dir()
+
+            assert resolved == str(private_root.resolve())
+            assert private_root.is_dir()
+            assert os.environ["TMPDIR"] == resolved
+            assert tempfile.gettempdir() == resolved
+
+            conflict = Path(parent) / "not-a-directory"
+            conflict.write_text("file blocks directory creation\n", encoding="utf-8")
+            os.environ["FRONTRES_TMPDIR"] = str(conflict)
+            try:
+                _prepare_frontres_runtime_temp_dir()
+            except (FileExistsError, NotADirectoryError):
+                pass
+            else:
+                raise AssertionError("invalid FrontRES temp root must fail closed")
+    finally:
+        if original_frontres_tmpdir is None:
+            os.environ.pop("FRONTRES_TMPDIR", None)
+        else:
+            os.environ["FRONTRES_TMPDIR"] = original_frontres_tmpdir
+        if original_tmpdir is None:
+            os.environ.pop("TMPDIR", None)
+        else:
+            os.environ["TMPDIR"] = original_tmpdir
+        tempfile.tempdir = original_tempfile_dir
 
 
 def _alg_cfg() -> SimpleNamespace:
@@ -480,6 +524,7 @@ def test_stage3_hsl_initializer_dispatch_is_explicit_and_formal_training_opens()
 
 
 if __name__ == "__main__":
+    test_runtime_temp_dir_is_private_writable_and_fail_closed()
     test_stage3_default_enters_live_train_config_without_zeroing_iterations()
     test_stage3_rejects_noncanonical_future_offsets_before_config_mutation()
     test_retired_optimizer_flags_reject_before_stage3_config_mutation()

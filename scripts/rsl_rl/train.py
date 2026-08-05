@@ -12,12 +12,40 @@ import sys
 import faulthandler
 import signal
 import threading
+import tempfile
 import traceback
 
 _FEMR_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
 _FEMR_DATA_ROOT = os.path.abspath(os.environ.get("FEMR_DATA_ROOT", os.path.dirname(_FEMR_REPO_ROOT)))
 _FEMR_LOG_ROOT = os.path.abspath(os.environ.get("FEMR_LOG_ROOT", _FEMR_REPO_ROOT))
 os.environ.setdefault("FEMR_ROOT", _FEMR_REPO_ROOT)
+
+
+def _prepare_frontres_runtime_temp_dir() -> str:
+    """Install one writable process temp root before importing IsaacLab."""
+
+    # B1: 解析显式或调度器提供的 temp root, 避免共享 /tmp/IsaacLab 的跨用户权限冲突.
+    explicit = str(os.environ.get("FRONTRES_TMPDIR", "") or "").strip()
+    inherited = str(os.environ.get("TMPDIR", "") or "").strip()
+    if explicit:
+        temp_root = os.path.realpath(os.path.expanduser(explicit))
+        if temp_root == "/tmp":
+            raise ValueError("FRONTRES_TMPDIR must name a private directory, not shared /tmp")
+    elif inherited and os.path.realpath(os.path.expanduser(inherited)) != "/tmp":
+        temp_root = os.path.realpath(os.path.expanduser(inherited))
+    else:
+        temp_root = os.path.join("/tmp", f"femr_{os.getuid()}")
+
+    # B2: 建立并验证唯一 temp authority, 供 tempfile 与 IsaacLab asset converter 共同消费.
+    os.makedirs(temp_root, mode=0o700, exist_ok=True)
+    if not os.path.isdir(temp_root) or not os.access(temp_root, os.W_OK | os.X_OK):
+        raise PermissionError(f"FrontRES runtime temp directory is not writable: {temp_root}")
+    os.environ["TMPDIR"] = temp_root
+    tempfile.tempdir = temp_root
+    return temp_root
+
+
+_FRONTRES_RUNTIME_TMPDIR = _prepare_frontres_runtime_temp_dir()
 
 os.environ.setdefault("WANDB_SILENT", "true")
 # B1: 将 wandb 本地文件绑定到当前 checkout 的日志根目录, 避免服务器绝对路径成为隐式依赖.
@@ -53,7 +81,7 @@ RANK = int(os.environ.get("RANK", "0"))
 LOCAL_RANK = int(os.environ.get("LOCAL_RANK", "0"))
 
 if WORLD_SIZE > 1:
-    base = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"isaaclab_kit_{os.getuid()}")
+    base = os.path.join(_FRONTRES_RUNTIME_TMPDIR, f"isaaclab_kit_{os.getuid()}")
     rank_dir = os.path.join(base, f"rank{RANK}")
     os.environ.setdefault("OMNI_USER_DIR", rank_dir)
     os.environ.setdefault("XDG_CACHE_HOME", os.path.join(rank_dir, "cache"))

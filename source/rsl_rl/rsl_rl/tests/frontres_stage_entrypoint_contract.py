@@ -82,6 +82,12 @@ def main() -> None:
     assert '"/workspace/"' not in train
     assert '"/hdd1/cyx/MOSAIC/"' not in train
     assert 'os.environ.setdefault("FEMR_ROOT", _FEMR_REPO_ROOT)' in train
+    assert "_FRONTRES_RUNTIME_TMPDIR = _prepare_frontres_runtime_temp_dir()" in train
+    assert train.index("_FRONTRES_RUNTIME_TMPDIR = _prepare_frontres_runtime_temp_dir()") < train.index(
+        "from isaaclab.app import AppLauncher"
+    )
+    assert 'temp_root = os.path.join("/tmp", f"femr_{os.getuid()}")' in train
+    assert 'tempfile.tempdir = temp_root' in train
     assert train.index("_prefer_local_femr_sources()") < train.index("from isaaclab.app import AppLauncher")
     assert train.index("_prefer_local_femr_sources()") < train.index("from whole_body_tracking.utils.my_on_policy_runner")
     assert 'stage2_authority' not in _between(

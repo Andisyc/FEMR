@@ -83,13 +83,37 @@
       "color": "#b45309",
       "functions": [
         {
+          "name": "_prepare_frontres_runtime_temp_dir",
+          "purpose": "Install one writable process temp root before importing IsaacLab.",
+          "annotationClass": "annotated",
+          "simpleKind": null,
+          "sourcePath": "scripts/rsl_rl/train.py",
+          "sourceLine": 24,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=24",
+          "blocks": [
+            {
+              "id": "B1",
+              "purpose": "解析显式或调度器提供的 temp root, 避免共享 /tmp/IsaacLab 的跨用户权限冲突.",
+              "sourceLine": 27,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=27"
+            },
+            {
+              "id": "B2",
+              "purpose": "建立并验证唯一 temp authority, 供 tempfile 与 IsaacLab asset converter 共同消费.",
+              "sourceLine": 39,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=39"
+            }
+          ],
+          "reviewRefs": []
+        },
+        {
           "name": "_default_frontres_segment_cache_dir",
           "purpose": "Return the portable Stage-1/Stage-3 cache default for this checkout.",
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 28,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=28",
+          "sourceLine": 56,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=56",
           "blocks": [],
           "reviewRefs": []
         },
@@ -99,8 +123,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 38,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=38",
+          "sourceLine": 66,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=66",
           "blocks": [],
           "reviewRefs": []
         },
@@ -110,8 +134,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 420,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=420",
+          "sourceLine": 448,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=448",
           "blocks": [],
           "reviewRefs": []
         },
@@ -121,8 +145,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 427,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=427",
+          "sourceLine": 455,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=455",
           "blocks": [],
           "reviewRefs": []
         },
@@ -132,8 +156,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 506,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=506",
+          "sourceLine": 534,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=534",
           "blocks": [],
           "reviewRefs": []
         },
@@ -143,8 +167,8 @@
           "annotationClass": "trivial",
           "simpleKind": "薄接口",
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 513,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=513",
+          "sourceLine": 541,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=541",
           "blocks": [],
           "reviewRefs": []
         },
@@ -154,8 +178,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 530,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=530",
+          "sourceLine": 558,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=558",
           "blocks": [],
           "reviewRefs": []
         },
@@ -165,8 +189,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 555,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=555",
+          "sourceLine": 583,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=583",
           "blocks": [],
           "reviewRefs": []
         },
@@ -176,44 +200,44 @@
           "annotationClass": "annotated",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 580,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=580",
+          "sourceLine": 608,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=608",
           "blocks": [
             {
               "id": "B1",
               "purpose": "读取 env perturbation owner 和 agent-side family selection.",
-              "sourceLine": 597,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=597"
+              "sourceLine": 625,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=625"
             },
             {
               "id": "B2",
               "purpose": "将选中 family 的参数写入环境配置, 不改变 full-6D policy output.",
-              "sourceLine": 603,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=603"
+              "sourceLine": 631,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=631"
             },
             {
               "id": "B3",
               "purpose": "打印最终 environment perturbation config, 证明该 branch 已完成写入.",
-              "sourceLine": 640,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=640"
+              "sourceLine": 668,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=668"
             },
             {
               "id": "B3",
               "purpose": "打印最终 environment perturbation config, 证明该 branch 已完成写入.",
-              "sourceLine": 703,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=703"
+              "sourceLine": 731,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=731"
             },
             {
               "id": "B3",
               "purpose": "打印最终 environment perturbation config, 证明该 branch 已完成写入.",
-              "sourceLine": 722,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=722"
+              "sourceLine": 750,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=750"
             },
             {
               "id": "B3",
               "purpose": "打印最终 environment perturbation config, 证明该 branch 已完成写入.",
-              "sourceLine": 744,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=744"
+              "sourceLine": 772,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=772"
             }
           ],
           "reviewRefs": []
@@ -224,8 +248,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 755,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=755",
+          "sourceLine": 783,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=783",
           "blocks": [],
           "reviewRefs": []
         },
@@ -235,8 +259,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 760,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=760",
+          "sourceLine": 788,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=788",
           "blocks": [],
           "reviewRefs": []
         },
@@ -246,8 +270,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 781,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=781",
+          "sourceLine": 809,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=809",
           "blocks": [],
           "reviewRefs": []
         },
@@ -257,32 +281,32 @@
           "annotationClass": "annotated",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 797,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=797",
+          "sourceLine": 825,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=825",
           "blocks": [
             {
               "id": "B1",
               "purpose": "在 Composition Root 拒绝旧 optimizer owner, 产出唯一 active Stage-3 route.",
-              "sourceLine": 837,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=837"
+              "sourceLine": 865,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=865"
             },
             {
               "id": "B1",
               "purpose": "Configure module-local audit probes before Stage 3 owners execute.",
-              "sourceLine": 991,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=991"
+              "sourceLine": 1019,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1019"
             },
             {
               "id": "B2",
               "purpose": "Persist the same audit flag in the algorithm config consumed by the runner.",
-              "sourceLine": 994,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=994"
+              "sourceLine": 1022,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1022"
             },
             {
               "id": "B3",
               "purpose": "AUDIT-PERTURB-01 records the finalized preset consumed by sampler/rollout owners.",
-              "sourceLine": 1045,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1045"
+              "sourceLine": 1073,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1073"
             }
           ],
           "reviewRefs": []
@@ -293,8 +317,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1096,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1096",
+          "sourceLine": 1124,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1124",
           "blocks": [],
           "reviewRefs": []
         },
@@ -304,8 +328,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1110,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1110",
+          "sourceLine": 1138,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1138",
           "blocks": [],
           "reviewRefs": []
         },
@@ -315,8 +339,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1126,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1126",
+          "sourceLine": 1154,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1154",
           "blocks": [],
           "reviewRefs": []
         },
@@ -326,8 +350,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1140,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1140",
+          "sourceLine": 1168,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1168",
           "blocks": [],
           "reviewRefs": []
         },
@@ -337,8 +361,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1161,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1161",
+          "sourceLine": 1189,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1189",
           "blocks": [],
           "reviewRefs": []
         },
@@ -348,8 +372,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1171,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1171",
+          "sourceLine": 1199,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1199",
           "blocks": [],
           "reviewRefs": []
         },
@@ -359,8 +383,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1175,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1175",
+          "sourceLine": 1203,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1203",
           "blocks": [],
           "reviewRefs": []
         },
@@ -370,8 +394,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1182,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1182",
+          "sourceLine": 1210,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1210",
           "blocks": [],
           "reviewRefs": []
         },
@@ -381,8 +405,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1221,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1221",
+          "sourceLine": 1249,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1249",
           "blocks": [],
           "reviewRefs": []
         },
@@ -392,14 +416,14 @@
           "annotationClass": "annotated",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1245,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1245",
+          "sourceLine": 1273,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1273",
           "blocks": [
             {
               "id": "B1",
               "purpose": "将 active H=(1,2) 写入采样 owner, 在 reset 前排除末尾非法起点.",
-              "sourceLine": 1253,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1253"
+              "sourceLine": 1281,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1281"
             }
           ],
           "reviewRefs": []
@@ -410,8 +434,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1262,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1262",
+          "sourceLine": 1290,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1290",
           "blocks": [],
           "reviewRefs": []
         },
@@ -421,8 +445,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1294,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1294",
+          "sourceLine": 1322,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1322",
           "blocks": [],
           "reviewRefs": []
         },
@@ -432,8 +456,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1417,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1417",
+          "sourceLine": 1445,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1445",
           "blocks": [],
           "reviewRefs": []
         },
@@ -443,8 +467,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
-          "sourceLine": 1438,
-          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1438",
+          "sourceLine": 1466,
+          "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1466",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22413,10 +22437,10 @@
   ],
   "scan": {
     "pythonFiles": 68,
-    "uniqueFunctions": 1425,
-    "functionOccurrences": 1727,
-    "uniqueBlocks": 310,
-    "blockOccurrences": 376,
+    "uniqueFunctions": 1426,
+    "functionOccurrences": 1728,
+    "uniqueBlocks": 312,
+    "blockOccurrences": 378,
     "unresolvedPaths": [
       "source/rsl_rl/rsl_rl/frontres/frontres_action_cone.py",
       "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py",
