@@ -7879,3 +7879,34 @@ Verdict: the observation-trace producer lifecycle is
 owner-lifecycle-contract-confirmed offline. No assertion was weakened and no
 dimension was silently defaulted. `AUDIT-B02` through `AUDIT-B08` remain
 live-pending until the bounded official transaction is rerun.
+
+## E-FI-126: Phase B Float32 Return-Audit Closure
+
+Date: 2026-08-05
+
+Observed runtime fact:
+
+- the following GPU7 run emitted `AUDIT-B02` and the complete `AUDIT-B05`
+  v007 decomposition, then stopped before `AUDIT-B06`;
+- the four real `G_total` rows included values near `-1.3e6` and `-2.3e6`.
+  Formal storage computed `return_mean` with a float32 tensor reduction as
+  `-905227.125`, while the audit recomputed the serialized Python floats with
+  double-precision `sum(...)/4` as `-905227.141563...` and rejected the valid
+  transaction at an absolute tolerance of `1e-6`.
+
+Offline repair and evidence:
+
+- `AUDIT-B06` now reconstructs the authoritative float32 return rows before
+  checking mean/min/max. It does not alter Gain, returns, PPO, transaction
+  state or the producer diagnostics;
+- the regression uses the exact magnitude and non-associative row pattern from
+  the live run, proves the float32 result is accepted, and proves a `+1.0`
+  corrupted serialized mean is still rejected;
+- the focused formal runtime-audit and formal transaction contracts pass,
+  Python compilation passes, and the active aggregate suite reports `49/49`
+  with `failed_count=0`.
+
+Verdict: the B06 numeric oracle is owner-lifecycle-contract-confirmed offline.
+`AUDIT-B02` and `AUDIT-B05` are live-confirmed by this run. `AUDIT-B06` through
+`AUDIT-B08` still require the bounded official rerun; no Gain/PPO method or
+policy-quality claim is changed.

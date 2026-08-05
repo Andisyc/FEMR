@@ -689,10 +689,14 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
     gains = tuple(float(value) for value in telemetry["gain_total"])
     assert int(telemetry.get("active_k", -1)) == 8
     assert tuple(bool(value) for value in telemetry.get("valid_policy_row_mask", ())) == (True,) * 4
-    assert math.isclose(float(telemetry["return_mean"]), sum(gains) / rows, abs_tol=1e-6)
-    assert math.isclose(float(telemetry["return_min"]), min(gains), abs_tol=1e-6)
-    assert math.isclose(float(telemetry["return_max"]), max(gains), abs_tol=1e-6)
-    # AUDIT-B06: 检查每个 attempt 只写一条 PPO row 且 return=G_total.
+    # AUDIT-B06: 复现正式 float32 return reduction, 检查每条 PPO row 的 return=G_total.
+    expected_returns = torch.tensor(gains, dtype=torch.float32)
+    expected_return_mean = float(expected_returns.mean().item())
+    expected_return_min = float(expected_returns.min().item())
+    expected_return_max = float(expected_returns.max().item())
+    assert math.isclose(float(telemetry["return_mean"]), expected_return_mean, rel_tol=0.0, abs_tol=1e-6)
+    assert math.isclose(float(telemetry["return_min"]), expected_return_min, rel_tol=0.0, abs_tol=1e-6)
+    assert math.isclose(float(telemetry["return_max"]), expected_return_max, rel_tol=0.0, abs_tol=1e-6)
     # Result: PENDING_LIVE.
     emit_formal_runtime_probe(
         "AUDIT-B06",

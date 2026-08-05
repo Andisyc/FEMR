@@ -2,6 +2,16 @@
 
 Updated: 2026-08-05
 
+## Phase B Float32 Return-Audit Closure E-FI-126
+
+- the latest GPU7 run live-confirmed B02 and B05, then exposed an audit-only
+  mismatch between formal float32 return reduction and Python double-precision
+  recomputation at million-scale negative Gain;
+- the focused regression reproduces the exact row pattern, accepts the formal
+  float32 mean and rejects a corrupted mean without changing Gain/PPO;
+- formal audit/transaction contracts, Python compilation and the active
+  `49/49` aggregate suite pass. B06-B08 remain live-pending.
+
 ## Phase B Observation-Trace Producer Closure E-FI-125
 
 - the fourth GPU7 run proved the real 928/158/770 tensors were correct, then

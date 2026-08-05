@@ -405,6 +405,57 @@ def test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners() -> None:
     assert "cache_horizon_k=batch.horizon_k" in dataset_source
 
 
+def test_phase_b_return_audit_reproduces_float32_reduction() -> None:
+    runner = _runner()
+    gains = (0.7266710996627808, -1314020.0, -0.04292364418506622, -2306889.25)
+    telemetry = {
+        "transaction_id": "tx-v017-float32",
+        "source_index": (0, 0, 1, 1),
+        "trial_index": (0, 1, 0, 1),
+        "scenario_ids": ("s0", "s0", "s1", "s1"),
+        "noisy_segment_hashes": ("h0", "h0", "h1", "h1"),
+        "policy_row_count": 4,
+        "active_k": 8,
+        "active_m": 2,
+        "selected_segment_count": 2,
+        "valid_policy_row_mask": (True,) * 4,
+        "clean_execution_count": (1, 1),
+        "noisy_execution_count": (1, 1),
+        "intent_remaining_noisy": (0.4,) * 4,
+        "intent_remaining_repaired": (0.2,) * 4,
+        "physics_remaining_noisy": (0.5,) * 4,
+        "physics_remaining_repaired": (0.4,) * 4,
+        "intent_gain": gains,
+        "physics_gain": gains,
+        "recovery_pressure": (1.0,) * 4,
+        "weighted_physics_gain": gains,
+        "repair_cost": (0.01,) * 4,
+        "repair_penalty": (0.01,) * 4,
+        "cost_free_score": gains,
+        "gain_total": gains,
+        "return_mean": float(torch.tensor(gains, dtype=torch.float32).mean().item()),
+        "return_min": min(gains),
+        "return_max": max(gains),
+        "grouped_reduction_active": True,
+        "grouped_segment_mass_shares": (0.5, 0.5),
+        "grouped_attempt_mass_shares": (0.25,) * 4,
+        "optimizer_step_delta": 1,
+        "update_count": 1,
+        "warmup_phase": "critic_only",
+        "actor_std_parameter_delta": {"param_delta_max_abs": 0.0},
+        "critic_parameter_delta": {"param_delta_max_abs": 0.1},
+    }
+    audit.print_phase_b_telemetry_audit(runner, telemetry=telemetry)
+
+    corrupted = {**telemetry, "return_mean": telemetry["return_mean"] + 1.0}
+    try:
+        audit.print_phase_b_telemetry_audit(runner, telemetry=corrupted)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("AUDIT-B06 accepted a corrupted float32 return mean")
+
+
 def test_active_k_audit_ids_exclude_legacy_state_driven_sampler() -> None:
     audit_source = AUDIT_PATH.read_text()
     sampler_source = (
@@ -552,6 +603,7 @@ if __name__ == "__main__":
     test_phase_b_one_action_and_final_telemetry_are_fail_closed()
     test_checkpoint_audit_rejects_missing_or_mixed_v013_curriculum()
     test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners()
+    test_phase_b_return_audit_reproduces_float32_reduction()
     test_active_k_audit_ids_exclude_legacy_state_driven_sampler()
     test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow()
     test_reset_lifecycle_audit_is_role_aware_and_separates_timeout_from_termination()

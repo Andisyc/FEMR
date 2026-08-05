@@ -6,8 +6,10 @@ adds and offline-tests the eight Phase B fail-closed runtime checks. E-FI-122
 records the first official run: B01 passed, then the first Clean reset exposed
 and offline-closed an install-before-mode lifecycle defect. E-FI-123 records
 that the rerun crossed reset/observation/action/K execution, then exposed and
-offline-closed mixed `[K,4]`/`[K,8]` Repair trajectory rows; B02-B08 require the
-same bounded live rerun. No
+offline-closed mixed `[K,4]`/`[K,8]` Repair trajectory rows. E-FI-124 and
+E-FI-125 close the following grouped-batch and observation-trace boundaries.
+E-FI-126 records live B02/B05 and closes the audit-only float32 return
+reduction mismatch; B06-B08 still require the same bounded live rerun. No
 Gain/PPO semantics or live boundary was reopened
 under `FRS-METHOD-v017 / FRS-GAIN-v007 / FRS-PPO-v005 / FRS-TRAIN-v014 /
 FRS-EVAL-v004`. E-FI-105 proves the previous v012 module surface;
@@ -421,7 +423,9 @@ request builder's missing grouped-batch dependency and checks the remaining
 request-to-checkpoint owner chain for unresolved production symbols; B02-B08
 remain live-pending. E-FI-125 then closes the active v017 Repair collector's
 missing 58D command and 289D Critic trace producers without weakening the final
-authority assertion; B02-B08 remain live-pending.
+authority assertion. E-FI-126 then live-confirms B02/B05 and closes the B06
+float32 reduction oracle offline without changing Gain or returns; B06-B08
+remain live-pending.
 
 ### DP10 Future Motion Context Offline Readiness Closure
 
