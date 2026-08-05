@@ -10,12 +10,14 @@ set -euo pipefail
 #
 # B1: Runtime owner. Select GPU and log sink.
 
+FEMR_ROOT="${FEMR_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+FEMR_DATA_ROOT="${FEMR_DATA_ROOT:-$(dirname "${FEMR_ROOT}")}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-2}"
-LOG_PATH="${LOG_PATH:-/hdd1/cyx/FEMR/train_stage2_hsl_warmup.txt}"
+LOG_PATH="${LOG_PATH:-${FEMR_ROOT}/train_stage2_hsl_warmup.txt}"
 
 # B2: Training contract. Positional args are shortcuts for these values.
 
-MOTION_PATH="${1:-/hdd1/cyx/AMASS_G1NPZ_Final}"
+MOTION_PATH="${1:-${FEMR_DATA_ROOT}/AMASS_G1NPZ_Final}"
 NUM_ENVS="${2:-12000}"
 MAX_ITERS="${3:-200}"
 
@@ -28,13 +30,15 @@ LOG_PROJECT_NAME="${LOG_PROJECT_NAME:-FEMR}"
 RUN_NAME="${RUN_NAME:-FEMR_STAGE2_HSL_WARMUP}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
 
-cd "$(dirname "$0")"
+cd "${FEMR_ROOT}"
 
 export CUDA_VISIBLE_DEVICES
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
-export FEMR_LOG_ROOT="${FEMR_LOG_ROOT:-/hdd1/cyx/FEMR}"
-export WANDB_DIR="${WANDB_DIR:-/hdd1/cyx/FEMR}"
-export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-/hdd1/cyx/FEMR/.wandb_cache}"
+export FEMR_ROOT
+export FEMR_DATA_ROOT
+export FEMR_LOG_ROOT="${FEMR_LOG_ROOT:-${FEMR_ROOT}}"
+export WANDB_DIR="${WANDB_DIR:-${FEMR_LOG_ROOT}}"
+export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-${FEMR_LOG_ROOT}/.wandb_cache}"
 
 if [[ "${NPROC_PER_NODE}" -gt 1 ]]; then
   LAUNCH=(torchrun --standalone --nnodes=1 --nproc_per_node="${NPROC_PER_NODE}" scripts/rsl_rl/train.py --distributed)

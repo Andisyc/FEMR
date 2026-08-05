@@ -10,14 +10,16 @@ set -euo pipefail
 #
 # B1: Runtime owner. Select GPU, cache, and log sink.
 
+FEMR_ROOT="${FEMR_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+FEMR_DATA_ROOT="${FEMR_DATA_ROOT:-$(dirname "${FEMR_ROOT}")}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-2}"
-CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"
-LOG_PATH="${LOG_PATH:-/hdd1/cyx/FEMR/train_stage3_segment_hrl.txt}"
+CACHE_DIR="${CACHE_DIR:-${FEMR_DATA_ROOT}/AMASS_G1Segment}"
+LOG_PATH="${LOG_PATH:-${FEMR_ROOT}/train_stage3_segment_hrl.txt}"
 
 # B2: Model and dataset contract. Positional args only override these two.
 
-MODEL_PATH="${1:-/hdd1/cyx/FEMR/model/model_warmup.pt}"
-MOTION_PATH="${2:-/hdd1/cyx/AMASS_G1NPZ_Final}"
+MODEL_PATH="${1:-${FEMR_ROOT}/model/model_warmup.pt}"
+MOTION_PATH="${2:-${FEMR_DATA_ROOT}/AMASS_G1NPZ_Final}"
 
 # B3: Stage 3 training schedule.
 
@@ -57,13 +59,15 @@ if [[ "${FRONTRES_G5_S4_BOUNDED}" == "1" ]]; then
   RUN_NAME="G5_S4_BOUND_V015"
 fi
 
-cd "$(dirname "$0")"
+cd "${FEMR_ROOT}"
 
 export CUDA_VISIBLE_DEVICES
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
-export FEMR_LOG_ROOT="${FEMR_LOG_ROOT:-/hdd1/cyx/FEMR}"
-export WANDB_DIR="${WANDB_DIR:-/hdd1/cyx/FEMR}"
-export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-/hdd1/cyx/FEMR/.wandb_cache}"
+export FEMR_ROOT
+export FEMR_DATA_ROOT
+export FEMR_LOG_ROOT="${FEMR_LOG_ROOT:-${FEMR_ROOT}}"
+export WANDB_DIR="${WANDB_DIR:-${FEMR_LOG_ROOT}}"
+export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-${FEMR_LOG_ROOT}/.wandb_cache}"
 export CACHE_DIR
 export SHARD_CACHE_SIZE
 export LOG_PROJECT_NAME

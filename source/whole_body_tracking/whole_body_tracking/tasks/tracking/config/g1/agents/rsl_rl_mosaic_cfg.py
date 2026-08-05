@@ -801,8 +801,14 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     dr_p_gain                      = 0.10   # P: reacts to error change (damping)
     dr_i_gain                      = 0.01   # I: reacts to error level  (steady-state)
 
-    # 两台服务器上的 MOSAIC 根目录（不含实验子目录）
-    candidate_gmt_paths = [
+    # B1: 优先读取显式 GMT artifact, 否则从当前 FEMR checkout 与已知服务器候选中解析.
+    configured_gmt_checkpoint = str(os.environ.get("FRONTRES_GMT_CHECKPOINT", "") or "").strip()
+    default_femr_root = os.path.abspath(os.path.join(os.path.dirname(__file__), *([os.pardir] * 9)))
+    femr_root = os.path.abspath(os.environ.get("FEMR_ROOT", default_femr_root))
+    if configured_gmt_checkpoint and not os.path.isfile(configured_gmt_checkpoint):
+        raise FileNotFoundError(f"Configured FrontRES GMT checkpoint does not exist: {configured_gmt_checkpoint}")
+    candidate_gmt_paths = ([configured_gmt_checkpoint] if configured_gmt_checkpoint else []) + [
+        os.path.join(femr_root, "model", "model_27000.pt"),
         "/home/yuxuancheng/MOSAIC/model/model_27000.pt", # SUST_Main_1
         "/hdd1/cyx/MOSAIC/model/model_27000.pt", # SUST_Main_2
     ]

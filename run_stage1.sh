@@ -10,16 +10,18 @@ set -euo pipefail
 #
 # B1: Runtime owner. Select GPU, python env, and log sink.
 
+FEMR_ROOT="${FEMR_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+FEMR_DATA_ROOT="${FEMR_DATA_ROOT:-$(dirname "${FEMR_ROOT}")}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-3}"
-PYTHON_BIN="${PYTHON_BIN:-/hdd1/cyx/miniconda3/envs/mosaic/bin/python}"
-LOG_PATH="${LOG_PATH:-/hdd1/cyx/FEMR/train_stage1_segment_index_full.txt}"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python)}"
+LOG_PATH="${LOG_PATH:-${FEMR_ROOT}/train_stage1_segment_index_full.txt}"
 
 # B2: Dataset and artifact contract. Positional args are shortcuts for these.
 
-MOTION_PATH="${1:-/hdd1/cyx/AMASS_G1NPZ_Final}"
+MOTION_PATH="${1:-${FEMR_DATA_ROOT}/AMASS_G1NPZ_Final}"
 NUM_ENVS="${2:-1}"
 SEGMENT_K="${3:-4}"
-CACHE_DIR="${4:-/hdd1/cyx/AMASS_G1Segment}"
+CACHE_DIR="${4:-${FEMR_DATA_ROOT}/AMASS_G1Segment}"
 
 # B3: Stage 1 mode. Index mode is the normal fast precompute path.
 
@@ -66,13 +68,15 @@ VARIANTS_PER_STRENGTH="${VARIANTS_PER_STRENGTH:-1}"
 VALIDATION_MIN_SEGMENTS="${VALIDATION_MIN_SEGMENTS:-1}"
 VALIDATION_MIN_NOISY="${VALIDATION_MIN_NOISY:-1}"
 
-cd "$(dirname "$0")"
+cd "${FEMR_ROOT}"
 
 export CUDA_VISIBLE_DEVICES
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
-export FEMR_LOG_ROOT="${FEMR_LOG_ROOT:-/hdd1/cyx/FEMR}"
-export WANDB_DIR="${WANDB_DIR:-/hdd1/cyx/FEMR}"
-export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-/hdd1/cyx/FEMR/.wandb_cache}"
+export FEMR_ROOT
+export FEMR_DATA_ROOT
+export FEMR_LOG_ROOT="${FEMR_LOG_ROOT:-${FEMR_ROOT}}"
+export WANDB_DIR="${WANDB_DIR:-${FEMR_LOG_ROOT}}"
+export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-${FEMR_LOG_ROOT}/.wandb_cache}"
 export DEVICE
 export PYTHON_BIN
 export MAX_MOTIONS

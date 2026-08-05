@@ -10,14 +10,16 @@ if [[ $# -lt 1 ]]; then
   echo "CACHE_CHUNK_SIZE controls how many cache records are written per payload shard."
   echo "Set FRONTRES_STAGE1_PREFLIGHT_ONLY=1 to print and validate the startup command without launching IsaacLab."
   echo "Example:"
-  echo "  MAX_MOTIONS=all MAX_SEGMENTS=all CACHE_CHUNK_SIZE=128 bash run/run_frontres_stage1_segment_cache.sh /path/to/motions 12000 4 /hdd1/cyx/AMASS_G1Segment"
+  echo "  MAX_MOTIONS=all MAX_SEGMENTS=all CACHE_CHUNK_SIZE=128 bash run/run_frontres_stage1_segment_cache.sh /path/to/motions 12000 4 /path/to/AMASS_G1Segment"
   exit 1
 fi
 
 MOTION_PATH="$1"
+FEMR_ROOT="${FEMR_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+FEMR_DATA_ROOT="${FEMR_DATA_ROOT:-$(dirname "${FEMR_ROOT}")}"
 NUM_ENVS="${2:-12000}"
 SEGMENT_K="${3:-4}"
-CACHE_DIR="${4:-/hdd1/cyx/AMASS_G1Segment}"
+CACHE_DIR="${4:-${FEMR_DATA_ROOT}/AMASS_G1Segment}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
 DEVICE="${DEVICE:-cuda:0}"
 LOG_PROJECT_NAME="${LOG_PROJECT_NAME:-FEMR}"

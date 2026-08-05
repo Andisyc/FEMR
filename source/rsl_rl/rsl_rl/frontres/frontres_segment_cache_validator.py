@@ -133,7 +133,7 @@ def format_stage1_cache_validation_probe(result: FrontRESStage1CacheValidationRe
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate a FrontRES Stage 1 Segment cache without IsaacLab.")
-    parser.add_argument("cache_dir", type=str, help="Stage 1 cache directory, e.g. /hdd1/cyx/AMASS_G1Segment")
+    parser.add_argument("cache_dir", type=str, help="Stage 1 cache directory, e.g. /path/to/AMASS_G1Segment")
     parser.add_argument("--expect-mode", type=str, default=None, help="Expected perturbation_curriculum_mode.")
     parser.add_argument("--min-segments", type=int, default=1, help="Minimum segment count required.")
     parser.add_argument("--min-noisy", type=int, default=1, help="Minimum noisy variant count required.")

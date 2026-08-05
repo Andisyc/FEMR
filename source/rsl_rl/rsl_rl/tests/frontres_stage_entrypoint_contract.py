@@ -81,6 +81,7 @@ def main() -> None:
     assert 'candidate_base_paths' not in train
     assert '"/workspace/"' not in train
     assert '"/hdd1/cyx/MOSAIC/"' not in train
+    assert 'os.environ.setdefault("FEMR_ROOT", _FEMR_REPO_ROOT)' in train
     assert train.index("_prefer_local_femr_sources()") < train.index("from isaaclab.app import AppLauncher")
     assert train.index("_prefer_local_femr_sources()") < train.index("from whole_body_tracking.utils.my_on_policy_runner")
     assert 'stage2_authority' not in _between(
@@ -118,7 +119,8 @@ def main() -> None:
     assert "def _exit_frontres_stage1_segment_cache(env) -> None:" in train
     assert "[FrontRES Stage1 Segment Cache] auto_exit" in train
     assert "os._exit(0)" in train
-    assert 'return "/hdd1/cyx/AMASS_G1Segment"' in train
+    assert "def _default_frontres_segment_cache_dir() -> str:" in train
+    assert "return os.path.join(data_root, \"AMASS_G1Segment\")" in train
     assert "[FrontRES Stage1 Segment Cache] live_sentinel" in train
     assert "FrontRESStage1EnvAdapter" in train
     assert "_frontres_stage1_motion_loader_probe(adapter, requested_max_motions=max_motions)" in train
@@ -190,7 +192,7 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", 1 if live_train_enabled else live_update_steps)',
         '_set_if_present(alg_cfg, "frontres_hsl_init_enabled", False)',
         '_set_if_present(alg_cfg, "frontres_segment_k", int(k_curriculum[0][0]))',
-        'segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or "/hdd1/cyx/AMASS_G1Segment"',
+        'segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or _default_frontres_segment_cache_dir()',
         'shard_cache_size = max(1, int(getattr(args_cli, "frontres_segment_shard_cache_size", 8)))',
         '_set_if_present(alg_cfg, "frontres_segment_cache_dir", str(segment_cache_dir))',
         '_set_if_present(alg_cfg, "frontres_segment_shard_cache_size", shard_cache_size)',
@@ -343,7 +345,7 @@ def main() -> None:
     assert '--frontres_segment_cache_curriculum_burst_min_steps "${CURRICULUM_BURST_MIN_STEPS}"' in stage1_cache
     assert '--frontres_segment_cache_curriculum_burst_max_steps "${CURRICULUM_BURST_MAX_STEPS}"' in stage1_cache
     assert 'CMD+=(--frontres_segment_cache_curriculum_include_hard_as_train)' in stage1_cache
-    assert 'CACHE_DIR="${4:-/hdd1/cyx/AMASS_G1Segment}"' in stage1_cache
+    assert 'CACHE_DIR="${4:-${FEMR_DATA_ROOT}/AMASS_G1Segment}"' in stage1_cache
     assert 'g1_flat_frontres_stage1_segment_cache' in stage1_cache
     assert 'Stage 1 builds the Segment Replay cache' in stage1_cache
     assert 'After a successful build, the script validates the written cache by default.' in stage1_cache
@@ -358,7 +360,7 @@ def main() -> None:
     assert '[[ "${PERTURBATION_MODE}" == "hrl_curriculum_bank" ]]' in stage1_cache
     assert '[[ "${CURRICULUM_INCLUDE_HARD_AS_TRAIN:-0}" != "1" ]]' in stage1_cache
     assert 'VALIDATE_CMD+=(--require-boundary-diagnostic)' in stage1_cache
-    assert 'CACHE_DIR="${1:-/hdd1/cyx/AMASS_G1Segment}"' in stage1_cache_validator
+    assert 'CACHE_DIR="${1:-${FEMR_DATA_ROOT}/AMASS_G1Segment}"' in stage1_cache_validator
     assert 'EXPECT_MODE="${EXPECT_MODE:-hrl_curriculum_bank}"' in stage1_cache_validator
     assert 'MIN_SEGMENTS="${MIN_SEGMENTS:-1}"' in stage1_cache_validator
     assert 'MIN_NOISY="${MIN_NOISY:-1}"' in stage1_cache_validator
@@ -386,7 +388,7 @@ def main() -> None:
     assert 'VARIANTS_PER_STRENGTH="${VARIANTS_PER_STRENGTH:-1}"' in root_stage1
     assert 'VALIDATION_MIN_SEGMENTS="${VALIDATION_MIN_SEGMENTS:-1}"' in root_stage1
     assert 'VALIDATION_MIN_NOISY="${VALIDATION_MIN_NOISY:-1}"' in root_stage1
-    assert 'LOG_PATH="${LOG_PATH:-/hdd1/cyx/FEMR/train_stage1_segment_index_full.txt}"' in root_stage1
+    assert 'LOG_PATH="${LOG_PATH:-${FEMR_ROOT}/train_stage1_segment_index_full.txt}"' in root_stage1
     assert 'build_rollout_cache=${STAGE1_BUILD_ROLLOUT_CACHE}' in root_stage1
     assert 'cache_chunk_size=${CACHE_CHUNK_SIZE}' in root_stage1
     assert '--frontres_stage stage2_hsl_warmup' in root_stage2
@@ -394,10 +396,10 @@ def main() -> None:
     assert 'SUPERVISED_WARMUP_ITERS="${SUPERVISED_WARMUP_ITERS:-${MAX_ITERS}}"' in root_stage2
     assert 'stage2_acceptance' not in root_stage2
     assert 'acceptance' not in root_stage2.lower()
-    assert 'MODEL_PATH="${1:-/hdd1/cyx/FEMR/model/model_warmup.pt}"' in root_stage3
+    assert 'MODEL_PATH="${1:-${FEMR_ROOT}/model/model_warmup.pt}"' in root_stage3
     assert 'EXTRA_TRAIN_ARGS=("${@:7}")' in root_stage3
     assert 'bash run/run_frontres_stage3_segment_hrl.sh' in root_stage3
-    assert 'CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"' in root_stage3
+    assert 'CACHE_DIR="${CACHE_DIR:-${FEMR_DATA_ROOT}/AMASS_G1Segment}"' in root_stage3
     assert 'SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"' in root_stage3
     assert 'export CACHE_DIR' in root_stage3
     assert 'export SHARD_CACHE_SIZE' in root_stage3
@@ -420,7 +422,7 @@ def main() -> None:
     assert 'CHECKPOINT_INTERVAL="${FRONTRES_CHECKPOINT_INTERVAL:-1}"' in stage3
     assert 'TRAIN_CMD+=(--frontres_checkpoint_interval "${CHECKPOINT_INTERVAL}")' in stage3
     assert '--frontres_formal_runtime_audit' in stage3
-    assert 'CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"' in stage3
+    assert 'CACHE_DIR="${CACHE_DIR:-${FEMR_DATA_ROOT}/AMASS_G1Segment}"' in stage3
     assert 'SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"' in stage3
     assert 'EXTRA_TRAIN_ARGS=("${@:7}")' in stage3
     assert 'SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size.' in stage3
@@ -442,6 +444,27 @@ def main() -> None:
     assert 'stage2_acceptance' not in stage3
     assert 'Stage 3 loads an HSL Delta SE proposal checkpoint' in stage3
     assert '"/hdd1/cyx/MOSAIC/"' not in stage3
+    for active_path in (train, stage1_cache, stage1_cache_validator, root_stage1, root_stage2, root_stage3, stage3):
+        assert "/hdd1/cyx" not in active_path
+
+    mosaic_cfg = (
+        ROOT
+        / "source"
+        / "whole_body_tracking"
+        / "whole_body_tracking"
+        / "tasks"
+        / "tracking"
+        / "config"
+        / "g1"
+        / "agents"
+        / "rsl_rl_mosaic_cfg.py"
+    ).read_text(encoding="utf-8")
+    assert 'os.environ.get("FRONTRES_GMT_CHECKPOINT", "")' in mosaic_cfg
+    assert 'os.path.join(os.path.dirname(__file__), *([os.pardir] * 9))' in mosaic_cfg
+    assert 'os.environ.get("FEMR_ROOT", default_femr_root)' in mosaic_cfg
+    assert 'if configured_gmt_checkpoint and not os.path.isfile(configured_gmt_checkpoint):' in mosaic_cfg
+    assert 'raise FileNotFoundError(f"Configured FrontRES GMT checkpoint does not exist:' in mosaic_cfg
+    assert 'os.path.join(femr_root, "model", "model_27000.pt")' in mosaic_cfg
     assert not (ROOT / 'run/run_frontres_stage2_authority.sh').exists()
     legacy = ROOT / 'run/legacy/run_frontres_stage2_authority.sh'
     assert not legacy.exists()

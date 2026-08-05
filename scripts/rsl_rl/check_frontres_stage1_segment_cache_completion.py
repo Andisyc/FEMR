@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -12,6 +13,7 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[2]
+DATA_ROOT = Path(os.environ.get("FEMR_DATA_ROOT", ROOT.parent)).expanduser().resolve()
 SOURCE_ROOT = ROOT / "source" / "rsl_rl"
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
@@ -160,8 +162,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Compare AMASS_G1NPZ_Final with AMASS_G1Segment and report whether Stage 1 cache finished."
     )
-    parser.add_argument("--amass-root", default="/hdd1/cyx/AMASS_G1NPZ_Final")
-    parser.add_argument("--cache-dir", default="/hdd1/cyx/AMASS_G1Segment")
+    parser.add_argument("--amass-root", default=str(DATA_ROOT / "AMASS_G1NPZ_Final"))
+    parser.add_argument("--cache-dir", default=str(DATA_ROOT / "AMASS_G1Segment"))
     parser.add_argument("--horizon-k", type=int, default=4)
     parser.add_argument("--frame-stride", type=int, default=1)
     parser.add_argument("--max-motions", default="all")

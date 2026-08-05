@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CACHE_DIR="${1:-/hdd1/cyx/AMASS_G1Segment}"
+FEMR_ROOT="${FEMR_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+FEMR_DATA_ROOT="${FEMR_DATA_ROOT:-$(dirname "${FEMR_ROOT}")}"
+CACHE_DIR="${1:-${FEMR_DATA_ROOT}/AMASS_G1Segment}"
 EXPECT_MODE="${EXPECT_MODE:-hrl_curriculum_bank}"
 MIN_SEGMENTS="${MIN_SEGMENTS:-1}"
 MIN_NOISY="${MIN_NOISY:-1}"

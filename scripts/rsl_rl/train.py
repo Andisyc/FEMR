@@ -14,18 +14,32 @@ import signal
 import threading
 import traceback
 
+_FEMR_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+_FEMR_DATA_ROOT = os.path.abspath(os.environ.get("FEMR_DATA_ROOT", os.path.dirname(_FEMR_REPO_ROOT)))
+_FEMR_LOG_ROOT = os.path.abspath(os.environ.get("FEMR_LOG_ROOT", _FEMR_REPO_ROOT))
+os.environ.setdefault("FEMR_ROOT", _FEMR_REPO_ROOT)
+
 os.environ.setdefault("WANDB_SILENT", "true")
-# Redirect wandb local run files to HDD to avoid filling /home
-os.environ.setdefault("WANDB_DIR", "/hdd0/yuxuancheng/FEMR")
-os.environ.setdefault("WANDB_CACHE_DIR", "/hdd0/yuxuancheng/FEMR/.wandb_cache")
+# B1: 将 wandb 本地文件绑定到当前 checkout 的日志根目录, 避免服务器绝对路径成为隐式依赖.
+os.environ.setdefault("WANDB_DIR", _FEMR_LOG_ROOT)
+os.environ.setdefault("WANDB_CACHE_DIR", os.path.join(_FEMR_LOG_ROOT, ".wandb_cache"))
+
+
+def _default_frontres_segment_cache_dir() -> str:
+    """Return the portable Stage-1/Stage-3 cache default for this checkout."""
+
+    configured = str(os.environ.get("CACHE_DIR", "") or "").strip()
+    if configured:
+        return os.path.abspath(configured)
+    data_root = os.path.abspath(os.environ.get("FEMR_DATA_ROOT", _FEMR_DATA_ROOT))
+    return os.path.join(data_root, "AMASS_G1Segment")
 
 
 def _prefer_local_femr_sources() -> None:
     """Make this FEMR checkout win over any installed or MOSAIC source tree."""
 
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
     for rel_path in ("source/whole_body_tracking", "source/rsl_rl"):
-        source_path = os.path.join(repo_root, rel_path)
+        source_path = os.path.join(_FEMR_REPO_ROOT, rel_path)
         if os.path.isdir(source_path):
             if source_path in sys.path:
                 sys.path.remove(source_path)
@@ -1039,7 +1053,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
                 f"max_horizon_k={getattr(alg_cfg, 'frontres_segment_max_horizon_k', 'missing')}",
                 flush=True,
             )
-        segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or "/hdd1/cyx/AMASS_G1Segment"
+        segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or _default_frontres_segment_cache_dir()
         shard_cache_size = max(1, int(getattr(args_cli, "frontres_segment_shard_cache_size", 8)))
         _set_if_present(alg_cfg, "frontres_segment_cache_dir", str(segment_cache_dir))
         _set_if_present(alg_cfg, "frontres_segment_shard_cache_size", shard_cache_size)
@@ -1162,7 +1176,7 @@ def _frontres_stage1_segment_cache_dir(args_cli, log_dir: str) -> str:
     cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None)
     if cache_dir:
         return os.path.abspath(str(cache_dir))
-    return "/hdd1/cyx/AMASS_G1Segment"
+    return _default_frontres_segment_cache_dir()
 
 
 def _configure_frontres_stage1_segment_cache_env_cfg(env_cfg, args_cli) -> None:
@@ -1484,8 +1498,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # specify directory for logging experiments
     # log_root_path 根据 experiment_name 自动派生，避免不同训练阶段的 checkpoint 混入同一目录。
     # 默认绑定当前 FEMR checkout；FEMR_LOG_ROOT 可显式覆盖到服务器磁盘路径。
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
-    base_path = os.path.abspath(os.environ.get("FEMR_LOG_ROOT", repo_root))
+    base_path = os.path.abspath(os.environ.get("FEMR_LOG_ROOT", _FEMR_REPO_ROOT))
 
     if not os.path.isdir(base_path):
         raise FileNotFoundError(f"FEMR log root does not exist: {base_path}")

@@ -18,14 +18,17 @@ def _run_contract_preflight(mode: str = "train") -> subprocess.CompletedProcess[
         tmp_path = Path(tmp)
         checkpoint = tmp_path / "stage1_model.pt"
         motion_path = tmp_path / "motions"
+        cache_path = tmp_path / "segment_cache"
         suite_stub = tmp_path / "stage3_contract_stub.py"
         checkpoint.write_text("fake checkpoint for contract-preflight test\n")
         motion_path.mkdir()
+        cache_path.mkdir()
         suite_stub.write_text(
             "print('[probe step10] stub_contract_suite: ok')\n"
             "print('frontres_segment_all_contract_suite: ok')\n"
         )
         env = os.environ.copy()
+        env["CACHE_DIR"] = str(cache_path)
         env["FRONTRES_STAGE_PREFLIGHT_ONLY"] = "1"
         env["FRONTRES_STAGE3_RUN_CONTRACTS"] = "1"
         env["FRONTRES_STAGE3_CONTRACT_SUITE"] = str(suite_stub)

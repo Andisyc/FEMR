@@ -17,6 +17,8 @@ fi
 
 HSL_CHECKPOINT="$1"
 MOTION_PATH="$2"
+FEMR_ROOT="${FEMR_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+FEMR_DATA_ROOT="${FEMR_DATA_ROOT:-$(dirname "${FEMR_ROOT}")}"
 NUM_ENVS="${3:-12000}"
 MAX_ITERS="${4:-2000}"
 UPDATE_STEPS="${5:-4}"
@@ -25,7 +27,7 @@ EXTRA_TRAIN_ARGS=("${@:7}")
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
 LOG_PROJECT_NAME="${LOG_PROJECT_NAME:-FEMR}"
 RUN_NAME="${RUN_NAME:-FEMR_STAGE3_SEGMENT_HRL}"
-CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"
+CACHE_DIR="${CACHE_DIR:-${FEMR_DATA_ROOT}/AMASS_G1Segment}"
 CHECKPOINT_INTERVAL="${FRONTRES_CHECKPOINT_INTERVAL:-1}"
 SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"
 FRONTRES_SPECIALIST_MODE="${FRONTRES_SPECIALIST_MODE:-rp}"
@@ -163,6 +165,15 @@ if [[ "${FRONTRES_STAGE3_RUN_CONTRACTS:-0}" == "1" ]]; then
   echo "[FrontRES Stage3 contract preflight] START suite=${CONTRACT_SUITE} python=${CONTRACT_PYTHON}"
   "${CONTRACT_PYTHON}" "${CONTRACT_SUITE}"
   echo "[FrontRES Stage3 contract preflight] PASS suite=${CONTRACT_SUITE}"
+fi
+
+if [[ ! -d "${MOTION_PATH}" ]]; then
+  echo "motion path not found: ${MOTION_PATH}" >&2
+  exit 2
+fi
+if [[ ! -d "${CACHE_DIR}" ]]; then
+  echo "Segment cache directory not found: ${CACHE_DIR}" >&2
+  exit 2
 fi
 
 if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then

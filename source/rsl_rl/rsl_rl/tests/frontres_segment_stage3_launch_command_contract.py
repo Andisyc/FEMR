@@ -26,9 +26,12 @@ def _run_preflight(
         tmp_path = Path(tmp)
         checkpoint = tmp_path / "stage1_model.pt"
         motion_path = tmp_path / "motions"
+        cache_path = tmp_path / "segment_cache"
         checkpoint.write_text("fake checkpoint for launch-contract test\n")
         motion_path.mkdir()
+        cache_path.mkdir()
         env = os.environ.copy()
+        env["CACHE_DIR"] = str(cache_path)
         env["FRONTRES_STAGE_PREFLIGHT_ONLY"] = "1"
         env["FRONTRES_STAGE3_RUN_CONTRACTS"] = "0"
         env["FRONTRES_SPECIALIST_MODE"] = "rp"

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import os
 from pathlib import Path
 import sys
 import types
@@ -46,6 +47,7 @@ def _load_stage_preset():
     warmup_spec.loader.exec_module(warmup_module)
     tree = ast.parse(TRAIN_PATH.read_text())
     wanted = {
+        "_default_frontres_segment_cache_dir",
         "_set_if_present",
         "_parse_frontres_v015_future_offsets",
         "_parse_frontres_v015_k_curriculum",
@@ -57,7 +59,11 @@ def _load_stage_preset():
     nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in wanted]
     module = ast.Module(body=nodes, type_ignores=[])
     ast.fix_missing_locations(module)
-    namespace = {"RslRlOnPolicyRunnerCfg": object}
+    namespace = {
+        "RslRlOnPolicyRunnerCfg": object,
+        "os": os,
+        "_FEMR_DATA_ROOT": str(ROOT.parent),
+    }
     exec(compile(module, str(TRAIN_PATH), "exec"), namespace)
     return (
         namespace["_apply_frontres_stage_preset"],
