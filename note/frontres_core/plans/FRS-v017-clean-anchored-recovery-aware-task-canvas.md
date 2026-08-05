@@ -105,6 +105,10 @@ action. TEST-04/05/10/16 and the 49/49 deterministic aggregate pass.
   frozen-GMT execution, then exposed `[K,4]` versus `[K,8]` Repair evidence.
   The one-action-K owner now applies `repair_rows` exactly once to every
   trajectory field; focused offline regressions pass and B02-B08 remain live.
+- E-FI-124 records that the next rerun crossed those repairs and reached grouped
+  candidate conversion, where the formal request owner lacked its explicit PPO
+  batch-type import. The dependency is now direct and contract-checked; the
+  active 49-contract suite passes, while B02-B08 remain live-pending.
 E-FI-109 proves offline code and persistence semantics. It does not prove
 simulator/live class populations, policy quality or deployment behavior.
 

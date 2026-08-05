@@ -76,6 +76,12 @@ SCHEDULE = (
 )
 
 
+def test_formal_request_owns_the_grouped_ppo_batch_dependency() -> None:
+    """Reject a request builder that reaches grouped storage with an undefined batch type."""
+
+    assert formal_transaction.FrontRESSegmentPPOBatch is FrontRESSegmentPPOBatch
+
+
 def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
     return SimpleNamespace(
         policy=policy,
@@ -467,6 +473,7 @@ def test_phase_reset_routes_mode_through_sealed_reset_owner() -> None:
 
 
 def main() -> None:
+    test_formal_request_owns_the_grouped_ppo_batch_dependency()
     test_exact_one_scalar_commit_and_critic_only()
     test_k_transitions_keep_one_critic_and_preserve_frozen_actor_optimizer_state()
     test_actor_ramp_identity_reaches_transaction_and_telemetry()

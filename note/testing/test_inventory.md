@@ -2,6 +2,21 @@
 
 Updated: 2026-08-05
 
+## Phase B Formal Grouped-Batch Dependency E-FI-124
+
+- the third GPU7 run reached formal grouped candidate conversion after real
+  reset, observation, one-action-K and frozen-GMT execution, then exposed an
+  undefined production `FrontRESSegmentPPOBatch` dependency;
+- the formal transaction owner now imports the algorithm-owned type directly,
+  and the transaction contract asserts that exact dependency before proving
+  grouped exact-one update;
+- request-to-checkpoint unresolved-global inspection is clean, focused
+  transaction/Step-1/runtime-audit/checkpoint/one-action contracts pass, and
+  the active aggregate suite reports `49/49`;
+- `frontres_v015_local_sentinel_connectivity_contract.py` is a historical test
+  outside that active suite and still references a removed fixture loader. It
+  is legacy test debt, not current production evidence.
+
 ## Phase B Repair-Trajectory Row Alignment E-FI-123
 
 - the second GPU7 run crossed reset, observation, one-action and frozen-GMT

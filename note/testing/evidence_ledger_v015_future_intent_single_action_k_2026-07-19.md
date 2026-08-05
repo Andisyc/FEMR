@@ -7809,3 +7809,40 @@ Verdict: Repair trajectory row alignment is owner-lifecycle-contract-confirmed
 offline. The rerun provided real evidence through one-action-K collection, but
 `AUDIT-B02` through `AUDIT-B08` still require another bounded official run. No
 Gain, PPO, checkpoint or policy-quality result was produced by the failed run.
+
+## E-FI-124: Phase B Formal Grouped-Batch Dependency Closure
+
+Date: 2026-08-05
+
+Observed runtime fact:
+
+- the next GPU7 run crossed the reset and Repair row-alignment closures, emitted
+  the active route, observation, action, application and frozen-GMT sentinels,
+  and completed the real one-action-K evidence collection;
+- request assembly then failed at the grouped storage adapter because
+  `frontres_segment_formal_transaction.py` referenced
+  `FrontRESSegmentPPOBatch` without importing its production definition. This
+  was the first invalid operation; Gain/PPO update, optimizer commit and
+  checkpoint save were not reached.
+
+Offline repair and evidence:
+
+- the formal transaction owner now imports the grouped PPO batch type directly
+  from the algorithm owner. No test injection, fallback or duplicate batch
+  schema is used;
+- `frontres_v015_transaction_route_contract.py` now rejects a request owner
+  whose grouped batch dependency is missing or foreign, then proves 2-Segment
+  x exact-M scalar collection and exactly one update;
+- the active downstream owner chain was checked for unresolved global symbols
+  from request assembly through Stage-3 engine, update loop, PPO, diagnostics,
+  telemetry and checkpointing; no other unresolved production symbol remains;
+- focused transaction, v017 Step-1, formal runtime-audit, checkpoint-v9 and
+  one-action-K contracts pass, Python compilation passes, and the active
+  aggregate contract suite reports `49/49` with `failed_count=0`.
+
+Verdict: the grouped-batch dependency is contract-confirmed offline. The next
+bounded official transaction is still required for `AUDIT-B02` through
+`AUDIT-B08`; no policy-quality claim is made. The historical
+`frontres_v015_local_sentinel_connectivity_contract.py` is outside the active
+49-contract suite and still depends on a removed legacy fixture loader; it is
+recorded as legacy test debt rather than used as production evidence.

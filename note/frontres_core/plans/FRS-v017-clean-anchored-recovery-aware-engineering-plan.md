@@ -416,7 +416,10 @@ then fixes the only legal future deployment/Noisy offsets to `(1,2)` and proves
 the unmocked offline `870D + 58D -> 928D -> FrontRES 158D / GMT 770D` route.
 Formal Runtime Audit Phase B has runtime evidence only for B01. E-FI-122 closes
 the first-invalid reset lifecycle offline. E-FI-123 closes the next
-first-invalid one-action-K row alignment offline; B02-B08 remain live-pending.
+first-invalid one-action-K row alignment offline. E-FI-124 closes the formal
+request builder's missing grouped-batch dependency and checks the remaining
+request-to-checkpoint owner chain for unresolved production symbols; B02-B08
+remain live-pending.
 
 ### DP10 Future Motion Context Offline Readiness Closure
 

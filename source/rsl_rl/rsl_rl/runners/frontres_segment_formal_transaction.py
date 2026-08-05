@@ -23,6 +23,7 @@ import torch
 
 
 from rsl_rl.algorithms.frontres_segment_ppo import (
+    FrontRESSegmentPPOBatch,
     FrontRESSegmentPPOConfig,
     compute_frontres_segment_ppo_loss,
     install_frontres_v005_scalar_gradients,
