@@ -28,6 +28,7 @@ WARMUP_SPEC.loader.exec_module(WARMUP_MODULE)
 frontres_segment_warmup_phase = WARMUP_MODULE.frontres_segment_warmup_phase
 parse_frontres_k_stage_schedule = WARMUP_MODULE.parse_frontres_k_stage_schedule
 resolve_frontres_k_stage_identity = WARMUP_MODULE.resolve_frontres_k_stage_identity
+resolve_frontres_k_stage_transition = WARMUP_MODULE.resolve_frontres_k_stage_transition
 require_frontres_v011_campaign_schedule = WARMUP_MODULE.require_frontres_v011_campaign_schedule
 require_frontres_v013_campaign_schedule = WARMUP_MODULE.require_frontres_v013_campaign_schedule
 sample_frontres_v013_dr_strength = WARMUP_MODULE.sample_frontres_v013_dr_strength
@@ -226,6 +227,21 @@ def test_v011_campaign_schedule_is_exact_and_checkpoint_bounded() -> None:
             raise AssertionError("TRAIN-v011 formal campaign drift must reject")
 
 
+def test_v011_stage_transition_is_committed_boundary_only() -> None:
+    schedule = parse_frontres_k_stage_schedule(
+        "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625"
+    )
+    assert resolve_frontres_k_stage_transition(schedule=schedule, committed_update_iteration=1999) is None
+    at_k16 = resolve_frontres_k_stage_transition(schedule=schedule, committed_update_iteration=2000)
+    assert at_k16 is not None
+    assert (at_k16.stage_index, at_k16.active_k, at_k16.active_m, at_k16.stage_iteration) == (1, 16, 3, 0)
+    assert resolve_frontres_k_stage_transition(schedule=schedule, committed_update_iteration=2001) is None
+    at_k32 = resolve_frontres_k_stage_transition(schedule=schedule, committed_update_iteration=3500)
+    assert at_k32 is not None
+    assert (at_k32.stage_index, at_k32.active_k, at_k32.active_m, at_k32.stage_iteration) == (2, 32, 4, 0)
+    assert resolve_frontres_k_stage_transition(schedule=schedule, committed_update_iteration=4825) is None
+
+
 def _v013_schedule_text() -> str:
     return (
         "8:2:200:500:1300:lower-k8:0.50:linear-joint-v1:1300:2.381,"
@@ -293,6 +309,7 @@ def main() -> None:
     test_v011_k_m_stage_boundaries_and_repeated_critic_only()
     test_v011_schedule_is_deterministic_and_fail_closed()
     test_v011_campaign_schedule_is_exact_and_checkpoint_bounded()
+    test_v011_stage_transition_is_committed_boundary_only()
     test_v013_nested_dr_restart_and_committed_progress()
     test_v013_four_class_sampling_and_no_hidden_defaults()
     print("frontres_segment_warmup_contract: ok")

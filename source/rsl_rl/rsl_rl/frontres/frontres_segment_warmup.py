@@ -369,6 +369,37 @@ def resolve_frontres_k_stage_identity(
     return identity
 
 
+def resolve_frontres_k_stage_transition(
+    *,
+    schedule: Iterable[FrontRESKStageSpec | Iterable[int]],
+    committed_update_iteration: int,
+    max_horizon_k: int | None = None,
+) -> FrontRESKStageIdentity | None:
+    """Return the new K-stage identity only at an exact committed boundary."""
+
+    if (
+        not isinstance(committed_update_iteration, int)
+        or isinstance(committed_update_iteration, bool)
+        or committed_update_iteration <= 0
+    ):
+        return None
+    normalized = normalize_frontres_k_stage_schedule(schedule, max_horizon_k=max_horizon_k)
+
+    # B1: 只累计完整 stage 长度, 定位 committed K-stage 边界.
+    boundary = 0
+    for spec in normalized[:-1]:
+        boundary += spec.critic_only_iterations + spec.actor_warmup_iterations + spec.joint_iterations
+        if committed_update_iteration == boundary:
+            return resolve_frontres_k_stage_identity(
+                schedule=normalized,
+                committed_update_iteration=committed_update_iteration,
+                max_horizon_k=max_horizon_k,
+            )
+        if committed_update_iteration < boundary:
+            return None
+    return None
+
+
 def frontres_segment_warmup_phase(
     *,
     iteration: int,
@@ -452,4 +483,5 @@ __all__ = [
     "sample_frontres_v013_dr_strength",
     "frontres_v013_dr_stage_fingerprint",
     "resolve_frontres_k_stage_identity",
+    "resolve_frontres_k_stage_transition",
 ]

@@ -4610,8 +4610,8 @@
           "reviewRefs": []
         },
         {
-          "name": "frontres_segment_warmup_phase",
-          "purpose": "把持久 Stage 3 iteration 映射为 critic-only/actor-ramp/joint phase.",
+          "name": "resolve_frontres_k_stage_transition",
+          "purpose": "Return the new K-stage identity only at an exact committed boundary.",
           "annotationClass": "annotated",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py",
@@ -4620,21 +4620,39 @@
           "blocks": [
             {
               "id": "B1",
+              "purpose": "只累计完整 stage 长度, 定位 committed K-stage 边界.",
+              "sourceLine": 388,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=388"
+            }
+          ],
+          "reviewRefs": []
+        },
+        {
+          "name": "frontres_segment_warmup_phase",
+          "purpose": "把持久 Stage 3 iteration 映射为 critic-only/actor-ramp/joint phase.",
+          "annotationClass": "annotated",
+          "simpleKind": null,
+          "sourcePath": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py",
+          "sourceLine": 403,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=403",
+          "blocks": [
+            {
+              "id": "B1",
               "purpose": "读取 persisted Stage 3 iteration 和 immutable warmup boundaries.",
-              "sourceLine": 397,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=397"
+              "sourceLine": 428,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=428"
             },
             {
               "id": "B2",
               "purpose": "唯一选择 critic-only, actor-ramp 或 joint phase.",
-              "sourceLine": 398,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=398"
+              "sourceLine": 429,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=429"
             },
             {
               "id": "B3",
               "purpose": "AUDIT-WARMUP-01 截获 PPO loss weighting 实际消费的 phase.",
-              "sourceLine": 420,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=420"
+              "sourceLine": 451,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=451"
             }
           ],
           "reviewRefs": []
@@ -8188,8 +8206,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 64,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=64",
+          "sourceLine": 69,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=69",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8199,8 +8217,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 74,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=74",
+          "sourceLine": 79,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=79",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8210,8 +8228,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 78,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=78",
+          "sourceLine": 83,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=83",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8221,8 +8239,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 102,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=102",
+          "sourceLine": 107,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=107",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8232,8 +8250,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 200,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=200",
+          "sourceLine": 205,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=205",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8243,8 +8261,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 206,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=206",
+          "sourceLine": 211,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=211",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8254,8 +8272,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 214,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=214",
+          "sourceLine": 219,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=219",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8265,8 +8283,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 239,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=239",
+          "sourceLine": 244,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=244",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8276,8 +8294,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 266,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=266",
+          "sourceLine": 271,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=271",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8287,8 +8305,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 277,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=277",
+          "sourceLine": 282,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=282",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8298,8 +8316,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 297,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=297",
+          "sourceLine": 302,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=302",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8309,8 +8327,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 318,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=318",
+          "sourceLine": 323,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=323",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8320,8 +8338,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 347,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=347",
+          "sourceLine": 352,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=352",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8331,9 +8349,27 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 440,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=440",
+          "sourceLine": 445,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=445",
           "blocks": [],
+          "reviewRefs": []
+        },
+        {
+          "name": "_resolve_required_k_stage_handoff",
+          "purpose": "Return the next K-stage when its exact-M role width needs a new process.",
+          "annotationClass": "annotated",
+          "simpleKind": null,
+          "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
+          "sourceLine": 459,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=459",
+          "blocks": [
+            {
+              "id": "B1",
+              "purpose": "已完成 stage 必须仍匹配当前静态 IsaacLab role width.",
+              "sourceLine": 474,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=474"
+            }
+          ],
           "reviewRefs": []
         },
         {
@@ -8342,20 +8378,26 @@
           "annotationClass": "annotated",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 454,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=454",
+          "sourceLine": 491,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=491",
           "blocks": [
             {
               "id": "B2",
               "purpose": "冻结 live update loop 将消费的正式 iteration budget.",
-              "sourceLine": 480,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=480"
+              "sourceLine": 517,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=517"
             },
             {
               "id": "B3",
               "purpose": "首次正式 update iteration 前截获 route identity.",
-              "sourceLine": 488,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=488"
+              "sourceLine": 525,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=525"
+            },
+            {
+              "id": "B4",
+              "purpose": "committed K-stage 边界先保存, 再结束固定 env-width 进程.",
+              "sourceLine": 592,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=592"
             }
           ],
           "reviewRefs": []
@@ -12876,8 +12918,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 64,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=64",
+          "sourceLine": 69,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=69",
           "blocks": [],
           "reviewRefs": []
         },
@@ -12887,8 +12929,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 74,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=74",
+          "sourceLine": 79,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=79",
           "blocks": [],
           "reviewRefs": []
         },
@@ -12898,8 +12940,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 78,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=78",
+          "sourceLine": 83,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=83",
           "blocks": [],
           "reviewRefs": []
         },
@@ -12909,8 +12951,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 102,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=102",
+          "sourceLine": 107,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=107",
           "blocks": [],
           "reviewRefs": []
         },
@@ -12920,8 +12962,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 200,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=200",
+          "sourceLine": 205,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=205",
           "blocks": [],
           "reviewRefs": []
         },
@@ -12931,8 +12973,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 206,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=206",
+          "sourceLine": 211,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=211",
           "blocks": [],
           "reviewRefs": []
         },
@@ -12942,8 +12984,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 214,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=214",
+          "sourceLine": 219,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=219",
           "blocks": [],
           "reviewRefs": []
         },
@@ -12953,8 +12995,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 239,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=239",
+          "sourceLine": 244,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=244",
           "blocks": [],
           "reviewRefs": []
         },
@@ -12964,8 +13006,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 266,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=266",
+          "sourceLine": 271,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=271",
           "blocks": [],
           "reviewRefs": []
         },
@@ -12975,8 +13017,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 277,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=277",
+          "sourceLine": 282,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=282",
           "blocks": [],
           "reviewRefs": []
         },
@@ -12986,8 +13028,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 297,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=297",
+          "sourceLine": 302,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=302",
           "blocks": [],
           "reviewRefs": []
         },
@@ -12997,8 +13039,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 318,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=318",
+          "sourceLine": 323,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=323",
           "blocks": [],
           "reviewRefs": []
         },
@@ -13008,8 +13050,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 347,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=347",
+          "sourceLine": 352,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=352",
           "blocks": [],
           "reviewRefs": []
         },
@@ -13019,9 +13061,27 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 440,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=440",
+          "sourceLine": 445,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=445",
           "blocks": [],
+          "reviewRefs": []
+        },
+        {
+          "name": "_resolve_required_k_stage_handoff",
+          "purpose": "Return the next K-stage when its exact-M role width needs a new process.",
+          "annotationClass": "annotated",
+          "simpleKind": null,
+          "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
+          "sourceLine": 459,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=459",
+          "blocks": [
+            {
+              "id": "B1",
+              "purpose": "已完成 stage 必须仍匹配当前静态 IsaacLab role width.",
+              "sourceLine": 474,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=474"
+            }
+          ],
           "reviewRefs": []
         },
         {
@@ -13030,20 +13090,26 @@
           "annotationClass": "annotated",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 454,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=454",
+          "sourceLine": 491,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=491",
           "blocks": [
             {
               "id": "B2",
               "purpose": "冻结 live update loop 将消费的正式 iteration budget.",
-              "sourceLine": 480,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=480"
+              "sourceLine": 517,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=517"
             },
             {
               "id": "B3",
               "purpose": "首次正式 update iteration 前截获 route identity.",
-              "sourceLine": 488,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=488"
+              "sourceLine": 525,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=525"
+            },
+            {
+              "id": "B4",
+              "purpose": "committed K-stage 边界先保存, 再结束固定 env-width 进程.",
+              "sourceLine": 592,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=592"
             }
           ],
           "reviewRefs": []
@@ -17907,8 +17973,8 @@
           "reviewRefs": []
         },
         {
-          "name": "frontres_segment_warmup_phase",
-          "purpose": "把持久 Stage 3 iteration 映射为 critic-only/actor-ramp/joint phase.",
+          "name": "resolve_frontres_k_stage_transition",
+          "purpose": "Return the new K-stage identity only at an exact committed boundary.",
           "annotationClass": "annotated",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py",
@@ -17917,21 +17983,39 @@
           "blocks": [
             {
               "id": "B1",
+              "purpose": "只累计完整 stage 长度, 定位 committed K-stage 边界.",
+              "sourceLine": 388,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=388"
+            }
+          ],
+          "reviewRefs": []
+        },
+        {
+          "name": "frontres_segment_warmup_phase",
+          "purpose": "把持久 Stage 3 iteration 映射为 critic-only/actor-ramp/joint phase.",
+          "annotationClass": "annotated",
+          "simpleKind": null,
+          "sourcePath": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py",
+          "sourceLine": 403,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=403",
+          "blocks": [
+            {
+              "id": "B1",
               "purpose": "读取 persisted Stage 3 iteration 和 immutable warmup boundaries.",
-              "sourceLine": 397,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=397"
+              "sourceLine": 428,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=428"
             },
             {
               "id": "B2",
               "purpose": "唯一选择 critic-only, actor-ramp 或 joint phase.",
-              "sourceLine": 398,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=398"
+              "sourceLine": 429,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=429"
             },
             {
               "id": "B3",
               "purpose": "AUDIT-WARMUP-01 截获 PPO loss weighting 实际消费的 phase.",
-              "sourceLine": 420,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=420"
+              "sourceLine": 451,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=451"
             }
           ],
           "reviewRefs": []
@@ -22101,8 +22185,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 64,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=64",
+          "sourceLine": 69,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=69",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22112,8 +22196,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 74,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=74",
+          "sourceLine": 79,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=79",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22123,8 +22207,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 78,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=78",
+          "sourceLine": 83,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=83",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22134,8 +22218,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 102,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=102",
+          "sourceLine": 107,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=107",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22145,8 +22229,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 200,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=200",
+          "sourceLine": 205,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=205",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22156,8 +22240,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 206,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=206",
+          "sourceLine": 211,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=211",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22167,8 +22251,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 214,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=214",
+          "sourceLine": 219,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=219",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22178,8 +22262,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 239,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=239",
+          "sourceLine": 244,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=244",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22189,8 +22273,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 266,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=266",
+          "sourceLine": 271,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=271",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22200,8 +22284,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 277,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=277",
+          "sourceLine": 282,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=282",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22211,8 +22295,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 297,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=297",
+          "sourceLine": 302,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=302",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22222,8 +22306,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 318,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=318",
+          "sourceLine": 323,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=323",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22233,8 +22317,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 347,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=347",
+          "sourceLine": 352,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=352",
           "blocks": [],
           "reviewRefs": []
         },
@@ -22244,9 +22328,27 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 440,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=440",
+          "sourceLine": 445,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=445",
           "blocks": [],
+          "reviewRefs": []
+        },
+        {
+          "name": "_resolve_required_k_stage_handoff",
+          "purpose": "Return the next K-stage when its exact-M role width needs a new process.",
+          "annotationClass": "annotated",
+          "simpleKind": null,
+          "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
+          "sourceLine": 459,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=459",
+          "blocks": [
+            {
+              "id": "B1",
+              "purpose": "已完成 stage 必须仍匹配当前静态 IsaacLab role width.",
+              "sourceLine": 474,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=474"
+            }
+          ],
           "reviewRefs": []
         },
         {
@@ -22255,20 +22357,26 @@
           "annotationClass": "annotated",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "sourceLine": 454,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=454",
+          "sourceLine": 491,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=491",
           "blocks": [
             {
               "id": "B2",
               "purpose": "冻结 live update loop 将消费的正式 iteration budget.",
-              "sourceLine": 480,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=480"
+              "sourceLine": 517,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=517"
             },
             {
               "id": "B3",
               "purpose": "首次正式 update iteration 前截获 route identity.",
-              "sourceLine": 488,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=488"
+              "sourceLine": 525,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=525"
+            },
+            {
+              "id": "B4",
+              "purpose": "committed K-stage 边界先保存, 再结束固定 env-width 进程.",
+              "sourceLine": 592,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=592"
             }
           ],
           "reviewRefs": []
@@ -22461,10 +22569,10 @@
   ],
   "scan": {
     "pythonFiles": 68,
-    "uniqueFunctions": 1427,
-    "functionOccurrences": 1729,
-    "uniqueBlocks": 314,
-    "blockOccurrences": 380,
+    "uniqueFunctions": 1429,
+    "functionOccurrences": 1734,
+    "uniqueBlocks": 317,
+    "blockOccurrences": 388,
     "unresolvedPaths": [
       "source/rsl_rl/rsl_rl/frontres/frontres_action_cone.py",
       "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py",

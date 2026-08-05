@@ -531,6 +531,117 @@ def test_resume_progress_separates_absolute_and_local_iterations() -> None:
     assert "iter=221/1" not in output
 
 
+def _formal_stage_runner(*, iteration: int, num_envs: int, log_dir: str | None = "/tmp/frontres-stage"):
+    calls: list[int] = []
+    schedule = (
+        (8, 2, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
+        (16, 3, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
+        (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-joint-v1", 625, 2.381),
+    )
+    runner = types.SimpleNamespace(
+        _frontres_segment_replay_boundary=FakeBoundary(live_train_enabled=True),
+        alg=types.SimpleNamespace(
+            frontres_formal_transaction_enabled=True,
+            frontres_segment_k_curriculum=schedule,
+            frontres_segment_max_horizon_k=32,
+        ),
+        current_learning_iteration=iteration,
+        log_dir=log_dir,
+        disable_logs=log_dir is None,
+        save_interval=100,
+        env=types.SimpleNamespace(num_envs=num_envs),
+    )
+
+    def run_transaction(*, init_at_random_ep_len: bool):
+        calls.append(runner.current_learning_iteration)
+        return {"transaction_id": f"tx-{runner.current_learning_iteration}"}
+
+    runner.run_frontres_formal_training_transaction = run_transaction
+    return runner, calls
+
+
+def test_formal_k_stage_boundary_saves_then_requires_new_env_width() -> None:
+    saved: list[str] = []
+    originals = (
+        live_training_module.print_formal_route_audit,
+        live_training_module._require_v015_committed_result,
+        live_training_module._print_v015_formal_train_summary,
+        live_training_module._save_live_checkpoint,
+    )
+    live_training_module.print_formal_route_audit = lambda *_args, **_kwargs: None
+    live_training_module._require_v015_committed_result = lambda _runner, result: result
+    live_training_module._print_v015_formal_train_summary = lambda *_args, **_kwargs: None
+
+    def save_checkpoint(_runner, *, checkpoint_path: str, **_kwargs):
+        saved.append(checkpoint_path)
+        return True
+
+    live_training_module._save_live_checkpoint = save_checkpoint
+    try:
+        runner, calls = _formal_stage_runner(iteration=1999, num_envs=8)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            run_frontres_segment_live_training_loop(runner, num_learning_iterations=2)
+        assert calls == [1999]
+        assert runner.current_learning_iteration == 2000
+        assert saved == ["/tmp/frontres-stage/model_2000.pt"]
+        assert "status=RESTART_REQUIRED" in buffer.getvalue()
+        assert "next_k=16 next_m=3 next_num_envs=12" in buffer.getvalue()
+
+        resumed, resumed_calls = _formal_stage_runner(iteration=2000, num_envs=12)
+        run_frontres_segment_live_training_loop(resumed, num_learning_iterations=1)
+        assert resumed_calls == [2000]
+        assert resumed.current_learning_iteration == 2001
+
+        k16_runner, k16_calls = _formal_stage_runner(iteration=3499, num_envs=12)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            run_frontres_segment_live_training_loop(k16_runner, num_learning_iterations=2)
+        assert k16_calls == [3499]
+        assert k16_runner.current_learning_iteration == 3500
+        assert saved[-1] == "/tmp/frontres-stage/model_3500.pt"
+        assert "next_k=32 next_m=4 next_num_envs=16" in buffer.getvalue()
+
+        k32_runner, k32_calls = _formal_stage_runner(iteration=3500, num_envs=16)
+        run_frontres_segment_live_training_loop(k32_runner, num_learning_iterations=1)
+        assert k32_calls == [3500]
+        assert k32_runner.current_learning_iteration == 3501
+    finally:
+        (
+            live_training_module.print_formal_route_audit,
+            live_training_module._require_v015_committed_result,
+            live_training_module._print_v015_formal_train_summary,
+            live_training_module._save_live_checkpoint,
+        ) = originals
+
+
+def test_formal_k_stage_handoff_rejects_missing_checkpoint_owner() -> None:
+    originals = (
+        live_training_module.print_formal_route_audit,
+        live_training_module._require_v015_committed_result,
+        live_training_module._print_v015_formal_train_summary,
+    )
+    live_training_module.print_formal_route_audit = lambda *_args, **_kwargs: None
+    live_training_module._require_v015_committed_result = lambda _runner, result: result
+    live_training_module._print_v015_formal_train_summary = lambda *_args, **_kwargs: None
+    try:
+        runner, calls = _formal_stage_runner(iteration=3499, num_envs=12, log_dir=None)
+        try:
+            run_frontres_segment_live_training_loop(runner, num_learning_iterations=2)
+        except RuntimeError as exc:
+            assert "requires an enabled committed checkpoint owner" in str(exc)
+        else:
+            raise AssertionError("K-stage handoff without checkpoint owner must fail closed")
+        assert calls == [3499]
+        assert runner.current_learning_iteration == 3500
+    finally:
+        (
+            live_training_module.print_formal_route_audit,
+            live_training_module._require_v015_committed_result,
+            live_training_module._print_v015_formal_train_summary,
+        ) = originals
+
+
 def main() -> None:
     test_pseudo_live_training_runs_two_iterations_and_saves_checkpoints()
     test_pseudo_live_training_zero_iterations_does_not_touch_update_loop()
@@ -544,6 +655,8 @@ def main() -> None:
     test_pseudo_live_training_continues_after_periodic_checkpoint_failure()
     test_training_process_has_no_embedded_evaluator()
     test_resume_progress_separates_absolute_and_local_iterations()
+    test_formal_k_stage_boundary_saves_then_requires_new_env_width()
+    test_formal_k_stage_handoff_rejects_missing_checkpoint_owner()
     print("result: PASS")
 
 

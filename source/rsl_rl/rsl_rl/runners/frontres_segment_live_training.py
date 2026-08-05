@@ -16,7 +16,12 @@ from rsl_rl.frontres.frontres_segment_reporting import (
     format_segment_train_effect_log,
     motion_quality_summary_to_scalars,
 )
-from rsl_rl.frontres.frontres_segment_warmup import FRONTRES_V011_MAX_ABSOLUTE_ITERATION
+from rsl_rl.frontres.frontres_segment_warmup import (
+    FRONTRES_V011_MAX_ABSOLUTE_ITERATION,
+    FrontRESKStageIdentity,
+    resolve_frontres_k_stage_identity,
+    resolve_frontres_k_stage_transition,
+)
 from rsl_rl.runners.frontres_formal_runtime_audit import print_formal_route_audit
 from rsl_rl.runners.frontres_checkpoint_quality import load_frontres_checkpoint_mapping
 from rsl_rl.runners.frontres_segment_live_reset import apply_frontres_current_segment_reset
@@ -451,6 +456,38 @@ def _print_resume_probe(runner: Any) -> None:
     )
 
 
+def _resolve_required_k_stage_handoff(runner: Any) -> FrontRESKStageIdentity | None:
+    """Return the next K-stage when its exact-M role width needs a new process."""
+
+    alg = getattr(runner, "alg", None)
+    schedule = tuple(getattr(alg, "frontres_segment_k_curriculum", ()) or ())
+    iteration = int(getattr(runner, "current_learning_iteration", 0) or 0)
+    max_horizon = max(1, int(getattr(alg, "frontres_segment_max_horizon_k", 1) or 1))
+    transition = resolve_frontres_k_stage_transition(
+        schedule=schedule,
+        committed_update_iteration=iteration,
+        max_horizon_k=max_horizon,
+    )
+    if transition is None:
+        return None
+
+    # B1: 已完成 stage 必须仍匹配当前静态 IsaacLab role width.
+    previous = resolve_frontres_k_stage_identity(
+        schedule=schedule,
+        committed_update_iteration=iteration - 1,
+        max_horizon_k=max_horizon,
+    )
+    observed_envs = int(getattr(getattr(runner, "env", None), "num_envs", 0) or 0)
+    previous_required_envs = 4 * int(previous.active_m)
+    if observed_envs != previous_required_envs:
+        raise RuntimeError(
+            "FRS-TRAIN-v014 completed K-stage width drifted before process handoff: "
+            f"active_m={previous.active_m} required={previous_required_envs} observed={observed_envs}"
+        )
+    next_required_envs = 4 * int(transition.active_m)
+    return None if observed_envs == next_required_envs else transition
+
+
 def run_frontres_segment_live_training_loop(
     runner: Any,
     *,
@@ -551,6 +588,37 @@ def run_frontres_segment_live_training_loop(
                 expected_v015_transaction_id=(summary["transaction_id"] if formal_v015 else None),
             ):
                 last_checkpoint_probe_path = checkpoint_path
+
+        # B4: committed K-stage 边界先保存, 再结束固定 env-width 进程.
+        if formal_v015:
+            transition = _resolve_required_k_stage_handoff(runner)
+            if transition is not None:
+                if runner.log_dir is None or runner.disable_logs:
+                    raise RuntimeError(
+                        "FRS-TRAIN-v014 K-stage process handoff requires an enabled committed checkpoint owner"
+                    )
+                checkpoint_path = os.path.join(
+                    runner.log_dir,
+                    f"model_{runner.current_learning_iteration}.pt",
+                )
+                if checkpoint_path != last_checkpoint_probe_path:
+                    _save_live_checkpoint(
+                        runner,
+                        checkpoint_path=checkpoint_path,
+                        summary=summary,
+                        required=True,
+                        expected_v015_transaction_id=summary["transaction_id"],
+                    )
+                    last_checkpoint_probe_path = checkpoint_path
+                print(
+                    "[FrontRES K-Stage Handoff] "
+                    f"status=RESTART_REQUIRED checkpoint={checkpoint_path} "
+                    f"next_k={transition.active_k} next_m={transition.active_m} "
+                    f"next_num_envs={4 * int(transition.active_m)} "
+                    f"absolute_iteration={runner.current_learning_iteration}",
+                    flush=True,
+                )
+                return
 
     if runner.log_dir is not None and not runner.disable_logs:
         final_checkpoint_path = os.path.join(runner.log_dir, f"model_{runner.current_learning_iteration}.pt")
