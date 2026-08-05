@@ -180,6 +180,47 @@ def test_loaded_support_zmp_na_and_malformed_payload() -> None:
         raise AssertionError("v017 finite no-load ZMP must fail closed")
 
 
+def test_flight_support_drift_is_na_without_erasing_physics_score() -> None:
+    gain_input = _batch().to_gain_input()
+    expected = torch.zeros_like(gain_input.expected_support)
+    expected[:, 0::2] = 1.0
+    contact = expected.clone()
+    zmp = torch.full_like(gain_input.clean_zmp_margin, float("nan"))
+    zmp[:, 0::2] = 0.01
+    mixed = type(gain_input)(
+        **{
+            **gain_input.__dict__,
+            "expected_support": expected,
+            "clean_contact": contact,
+            "noisy_contact": contact,
+            "repaired_contact": contact,
+            "clean_zmp_margin": zmp,
+            "noisy_zmp_margin": zmp,
+            "repaired_zmp_margin": zmp,
+        }
+    )
+    result = compute_recovery_aware_gain(mixed, config=FrontRESRecoveryAwareGainConfig())
+    assert bool(torch.isfinite(result.gain_total).all())
+    assert bool(torch.isfinite(result.physics_channel_repaired[0::2, 1]).all())
+    assert bool(torch.isnan(result.physics_channel_repaired[1::2, 1]).all())
+    assert bool(torch.isnan(result.physics_channel_repaired[1::2, 2]).all())
+    assert bool(torch.isfinite(result.physics_remaining_repaired).all())
+
+    permutation = torch.tensor([3, 1, 2, 0])
+    permuted = type(mixed)(
+        **{
+            name: value.index_select(1, permutation)
+            if isinstance(value, torch.Tensor) and value.ndim >= 2 and value.shape[1] == 4
+            else value.index_select(0, permutation)
+            if isinstance(value, torch.Tensor) and value.ndim == 2 and value.shape[0] == 4
+            else value
+            for name, value in mixed.__dict__.items()
+        }
+    )
+    permuted_result = compute_recovery_aware_gain(permuted, config=FrontRESRecoveryAwareGainConfig())
+    torch.testing.assert_close(permuted_result.gain_total, result.gain_total.index_select(0, permutation))
+
+
 def test_cost_breaks_equal_recovery_without_changing_channels() -> None:
     batch = _batch()
     attempts = list(batch.attempts)
@@ -198,6 +239,7 @@ def main() -> None:
     test_clean_anchor_pressure_and_row_permutation()
     test_baseline_alias_and_execution_count_fail_closed()
     test_loaded_support_zmp_na_and_malformed_payload()
+    test_flight_support_drift_is_na_without_erasing_physics_score()
     test_cost_breaks_equal_recovery_without_changing_channels()
     print("[T-v007-gain] Clean anchor, pressure, cost, N/A and immutable baseline pass", flush=True)
 

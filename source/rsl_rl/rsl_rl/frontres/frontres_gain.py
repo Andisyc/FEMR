@@ -434,10 +434,12 @@ def _recovery_physics_channels(
 
     expected_loaded = evidence.expected_support.bool() & valid.unsqueeze(-1)
     foot_error = torch.linalg.vector_norm(foot_pos.float() - evidence.clean_foot_pos.float(), dim=-1)
+    # B2: 无 expected loaded support 时该项为 N/A; 有承重暴露时保留失效后的末值.
     support_drift = _late_weighted_mean(
         _masked_foot_mean(foot_error, expected_loaded),
         expected_loaded.any(dim=-1),
         hold_after_invalid=True,
+        allow_no_observation=True,
     )
 
     zmp_applicable = valid & evidence.expected_support.bool().any(dim=-1) & contact.any(dim=-1)
@@ -458,7 +460,13 @@ def _recovery_physics_channels(
     )
 
 
-def _late_weighted_mean(values: torch.Tensor, valid: torch.Tensor, *, hold_after_invalid: bool) -> torch.Tensor:
+def _late_weighted_mean(
+    values: torch.Tensor,
+    valid: torch.Tensor,
+    *,
+    hold_after_invalid: bool,
+    allow_no_observation: bool = False,
+) -> torch.Tensor:
     if tuple(values.shape) != tuple(valid.shape) or values.ndim != 2:
         raise ValueError("FRS-GAIN-v007 continuous channel requires aligned [K,B] values/mask")
     work = values.float()
@@ -474,7 +482,7 @@ def _late_weighted_mean(values: torch.Tensor, valid: torch.Tensor, *, hold_after
             seen |= current_valid
             held.append(last.clone())
             held_mask.append(seen.clone())
-        if not bool(seen.all()):
+        if not allow_no_observation and not bool(seen.all()):
             raise ValueError("FRS-GAIN-v007 continuous channel has no valid observation")
         work = torch.stack(held, dim=0)
         mask = torch.stack(held_mask, dim=0)
@@ -482,9 +490,16 @@ def _late_weighted_mean(values: torch.Tensor, valid: torch.Tensor, *, hold_after
     tau = tau / float(work.shape[0])
     weights = tau * mask.to(dtype=work.dtype)
     denominator = weights.sum(dim=0)
-    if bool((denominator <= 0).any()):
+    if not allow_no_observation and bool((denominator <= 0).any()):
         raise ValueError("FRS-GAIN-v007 continuous channel has empty weighted exposure")
-    return (work * weights).sum(dim=0) / denominator
+    numerator = (work * weights).sum(dim=0)
+    if allow_no_observation:
+        return torch.where(
+            denominator > 0,
+            numerator / denominator.clamp_min(torch.finfo(work.dtype).eps),
+            torch.full_like(denominator, float("nan")),
+        )
+    return numerator / denominator
 
 
 def _late_weighted_optional_mean(values: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
