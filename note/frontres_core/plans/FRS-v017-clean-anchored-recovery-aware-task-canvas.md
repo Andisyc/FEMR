@@ -109,6 +109,11 @@ action. TEST-04/05/10/16 and the 49/49 deterministic aggregate pass.
   candidate conversion, where the formal request owner lacked its explicit PPO
   batch-type import. The dependency is now direct and contract-checked; the
   active 49-contract suite passes, while B02-B08 remain live-pending.
+- E-FI-125 records that the following run reached the final observation trace
+  check with correct live tensors but missing v017 command/Critic trace fields.
+  The Repair collector now publishes measured 58D/289D identities with strict
+  role-row validation; the active 49-contract suite passes and B02-B08 remain
+  live-pending.
 E-FI-109 proves offline code and persistence semantics. It does not prove
 simulator/live class populations, policy quality or deployment behavior.
 

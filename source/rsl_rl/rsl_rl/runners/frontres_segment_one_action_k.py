@@ -1,9 +1,5 @@
 """FrontRES deployable observation and one-action-K evidence executor."""
 
-
-
-
-
 from __future__ import annotations
 
 
@@ -458,6 +454,42 @@ def _require_direct_policy_stats(transition: Any) -> tuple[torch.Tensor, torch.T
     return mean, sigma
 
 
+def _record_v017_policy_authority_trace(
+    runner: Any,
+    *,
+    command: Any,
+    policy_privileged_observations: torch.Tensor,
+    role_row_count: int,
+    policy_row_count: int,
+) -> None:
+    """Record measured command and Critic dimensions for one formal Repair collection."""
+
+    # B1: 从正式 command 和 old-policy tuple 读取真实维度, 拒绝缺失或行错位的 trace.
+    current_command = getattr(command, "command", None)
+    if (
+        not isinstance(current_command, torch.Tensor)
+        or current_command.ndim != 2
+        or tuple(current_command.shape) != (int(role_row_count), 58)
+    ):
+        raise RuntimeError(
+            "v017 Repair collection requires the role-aligned current GMT command [B,58]"
+        )
+    if (
+        not isinstance(policy_privileged_observations, torch.Tensor)
+        or policy_privileged_observations.ndim != 2
+        or int(policy_privileged_observations.shape[0]) != int(policy_row_count)
+        or int(policy_privileged_observations.shape[1]) <= 0
+    ):
+        raise RuntimeError(
+            "v017 Repair collection requires one non-empty Critic observation per policy row"
+        )
+    update_frontres_observation_trace(
+        runner,
+        current_command_dim=int(current_command.shape[-1]),
+        critic_observation_dim=int(policy_privileged_observations.shape[-1]),
+    )
+
+
 def collect_frontres_v017_repair_attempts(
     runner: Any,
     observations: FrontRESSegmentLiveObservations,
@@ -504,6 +536,13 @@ def collect_frontres_v017_repair_attempts(
             "mean": _require_direct_policy_stats(transition)[0].index_select(0, repair_rows).detach().clone(),
             "sigma": _require_direct_policy_stats(transition)[1].index_select(0, repair_rows).detach().clone(),
         }
+        _record_v017_policy_authority_trace(
+            runner,
+            command=command,
+            policy_privileged_observations=policy_rows["privileged"],
+            role_row_count=int(observations.obs.shape[0]),
+            policy_row_count=n_repair,
+        )
         # B2: 每条 Repair 只在 t 调用一次 FEMR, 随后仅执行 frozen GMT 的 K-step evidence horizon.
         _raw, _reward, t_done, _infos = runner.env.step(plan.env_actions.to(runner.env.device))
         done_any = t_done.to(runner.device).detach().bool().reshape(-1)

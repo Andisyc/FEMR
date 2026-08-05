@@ -419,7 +419,9 @@ the first-invalid reset lifecycle offline. E-FI-123 closes the next
 first-invalid one-action-K row alignment offline. E-FI-124 closes the formal
 request builder's missing grouped-batch dependency and checks the remaining
 request-to-checkpoint owner chain for unresolved production symbols; B02-B08
-remain live-pending.
+remain live-pending. E-FI-125 then closes the active v017 Repair collector's
+missing 58D command and 289D Critic trace producers without weakening the final
+authority assertion; B02-B08 remain live-pending.
 
 ### DP10 Future Motion Context Offline Readiness Closure
 

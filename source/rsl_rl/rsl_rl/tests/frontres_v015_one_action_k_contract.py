@@ -321,6 +321,48 @@ def test_t_v017_selected_role_trajectory_aligns_every_field_once() -> None:
         raise AssertionError("selected Repair trajectory accepted a missing global role row")
 
 
+def test_t_v017_policy_authority_trace_uses_measured_shapes() -> None:
+    one_action = sys.modules["rsl_rl.runners.frontres_segment_one_action_k"]
+    stage3_owner = sys.modules["rsl_rl.runners.frontres_stage3_engine"]
+    runner = SimpleNamespace()
+    transaction = stage3_owner.frontres_stage3_transaction_aggregate(runner)
+    transaction.begin_collection()
+    transaction.bind_collection_context(route="training", sample=object(), batch=object())
+    try:
+        transaction.update_observation_trace(
+            role_row_count=8,
+            current_command_dim=0,
+            combined_observation_dim=928,
+        )
+        one_action._record_v017_policy_authority_trace(
+            runner,
+            command=SimpleNamespace(command=torch.zeros(8, 58)),
+            policy_privileged_observations=torch.zeros(4, 289),
+            role_row_count=8,
+            policy_row_count=4,
+        )
+        assert dict(transaction.observation_trace()) == {
+            "role_row_count": 8,
+            "current_command_dim": 58,
+            "combined_observation_dim": 928,
+            "critic_observation_dim": 289,
+        }
+        try:
+            one_action._record_v017_policy_authority_trace(
+                runner,
+                command=SimpleNamespace(command=torch.zeros(4, 58)),
+                policy_privileged_observations=torch.zeros(4, 289),
+                role_row_count=8,
+                policy_row_count=4,
+            )
+        except RuntimeError as exc:
+            assert "current GMT command" in str(exc)
+        else:
+            raise AssertionError("v017 trace accepted a command that omitted Noisy role rows")
+    finally:
+        transaction.abort()
+
+
 def _capture(
     live_probe,
     helper,
@@ -814,6 +856,7 @@ def test_t_k_metamorphic_and_legacy_reject(live_probe, helper, commands, hooks, 
 def main() -> None:
     helper, commands, hooks, setup, live_probe = _load_owners()
     test_t_v017_selected_role_trajectory_aligns_every_field_once()
+    test_t_v017_policy_authority_trace_uses_measured_shapes()
     test_t_action_count_and_frozen(live_probe, helper, commands, hooks, setup)
     test_t_expected_support_actual_unloaded_survives_as_scored_evidence(live_probe, helper, commands, hooks, setup)
     test_t_quality_deterministic_proposal(live_probe, helper, commands, hooks, setup)

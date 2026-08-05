@@ -7846,3 +7846,36 @@ bounded official transaction is still required for `AUDIT-B02` through
 `frontres_v015_local_sentinel_connectivity_contract.py` is outside the active
 49-contract suite and still depends on a removed legacy fixture loader; it is
 recorded as legacy test debt rather than used as production evidence.
+
+## E-FI-125: Phase B Observation-Trace Producer Closure
+
+Date: 2026-08-05
+
+Observed runtime fact:
+
+- the next GPU7 run crossed E-FI-124, completed real reset, observation,
+  full-6D action, frozen-GMT K8 execution, v007 Gain and grouped candidate
+  construction, then reached the final formal request authority check;
+- the actual tensors already had the correct `870D + 58D -> 928D ->
+  158D/770D` layout. The transaction-scoped trace still reported
+  `current_command_dim=0` and omitted `critic_observation_dim`, because the
+  active v017 Repair collector did not publish the command and old-policy
+  Critic dimensions that the older collector had published.
+
+Offline repair and evidence:
+
+- the v017 Repair collector now reads the command-owned role-aligned `[B,58]`
+  current GMT command and its own `[M,D_critic]` old-policy tuple, validates
+  their role counts, and updates only those two measured trace fields;
+- the regression starts from the real incremental state
+  `current_command_dim=0`, proves it becomes 58 while existing 928D facts remain
+  unchanged, records `critic_observation_dim=289`, and rejects a `[4,58]`
+  command that omitted the four Noisy role rows;
+- one-action-K, formal transaction, formal runtime-audit and checkpoint-v9
+  focused contracts pass. The active aggregate suite reports `49/49` with
+  `failed_count=0`; Python compilation also passes.
+
+Verdict: the observation-trace producer lifecycle is
+owner-lifecycle-contract-confirmed offline. No assertion was weakened and no
+dimension was silently defaulted. `AUDIT-B02` through `AUDIT-B08` remain
+live-pending until the bounded official transaction is rerun.

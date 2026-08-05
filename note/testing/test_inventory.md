@@ -2,6 +2,17 @@
 
 Updated: 2026-08-05
 
+## Phase B Observation-Trace Producer Closure E-FI-125
+
+- the fourth GPU7 run proved the real 928/158/770 tensors were correct, then
+  failed because active v017 Repair collection left command dimension at 0 and
+  never published the 289D Critic observation identity;
+- the one-action-K contract now exercises incremental trace merge, exact B=8
+  command rows, M=4 Critic rows, 58D/289D dimensions and malformed role-row
+  rejection;
+- focused transaction/runtime/checkpoint regressions and the active `49/49`
+  aggregate suite pass. This is offline closure; B02-B08 remain live-pending.
+
 ## Phase B Formal Grouped-Batch Dependency E-FI-124
 
 - the third GPU7 run reached formal grouped candidate conversion after real
