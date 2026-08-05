@@ -7779,3 +7779,33 @@ Offline repair and evidence:
 Verdict: the first-invalid owner lifecycle is closed offline. `AUDIT-B01` is
 runtime-confirmed; `AUDIT-B02` through `AUDIT-B08` remain live-pending until the
 same bounded official transaction is rerun. No policy-quality claim is made.
+
+## E-FI-123: Phase B Repair-Trajectory Row-Alignment Closure
+
+Date: 2026-08-05
+
+Observed runtime fact:
+
+- the rerun crossed the E-FI-122 reset repair: Clean, Noisy and Repair resets
+  completed, the real `870D + 58D -> 928D -> 158D/770D` observation route ran,
+  one finite full-6D action was applied and frozen GMT entered K8 execution;
+- the first invalid operation was trajectory sealing. Repair frames had already
+  selected four policy rows from eight role rows, while survival and valid-mask
+  vectors still retained all eight role rows. The resulting trajectory mixed
+  `[K,4,...]` state with `[K,8]` survival and correctly failed validation.
+
+Offline repair and evidence:
+
+- the one-action-K owner now selects global survival/valid vectors by the same
+  `repair_rows` exactly once, then seals every field as `[K,M,...]`; it no longer
+  selects an already selected Repair trajectory a second time;
+- the deterministic regression uses non-contiguous global role rows and
+  hand-written survival/valid values, proves the expected row permutation and
+  rejects a missing requested role row;
+- one-action-K, v007 Gain, formal transaction and formal runtime-audit focused
+  contracts pass, together with Python compilation and `git diff --check`.
+
+Verdict: Repair trajectory row alignment is owner-lifecycle-contract-confirmed
+offline. The rerun provided real evidence through one-action-K collection, but
+`AUDIT-B02` through `AUDIT-B08` still require another bounded official run. No
+Gain, PPO, checkpoint or policy-quality result was produced by the failed run.

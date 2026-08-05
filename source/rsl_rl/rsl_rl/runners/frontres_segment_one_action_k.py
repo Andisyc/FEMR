@@ -326,6 +326,41 @@ def _stack_v017_execution_frames(
     return trajectory, expected.detach().clone()
 
 
+def _stack_v017_selected_role_execution_frames(
+    frames: list[Any],
+    *,
+    survival: list[torch.Tensor],
+    valid: list[torch.Tensor],
+    role_rows: torch.Tensor,
+) -> tuple[FrontRESExecutedKTrajectory, torch.Tensor]:
+    """Stack frames already captured for role_rows with matching selected masks."""
+
+    # B1: 校验 global role-row vectors, 产出与 selected frame batch 对齐的 [K,M] masks.
+    ids = role_rows.to(dtype=torch.long).reshape(-1)
+    if int(ids.numel()) == 0 or int(torch.unique(ids).numel()) != int(ids.numel()):
+        raise ValueError("v017 selected execution requires nonempty unique role rows")
+    max_role_row = int(ids.max().item())
+    if any(
+        not isinstance(value, torch.Tensor)
+        or value.ndim != 1
+        or int(value.numel()) <= max_role_row
+        for value in survival + valid
+    ):
+        raise ValueError("v017 selected execution masks must contain every requested global role row")
+    selected_survival = [value.index_select(0, ids.to(value.device)).detach().clone() for value in survival]
+    selected_valid = [value.index_select(0, ids.to(value.device)).detach().clone() for value in valid]
+
+    # B2: 只封装一次 selected role batch, 产出统一 [K,M,...] trajectory.
+    trajectory, expected = _stack_v017_execution_frames(
+        frames,
+        survival=selected_survival,
+        valid=selected_valid,
+    )
+    if int(trajectory.joint_pos.shape[1]) != int(ids.numel()):
+        raise ValueError("v017 selected execution frames must already align with role_rows")
+    return trajectory, expected
+
+
 def select_frontres_v017_trajectory_rows(
     trajectory: FrontRESExecutedKTrajectory,
     rows: torch.Tensor,
@@ -494,8 +529,12 @@ def collect_frontres_v017_repair_attempts(
             survival.append(alive.detach().clone())
             valid_rows.append(valid.detach().clone())
             done_any = done_any | (dones & alive)
-        all_rows, _expected = _stack_v017_execution_frames(frames, survival=survival, valid=valid_rows)
-        repair_trajectory = select_frontres_v017_trajectory_rows(all_rows, repair_rows)
+        repair_trajectory, _expected = _stack_v017_selected_role_execution_frames(
+            frames,
+            survival=survival,
+            valid=valid_rows,
+            role_rows=repair_rows,
+        )
         # B3: 将每条 Repair 与其 immutable scenario/policy identity 封装为 typed attempt evidence.
         attempts: list[FrontRESRepairAttemptEvidence] = []
         for row in range(n_repair):

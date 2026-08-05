@@ -1,6 +1,18 @@
 # FEMR Current Test Inventory
 
-Updated: 2026-08-04
+Updated: 2026-08-05
+
+## Phase B Repair-Trajectory Row Alignment E-FI-123
+
+- the second GPU7 run crossed reset, observation, one-action and frozen-GMT
+  execution, then exposed mixed trajectory rows: state was `[K,4,...]` while
+  survival/valid remained `[K,8]`;
+- `frontres_v015_one_action_k_contract.py` now uses non-contiguous global role
+  rows to prove every Repair trajectory field is selected exactly once and
+  malformed role coverage rejects;
+- v007 Gain, formal transaction and formal runtime-audit focused regressions
+  pass. This is offline closure of the first-invalid row owner; B02-B08 remain
+  live-pending.
 
 ## Phase B Reset Lifecycle Closure E-FI-122
 

@@ -270,6 +270,57 @@ def _fake_physics_frame(offset: int, *, mode: str = "unequal") -> tuple[torch.Te
     )
 
 
+def test_t_v017_selected_role_trajectory_aligns_every_field_once() -> None:
+    one_action = sys.modules["rsl_rl.runners.frontres_segment_one_action_k"]
+    role_rows = torch.tensor([4, 6, 5, 7], dtype=torch.long)
+    frames = []
+    survival = []
+    valid = []
+    for step in range(2):
+        frames.append(
+            SimpleNamespace(
+                joint_pos=torch.full((4, 29), float(step)),
+                root_pos=torch.zeros(4, 3),
+                root_quat=torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(4, 1),
+                key_body_pos=torch.zeros(4, 2, 3),
+                root_lin_vel=torch.zeros(4, 3),
+                root_ang_vel=torch.zeros(4, 3),
+                foot_pos=torch.zeros(4, 2, 3),
+                contact=torch.ones(4, 2),
+                zmp_margin=torch.zeros(4),
+                expected_support=torch.ones(4, 2),
+            )
+        )
+        survival.append(torch.tensor([0, 0, 0, 0, 1, step, 1, 0], dtype=torch.float32))
+        valid.append(torch.tensor([0, 0, 0, 0, 1, 1, 1, step], dtype=torch.bool))
+
+    trajectory, expected = one_action._stack_v017_selected_role_execution_frames(
+        frames,
+        survival=survival,
+        valid=valid,
+        role_rows=role_rows,
+    )
+
+    assert tuple(trajectory.joint_pos.shape) == (2, 4, 29)
+    torch.testing.assert_close(
+        trajectory.survival,
+        torch.tensor([[1, 1, 0, 0], [1, 1, 1, 0]], dtype=torch.float32),
+    )
+    assert trajectory.valid_mask.tolist() == [[True, True, True, False], [True, True, True, True]]
+    assert tuple(expected.shape) == (2, 4, 2)
+    try:
+        one_action._stack_v017_selected_role_execution_frames(
+            frames,
+            survival=[value[:7] for value in survival],
+            valid=valid,
+            role_rows=role_rows,
+        )
+    except ValueError as exc:
+        assert "every requested global role row" in str(exc)
+    else:
+        raise AssertionError("selected Repair trajectory accepted a missing global role row")
+
+
 def _capture(
     live_probe,
     helper,
@@ -762,6 +813,7 @@ def test_t_k_metamorphic_and_legacy_reject(live_probe, helper, commands, hooks, 
 
 def main() -> None:
     helper, commands, hooks, setup, live_probe = _load_owners()
+    test_t_v017_selected_role_trajectory_aligns_every_field_once()
     test_t_action_count_and_frozen(live_probe, helper, commands, hooks, setup)
     test_t_expected_support_actual_unloaded_survives_as_scored_evidence(live_probe, helper, commands, hooks, setup)
     test_t_quality_deterministic_proposal(live_probe, helper, commands, hooks, setup)

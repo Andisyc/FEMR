@@ -101,6 +101,10 @@ action. TEST-04/05/10/16 and the 49/49 deterministic aggregate pass.
   rejected execution-mode selection before sealed-scenario installation. The
   existing reset seam now owns `install -> mode -> refresh` and focused offline
   regressions pass; B02-B08 still require the bounded live rerun.
+- E-FI-123 records that the rerun crossed reset, observation, one-action and
+  frozen-GMT execution, then exposed `[K,4]` versus `[K,8]` Repair evidence.
+  The one-action-K owner now applies `repair_rows` exactly once to every
+  trajectory field; focused offline regressions pass and B02-B08 remain live.
 E-FI-109 proves offline code and persistence semantics. It does not prove
 simulator/live class populations, policy quality or deployment behavior.
 
@@ -130,7 +134,8 @@ MOSAIC host change or an unresolvable P0/P1.
 
 ## Next Action
 
-`AUDIT-B01` is runtime-confirmed. E-FI-122 closes the first-invalid reset
-lifecycle offline without weakening the command detector. The next action is
-to rerun the same bounded official 8-env, K8/M2, one-transaction, one-update
-command and observe B02-B08; no policy-quality claim is yet available.
+`AUDIT-B01` is runtime-confirmed. E-FI-122 and E-FI-123 close the reset lifecycle
+and Repair trajectory row alignment offline. The next action is to rerun the
+same bounded official 8-env, K8/M2, one-transaction, one-update command and
+observe B02-B08; no Gain/update/checkpoint or policy-quality claim is yet
+available.
