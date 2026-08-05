@@ -952,14 +952,19 @@ def test_live_sampler_initializes_dataset_from_stage1_cache_dir() -> None:
 def test_live_sampler_installs_index_reset_hook_for_index_only_dataset() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         amass_root = Path(tmp) / "AMASS_G1NPZ_Final"
+        cache_amass_root = Path(tmp) / "old-server" / "AMASS_G1NPZ_Final"
         cache_dir = Path(tmp) / "AMASS_G1Segment"
         stage1_hooks_contract._write_fake_amass(amass_root / "KIT" / "359" / "motion_a.npz")
-        _write_stage1_index_cache(cache_dir, amass_root)
+        _write_stage1_index_cache(cache_dir, cache_amass_root)
         env = stage1_hooks_contract.FakeGymEnv(amass_root)
         runner = FakeRunner(cache_dir=str(cache_dir), env=env)
         initialize_frontres_segment_live_sampler(runner)
         hook = getattr(runner.env, "apply_frontres_segment_index_reset", None)
         assert callable(hook)
+        assert runner._frontres_segment_dataset.cache_metadata()["amass_root"] == str(cache_amass_root)
+        assert runner.env._frontres_segment_index_reset_adapter.frontres_loaded_motion_root() == str(
+            amass_root.resolve()
+        )
 
         batch = runner._frontres_segment_dataset.get_segments([0])
         request = SimpleNamespace(

@@ -164,6 +164,7 @@ class FakeCommand:
         self.num_envs = int(num_envs)
         self.robot = robot
         self.cfg = types.SimpleNamespace(
+            motion=str(root),
             motion_dataset_load_cap=1,
             motion_dataset_shard_across_gpus=False,
         )
@@ -446,6 +447,9 @@ def test_stage1_env_adapter_hooks_trace_real_boundary_contract() -> None:
         loader_probe = adapter.frontres_motion_loader_probe()
         print(f"[stage1_hooks trace] loaded_motion_paths={loaded_paths} loader_probe={loader_probe}")
         assert loaded_paths == [str(root / "KIT" / "359" / "motion_a.npz")]
+        assert adapter.frontres_loaded_motion_root() == str(root.resolve())
+        assert loader_probe["cache_amass_root"] == str(root)
+        assert loader_probe["live_amass_root"] == str(root.resolve())
         assert loader_probe["loaded_motion_count"] == 1
         assert loader_probe["all_motion_count"] == 1
         assert loader_probe["cfg_motion_dataset_load_cap"] == 1

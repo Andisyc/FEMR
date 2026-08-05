@@ -28,6 +28,8 @@ class FrontRESStage1EnvAdapter:
         self.base_env = getattr(self.env, "unwrapped", self.env)
         self.command = self._resolve_motion_command()
         self.robot = getattr(self.command, "robot", None) or self._resolve_robot()
+        self.cache_amass_root = str(self.amass_root)
+        self.amass_root = self._resolve_live_motion_root()
         self.motion_path_to_index = self._build_motion_path_index()
 
     @property
@@ -41,6 +43,11 @@ class FrontRESStage1EnvAdapter:
     def frontres_loaded_motion_paths(self) -> list[str]:
         return [str(path) for path in getattr(self.command.motion_dir_loader, "motion_paths", [])]
 
+    def frontres_loaded_motion_root(self) -> str:
+        """Return the live command root used to interpret cache-relative motion identities."""
+
+        return str(self.amass_root)
+
     def frontres_motion_loader_probe(self) -> dict[str, Any]:
         loader = getattr(self.command, "motion_dir_loader", None)
         cfg = getattr(self.command, "cfg", None)
@@ -48,6 +55,8 @@ class FrontRESStage1EnvAdapter:
         all_paths = list(getattr(loader, "motion_paths_all", []) or [])
         shard_info = dict(getattr(loader, "shard_info", {}) or {})
         return {
+            "cache_amass_root": str(self.cache_amass_root),
+            "live_amass_root": str(self.amass_root),
             "loaded_motion_count": len(loaded_paths),
             "all_motion_count": len(all_paths),
             "cfg_motion_dataset_load_cap": getattr(cfg, "motion_dataset_load_cap", None),
@@ -56,6 +65,25 @@ class FrontRESStage1EnvAdapter:
             "shard_total_motions": shard_info.get("total_motions"),
             "first_loaded_motion": str(loaded_paths[0]) if loaded_paths else "none",
         }
+
+    def _resolve_live_motion_root(self) -> str:
+        """Resolve the current server's motion root without rewriting relative cache identity."""
+
+        # B1: command cfg owns the current filesystem root; cache metadata remains source provenance only.
+        cfg = getattr(self.command, "cfg", None)
+        configured = str(getattr(cfg, "motion", "") or "").strip()
+        root = Path(configured or self.amass_root).expanduser().resolve()
+
+        # B2: reject a configured root that cannot contain every loader path.
+        for value in self.frontres_loaded_motion_paths():
+            path = Path(value).expanduser().resolve()
+            try:
+                path.relative_to(root)
+            except ValueError as exc:
+                raise ValueError(
+                    f"loaded motion path is outside live command root: path={path} root={root}"
+                ) from exc
+        return str(root)
 
     def ensure_frontres_env_reset(self) -> dict[str, bool]:
         if bool(getattr(self, "_frontres_env_reset_done", False)):

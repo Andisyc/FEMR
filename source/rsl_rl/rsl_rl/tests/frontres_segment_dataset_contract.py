@@ -459,6 +459,37 @@ def test_index_only_dataset_filters_to_loaded_motion_paths_and_remaps_ids() -> N
         ]
 
 
+def test_index_only_dataset_matches_relative_identity_after_root_migration() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        old_root = Path(tmp) / "old-server" / "AMASS_G1NPZ_Final"
+        live_root = Path(tmp) / "new-server" / "AMASS_G1NPZ_Final"
+        cache_dir = Path(tmp) / "AMASS_G1SegmentIndex"
+        segment = _cache_segment(
+            segment_id=0,
+            motion_rel_path="KIT/359/motion_a.npz",
+            start_frame=2,
+        )
+        summary = indexer.FrontRESAMASSIndexSummary(
+            amass_root=str(old_root),
+            motion_count=1,
+            segment_count=1,
+            horizon_k=4,
+            frame_stride=1,
+            skipped_short_motions=0,
+        )
+        indexer.write_amass_segment_index(cache_dir, [segment], summary)
+
+        dataset = load_stage1_cache_dataset(cache_dir, device="cpu")
+        probe = dataset.filter_to_loaded_motion_paths(
+            [live_root / "KIT" / "359" / "motion_a.npz"],
+            amass_root=live_root,
+        )
+
+        assert probe["filtered"] is False
+        assert dataset.cache_metadata()["amass_root"] == str(old_root)
+        assert dataset.get_segments([0]).specs[0].motion_id == "KIT/359/motion_a.npz"
+
+
 def test_dataset_lazy_cache_uses_lru_shard_reads() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         cache_dir = Path(tmp) / "AMASS_G1Segment"
@@ -638,6 +669,7 @@ def main() -> None:
     test_dataset_loads_stage1_cache_and_excludes_boundary_diagnostics_by_default()
     test_dataset_loads_stage1_index_only_candidate_pool()
     test_index_only_dataset_filters_to_loaded_motion_paths_and_remaps_ids()
+    test_index_only_dataset_matches_relative_identity_after_root_migration()
     test_dataset_lazy_cache_uses_lru_shard_reads()
     test_dataset_lazy_read_maps_segment_id_to_manifest_row_and_batch_values()
     test_dataset_lazy_cache_lru_bounds_multishard_reads()

@@ -7839,8 +7839,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 178,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=178",
+          "sourceLine": 180,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=180",
           "blocks": [],
           "reviewRefs": []
         },
@@ -7850,8 +7850,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 220,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=220",
+          "sourceLine": 222,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=222",
           "blocks": [],
           "reviewRefs": []
         },
@@ -7861,8 +7861,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 297,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=297",
+          "sourceLine": 299,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=299",
           "blocks": [],
           "reviewRefs": []
         },
@@ -7872,8 +7872,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 304,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=304",
+          "sourceLine": 306,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=306",
           "blocks": [],
           "reviewRefs": []
         },
@@ -7883,8 +7883,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 314,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=314",
+          "sourceLine": 316,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=316",
           "blocks": [],
           "reviewRefs": []
         },
@@ -7894,8 +7894,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 322,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=322",
+          "sourceLine": 324,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=324",
           "blocks": [],
           "reviewRefs": []
         },
@@ -7905,8 +7905,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 421,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=421",
+          "sourceLine": 423,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=423",
           "blocks": [],
           "reviewRefs": []
         },
@@ -7916,8 +7916,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 431,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=431",
+          "sourceLine": 433,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=433",
           "blocks": [],
           "reviewRefs": []
         },
@@ -7927,26 +7927,26 @@
           "annotationClass": "annotated",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 441,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=441",
+          "sourceLine": 443,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=443",
           "blocks": [
             {
               "id": "B1",
               "purpose": "sample source/global-replay-review identity 在 trial expansion 前可见.",
-              "sourceLine": 444,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=444"
+              "sourceLine": 446,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=446"
             },
             {
               "id": "B2",
               "purpose": "policy/search role 与 K/difficulty 在这里首次绑定到 batch rows.",
-              "sourceLine": 445,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=445"
+              "sourceLine": 447,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=447"
             },
             {
               "id": "B3",
               "purpose": "storage/PPO 消费前可统计 unique/repeat/staleness 与 valid policy rows.",
-              "sourceLine": 446,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=446"
+              "sourceLine": 448,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=448"
             }
           ],
           "reviewRefs": []
@@ -7957,8 +7957,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 462,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=462",
+          "sourceLine": 464,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=464",
           "blocks": [],
           "reviewRefs": []
         },
@@ -7968,8 +7968,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 481,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=481",
+          "sourceLine": 483,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=483",
           "blocks": [],
           "reviewRefs": []
         },
@@ -7979,8 +7979,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 493,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=493",
+          "sourceLine": 495,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=495",
           "blocks": [],
           "reviewRefs": []
         },
@@ -7990,8 +7990,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 506,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=506",
+          "sourceLine": 508,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=508",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8001,8 +8001,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 523,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=523",
+          "sourceLine": 525,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=525",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8012,8 +8012,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 543,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=543",
+          "sourceLine": 545,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=545",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8023,8 +8023,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 550,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=550",
+          "sourceLine": 552,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=552",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8034,8 +8034,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 633,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=633",
+          "sourceLine": 635,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=635",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8045,8 +8045,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 733,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=733",
+          "sourceLine": 735,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=735",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8056,8 +8056,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 751,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=751",
+          "sourceLine": 753,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=753",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8067,8 +8067,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 758,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=758",
+          "sourceLine": 760,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=760",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8078,8 +8078,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 826,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=826",
+          "sourceLine": 828,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=828",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8089,8 +8089,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 876,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=876",
+          "sourceLine": 878,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=878",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8100,8 +8100,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 888,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=888",
+          "sourceLine": 890,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=890",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8111,8 +8111,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 895,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=895",
+          "sourceLine": 897,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=897",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8122,8 +8122,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 979,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=979",
+          "sourceLine": 981,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=981",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8133,8 +8133,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 998,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=998",
+          "sourceLine": 1000,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1000",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8144,8 +8144,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 1086,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1086",
+          "sourceLine": 1088,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1088",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8155,8 +8155,8 @@
           "annotationClass": "trivial",
           "simpleKind": "薄接口",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 1237,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1237",
+          "sourceLine": 1239,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1239",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8166,8 +8166,8 @@
           "annotationClass": "trivial",
           "simpleKind": "薄接口",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 1243,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1243",
+          "sourceLine": 1245,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1245",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8177,8 +8177,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 1249,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1249",
+          "sourceLine": 1251,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1251",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8755,8 +8755,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 178,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=178",
+          "sourceLine": 180,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=180",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8766,8 +8766,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 220,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=220",
+          "sourceLine": 222,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=222",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8777,8 +8777,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 297,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=297",
+          "sourceLine": 299,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=299",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8788,8 +8788,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 304,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=304",
+          "sourceLine": 306,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=306",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8799,8 +8799,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 314,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=314",
+          "sourceLine": 316,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=316",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8810,8 +8810,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 322,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=322",
+          "sourceLine": 324,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=324",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8821,8 +8821,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 421,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=421",
+          "sourceLine": 423,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=423",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8832,8 +8832,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 431,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=431",
+          "sourceLine": 433,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=433",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8843,26 +8843,26 @@
           "annotationClass": "annotated",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 441,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=441",
+          "sourceLine": 443,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=443",
           "blocks": [
             {
               "id": "B1",
               "purpose": "sample source/global-replay-review identity 在 trial expansion 前可见.",
-              "sourceLine": 444,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=444"
+              "sourceLine": 446,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=446"
             },
             {
               "id": "B2",
               "purpose": "policy/search role 与 K/difficulty 在这里首次绑定到 batch rows.",
-              "sourceLine": 445,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=445"
+              "sourceLine": 447,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=447"
             },
             {
               "id": "B3",
               "purpose": "storage/PPO 消费前可统计 unique/repeat/staleness 与 valid policy rows.",
-              "sourceLine": 446,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=446"
+              "sourceLine": 448,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=448"
             }
           ],
           "reviewRefs": []
@@ -8873,8 +8873,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 462,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=462",
+          "sourceLine": 464,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=464",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8884,8 +8884,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 481,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=481",
+          "sourceLine": 483,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=483",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8895,8 +8895,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 493,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=493",
+          "sourceLine": 495,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=495",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8906,8 +8906,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 506,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=506",
+          "sourceLine": 508,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=508",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8917,8 +8917,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 523,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=523",
+          "sourceLine": 525,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=525",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8928,8 +8928,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 543,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=543",
+          "sourceLine": 545,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=545",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8939,8 +8939,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 550,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=550",
+          "sourceLine": 552,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=552",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8950,8 +8950,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 633,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=633",
+          "sourceLine": 635,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=635",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8961,8 +8961,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 733,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=733",
+          "sourceLine": 735,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=735",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8972,8 +8972,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 751,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=751",
+          "sourceLine": 753,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=753",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8983,8 +8983,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 758,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=758",
+          "sourceLine": 760,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=760",
           "blocks": [],
           "reviewRefs": []
         },
@@ -8994,8 +8994,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 826,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=826",
+          "sourceLine": 828,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=828",
           "blocks": [],
           "reviewRefs": []
         },
@@ -9005,8 +9005,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 876,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=876",
+          "sourceLine": 878,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=878",
           "blocks": [],
           "reviewRefs": []
         },
@@ -9016,8 +9016,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 888,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=888",
+          "sourceLine": 890,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=890",
           "blocks": [],
           "reviewRefs": []
         },
@@ -9027,8 +9027,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 895,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=895",
+          "sourceLine": 897,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=897",
           "blocks": [],
           "reviewRefs": []
         },
@@ -9038,8 +9038,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 979,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=979",
+          "sourceLine": 981,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=981",
           "blocks": [],
           "reviewRefs": []
         },
@@ -9049,8 +9049,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 998,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=998",
+          "sourceLine": 1000,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1000",
           "blocks": [],
           "reviewRefs": []
         },
@@ -9060,8 +9060,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 1086,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1086",
+          "sourceLine": 1088,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1088",
           "blocks": [],
           "reviewRefs": []
         },
@@ -9071,8 +9071,8 @@
           "annotationClass": "trivial",
           "simpleKind": "薄接口",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 1237,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1237",
+          "sourceLine": 1239,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1239",
           "blocks": [],
           "reviewRefs": []
         },
@@ -9082,8 +9082,8 @@
           "annotationClass": "trivial",
           "simpleKind": "薄接口",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 1243,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1243",
+          "sourceLine": 1245,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1245",
           "blocks": [],
           "reviewRefs": []
         },
@@ -9093,8 +9093,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 1249,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1249",
+          "sourceLine": 1251,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1251",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11625,8 +11625,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 178,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=178",
+          "sourceLine": 180,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=180",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11636,8 +11636,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 220,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=220",
+          "sourceLine": 222,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=222",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11647,8 +11647,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 297,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=297",
+          "sourceLine": 299,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=299",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11658,8 +11658,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 304,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=304",
+          "sourceLine": 306,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=306",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11669,8 +11669,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 314,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=314",
+          "sourceLine": 316,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=316",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11680,8 +11680,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 322,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=322",
+          "sourceLine": 324,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=324",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11691,8 +11691,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 421,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=421",
+          "sourceLine": 423,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=423",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11702,8 +11702,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 431,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=431",
+          "sourceLine": 433,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=433",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11713,26 +11713,26 @@
           "annotationClass": "annotated",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 441,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=441",
+          "sourceLine": 443,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=443",
           "blocks": [
             {
               "id": "B1",
               "purpose": "sample source/global-replay-review identity 在 trial expansion 前可见.",
-              "sourceLine": 444,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=444"
+              "sourceLine": 446,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=446"
             },
             {
               "id": "B2",
               "purpose": "policy/search role 与 K/difficulty 在这里首次绑定到 batch rows.",
-              "sourceLine": 445,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=445"
+              "sourceLine": 447,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=447"
             },
             {
               "id": "B3",
               "purpose": "storage/PPO 消费前可统计 unique/repeat/staleness 与 valid policy rows.",
-              "sourceLine": 446,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=446"
+              "sourceLine": 448,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=448"
             }
           ],
           "reviewRefs": []
@@ -11743,8 +11743,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 462,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=462",
+          "sourceLine": 464,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=464",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11754,8 +11754,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 481,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=481",
+          "sourceLine": 483,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=483",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11765,8 +11765,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 493,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=493",
+          "sourceLine": 495,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=495",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11776,8 +11776,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 506,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=506",
+          "sourceLine": 508,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=508",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11787,8 +11787,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 523,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=523",
+          "sourceLine": 525,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=525",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11798,8 +11798,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 543,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=543",
+          "sourceLine": 545,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=545",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11809,8 +11809,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 550,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=550",
+          "sourceLine": 552,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=552",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11820,8 +11820,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 633,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=633",
+          "sourceLine": 635,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=635",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11831,8 +11831,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 733,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=733",
+          "sourceLine": 735,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=735",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11842,8 +11842,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 751,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=751",
+          "sourceLine": 753,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=753",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11853,8 +11853,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 758,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=758",
+          "sourceLine": 760,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=760",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11864,8 +11864,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 826,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=826",
+          "sourceLine": 828,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=828",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11875,8 +11875,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 876,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=876",
+          "sourceLine": 878,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=878",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11886,8 +11886,8 @@
           "annotationClass": "trivial",
           "simpleKind": "纯工具",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 888,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=888",
+          "sourceLine": 890,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=890",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11897,8 +11897,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 895,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=895",
+          "sourceLine": 897,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=897",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11908,8 +11908,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 979,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=979",
+          "sourceLine": 981,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=981",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11919,8 +11919,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 998,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=998",
+          "sourceLine": 1000,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1000",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11930,8 +11930,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 1086,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1086",
+          "sourceLine": 1088,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1088",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11941,8 +11941,8 @@
           "annotationClass": "trivial",
           "simpleKind": "薄接口",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 1237,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1237",
+          "sourceLine": 1239,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1239",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11952,8 +11952,8 @@
           "annotationClass": "trivial",
           "simpleKind": "薄接口",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 1243,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1243",
+          "sourceLine": 1245,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1245",
           "blocks": [],
           "reviewRefs": []
         },
@@ -11963,8 +11963,8 @@
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "sourceLine": 1249,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1249",
+          "sourceLine": 1251,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1251",
           "blocks": [],
           "reviewRefs": []
         },

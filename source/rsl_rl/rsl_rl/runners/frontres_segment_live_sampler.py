@@ -142,29 +142,31 @@ def _ensure_stage1_index_reset_hook(runner: Any) -> None:
     metadata = dataset.cache_metadata() if dataset is not None and hasattr(dataset, "cache_metadata") else None
     if not isinstance(metadata, dict) or not bool(metadata.get("index_only", False)):
         return
-    amass_root = str(metadata.get("amass_root", "") or "")
-    if not amass_root:
+    cache_amass_root = str(metadata.get("amass_root", "") or "")
+    if not cache_amass_root:
         raise ValueError("index-only Stage 1 dataset metadata is missing amass_root")
     from rsl_rl.frontres.frontres_segment_stage1_env_hooks import ensure_frontres_segment_index_reset_hook
 
     adapter = ensure_frontres_segment_index_reset_hook(
         runner.env,
-        amass_root=amass_root,
+        amass_root=cache_amass_root,
         robot_name=str(getattr(runner.alg, "frontres_segment_reset_robot_name", "robot")),
         trace=bool(getattr(runner.alg, "frontres_segment_reset_trace", True)),
     )
     probe = adapter.frontres_motion_loader_probe()
+    live_amass_root = adapter.frontres_loaded_motion_root()
     filter_probe = None
     if hasattr(dataset, "filter_to_loaded_motion_paths"):
         filter_probe = dataset.filter_to_loaded_motion_paths(
             adapter.frontres_loaded_motion_paths(),
-            amass_root=amass_root,
+            amass_root=live_amass_root,
         )
     print(
         _log_block(
             "[FrontRES Segment Index Reset Hook Ready]",
             "  loader: "
-            f"amass_root={amass_root} "
+            f"cache_amass_root={cache_amass_root} "
+            f"live_amass_root={live_amass_root} "
             f"loaded_motion_count={probe.get('loaded_motion_count')} "
             f"all_motion_count={probe.get('all_motion_count')} "
             f"first_loaded_motion={probe.get('first_loaded_motion')}",
