@@ -533,11 +533,19 @@ def print_segment_replay_transaction_audit(runner: Any, *, result: Any) -> None:
     )
 
 
-def print_one_action_k_audit(runner: Any, *, evidence: Any) -> None:
-    """Expose the active observation and one-action-K facts at their owner boundary."""
-
-    if not formal_runtime_audit_enabled(runner):
-        return
+def _print_one_action_k_audit_facts(
+    runner: Any,
+    *,
+    roles: tuple[str, ...],
+    provenance: tuple[str, ...],
+    sources: tuple[str, ...],
+    actions: torch.Tensor,
+    horizon_k: torch.Tensor,
+    gmt_action_shapes: tuple[tuple[int, ...], ...],
+    gmt_actions_finite: bool,
+    actor_forward_count: int,
+    later_femr_action_count: int,
+) -> None:
     from rsl_rl.runners.frontres_segment_runtime_types import frontres_observation_trace
 
     trace = dict(frontres_observation_trace(runner))
@@ -555,26 +563,19 @@ def print_one_action_k_audit(runner: Any, *, evidence: Any) -> None:
     for name, expected in expected_trace.items():
         assert int(trace.get(name, -1)) == expected, f"AUDIT-B03 requires {name}={expected}"
 
-    roles = tuple(getattr(evidence, "roles", ()))
-    provenance = tuple(getattr(evidence, "intent_q29_provenance", ()))
-    sources = tuple(str(value).lower() for value in getattr(evidence, "intent_q29_source", ()))
     assert len(roles) == 8 and roles.count("repair") == roles.count("noisy") == 4
     assert len(provenance) == len(sources) == 8
     assert all(value == "deployment_noisy_q29" for value in provenance)
     assert all(value and not any(token in value for token in ("clean", "root", "global")) for value in sources)
 
-    actions = getattr(evidence, "policy_actions", None)
-    horizon_k = getattr(evidence, "horizon_k", None)
-    continuation = getattr(evidence, "continuation", None)
-    gmt_actions = getattr(evidence, "frozen_gmt_env_actions", None)
     assert isinstance(actions, torch.Tensor) and tuple(actions.shape) == (4, 6)
     assert bool(torch.isfinite(actions).all().item())
     assert isinstance(horizon_k, torch.Tensor) and tuple(horizon_k.shape) == (8,)
     assert bool((horizon_k == 8).all().item())
-    assert isinstance(continuation, torch.Tensor) and tuple(continuation.shape) == (8, 8, 65)
-    assert isinstance(gmt_actions, torch.Tensor) and tuple(gmt_actions.shape) == (8, 8, 29)
-    assert int(getattr(evidence, "actor_forward_count", -1)) == 1
-    assert int(getattr(evidence, "later_femr_action_count", -1)) == 0
+    assert len(gmt_action_shapes) == 8 and all(shape == (8, 29) for shape in gmt_action_shapes)
+    assert gmt_actions_finite
+    assert actor_forward_count == 1
+    assert later_femr_action_count == 0
     assert int(trace.get("post_advance_gmt_read_count", -1)) == 8
 
     policy = getattr(getattr(runner, "alg", None), "policy", None)
@@ -602,13 +603,68 @@ def print_one_action_k_audit(runner: Any, *, evidence: Any) -> None:
         limit=8,
         action_shape=tuple(actions.shape),
         action_finite=1,
-        actor_forward_count=1,
-        later_femr_action_count=0,
+        actor_forward_count=actor_forward_count,
+        later_femr_action_count=later_femr_action_count,
         horizon_k=8,
-        continuation_shape=tuple(continuation.shape),
-        gmt_action_shape=tuple(gmt_actions.shape),
+        gmt_steps=len(gmt_action_shapes),
+        gmt_action_shape=gmt_action_shapes[0],
         gmt_eval=int(not gmt_policy.training),
         gmt_trainable=sum(int(parameter.requires_grad) for parameter in gmt_policy.parameters()),
+    )
+
+
+def print_one_action_k_audit(runner: Any, *, evidence: Any) -> None:
+    """Adapt legacy evaluator evidence to the shared B03/B04 assertions."""
+
+    if not formal_runtime_audit_enabled(runner):
+        return
+    continuation = getattr(evidence, "continuation", None)
+    gmt_actions = getattr(evidence, "frozen_gmt_env_actions", None)
+    assert isinstance(continuation, torch.Tensor) and tuple(continuation.shape) == (8, 8, 65)
+    assert isinstance(gmt_actions, torch.Tensor) and tuple(gmt_actions.shape) == (8, 8, 29)
+    _print_one_action_k_audit_facts(
+        runner,
+        roles=tuple(getattr(evidence, "roles", ())),
+        provenance=tuple(getattr(evidence, "intent_q29_provenance", ())),
+        sources=tuple(str(value).lower() for value in getattr(evidence, "intent_q29_source", ())),
+        actions=getattr(evidence, "policy_actions", None),
+        horizon_k=getattr(evidence, "horizon_k", None),
+        gmt_action_shapes=tuple(tuple(gmt_actions[:, step, :].shape) for step in range(gmt_actions.shape[1])),
+        gmt_actions_finite=bool(torch.isfinite(gmt_actions).all().item()),
+        actor_forward_count=int(getattr(evidence, "actor_forward_count", -1)),
+        later_femr_action_count=int(getattr(evidence, "later_femr_action_count", -1)),
+    )
+
+
+def print_v017_repair_attempts_audit(
+    runner: Any,
+    *,
+    roles: tuple[str, ...],
+    provenance: tuple[str, ...],
+    sources: tuple[str, ...],
+    policy_actions: torch.Tensor,
+    horizon_k: torch.Tensor,
+    gmt_action_shapes: tuple[tuple[int, ...], ...],
+    gmt_actions_finite: bool,
+) -> None:
+    """Consume B03/B04 facts at the active formal v017 Repair collector boundary."""
+
+    if not formal_runtime_audit_enabled(runner):
+        return
+    assert getattr(runner, "_frontres_v015_one_action_k_phase", None) == "frozen", (
+        "AUDIT-B04 requires one FEMR action followed by the frozen-GMT phase"
+    )
+    _print_one_action_k_audit_facts(
+        runner,
+        roles=roles,
+        provenance=provenance,
+        sources=tuple(str(value).lower() for value in sources),
+        actions=policy_actions,
+        horizon_k=horizon_k,
+        gmt_action_shapes=gmt_action_shapes,
+        gmt_actions_finite=gmt_actions_finite,
+        actor_forward_count=1,
+        later_femr_action_count=0,
     )
 
 
@@ -892,6 +948,7 @@ __all__ = [
     "print_checkpoint_payload_audit",
     "print_formal_route_audit",
     "print_one_action_k_audit",
+    "print_v017_repair_attempts_audit",
     "print_phase_b_telemetry_audit",
     "print_ppo_audit",
     "print_rollout_storage_audit",

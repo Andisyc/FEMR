@@ -9,7 +9,9 @@ that the rerun crossed reset/observation/action/K execution, then exposed and
 offline-closed mixed `[K,4]`/`[K,8]` Repair trajectory rows. E-FI-124 and
 E-FI-125 close the following grouped-batch and observation-trace boundaries.
 E-FI-126 records live B02/B05 and closes the audit-only float32 return
-reduction mismatch; B06-B08 still require the same bounded live rerun. No
+reduction mismatch. E-FI-127 connects B03/B04 to the active formal v017 Repair
+collector and proves the connection offline; B03/B04 and B06-B08 still require
+the same bounded live rerun. No
 Gain/PPO semantics or live boundary was reopened
 under `FRS-METHOD-v017 / FRS-GAIN-v007 / FRS-PPO-v005 / FRS-TRAIN-v014 /
 FRS-EVAL-v004`. E-FI-105 proves the previous v012 module surface;
@@ -425,7 +427,11 @@ remain live-pending. E-FI-125 then closes the active v017 Repair collector's
 missing 58D command and 289D Critic trace producers without weakening the final
 authority assertion. E-FI-126 then live-confirms B02/B05 and closes the B06
 float32 reduction oracle offline without changing Gain or returns; B06-B08
-remain live-pending.
+remain live-pending. E-FI-127 then removes the legacy-only B03/B04 audit edge:
+the active v017 Repair collector now projects its existing sealed snapshot,
+928/158/770 observation trace, four policy actions and eight frozen-GMT action
+steps into the shared fail-closed audit owner. The active 49-contract suite
+passes; B03/B04 still require live confirmation.
 
 ### DP10 Future Motion Context Offline Readiness Closure
 

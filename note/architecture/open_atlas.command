@@ -5,6 +5,8 @@ ATLAS_ROOT="${0:A:h}"
 PORT="${PORT:-8765}"
 BASE_URL="http://127.0.0.1:${PORT}"
 TARGET_PATH="${ATLAS_PAGE:-/02_frontres_design_inspector.html}"
+LOG_PATH="${ATLAS_LOG_PATH:-/tmp/mosaic-frontres-atlas-${PORT}.log}"
+PID_PATH="${ATLAS_PID_PATH:-/tmp/mosaic-frontres-atlas-${PORT}.pid}"
 
 atlas_is_ready() {
   /usr/bin/curl -fsS "${BASE_URL}/healthz" 2>/dev/null \
@@ -27,23 +29,27 @@ if [[ ! -f "${ATLAS_ROOT}/auxiliary/atlas_app/node_modules/roughjs/bundled/rough
   exit 1
 fi
 
-# The server intentionally owns this terminal in the foreground. Background
-# daemons are reaped by some IDE/agent shells and recreate the original
-# connection-refused failure. Ctrl-C closes the Atlas explicitly.
-if [[ "$(/usr/bin/uname -s)" == "Darwin" ]]; then
-  (
-    for _attempt in {1..50}; do
-      if atlas_is_ready; then
-        print "[Atlas] ready: ${BASE_URL}${TARGET_PATH}"
-        /usr/bin/open "${BASE_URL}${TARGET_PATH}"
-        exit 0
-      fi
-      /bin/sleep 0.1
-    done
-    print -u2 "[Atlas] server failed to become ready at ${BASE_URL}"
-  ) &
-else
-  print "[Atlas] open after startup: ${BASE_URL}${TARGET_PATH}"
-fi
+print "[Atlas] starting background server: ${BASE_URL}"
+print "[Atlas] log: ${LOG_PATH}"
 
-exec /usr/bin/env PORT="${PORT}" node "${ATLAS_ROOT}/auxiliary/atlas_app/serve_architecture.mjs"
+nohup /usr/bin/env PORT="${PORT}" node "${ATLAS_ROOT}/auxiliary/atlas_app/serve_architecture.mjs" \
+  >"${LOG_PATH}" 2>&1 </dev/null &
+SERVER_PID="$!"
+print "${SERVER_PID}" >"${PID_PATH}"
+
+for _attempt in {1..50}; do
+  if atlas_is_ready; then
+    print "[Atlas] ready: ${BASE_URL}${TARGET_PATH}"
+    if [[ "$(/usr/bin/uname -s)" == "Darwin" ]]; then
+      /usr/bin/open "${BASE_URL}${TARGET_PATH}"
+    else
+      print "${BASE_URL}${TARGET_PATH}"
+    fi
+    exit 0
+  fi
+  /bin/sleep 0.1
+done
+
+print -u2 "[Atlas] server failed to become ready at ${BASE_URL}"
+print -u2 "[Atlas] inspect log: ${LOG_PATH}"
+exit 1

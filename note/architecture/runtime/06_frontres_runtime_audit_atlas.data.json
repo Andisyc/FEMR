@@ -76,7 +76,7 @@
           "objects": ["B=8 roles", "q29=[8,3,29]", "raw=870", "combined=928", "FrontRES=158", "GMT=770"],
           "files": [
             {"id": "R03-1", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_reset.py", "role": "two-role Clean-state reset", "functions": ["apply_frontres_current_segment_reset()"], "sourceLine": 138, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_reset.py&line=138"},
-            {"id": "R03-2", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_one_action_k.py", "role": "正式 observation reader", "functions": ["read_frontres_live_observations()"], "sourceLine": 154, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_one_action_k.py&line=154"}
+            {"id": "R03-2", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_one_action_k.py", "role": "正式 observation reader", "functions": ["read_frontres_live_observations()"], "sourceLine": 131, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_one_action_k.py&line=131"}
           ],
           "mainRoute": [
             "B1 sealed scenario -> same Clean x_t reset",
@@ -85,8 +85,8 @@
           ],
           "mainRouteTitles": ["恢复同一动力学起点", "读取 Noisy Future Intent", "切分 Actor 与 GMT 权限"],
           "review": ["AUDIT-B03：打印 role identity、provenance 和全部 shape", "正确结果：8 role rows；Actor provenance 仅 deployment/Noisy"],
-          "tests": ["Offline instrumentation contract passed; real env observation remains live-only"],
-          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
+          "tests": ["Active v017 collector connectivity and fail-closed shape/provenance contracts passed; real env observation remains live-only"],
+          "gap": "ACTIVE_COLLECTOR_CONNECTED_OFFLINE；等待唯一一次正式 live observation"
         },
         {
           "id": "AUDIT-R04",
@@ -97,7 +97,7 @@
           "designIds": ["FRS-DP-03", "FRS-DP-04", "FRS-DP-05"],
           "objects": ["policy_actions=[4,6]", "actor_calls=4 attempts", "K=8", "one PPO row per attempt"],
           "files": [
-            {"id": "R04-1", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_one_action_k.py", "role": "one-action-K collector", "functions": ["collect_frontres_v017_repair_attempts()", "collect_frontres_v015_one_action_k_evidence()"], "sourceLine": 425, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_one_action_k.py&line=425"},
+            {"id": "R04-1", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_one_action_k.py", "role": "one-action-K collector", "functions": ["collect_frontres_v017_repair_attempts()", "collect_frontres_v015_one_action_k_evidence()"], "sourceLine": 473, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_one_action_k.py&line=473"},
             {"id": "R04-2", "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "role": "FrontRES/GMT authority owner", "functions": ["FrontRESActorCritic.train()"], "sourceLine": 583, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=583"}
           ],
           "mainRoute": [
@@ -107,8 +107,8 @@
           ],
           "mainRouteTitles": ["采样一次 Repair", "冻结 FEMR", "执行 K-step 后果"],
           "review": ["AUDIT-B04：打印 action shape/finite、per-attempt actor count、K frame count、GMT mode", "正确结果：4 个 attempt 各一次 Actor；GMT 始终 eval/no-grad"],
-          "tests": ["Offline instrumentation contract passed; simulator action count remains live-only"],
-          "gap": "INSTRUMENTED_OFFLINE；等待唯一一次正式 live observation"
+          "tests": ["Active v017 collector connectivity, eight-step and fail-closed contracts passed; simulator action count remains live-only"],
+          "gap": "ACTIVE_COLLECTOR_CONNECTED_OFFLINE；等待唯一一次正式 live observation"
         },
         {
           "id": "AUDIT-R05",

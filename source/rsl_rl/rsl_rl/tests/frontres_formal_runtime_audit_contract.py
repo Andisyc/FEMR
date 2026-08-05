@@ -368,6 +368,31 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
     else:
         raise AssertionError("AUDIT-B04 accepted a later FEMR action")
 
+    runner._frontres_v015_one_action_k_phase = "frozen"
+    active_stream = io.StringIO()
+    active_kwargs = {
+        "roles": evidence.roles,
+        "provenance": evidence.intent_q29_provenance,
+        "sources": evidence.intent_q29_source,
+        "policy_actions": evidence.policy_actions,
+        "horizon_k": evidence.horizon_k,
+        "gmt_action_shapes": ((8, 29),) * 8,
+        "gmt_actions_finite": True,
+    }
+    with contextlib.redirect_stdout(active_stream):
+        audit.print_v017_repair_attempts_audit(runner, **active_kwargs)
+    assert active_stream.getvalue().count("[AUDIT-B03]") == 1
+    assert active_stream.getvalue().count("[AUDIT-B04]") == 1
+    try:
+        audit.print_v017_repair_attempts_audit(
+            runner,
+            **{**active_kwargs, "gmt_action_shapes": ((8, 29),) * 7},
+        )
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("AUDIT-B04 accepted seven frozen-GMT steps for K8")
+
     invalid_telemetry = {**telemetry, "scenario_ids": ("s0", "mixed", "s1", "s1")}
     try:
         audit.print_phase_b_telemetry_audit(runner, telemetry=invalid_telemetry)
@@ -403,6 +428,18 @@ def test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners() -> None:
     perturb_probe = train_source.index('"[AUDIT-PERTURB-01] "')
     assert max_horizon_set < perturb_probe, "AUDIT-PERTURB-01 must print the finalized horizon preset"
     assert "cache_horizon_k=batch.horizon_k" in dataset_source
+
+
+def test_b03_b04_are_connected_to_the_active_v017_repair_collector() -> None:
+    collector_source = (
+        ROOT / "source/rsl_rl/rsl_rl/runners/frontres_segment_one_action_k.py"
+    ).read_text()
+    active_start = collector_source.index("def collect_frontres_v017_repair_attempts(")
+    legacy_start = collector_source.index("def collect_frontres_v015_one_action_k_evidence(")
+    active_collector = collector_source[active_start:legacy_start]
+    assert "print_v017_repair_attempts_audit(" in active_collector, (
+        "AUDIT-B03/B04 must consume the active formal v017 Repair collector facts"
+    )
 
 
 def test_phase_b_return_audit_reproduces_float32_reduction() -> None:
@@ -603,6 +640,7 @@ if __name__ == "__main__":
     test_phase_b_one_action_and_final_telemetry_are_fail_closed()
     test_checkpoint_audit_rejects_missing_or_mixed_v013_curriculum()
     test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners()
+    test_b03_b04_are_connected_to_the_active_v017_repair_collector()
     test_phase_b_return_audit_reproduces_float32_reduction()
     test_active_k_audit_ids_exclude_legacy_state_driven_sampler()
     test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow()

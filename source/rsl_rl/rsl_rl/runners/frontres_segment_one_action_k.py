@@ -2,18 +2,11 @@
 
 from __future__ import annotations
 
-
-
-
-
 from typing import Any
-
 
 import torch
 
-
 from rsl_rl.algorithms.frontres_segment_ppo import FrontRESSegmentPPOBatch
-
 
 from rsl_rl.frontres.frontres_segment_evidence import (
     FrontRESExecutedKTrajectory,
@@ -21,43 +14,30 @@ from rsl_rl.frontres.frontres_segment_evidence import (
 )
 from rsl_rl.frontres.frontres_segment_grouped_adapter import build_frontres_v015_grouped_candidate_storage
 
-
 from rsl_rl.runners.frontres_rollout_step import append_frontres_future_intent_actor_context, frontres_motion_command, prepare_frontres_v015_frozen_gmt_step, prepare_frontres_v015_one_action_at_t
-from rsl_rl.runners.frontres_formal_runtime_audit import print_one_action_k_audit
-
-
-
-
+from rsl_rl.runners.frontres_formal_runtime_audit import (
+    formal_runtime_audit_enabled,
+    print_one_action_k_audit,
+    print_v017_repair_attempts_audit,
+)
 
 from rsl_rl.runners.frontres_segment_runtime_types import (
-
-
     FrontRESSegmentLiveObservations,
-
-
     FrontRESV015GainConsumerEvidence,
     frontres_collection_batch,
     frontres_observation_trace,
     update_frontres_observation_trace,
-
-
 )
-
 
 from rsl_rl.runners.frontres_segment_live_storage import (
     frontres_gain_module,
 )
-
 
 from rsl_rl.runners.frontres_segment_physics import (
     capture_frontres_physics_frame,
     capture_frontres_quality_lateral_lean_frame,
     capture_frontres_v017_execution_frame,
 )
-
-
-
-
 
 def _resolve_probe_modes(runner: Any) -> tuple[bool, bool]:
     single_update = bool(
@@ -552,6 +532,9 @@ def collect_frontres_v017_repair_attempts(
         survival: list[torch.Tensor] = []
         valid_rows: list[torch.Tensor] = []
         horizon = snapshot["horizon_k"].detach().long()
+        audit_enabled = formal_runtime_audit_enabled(runner)
+        audit_gmt_action_shapes: list[tuple[int, ...]] = []
+        audit_gmt_actions_finite = True
         for _ in range(int(horizon.max().item())):
             def provider() -> torch.Tensor:
                 fresh, infos = runner.env.get_observations()
@@ -560,6 +543,9 @@ def collect_frontres_v017_repair_attempts(
                 )
 
             frozen = prepare_frontres_v015_frozen_gmt_step(runner, gmt_observation_provider=provider)
+            if audit_enabled:
+                audit_gmt_action_shapes.append(tuple(frozen.env_actions.shape))
+                audit_gmt_actions_finite &= bool(torch.isfinite(frozen.env_actions).all().item())
             _raw, _reward, dones, _infos = runner.env.step(frozen.env_actions.to(runner.env.device))
             dones = dones.to(runner.device).detach().bool().reshape(-1)
             valid = frozen.valid_mask.to(device=runner.device, dtype=torch.bool).reshape(-1)
@@ -602,6 +588,22 @@ def collect_frontres_v017_repair_attempts(
             )
             attempt.validate()
             attempts.append(attempt)
+        if audit_enabled:
+            provenance, sources = _v015_intent_provenance_rows(
+                snapshot,
+                role_count=int(observations.obs.shape[0]),
+            )
+            # AUDIT-B03/B04: 正式 v017 collector 原样暴露 observation authority 与 one-action-K 事实.
+            print_v017_repair_attempts_audit(
+                runner,
+                roles=tuple(str(value).lower() for value in snapshot["roles"]),
+                provenance=provenance,
+                sources=sources,
+                policy_actions=policy_rows["action"],
+                horizon_k=horizon,
+                gmt_action_shapes=tuple(audit_gmt_action_shapes),
+                gmt_actions_finite=audit_gmt_actions_finite,
+            )
         return tuple(attempts)
     finally:
         if execution_started:

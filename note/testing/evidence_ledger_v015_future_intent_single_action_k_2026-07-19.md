@@ -7910,3 +7910,37 @@ Verdict: the B06 numeric oracle is owner-lifecycle-contract-confirmed offline.
 `AUDIT-B02` and `AUDIT-B05` are live-confirmed by this run. `AUDIT-B06` through
 `AUDIT-B08` still require the bounded official rerun; no Gain/PPO method or
 policy-quality claim is changed.
+
+## E-FI-127: Phase B B03/B04 Active-Collector Connectivity Closure
+
+Date: 2026-08-05
+
+Observed gap:
+
+- the successful bounded run contained the underlying observation, action,
+  application and frozen-GMT owner probes, but emitted no `AUDIT-B03` or
+  `AUDIT-B04` sentinel;
+- both sentinels were called only by the legacy v015 evaluator collector. The
+  active formal transaction uses `collect_frontres_v017_repair_attempts()`, and
+  the existing contract called the audit function directly rather than proving
+  that production connection.
+
+Offline repair and evidence:
+
+- the active v017 Repair collector now sends its existing sealed roles and
+  deployment/Noisy provenance, 928/158/770 observation trace, four finite 6D
+  policy actions, K8 horizon and eight finite `[8,29]` frozen-GMT action steps
+  to the shared B03/B04 fail-closed assertion owner;
+- no second evidence object, Gain/PPO recomputation or training-state write was
+  introduced. The legacy evaluator adapts its existing evidence to the same
+  shared assertions;
+- the formal connectivity regression fails when the active collector hook is
+  absent. Semantic contracts accept eight K8 steps and reject seven steps;
+- formal runtime-audit, one-action-K, formal transaction, interface ownership
+  and Python compilation pass. The active aggregate reports
+  `contract_count=49 failed_count=0 total_marker_count=49`.
+
+Verdict: B03/B04 are active-collector-connected and contract-confirmed offline.
+They remain live-pending until the same bounded official transaction emits the
+sentinels. No one-action-K, Gain, PPO, checkpoint or policy-quality semantics
+changed.

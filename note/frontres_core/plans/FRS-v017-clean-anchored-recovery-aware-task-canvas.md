@@ -118,6 +118,11 @@ action. TEST-04/05/10/16 and the 49/49 deterministic aggregate pass.
   audit-only float32-vs-Python return mean mismatch. B06 now reproduces the
   formal float32 reduction, rejects a corrupted mean, and passes the active
   49-contract suite; B06-B08 remain live-pending.
+- E-FI-127 records that B03/B04 were still called only by the legacy evaluator
+  collector. The active v017 Repair collector now sends its existing sealed
+  snapshot, observation trace, policy action and eight frozen-GMT step facts to
+  the shared audit owner; focused and 49/49 aggregate contracts pass. B03/B04
+  remain live-pending rather than being inferred from isolated probes.
 E-FI-109 proves offline code and persistence semantics. It does not prove
 simulator/live class populations, policy quality or deployment behavior.
 
@@ -148,7 +153,7 @@ MOSAIC host change or an unresolvable P0/P1.
 ## Next Action
 
 `AUDIT-B01`, `AUDIT-B02` and `AUDIT-B05` are runtime-confirmed. E-FI-126 closes
-the B06 float32 return-audit oracle offline. The next action is to rerun the
-same bounded official 8-env, K8/M2, one-transaction, one-update command and
-observe B06-B08; no update/checkpoint or policy-quality claim is yet
-available.
+the B06 float32 return-audit oracle offline, and E-FI-127 connects B03/B04 to
+the active formal collector offline. The next action is to rerun the same
+bounded official 8-env, K8/M2, one-transaction, one-update command and observe
+B03/B04 plus B06-B08; no new policy-quality claim is available.

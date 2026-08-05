@@ -72,6 +72,9 @@ Updated: 2026-08-05
   back into training;
 - launch, one-action-K, sealed transaction and checkpoint-v9 focused
   regressions pass. Simulator/live facts remain pending.
+- E-FI-127 adds the missing active-collector regression: B03/B04 must be called
+  inside `collect_frontres_v017_repair_attempts()`, eight K8 GMT steps pass and
+  seven fail closed. Direct calls to an isolated audit helper are insufficient.
 
 ## DP10 Future Motion Context Offline Readiness E-FI-119
 
@@ -215,7 +218,7 @@ is excluded from active aggregation.
 | `frontres_segment_live_single_update_contract.py` | S2 | Optimizer order, adaptive LR, post-KL, rollback, diagnostics. |
 | `frontres_segment_warmup_contract.py` | S1/S2 | DP-09 phase values and actor/critic gradient boundaries. |
 | `frontres_frozen_gmt_contract.py` | S1/S2 | GMT freeze, optimizer exclusion, and bitwise no-update boundary. |
-| `frontres_formal_runtime_audit_contract.py` | S1/S2 | Phase B flag, active v017/v007/v005/v014 two-Segment x exact-M voting weights, exact-one update, checkpoint-v9 direct-action identity, formal-owner hook connectivity, active K isolation, invalid identity/mass rejection and silent-off behavior. |
+| `frontres_formal_runtime_audit_contract.py` | S1/S2 | Phase B flag, active v017/v007/v005/v014 two-Segment x exact-M voting weights, B03/B04 active Repair-collector connectivity and K8 step rejection, exact-one update, checkpoint-v9 direct-action identity, formal-owner hooks, active K isolation, invalid identity/mass rejection and silent-off behavior. |
 | `frontres_segment_checkpoint_contract.py` | S3 | Detached helper persistence compatibility tests; not the formal `OnPolicyRunner` owner. |
 | `frontres_segment_live_sampler_contract.py` | historical v002 S3 | Historical sampler persistence and retired Gain identity characterization; excluded from active v017 aggregation. |
 | `frontres_segment_live_training_pseudo_contract.py` | S2 | Training-loop diagnostics/checkpoint behavior and proof that no evaluator is embedded in training. |
