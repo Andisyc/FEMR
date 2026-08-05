@@ -41,8 +41,8 @@ class FrontRESV017LocalEvaluationReport:
     intent_channel_repaired: tuple[tuple[float, ...], ...]
     physics_channel_noisy: tuple[tuple[float | None, ...], ...]
     physics_channel_repaired: tuple[tuple[float | None, ...], ...]
-    support_foot_drift_noisy: tuple[float, ...]
-    support_foot_drift_repaired: tuple[float, ...]
+    support_foot_drift_noisy: tuple[float | None, ...]
+    support_foot_drift_repaired: tuple[float | None, ...]
     intent_gain: tuple[float, ...]
     physics_gain: tuple[float, ...]
     recovery_pressure: tuple[float, ...]
@@ -85,6 +85,7 @@ class FrontRESV017LocalEvaluationReport:
         return len(self.policy_actions)
 
     def validate(self) -> None:
+        # B1: 校验 transaction 行对齐, 产出完整 Repair-row report boundary.
         count = self.policy_row_count
         row_fields = (
             self.scenario_ids,
@@ -138,8 +139,6 @@ class FrontRESV017LocalEvaluationReport:
             self.intent_remaining_repaired,
             self.physics_remaining_noisy,
             self.physics_remaining_repaired,
-            self.support_foot_drift_noisy,
-            self.support_foot_drift_repaired,
             self.intent_gain,
             self.physics_gain,
             self.recovery_pressure,
@@ -153,6 +152,13 @@ class FrontRESV017LocalEvaluationReport:
         )
         if any(not all(math.isfinite(float(item)) for item in values) for values in scalar_fields):
             raise ValueError("v017 local report required scalars must be finite")
+        # B2: support-foot drift 仅在 expected loaded-support exposure 上适用, N/A 必须显式保留.
+        if any(
+            value is not None and not math.isfinite(float(value))
+            for values in (self.support_foot_drift_noisy, self.support_foot_drift_repaired)
+            for value in values
+        ):
+            raise ValueError("v017 local report support-foot drift must be finite or semantic N/A")
         if any(len(row) != 6 or not all(math.isfinite(float(item)) for item in row) for rows in (
             self.intent_channel_noisy,
             self.intent_channel_repaired,
@@ -160,12 +166,12 @@ class FrontRESV017LocalEvaluationReport:
             raise ValueError("v017 local report requires finite six-channel Intent decomposition")
         if any(
             len(row) != 4
-            or any(row[index] is None or not math.isfinite(float(row[index])) for index in (0, 1, 3))
-            or not (row[2] is None or math.isfinite(float(row[2])))
+            or any(row[index] is None or not math.isfinite(float(row[index])) for index in (0, 3))
+            or any(not (row[index] is None or math.isfinite(float(row[index]))) for index in (1, 2))
             for rows in (self.physics_channel_noisy, self.physics_channel_repaired)
             for row in rows
         ):
-            raise ValueError("v017 local report permits explicit N/A only for the phase-ZMP channel")
+            raise ValueError("v017 local report permits N/A only for support-foot drift and phase-ZMP")
         if (
             len(self.intent_scales) != 6
             or len(self.physics_scales) != 4
@@ -188,6 +194,7 @@ def build_frontres_v017_local_evaluation_report(
 ) -> FrontRESV017LocalEvaluationReport:
     """Serialize owner evidence without recomputing any Gain component."""
 
+    # B1: 只读取 sealed evidence 与 Gain owner 输出, 不重算任何训练标量.
     evidence.validate()
     attempts = evidence.ordered_attempts
     baseline_by_source = {value.source_index: value for value in evidence.baselines}
@@ -248,10 +255,17 @@ def build_frontres_v017_local_evaluation_report(
 
     def optional_rows(value: torch.Tensor) -> tuple[tuple[float | None, ...], ...]:
         return tuple(
-            tuple(float(item) if math.isfinite(float(item)) else None for item in row)
+            tuple(None if math.isnan(float(item)) else float(item) for item in row)
             for row in value.detach().cpu().tolist()
         )
 
+    def optional_scalars(value: torch.Tensor) -> tuple[float | None, ...]:
+        return tuple(
+            None if math.isnan(float(item)) else float(item)
+            for item in value.detach().cpu().tolist()
+        )
+
+    # B2: 将适用值序列化为 finite scalar, 将 owner 的语义 N/A 序列化为 None.
     report = FrontRESV017LocalEvaluationReport(
         transaction_id=attempts[0].transaction_id,
         scenario_ids=tuple(value.scenario_id for value in attempts),
@@ -266,8 +280,8 @@ def build_frontres_v017_local_evaluation_report(
         intent_channel_repaired=finite_rows(gain.intent_channel_repaired),
         physics_channel_noisy=optional_rows(gain.physics_channel_noisy),
         physics_channel_repaired=optional_rows(gain.physics_channel_repaired),
-        support_foot_drift_noisy=tuple(float(value) for value in gain.support_foot_drift_noisy.detach().cpu().tolist()),
-        support_foot_drift_repaired=tuple(float(value) for value in gain.support_foot_drift_repaired.detach().cpu().tolist()),
+        support_foot_drift_noisy=optional_scalars(gain.support_foot_drift_noisy),
+        support_foot_drift_repaired=optional_scalars(gain.support_foot_drift_repaired),
         intent_gain=tuple(float(value) for value in gain.intent_gain.detach().cpu().tolist()),
         physics_gain=tuple(float(value) for value in gain.physics_gain.detach().cpu().tolist()),
         recovery_pressure=tuple(float(value) for value in gain.recovery_pressure.detach().cpu().tolist()),
@@ -306,6 +320,7 @@ def build_frontres_v017_local_evaluation_report(
         rotation_repair_scale=float(gain.rotation_repair_scale),
         beta=float(gain.beta),
     )
+    # B3: 最终 report 在离开 owner 前 fail closed, 产出可安全序列化的只读诊断.
     report.validate()
     return report
 

@@ -312,6 +312,49 @@ def test_v017_evaluation_is_read_only_and_atomic() -> None:
         raise AssertionError("missing/non-finite Gain identity must fail closed")
 
 
+def test_v017_evaluation_preserves_support_foot_na_without_zero_fill() -> None:
+    sealed = _sealed()
+    gain = compute_recovery_aware_gain(
+        sealed.to_gain_input(),
+        config=FrontRESRecoveryAwareGainConfig(),
+    )
+    flight_rows = torch.tensor([1, 3])
+    support_noisy = gain.support_foot_drift_noisy.clone()
+    support_repaired = gain.support_foot_drift_repaired.clone()
+    physics_noisy = gain.physics_channel_noisy.clone()
+    physics_repaired = gain.physics_channel_repaired.clone()
+    support_noisy[flight_rows] = float("nan")
+    support_repaired[flight_rows] = float("nan")
+    physics_noisy[flight_rows, 1] = float("nan")
+    physics_repaired[flight_rows, 1] = float("nan")
+    report = build_frontres_v017_local_evaluation_report(
+        sealed,
+        replace(
+            gain,
+            support_foot_drift_noisy=support_noisy,
+            support_foot_drift_repaired=support_repaired,
+            physics_channel_noisy=physics_noisy,
+            physics_channel_repaired=physics_repaired,
+        ),
+    )
+    assert report.support_foot_drift_noisy[1::2] == (None, None)
+    assert report.support_foot_drift_repaired[1::2] == (None, None)
+    assert report.physics_channel_noisy[1][1] is None
+    assert report.physics_channel_repaired[3][1] is None
+
+    corrupted_support = support_repaired.clone()
+    corrupted_support[0] = float("inf")
+    try:
+        build_frontres_v017_local_evaluation_report(
+            sealed,
+            replace(gain, support_foot_drift_repaired=corrupted_support),
+        )
+    except ValueError as exc:
+        assert "support-foot drift" in str(exc)
+    else:
+        raise AssertionError("infinite support-foot evidence must not become semantic N/A")
+
+
 def test_v017_partial_or_mixed_batch_rejects() -> None:
     sealed = _sealed()
     try:
@@ -343,6 +386,7 @@ def main() -> None:
     test_v017_partial_or_mixed_batch_rejects()
     test_v017_evaluation_contact_zmp_lean_and_unplanned_cases_are_hand_checkable()
     test_v017_evaluation_is_read_only_and_atomic()
+    test_v017_evaluation_preserves_support_foot_na_without_zero_fill()
     test_active_stage3_rejects_legacy_local_evaluation()
     print("[T-v017-step1] baseline -> Gain -> grouped scalar PPO -> report pass", flush=True)
 
