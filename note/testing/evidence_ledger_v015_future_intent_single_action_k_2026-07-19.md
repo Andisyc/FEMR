@@ -8029,3 +8029,62 @@ Verdict: the Policy Quality Q0 support-frame blocker is closed offline. Policy
 efficacy is still unconfirmed until the existing policy-quality evaluation is
 rerun with valid environment-local support-foot evidence; this evidence does
 not authorize training or a live run.
+
+## E-FI-130: EVAL-v004 Checkpoint-v9 K16/M3 Offline Readiness
+
+Date: 2026-08-06
+
+Owner and route closure:
+
+- the retained `frontres_policy_quality_eval.py` entry is migrated in place;
+  no second evaluator or runner was added;
+- strict `frontres-v017-checkpoint-v9`, HSL-v2, METHOD-v017, TRAIN-v014,
+  GAIN-v007, PPO-v005, EVAL-v004 and `928/158/770` identities validate before
+  runner mutation;
+- the fixed manifest contains four transactions, each with two distinct
+  held-out Segments at K16/M3. The dataset exposes a public exact
+  motion/frame resolver and rejects missing or ambiguous identities;
+- each Segment materializes one sealed scenario, executes Clean once and Noisy
+  once, then exact M3 policy Repairs through the existing one-action-K
+  collector. The existing Gain owner and local-report owner produce the atomic
+  output without recomputation;
+- the launcher takes HSL-v2 from its existing positional checkpoint argument as
+  the sole scaffold identity. HSL is not a scored route. Wrong env count,
+  missing artifacts, mixed K, legacy identity and missing Gain beta fail closed.
+- the Stage-3 composition root recognizes policy-quality as an explicit
+  read-only EVAL-v004 mode: it installs the formal K/M transaction config with
+  `max_iterations=0` and `frontres_segment_live_train_enabled=False`, dispatches
+  the evaluator before the training loop, and continues to reject the retired
+  Q2D/offline/sequence evaluators.
+
+Deterministic evidence:
+
+- `frontres_policy_quality_manifest_contract.py`,
+  `frontres_segment_stage3_launch_command_contract.py`,
+  `frontres_segment_stage3_entrypoint_pseudo_contract.py`,
+  `frontres_policy_quality_entrypoint_contract.py`,
+  `frontres_local_scenario_kernel_contract.py`,
+  `frontres_segment_dataset_contract.py` and the new
+  `frontres_v017_policy_quality_eval_contract.py` pass;
+- the evaluator contract proves four K16/M3 transactions, six policy rows and
+  twelve Repair/Noisy role rows per transaction, atomic JSON, exception
+  cleanup and zero writes to policy, Critic, optimizer, sampler, normalizer,
+  transaction, receipt, warmup or iteration state;
+- Gain-v007, diagnostics, one-action-K, formal transaction, v017 Step-1 and
+  evaluation-isolation regressions pass. The complete deterministic aggregate
+  reports `50/50` markers with zero failures; `py_compile` and
+  `git diff --check` pass.
+
+Code-discipline result:
+
+- the evaluator is thin orchestration over the existing sampler, formal
+  collector, Gain and report owners;
+- one shared `FrontRESV017RecoveryAwareCollection` removes duplicated
+  Clean/Noisy/Repair collection logic from training/evaluation, and the public
+  dataset resolver removes an active private `_specs` traversal;
+- no silent fallback/zero-fill, duplicate Gain owner, optimizer path, sampler
+  feedback, wrapper, Service Layer or MOSAIC-host change is introduced.
+
+Verdict: the held-out evaluator is offline-ready for model_3500. This is S1/S2
+identity and connectivity evidence, not policy-quality evidence. No simulator,
+training, optimizer update, live evaluation or deployment composition ran.

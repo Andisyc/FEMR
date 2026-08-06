@@ -222,10 +222,37 @@ def test_stage3_launch_rejects_unknown_mode_before_training() -> None:
 
 
 def test_stage3_launch_rejects_legacy_local_evaluation_modes() -> None:
-    for mode in ("offline_eval", "sequence_eval", "policy_quality_eval", "policy_quality_q2d_eval"):
+    for mode in ("offline_eval", "sequence_eval", "policy_quality_q2d_eval"):
         result = _run_preflight(mode)
         assert result.returncode == 4
         assert "FRS-EVAL-v004 rejects legacy v002/v006/quartet local evaluation mode" in result.stderr
+
+
+def test_stage3_launch_builds_active_v017_policy_quality_command() -> None:
+    quality_env = {
+        "POLICY_QUALITY_MANIFEST": "/tmp/frontres-v017-k16.json",
+        "POLICY_QUALITY_POLICY_CHECKPOINT": "/tmp/frontres-v017-model-3500.pt",
+        "POLICY_QUALITY_RESULT": "/tmp/frontres-v017-quality.json",
+    }
+    result = _run_preflight("policy_quality_eval", quality_env, bounds=("12", "0", "1"))
+    assert result.returncode == 0, result.stderr
+    command = _command_line(result)
+    assert "--frontres_policy_quality_eval_only" in command
+    assert "--frontres_policy_quality_manifest /tmp/frontres-v017-k16.json" in command
+    initializer = command.split("--frontres_v015_hsl_initializer_checkpoint ", 1)[1].split()[0]
+    evaluator_hsl = command.split("--frontres_policy_quality_hsl_checkpoint ", 1)[1].split()[0]
+    assert evaluator_hsl == initializer
+    assert "--frontres_policy_quality_policy_checkpoint /tmp/frontres-v017-model-3500.pt" in command
+    assert "--frontres_policy_quality_result /tmp/frontres-v017-quality.json" in command
+    assert "--frontres_checkpoint_interval" not in command
+    assert "--frontres_segment_live_update_loop_only" not in command
+
+    missing = _run_preflight("policy_quality_eval", bounds=("12", "0", "1"))
+    assert missing.returncode == 4
+    assert "EVAL-v004 policy quality requires POLICY_QUALITY_MANIFEST" in missing.stderr
+    wrong_rows = _run_preflight("policy_quality_eval", quality_env, bounds=("8", "0", "1"))
+    assert wrong_rows.returncode == 4
+    assert "EVAL-v004 K16/M3 policy quality requires NUM_ENVS=12" in wrong_rows.stderr
 
 
 def test_stage3_launch_rejects_retired_optimizer_modes() -> None:
@@ -247,5 +274,6 @@ if __name__ == "__main__":
     test_stage3_train_launch_passes_explicit_segment_ppo_schedule_and_lr_args()
     test_stage3_launch_rejects_retired_optimizer_modes()
     test_stage3_launch_rejects_legacy_local_evaluation_modes()
+    test_stage3_launch_builds_active_v017_policy_quality_command()
     test_stage3_launch_rejects_unknown_mode_before_training()
     print("frontres_segment_stage3_launch_command_contract: ok")

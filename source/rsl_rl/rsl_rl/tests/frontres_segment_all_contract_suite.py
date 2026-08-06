@@ -277,6 +277,13 @@ CONTRACTS = (
         requires_torch=True,
     ),
     ContractTarget(
+        name="v017_policy_quality_eval",
+        path="source/rsl_rl/rsl_rl/tests/frontres_v017_policy_quality_eval_contract.py",
+        expected_marker="frontres_v017_policy_quality_eval_contract: ok",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
         name="v017_transaction_route",
         path="source/rsl_rl/rsl_rl/tests/frontres_v015_transaction_route_contract.py",
         expected_marker="frontres_v015_transaction_route_contract: v017 scalar exact-one ok",

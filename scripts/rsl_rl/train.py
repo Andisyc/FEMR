@@ -859,6 +859,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     live_storage_arg = bool(getattr(args_cli, "frontres_segment_live_storage_write_only", False))
     live_single_update_arg = bool(getattr(args_cli, "frontres_segment_live_single_update_only", False))
     live_update_loop_arg = bool(getattr(args_cli, "frontres_segment_live_update_loop_only", False))
+    policy_quality_eval_arg = bool(getattr(args_cli, "frontres_policy_quality_eval_only", False))
     hsl_live_smoke_arg = bool(getattr(args_cli, "frontres_hsl_live_smoke", False))
     hsl_initializer_arg = str(
         getattr(args_cli, "frontres_v015_hsl_initializer_checkpoint", "") or ""
@@ -897,10 +898,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         )
     legacy_local_evaluation_modes = tuple(
         name
-        for name in (
-            "frontres_policy_quality_eval_only",
-            "frontres_policy_quality_q2d_eval_only",
-        )
+        for name in ("frontres_policy_quality_q2d_eval_only",)
         if bool(getattr(args_cli, name, False))
     )
     if stage == "stage3_segment_hrl" and legacy_local_evaluation_modes:
@@ -990,24 +988,28 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             or local_sentinel_only
             or live_probe_only
             or live_storage_only
+            or policy_quality_eval_arg
         )
         if sum((
             live_sentinel_only,
             local_sentinel_only,
             live_probe_only,
             live_storage_only,
+            policy_quality_eval_arg,
         )) > 1:
             raise ValueError(
                 "Use only one of --frontres_segment_live_sentinel_only, "
                 "--frontres_local_sentinel_only, "
                 "--frontres_segment_live_probe_only, or "
-                "--frontres_segment_live_storage_write_only."
+                "--frontres_segment_live_storage_write_only, or "
+                "--frontres_policy_quality_eval_only."
             )
         if (
             live_sentinel_only
             or local_sentinel_only
             or live_probe_only
             or live_storage_only
+            or policy_quality_eval_arg
         ):
             agent_cfg.max_iterations = 0
         _set_if_present(alg_cfg, "frontres_training_objective", "segment_replay_hrl")
@@ -1020,6 +1022,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
                 or local_sentinel_only
                 or live_probe_only
                 or live_storage_only
+                or policy_quality_eval_arg
                 or live_train_enabled
             ),
         )
@@ -1032,7 +1035,11 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)
         # One formal iteration is one complete transaction and exactly one
         # optimizer step. Multi-step budgets remain legacy probe-only.
-        _set_if_present(alg_cfg, "frontres_segment_live_update_steps", 1 if live_train_enabled else live_update_steps)
+        _set_if_present(
+            alg_cfg,
+            "frontres_segment_live_update_steps",
+            1 if (live_train_enabled or policy_quality_eval_arg) else live_update_steps,
+        )
         _set_if_present(
             alg_cfg,
             "frontres_segment_critic_warmup_iterations",
@@ -1059,9 +1066,11 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(
             alg_cfg,
             "frontres_segment_advantage_normalization",
-            "grouped_scale_only" if (local_sentinel_only or live_train_enabled) else "scale_only",
+            "grouped_scale_only"
+            if (local_sentinel_only or live_train_enabled or policy_quality_eval_arg)
+            else "scale_only",
         )
-        if local_sentinel_only or live_train_enabled:
+        if local_sentinel_only or live_train_enabled or policy_quality_eval_arg:
             k_curriculum = _parse_frontres_v015_k_curriculum(
                 getattr(args_cli, "frontres_segment_k_curriculum", None)
             )

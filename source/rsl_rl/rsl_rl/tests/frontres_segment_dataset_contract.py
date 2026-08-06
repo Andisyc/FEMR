@@ -307,6 +307,38 @@ def test_dataset_samples_stable_dynamic_segments() -> None:
     torch.testing.assert_close(repeat.clean_state.dof_vel, batch.clean_state.dof_vel)
 
 
+def test_dataset_resolves_unique_public_motion_frame_identity() -> None:
+    dataset = FrontRESSegmentDataset(
+        motion_source=[_fake_motion(10), _fake_motion(11)],
+        dt=0.02,
+        default_horizon_k=2,
+        device="cpu",
+    )
+    resolved = dataset.resolve_segment_spec(motion_id="10", start_frame=0)
+    assert str(resolved.motion_id) == "10"
+    assert resolved.start_frame == 0
+
+    try:
+        dataset.resolve_segment_spec(motion_id="missing", start_frame=0)
+    except RuntimeError as exc:
+        assert "matches=0" in str(exc)
+    else:
+        raise AssertionError("unknown held-out motion/frame identity must fail closed")
+
+    duplicate = FrontRESSegmentDataset(
+        motion_source=[_fake_motion(10), _fake_motion(10)],
+        dt=0.02,
+        default_horizon_k=2,
+        device="cpu",
+    )
+    try:
+        duplicate.resolve_segment_spec(motion_id="10", start_frame=0)
+    except RuntimeError as exc:
+        assert "matches=2" in str(exc)
+    else:
+        raise AssertionError("ambiguous held-out motion/frame identity must fail closed")
+
+
 def test_dataset_global_sampling_excludes_invalid_segments() -> None:
     dataset = FrontRESSegmentDataset([_fake_motion(0)], dt=0.02, default_horizon_k=2, device="cpu")
     dataset.update_validity([0, 1, 2], [False, False, False], reason="bad reset")
@@ -664,6 +696,7 @@ def test_dataset_can_include_boundary_diagnostics_as_invalid_samples() -> None:
 
 def main() -> None:
     test_dataset_samples_stable_dynamic_segments()
+    test_dataset_resolves_unique_public_motion_frame_identity()
     test_dataset_global_sampling_excludes_invalid_segments()
     test_dataset_state_dict_restores_invalidity_and_baseline()
     test_dataset_loads_stage1_cache_and_excludes_boundary_diagnostics_by_default()

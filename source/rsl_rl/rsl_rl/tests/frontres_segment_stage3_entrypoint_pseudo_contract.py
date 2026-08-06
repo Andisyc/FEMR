@@ -188,6 +188,7 @@ def _alg_cfg() -> SimpleNamespace:
         frontres_segment_k=0,
         frontres_future_offsets=(),
         frontres_future_intent_layout_version="unset",
+        frontres_gain_beta=0.0,
         frontres_segment_max_horizon_k=0,
         frontres_segment_advantage_normalization="standard",
         frontres_segment_sampler_global_frac=0.0,
@@ -227,6 +228,8 @@ def _args(**overrides) -> SimpleNamespace:
         "frontres_segment_live_storage_write_only": False,
         "frontres_segment_live_single_update_only": False,
         "frontres_segment_live_update_loop_only": False,
+        "frontres_policy_quality_eval_only": False,
+        "frontres_policy_quality_q2d_eval_only": False,
         "frontres_segment_live_update_steps": 6,
         "frontres_segment_critic_warmup_iterations": 200,
         "frontres_segment_actor_warmup_iterations": 500,
@@ -328,6 +331,28 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
         assert "frontres_checkpoint_interval" in str(exc)
     else:
         raise AssertionError("non-positive checkpoint interval must be rejected")
+
+
+def test_stage3_policy_quality_config_is_formal_and_read_only() -> None:
+    agent_cfg = _agent_cfg()
+    _apply_frontres_stage_preset(
+        agent_cfg,
+        _args(frontres_policy_quality_eval_only=True),
+    )
+
+    alg = agent_cfg.algorithm
+    assert agent_cfg.max_iterations == 0
+    assert alg.frontres_segment_live_runner_enabled is True
+    assert alg.frontres_segment_live_train_enabled is False
+    assert alg.frontres_formal_transaction_enabled is True
+    assert alg.frontres_segment_live_update_steps == 1
+    assert alg.frontres_segment_k_curriculum[1][:2] == (16, 3)
+    assert alg.frontres_future_offsets == (1, 2)
+    assert alg.frontres_gain_beta == 0.02
+    assert alg.frontres_hsl_init_enabled is False
+    assert alg.lambda_supervised == 0.0
+    assert alg.frontres_segment_live_single_update_only is False
+    assert alg.frontres_segment_live_update_loop_only is False
 
     missing_initializer = _agent_cfg()
     try:
@@ -565,6 +590,7 @@ def test_stage3_hsl_initializer_dispatch_is_explicit_and_formal_training_opens()
 if __name__ == "__main__":
     test_runtime_temp_dir_is_private_writable_and_fail_closed()
     test_stage3_default_enters_live_train_config_without_zeroing_iterations()
+    test_stage3_policy_quality_config_is_formal_and_read_only()
     test_stage3_rejects_noncanonical_future_offsets_before_config_mutation()
     test_retired_optimizer_flags_reject_before_stage3_config_mutation()
     test_stage2_hsl_warmup_constructs_proposal_only_6d_policy()

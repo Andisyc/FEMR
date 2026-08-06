@@ -10,6 +10,7 @@ from __future__ import annotations
 
 
 
+from dataclasses import dataclass
 import json
 
 
@@ -529,6 +530,133 @@ def _reset_frontres_v017_phase(
         )
 
 
+@dataclass(frozen=True)
+class FrontRESV017RecoveryAwareCollection:
+    """One read-only Clean/Noisy/Repair collection shared by training and EVAL-v004."""
+
+    evidence: FrontRESSealedRecoveryAwareGainBatch
+    gain: Any
+    report: Any
+    pair_layout: Any
+    observation_trace: dict[str, Any]
+
+
+def collect_frontres_v017_recovery_aware_evaluation(
+    runner: Any,
+    prepared: Any,
+    *,
+    route: str,
+    label: str,
+    beta: float,
+) -> FrontRESV017RecoveryAwareCollection:
+    """Execute Clean once, Noisy once and exact-M Repairs without an optimizer update."""
+
+    # B1: 安装 prepared transaction 并验证 two-role/exact-M identity, 产出 reset-ready layout.
+    batch = getattr(prepared, "batch", None)
+    sample = getattr(prepared, "sample", None)
+    plan = getattr(prepared, "plan", None)
+    if batch is None or sample is None or plan is None or not callable(getattr(plan, "validate", None)):
+        raise TypeError("v017 recovery-aware collector requires prepared sample, batch, and plan")
+    plan.validate()
+    prepare_frontres_raw_contact_views(runner)
+    bind_frontres_collection_context(runner, route=route, sample=sample, batch=batch)
+    frontres_mode = resolve_frontres_mode_state(runner, FrontRESActorCritic)
+    pair_layout = configure_frontres_pair_layout(runner, is_frontres=frontres_mode.is_frontres)
+    policy_row_count = int(plan.batch_size)
+    if (
+        int(getattr(pair_layout, "n_train", 0)) != policy_row_count
+        or int(getattr(pair_layout, "n_base", 0)) != policy_row_count
+        or int(getattr(pair_layout, "n_candidate", 0)) != 0
+        or int(getattr(pair_layout, "n_clean", 0)) != 0
+        or plan.selected_segment_count != 2
+        or plan.active_m < 2
+    ):
+        raise RuntimeError(f"v017 {label} requires two Segment x exact-M Repair/Noisy rows")
+
+    def reset_phase(mode: str) -> None:
+        _reset_frontres_v017_phase(
+            runner,
+            pair_layout=pair_layout,
+            mode=mode,
+            policy_row_count=policy_row_count,
+            label=label,
+        )
+
+    representatives: list[int] = []
+    for source in sorted(set(int(value) for value in plan.source_index.tolist())):
+        rows = torch.nonzero(plan.source_index == source, as_tuple=False).reshape(-1)
+        if int(rows.numel()) != int(plan.active_m):
+            raise RuntimeError("v017 baseline phase requires exact M policy rows per Segment")
+        representatives.append(int(rows[0].item()))
+    representative_rows = torch.tensor(representatives, device=runner.device, dtype=torch.long)
+    active_k_values = torch.unique(plan.horizon_k.detach().to(dtype=torch.long))
+    if int(active_k_values.numel()) != 1:
+        raise RuntimeError("v017 recovery-aware collector rejects mixed-K rows")
+    active_k = int(active_k_values[0].item())
+
+    # B2: 每个 Segment 执行一条 authoritative Clean/Noisy, 产出 shared baseline evidence.
+    reset_phase("clean_baseline")
+    clean_all, clean_support_all = collect_frontres_v017_no_actor_baseline(
+        runner, horizon_k=active_k, authoritative_rows=representative_rows
+    )
+    reset_phase("noisy_baseline")
+    noisy_all, noisy_support_all = collect_frontres_v017_no_actor_baseline(
+        runner, horizon_k=active_k, authoritative_rows=representative_rows
+    )
+    if not torch.equal(clean_support_all, noisy_support_all):
+        raise RuntimeError("v017 Clean/Noisy baselines lost expected-support identity")
+    baselines: list[FrontRESSegmentBaselineEvidence] = []
+    for baseline_row, representative in enumerate(representatives):
+        baseline = FrontRESSegmentBaselineEvidence(
+            transaction_id=plan.transaction_id,
+            policy_snapshot_id=plan.policy_snapshot_id,
+            scenario_id=plan.scenario_ids[representative],
+            noisy_segment_hash=plan.noisy_segment_hashes[representative],
+            x_t_identity=plan.x_t_identities[representative],
+            source_index=int(plan.source_index[representative].item()),
+            segment_id=int(plan.segment_ids[representative].item()),
+            horizon_k=int(plan.horizon_k[representative].item()),
+            expected_support=clean_support_all[:, baseline_row : baseline_row + 1].detach().clone(),
+            clean=select_frontres_v017_trajectory_rows(
+                clean_all, torch.tensor([baseline_row], device=runner.device)
+            ),
+            noisy=select_frontres_v017_trajectory_rows(
+                noisy_all, torch.tensor([baseline_row], device=runner.device)
+            ),
+        )
+        baseline.validate()
+        baselines.append(baseline)
+
+    # B3: 从同一 sealed scenario 收集 exact-M one-action-K Repairs, 产出唯一 GAIN-v007 report.
+    reset_phase("repair_attempts")
+    attempts = collect_frontres_v017_repair_attempts(
+        runner,
+        _read_live_observations(runner),
+        pair_layout=pair_layout,
+        transaction_id=plan.transaction_id,
+        policy_snapshot_id=plan.policy_snapshot_id,
+        source_index=plan.source_index,
+        segment_ids=plan.segment_ids,
+        trial_index=plan.trial_index,
+    )
+    evidence = FrontRESSealedRecoveryAwareGainBatch(
+        baselines=tuple(baselines), attempts=attempts, active_m=int(plan.active_m)
+    )
+    evidence.validate()
+    gain = compute_recovery_aware_gain(
+        evidence.to_gain_input(),
+        config=FrontRESRecoveryAwareGainConfig(beta=float(beta)),
+    )
+    report = build_frontres_v017_local_evaluation_report(evidence, gain)
+    return FrontRESV017RecoveryAwareCollection(
+        evidence=evidence,
+        gain=gain,
+        report=report,
+        pair_layout=pair_layout,
+        observation_trace=dict(frontres_observation_trace(runner)),
+    )
+
+
 def _build_frontres_v015_local_transaction_request(
     runner: Any,
     *,
@@ -558,105 +686,21 @@ def _build_frontres_v015_local_transaction_request(
         raise ValueError(f"unknown v015 request route={route!r}")
     batch = prepared.batch
     plan = prepared.plan
-    bind_frontres_collection_context(
-        runner,
-        route=route,
-        sample=prepared.sample,
-        batch=batch,
-    )
     try:
-        frontres_mode = resolve_frontres_mode_state(runner, FrontRESActorCritic)
-        pair_layout = configure_frontres_pair_layout(runner, is_frontres=frontres_mode.is_frontres)
         policy_row_count = int(plan.batch_size)
-        if (
-            int(getattr(pair_layout, "n_train", 0)) != policy_row_count
-            or int(getattr(pair_layout, "n_base", 0)) != policy_row_count
-            or int(getattr(pair_layout, "n_candidate", 0)) != 0
-            or int(getattr(pair_layout, "n_clean", 0)) != 0
-        ):
-            raise RuntimeError(f"v015 {label} requires an exact Repair/Noisy two-role layout for every planned policy row")
-        def reset_phase(mode: str) -> None:
-            _reset_frontres_v017_phase(
-                runner,
-                pair_layout=pair_layout,
-                mode=mode,
-                policy_row_count=policy_row_count,
-                label=label,
-            )
-
-        # One authoritative row per Segment is retained; companion rows are
-        # allocation scaffold and never become baseline observations or scores.
-        representatives: list[int] = []
-        for source in sorted(set(int(value) for value in plan.source_index.tolist())):
-            rows = torch.nonzero(plan.source_index == source, as_tuple=False).reshape(-1)
-            if int(rows.numel()) != int(plan.active_m):
-                raise RuntimeError("v017 baseline phase requires exact M policy rows per Segment")
-            representatives.append(int(rows[0].item()))
-        if len(representatives) != 2:
-            raise RuntimeError("v017 baseline phase requires exactly two Segment representatives")
-        representative_rows = torch.tensor(representatives, device=runner.device, dtype=torch.long)
-
-        # B2: 每个 Segment 保留一条 authoritative Clean/Noisy baseline, 再收集 exact-M Repairs.
-        reset_phase("clean_baseline")
-        clean_all, clean_support_all = collect_frontres_v017_no_actor_baseline(
+        gain_beta = getattr(alg, "frontres_gain_beta", None)
+        if gain_beta is None:
+            raise RuntimeError("FRS-GAIN-v007 formal transaction requires an explicit repair-cost beta")
+        collection = collect_frontres_v017_recovery_aware_evaluation(
             runner,
-            horizon_k=int(sealed_curriculum.active_k),
-            authoritative_rows=representative_rows,
+            prepared,
+            route=route,
+            label=label,
+            beta=float(gain_beta),
         )
-        reset_phase("noisy_baseline")
-        noisy_all, noisy_support_all = collect_frontres_v017_no_actor_baseline(
-            runner,
-            horizon_k=int(sealed_curriculum.active_k),
-            authoritative_rows=representative_rows,
-        )
-        if not torch.equal(clean_support_all, noisy_support_all):
-            raise RuntimeError("v017 Clean/Noisy baselines lost expected-support identity")
-
-        baselines: list[FrontRESSegmentBaselineEvidence] = []
-        for baseline_row, representative in enumerate(representatives):
-            source = int(plan.source_index[representative].item())
-            baseline = FrontRESSegmentBaselineEvidence(
-                transaction_id=plan.transaction_id,
-                policy_snapshot_id=plan.policy_snapshot_id,
-                scenario_id=plan.scenario_ids[representative],
-                noisy_segment_hash=plan.noisy_segment_hashes[representative],
-                x_t_identity=plan.x_t_identities[representative],
-                source_index=source,
-                segment_id=int(plan.segment_ids[representative].item()),
-                horizon_k=int(plan.horizon_k[representative].item()),
-                expected_support=clean_support_all[:, baseline_row : baseline_row + 1].detach().clone(),
-                clean=select_frontres_v017_trajectory_rows(
-                    clean_all, torch.tensor([baseline_row], device=runner.device)
-                ),
-                noisy=select_frontres_v017_trajectory_rows(
-                    noisy_all, torch.tensor([baseline_row], device=runner.device)
-                ),
-            )
-            baseline.validate()
-            baselines.append(baseline)
-
-        reset_phase("repair_attempts")
-        observations = _read_live_observations(runner)
-        attempts = collect_frontres_v017_repair_attempts(
-            runner,
-            observations,
-            pair_layout=pair_layout,
-            transaction_id=plan.transaction_id,
-            policy_snapshot_id=plan.policy_snapshot_id,
-            source_index=plan.source_index,
-            segment_ids=plan.segment_ids,
-            trial_index=plan.trial_index,
-        )
-        sealed_evidence = FrontRESSealedRecoveryAwareGainBatch(
-            baselines=tuple(baselines),
-            attempts=attempts,
-            active_m=int(plan.active_m),
-        )
-        sealed_evidence.validate()
-        gain_result = compute_recovery_aware_gain(
-            sealed_evidence.to_gain_input(),
-            config=FrontRESRecoveryAwareGainConfig(beta=float(getattr(alg, "frontres_gain_beta", 0.02))),
-        )
+        sealed_evidence = collection.evidence
+        gain_result = collection.gain
+        baselines = collection.evidence.baselines
         # B3: 唯一 Gain owner 产出 scalar rows, 再交给 grouped adapter 和 read-only local report.
         candidate_storage = build_frontres_v017_grouped_candidate_storage(
             sealed_evidence,
@@ -667,12 +711,12 @@ def _build_frontres_v015_local_transaction_request(
             intent_q29_source=plan.intent_q29_source,
         )
         candidate_batch = candidate_storage.to_grouped_ppo_candidate_batch(FrontRESSegmentPPOBatch)
-        diagnostic_report = build_frontres_v017_local_evaluation_report(sealed_evidence, gain_result)
+        diagnostic_report = collection.report
         artifact = getattr(batch, "frontres_local_scenario_current_root_artifact_t", None)
         continuation_lengths = getattr(batch, "frontres_local_scenario_clean_continuation_lengths", None)
         if not isinstance(artifact, torch.Tensor) or not isinstance(continuation_lengths, torch.Tensor):
             raise RuntimeError(f"v015 {label} lost sealed root-artifact or Clean-continuation identity before storage")
-        observation_trace = dict(frontres_observation_trace(runner))
+        observation_trace = collection.observation_trace
         expected_trace = {
             "role_row_count": 2 * policy_row_count,
             "current_command_dim": 58,

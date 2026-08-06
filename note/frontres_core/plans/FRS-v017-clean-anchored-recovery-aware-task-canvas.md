@@ -28,7 +28,8 @@ Formal Runtime Audit Phase A        DP-01 through DP-10 reviewed offline
 Formal Runtime Audit Phase B        runtime-complete; B01-B08 emitted once (E-FI-128)
 Step 2 / 2 bounded live sentinel    complete; checkpoint-v9 iteration 1 saved
 Policy Quality support-frame Q0     completed offline (E-FI-129)
-Policy Quality efficacy             unconfirmed; evaluation pending
+Policy Quality evaluator            ready offline (E-FI-130)
+Policy Quality efficacy             unconfirmed; real evaluation pending
 ```
 
 ## Current Contract Flow
@@ -165,7 +166,8 @@ MOSAIC host change or an unresolvable P0/P1.
 ## Next Action
 
 Formal Runtime Audit Phase B is complete at E-FI-128 and the support-foot Q0
-coordinate blocker is closed offline at E-FI-129. The next bounded action is to
-run the existing policy-quality evaluation on the current policy/checkpoint and
-judge Intent, Contact, phase-ZMP, survival, sustained lean and unplanned steps
-using the corrected evidence. No training or long run is implied.
+coordinate blocker is closed offline at E-FI-129. E-FI-130 migrates the
+retained evaluator to strict v017/checkpoint-v9 and fixes the K16/M3 manifest.
+The next bounded action is to run that evaluator on model_3500 and judge Intent,
+Contact, phase-ZMP, survival, sustained lean and unplanned steps using the
+corrected evidence. No training or long run is implied.

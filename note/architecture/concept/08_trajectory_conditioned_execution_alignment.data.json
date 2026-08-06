@@ -1,398 +1,256 @@
 {
-  "title": "08 Trajectory-Conditioned Execution Alignment",
+  "title": "08 In-Context Execution Calibration",
   "layout": "method_figure",
-  "figureWidth": 2200,
-  "figureHeight": 900,
+  "figureWidth": 2050,
+  "figureHeight": 760,
   "connectorClearance": 18,
   "showLegend": false,
   "concepts": {
-    "C-ICA-PHYSICS": {
-      "name": "Physics Family",
+    "C-ICA3-PLANNER": {
+      "name": "Planner Intent",
+      "color": "#0891b2"
+    },
+    "C-ICA3-TRACKER": {
+      "name": "Encoder-Decoder Tracker",
+      "color": "#0f766e"
+    },
+    "C-ICA3-SHIFT": {
+      "name": "Execution Shift",
       "color": "#7c3aed"
     },
-    "C-ICA-SUPPORT": {
-      "name": "Support Evidence",
+    "C-ICA3-SUPPORT": {
+      "name": "Rollout Evidence",
       "color": "#2563eb"
     },
-    "C-ICA-CONTEXT": {
+    "C-ICA3-CONTEXT": {
       "name": "Execution Context",
       "color": "#d97706"
     },
-    "C-ICA-INTENT": {
-      "name": "Intent Query",
-      "color": "#0891b2"
-    },
-    "C-ICA-CONTROL": {
-      "name": "Conditioned Control",
-      "color": "#0f766e"
-    },
-    "C-ICA-FEEDBACK": {
-      "name": "Cross-Intent Learning",
+    "C-ICA3-TEACHER": {
+      "name": "Privileged Supervision",
       "color": "#65a30d"
     },
-    "C-ICA-REAL": {
-      "name": "Real Deployment",
-      "color": "#64748b"
+    "C-ICA3-LEARNING": {
+      "name": "Response-Calibration Learning",
+      "color": "#db2777"
     }
   },
   "zones": [],
   "nodes": [
     {
-      "id": "ICA-T-01",
-      "title": "Domain-Randomized Physics",
-      "summary": "在仿真中随机化增益、延迟、摩擦与负载",
-      "concept": "C-ICA-PHYSICS",
-      "x": 30,
-      "y": 120,
-      "w": 190,
-      "h": 105
-    },
-    {
-      "id": "ICA-T-02",
-      "title": "Cross-Intent Pair",
-      "summary": "同一物理条件配对不同 Intent",
-      "concept": "C-ICA-PHYSICS",
-      "x": 270,
-      "y": 120,
-      "w": 210,
-      "h": 105
-    },
-    {
-      "id": "ICA-T-03",
-      "title": "Support Rollout",
-      "summary": "Intent A 的动作与真实未来形成物理证据",
-      "concept": "C-ICA-SUPPORT",
-      "x": 530,
-      "y": 120,
-      "w": 210,
-      "h": 105
-    },
-    {
-      "id": "ICA-T-04",
-      "title": "Context Encoder",
-      "summary": "从 support 识别可复用执行条件",
-      "concept": "C-ICA-CONTEXT",
-      "x": 790,
-      "y": 120,
-      "w": 210,
-      "h": 105
-    },
-    {
-      "id": "ICA-T-05",
-      "title": "Execution Context",
-      "summary": "承载共享物理条件，不保存任务动作",
-      "concept": "C-ICA-CONTEXT",
-      "x": 1050,
-      "y": 120,
-      "w": 210,
-      "h": 105
-    },
-    {
-      "id": "ICA-T-06",
-      "title": "Context-Conditioned Tracker",
-      "summary": "结合新 Intent 与 context 输出动作",
-      "concept": "C-ICA-CONTROL",
-      "x": 1310,
-      "y": 120,
-      "w": 220,
-      "h": 105
-    },
-    {
-      "id": "ICA-T-07",
-      "title": "Query Rollout",
-      "summary": "在同一物理条件执行 Intent B",
-      "concept": "C-ICA-CONTROL",
-      "x": 1580,
-      "y": 120,
-      "w": 210,
-      "h": 105
-    },
-    {
-      "id": "ICA-T-08",
-      "title": "Cross-Intent Feedback",
-      "summary": "以 Intent B 表现训练 encoder 与 tracker",
-      "concept": "C-ICA-FEEDBACK",
-      "x": 1840,
-      "y": 120,
-      "w": 210,
-      "h": 105
-    },
-    {
-      "id": "ICA-T-09",
-      "title": "Sim Query Intent",
-      "summary": "与 support 共享物理条件的 Intent B",
-      "concept": "C-ICA-INTENT",
-      "x": 1050,
+      "id": "ICA3-T-01",
+      "title": "Planner",
+      "summary": "冻结 Planner，产生同一短时程运动 Intent",
+      "concept": "C-ICA3-PLANNER",
+      "x": 40,
       "y": 320,
-      "w": 210,
-      "h": 100
+      "w": 190,
+      "h": 110
     },
     {
-      "id": "ICA-D-01",
-      "title": "Real Failed Rollout",
-      "summary": "一次真机执行提供 support 物理证据",
-      "concept": "C-ICA-REAL",
+      "id": "ICA3-T-02",
+      "title": "Tracker Encoder",
+      "summary": "编码状态、历史与 Planner Intent",
+      "concept": "C-ICA3-TRACKER",
+      "shape": "encoder",
+      "shapeInset": 48,
+      "x": 310,
+      "y": 280,
+      "w": 260,
+      "h": 190
+    },
+    {
+      "id": "ICA3-T-03",
+      "title": "Tracker Decoder",
+      "summary": "融合 Context 生成执行 Action",
+      "concept": "C-ICA3-TRACKER",
+      "shape": "decoder",
+      "shapeInset": 48,
+      "x": 660,
+      "y": 280,
+      "w": 260,
+      "h": 190
+    },
+    {
+      "id": "ICA3-T-04",
+      "title": "Execution Shift",
+      "summary": "注入可恢复的 gain、bias 或 6D Wrench",
+      "concept": "C-ICA3-SHIFT",
       "kind": "external",
-      "x": 530,
-      "y": 580,
-      "w": 210,
-      "h": 105
-    },
-    {
-      "id": "ICA-D-02",
-      "title": "Frozen Context Encoder",
-      "summary": "仅前向产生 context，不更新参数",
-      "concept": "C-ICA-CONTEXT",
-      "x": 790,
-      "y": 580,
-      "w": 210,
-      "h": 105
-    },
-    {
-      "id": "ICA-D-03",
-      "title": "Transient Context",
-      "summary": "保存本次真机条件，供后续 Intent 复用",
-      "concept": "C-ICA-CONTEXT",
-      "x": 1050,
-      "y": 580,
-      "w": 210,
-      "h": 105
-    },
-    {
-      "id": "ICA-D-04",
-      "title": "Frozen Tracker",
-      "summary": "读取新 Intent 与 context 产生动作",
-      "concept": "C-ICA-CONTROL",
-      "x": 1310,
-      "y": 580,
+      "x": 1010,
+      "y": 320,
       "w": 220,
-      "h": 105
+      "h": 110
     },
     {
-      "id": "ICA-D-05",
-      "title": "Real Robot Execution",
-      "summary": "不微调模型，直接执行新任务",
-      "concept": "C-ICA-REAL",
+      "id": "ICA3-T-05",
+      "title": "Rollout",
+      "summary": "第一次轨迹作为 Context，第二次执行验证校准",
+      "concept": "C-ICA3-SUPPORT",
       "kind": "external",
-      "x": 1580,
-      "y": 580,
-      "w": 210,
-      "h": 105
+      "x": 1320,
+      "y": 320,
+      "w": 250,
+      "h": 110
     },
     {
-      "id": "ICA-D-06",
-      "title": "New Planner Intent",
-      "summary": "转弯、圆圈或走八字作为新 query",
-      "concept": "C-ICA-INTENT",
-      "x": 1050,
-      "y": 770,
-      "w": 210,
-      "h": 95
+      "id": "ICA3-T-06",
+      "title": "Context Encoder",
+      "summary": "将失败轨迹压缩为临时执行 Context",
+      "concept": "C-ICA3-CONTEXT",
+      "shape": "context_encoder",
+      "shapeInset": 55,
+      "x": 455,
+      "y": 40,
+      "w": 260,
+      "h": 170
+    },
+    {
+      "id": "ICA3-T-08",
+      "title": "Privileged Teacher",
+      "summary": "仅训练时提供成功 Query 的监督目标",
+      "concept": "C-ICA3-TEACHER",
+      "x": 1660,
+      "y": 140,
+      "w": 220,
+      "h": 110
+    },
+    {
+      "id": "ICA3-T-09",
+      "title": "Calibration Learning",
+      "summary": "以 Query 结果训练 Context Encoder 与 Tracker",
+      "concept": "C-ICA3-LEARNING",
+      "x": 1650,
+      "y": 320,
+      "w": 240,
+      "h": 110
     }
   ],
   "edges": [
     {
-      "from": "ICA-T-01",
-      "to": "ICA-T-02",
-      "label": "采样条件",
-      "concept": "C-ICA-PHYSICS"
+      "from": "ICA3-T-01",
+      "to": "ICA3-T-02",
+      "label": "Intent",
+      "concept": "C-ICA3-PLANNER"
     },
     {
-      "from": "ICA-T-02",
-      "to": "ICA-T-03",
-      "label": "Support Intent A",
-      "concept": "C-ICA-SUPPORT"
+      "from": "ICA3-T-02",
+      "to": "ICA3-T-03",
+      "label": "latent",
+      "concept": "C-ICA3-TRACKER"
     },
     {
-      "from": "ICA-T-02",
-      "to": "ICA-T-09",
-      "label": "Query Intent B",
-      "concept": "C-ICA-INTENT",
+      "from": "ICA3-T-03",
+      "to": "ICA3-T-04",
+      "label": "Action",
+      "concept": "C-ICA3-TRACKER"
+    },
+    {
+      "from": "ICA3-T-04",
+      "to": "ICA3-T-05",
+      "label": "执行",
+      "concept": "C-ICA3-SHIFT",
+      "fromAnchor": "right",
+      "toAnchor": "left",
+      "labelX": 1275,
+      "labelY": 364
+    },
+    {
+      "from": "ICA3-T-05",
+      "to": "ICA3-T-06",
+      "label": "失败轨迹",
+      "concept": "C-ICA3-SUPPORT",
+      "fromAnchor": "top",
+      "toAnchor": "right",
+      "via": [
+        [1445, 125]
+      ],
+      "labelX": 1080,
+      "labelY": 114
+    },
+    {
+      "from": "ICA3-T-06",
+      "to": "ICA3-T-03",
+      "label": "Context",
+      "concept": "C-ICA3-CONTEXT",
       "fromAnchor": "bottom",
       "toAnchor": "left",
+      "toOffset": -35,
       "via": [
-        [
-          375,
-          370
-        ],
-        [
-          1020,
-          370
-        ]
+        [585, 340]
       ],
-      "labelX": 690,
-      "labelY": 359
+      "labelX": 622,
+      "labelY": 329
     },
     {
-      "from": "ICA-T-03",
-      "to": "ICA-T-04",
-      "label": "support",
-      "concept": "C-ICA-SUPPORT"
-    },
-    {
-      "from": "ICA-T-04",
-      "to": "ICA-T-05",
-      "label": "提取",
-      "concept": "C-ICA-CONTEXT"
-    },
-    {
-      "from": "ICA-T-05",
-      "to": "ICA-T-06",
-      "label": "条件化",
-      "concept": "C-ICA-CONTEXT"
-    },
-    {
-      "from": "ICA-T-09",
-      "to": "ICA-T-06",
-      "label": "query",
-      "concept": "C-ICA-INTENT",
+      "from": "ICA3-T-05",
+      "to": "ICA3-T-09",
+      "label": "第二次表现",
+      "concept": "C-ICA3-LEARNING",
       "fromAnchor": "right",
-      "toAnchor": "bottom",
-      "toOffset": -60,
-      "via": [
-        [
-          1270,
-          370
-        ],
-        [
-          1270,
-          270
-        ],
-        [
-          1360,
-          270
-        ]
-      ],
-      "labelX": 1300,
-      "labelY": 259
+      "toAnchor": "left",
+      "labelX": 1610,
+      "labelY": 364
     },
     {
-      "from": "ICA-T-06",
-      "to": "ICA-T-07",
-      "label": "执行",
-      "concept": "C-ICA-CONTROL"
-    },
-    {
-      "from": "ICA-T-07",
-      "to": "ICA-T-08",
-      "label": "评估",
-      "concept": "C-ICA-FEEDBACK"
-    },
-    {
-      "from": "ICA-T-08",
-      "to": "ICA-T-04",
-      "label": "训练 context",
-      "concept": "C-ICA-FEEDBACK",
-      "kind": "feedback",
-      "fromAnchor": "top",
-      "fromOffset": -40,
-      "toAnchor": "top",
-      "toOffset": 60,
-      "via": [
-        [
-          1905,
-          30
-        ],
-        [
-          955,
-          30
-        ]
-      ],
-      "labelX": 1430,
-      "labelY": 20
-    },
-    {
-      "from": "ICA-T-08",
-      "to": "ICA-T-06",
-      "label": "训练控制",
-      "concept": "C-ICA-FEEDBACK",
-      "kind": "feedback",
+      "from": "ICA3-T-08",
+      "to": "ICA3-T-09",
+      "label": "监督目标",
+      "concept": "C-ICA3-TEACHER",
       "fromAnchor": "bottom",
-      "fromOffset": 30,
-      "toAnchor": "bottom",
-      "toOffset": 60,
-      "via": [
-        [
-          1975,
-          270
-        ],
-        [
-          1480,
-          270
-        ]
-      ],
-      "labelX": 1730,
-      "labelY": 259
+      "toAnchor": "top",
+      "labelX": 1782,
+      "labelY": 286
     },
     {
-      "from": "ICA-T-08",
-      "to": "ICA-D-02",
-      "label": "冻结后部署",
-      "concept": "C-ICA-FEEDBACK",
+      "from": "ICA3-T-09",
+      "to": "ICA3-T-06",
+      "label": "训练 Context Encoder",
+      "concept": "C-ICA3-LEARNING",
       "kind": "feedback",
       "fromAnchor": "right",
+      "fromOffset": -25,
       "toAnchor": "top",
       "via": [
-        [
-          2130,
-          172.5
-        ],
-        [
-          2130,
-          530
-        ],
-        [
-          895,
-          530
-        ]
+        [1990, 350],
+        [1990, 10],
+        [585, 10]
       ],
-      "labelX": 1720,
-      "labelY": 519
+      "labelX": 1295,
+      "labelY": 18
     },
     {
-      "from": "ICA-D-01",
-      "to": "ICA-D-02",
-      "label": "support",
-      "concept": "C-ICA-SUPPORT"
-    },
-    {
-      "from": "ICA-D-02",
-      "to": "ICA-D-03",
-      "label": "前向推理",
-      "concept": "C-ICA-CONTEXT"
-    },
-    {
-      "from": "ICA-D-03",
-      "to": "ICA-D-04",
-      "label": "条件化",
-      "concept": "C-ICA-CONTEXT"
-    },
-    {
-      "from": "ICA-D-06",
-      "to": "ICA-D-04",
-      "label": "query",
-      "concept": "C-ICA-INTENT",
+      "from": "ICA3-T-09",
+      "to": "ICA3-T-02",
+      "label": "训练 Tracker Encoder",
+      "concept": "C-ICA3-LEARNING",
+      "kind": "feedback",
       "fromAnchor": "right",
+      "fromOffset": 25,
       "toAnchor": "bottom",
-      "toOffset": -60,
       "via": [
-        [
-          1360,
-          817.5
-        ],
-        [
-          1360,
-          735
-        ]
+        [2020, 400],
+        [2020, 730],
+        [440, 730]
       ],
       "labelX": 1310,
-      "labelY": 806
+      "labelY": 719
     },
     {
-      "from": "ICA-D-04",
-      "to": "ICA-D-05",
-      "label": "执行",
-      "concept": "C-ICA-CONTROL"
+      "from": "ICA3-T-09",
+      "to": "ICA3-T-03",
+      "label": "训练 Tracker Decoder",
+      "concept": "C-ICA3-LEARNING",
+      "kind": "feedback",
+      "fromAnchor": "bottom",
+      "fromOffset": -50,
+      "toAnchor": "bottom",
+      "via": [
+        [1720, 680],
+        [790, 680]
+      ],
+      "labelX": 1255,
+      "labelY": 669
     }
   ],
   "callouts": [],

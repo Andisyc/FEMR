@@ -202,6 +202,24 @@ class FrontRESSegmentDataset:
     def num_segments(self) -> int:
         return len(self._specs)
 
+    def resolve_segment_spec(self, *, motion_id: str, start_frame: int) -> FrontRESSegmentSpec:
+        """Resolve one held-out motion/frame identity without exposing the dataset index."""
+
+        # B1: 规范化 manifest identity 并查找唯一 spec, 产出 evaluator 可消费的公开 Segment identity.
+        normalized_motion = str(motion_id).lstrip("./")
+        frame = int(start_frame)
+        matches = tuple(
+            spec
+            for spec in self._specs
+            if str(spec.motion_id).lstrip("./") == normalized_motion and int(spec.start_frame) == frame
+        )
+        if len(matches) != 1:
+            raise RuntimeError(
+                "Segment dataset motion/frame identity must resolve exactly once: "
+                f"motion={normalized_motion!r} frame={frame} matches={len(matches)}"
+            )
+        return matches[0]
+
     def sample_global(self, batch_size: int, generator: torch.Generator | None = None) -> FrontRESSegmentBatch:
         if batch_size <= 0:
             raise ValueError(f"batch_size must be positive, got {batch_size}")

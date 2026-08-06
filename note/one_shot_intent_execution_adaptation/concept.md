@@ -571,3 +571,61 @@ J(\pi;M,I).
 - **未确认**：应如何构造或校准 \(\mathcal U_\alpha(\tau)\)，以及如何证明真实轨迹处于其支持范围；
 - **未确认**：FADA 真实 Action 的底层控制语义、完整 rollout 字段和 IDM LoRA 样本时间对齐；
 - **治理边界**：本节记录的是已审阅的讨论与候选方法，不是活动实现合同，不触发代码、训练或 Concept Figure 更新。
+
+### 2026-08-05：正常 Tracker 下的 In-Context Execution Calibration
+
+本轮将问题进一步收缩为：
+
+> 不训练一个有缺陷的 Tracker，而是在正确 Intent 与正常 Tracker 之后引入持久但未知的执行映射误差；第一次失败轨迹提供校准证据，第二次执行在不更新参数的条件下恢复同一 Intent。
+
+这一区分排除了一个关键捷径。如果同一个缺陷始终存在于可训练 Tracker 中，优化器可以把固定修正直接吸收到 Tracker 参数，使第一次失败消失，并让 Context Encoder 失去作用。训练阶段必须让执行误差的方向与强度跨 episode 变化，同时冻结产生 Support rollout 的基础 Tracker，使任何单一固定修正都不能完成任务。
+
+#### 科学对象
+
+- **保持正确的对象**：Planner Intent、正常基础 Tracker 与任务目标；
+- **主动改变的对象**：Tracker Action 到真实响应之间的执行映射；
+- **可观察证据**：同一 Intent 下逐时刻的 Observation、Action 与后续 Observation；
+- **需要学习的规律**：任务相关响应相近时，所需校准方向与强度也应相近；
+- **部署约束**：第一次与第二次执行保持同一个隐藏误差，部署阶段不更新任何模型参数。
+
+真实原因仍可视为黑盒。本方法不要求恢复关节标定、负载或外力的真实参数，只要求这些原因在当前 Intent 下形成可辨识的响应，并且响应能够指向可复用的校准。若两条不可区分的完整轨迹需要不同修正，则单条 Context 在信息上不足，这仍是方法的可证伪边界。
+
+#### 离线训练闭环
+
+一个训练 episode 独立采样有限 Intent 与隐藏执行扰动。正常且冻结的基础 Tracker 首先在扰动下产生 Support rollout；Context Encoder 从失败轨迹提取临时执行条件；Context-Conditioned Tracker 随后在同一个 Intent、同一个扰动下产生 Query Action。Privileged Teacher 只在训练阶段提供可恢复的 Query 目标或成功执行，不进入部署输入。
+
+训练时更新 Context Encoder 与条件控制路径，不更新 Support 使用的基础 Tracker。扰动必须覆盖正负方向与不同强度，否则网络仍可能学习无条件固定修正。数值范围只需形成一个非平凡区间：基础 Tracker 出现可测失败，而 Privileged Teacher 仍能恢复。Probing 或 Curriculum 用于确定和稳定这个区间，不构成主要科学贡献。
+
+当前可执行的扰动接口分为两类：
+
+- **内部执行映射变化**：Action gain、Action bias、零位偏置或延迟，表达动作效果变化；
+- **外部残余作用**：施加在 root/pelvis 的 6D Wrench，表达持续外力与力矩造成的额外漂移。
+
+这两类接口不是对真实原因的完整枚举，而是用任务可观察响应构造结构化训练环境。当前主 Demo 优先采用软件注入的 Action gain/bias，因为它安全、可逆、可重复，并能直接模拟轻微关节增益或零位标定误差。
+
+#### 真机 Demo 闭环
+
+    same Intent
+      -> competent frozen Tracker
+      -> persistent hidden Action gain/bias
+      -> first failed rollout
+      -> frozen Context Encoder
+      -> Context-Conditioned Tracker
+      -> same persistent Action gain/bias
+      -> second corrected execution
+
+不应真的修改 G1 的硬件标定。部署接口应在软件中对选定关节的控制量施加固定缩放或偏置，并在两次执行之间保持不变。若 Action 表示相对默认姿态的残差，应修改该残差而不是缩放绝对关节目标，避免把执行误差与站立姿态改变混在一起。
+
+#### 当前论文边界
+
+- **主张**：模型能够从一次同 Intent 失败轨迹中无梯度推断持久执行误差所需的校准；
+- **不主张**：覆盖所有 Sim2Real 原因、恢复真实物理参数或从走直线校准转身；
+- **必要对照**：No Context、错误或打乱 Context、固定无条件修正，以及无扰动正常执行；
+- **关键反证**：正确 Context 不优于错误 Context，或固定修正即可达到相同性能；
+- **仍未确认**：Context-Conditioned Tracker 应输出完整 Action、受限 residual，还是通过 Encoder-Decoder 内部调制实现校准。
+
+对应 Concept Figure 已同步至：
+
+note/architecture/concept/08_trajectory_conditioned_execution_alignment.data.json
+
+Concept Figure 只呈现离线双次 Rollout 学习闭环与模型结构；第一次轨迹作为 Context，第二次执行提供校准结果，二者在主图中合并为一个 Rollout 节点。真机部署协议保留在本笔记中，不再占用主图画布。图中显式画出 Planner、梯形 Tracker Encoder/Decoder，以及位于 bottleneck 上方、上宽下窄的 Context Encoder。

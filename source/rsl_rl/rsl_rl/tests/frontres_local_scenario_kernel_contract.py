@@ -686,6 +686,112 @@ def test_t_fixed_heldout_manifest_item() -> None:
     )
 
 
+def test_t_v017_heldout_k16_m3_transaction() -> None:
+    commands, live_sampler, _hooks = _load_modules()
+    command = _command(commands)
+    _sampler, _payload, materialization, _request, _scenario = _scenario_parts(
+        live_sampler, command
+    )
+    calls: list[dict[str, object]] = []
+
+    def materialize_frontres_local_scenario(**kwargs):
+        calls.append(dict(kwargs))
+        horizon_k = int(kwargs["horizon_k"])
+        motion = str(kwargs["motion_id"])
+        marker = 1.0 if motion == "motion-a" else 2.0
+        return {
+            "current_root_artifact_t": torch.full((7,), marker),
+            "clean_reference_t": torch.zeros(65),
+            "intent_q29": torch.full((3, 29), marker),
+            "clean_continuation": torch.full((horizon_k, 65), marker),
+            "expected_support": torch.ones(horizon_k, 2),
+            "expected_support_envelope": torch.tensor(
+                [[0.0, 0.0, 1.0, 0.0, 0.1, 0.05]], dtype=torch.float32
+            ).repeat(horizon_k, 1),
+            "provenance": dict(materialization.provenance),
+        }
+
+    specs = (
+        SimpleNamespace(segment_id=7, motion_id="motion-a", start_frame=2, horizon_k=4, perturbation_family="index_only"),
+        SimpleNamespace(segment_id=8, motion_id="motion-b", start_frame=5, horizon_k=4, perturbation_family="index_only"),
+    )
+
+    class Dataset:
+        _specs = specs
+
+        def resolve_segment_spec(self, *, motion_id, start_frame):
+            matches = tuple(
+                spec for spec in self._specs
+                if spec.motion_id == motion_id and spec.start_frame == start_frame
+            )
+            if len(matches) != 1:
+                raise RuntimeError("fixture motion/frame mismatch")
+            return matches[0]
+
+        def get_segments(self, segment_ids):
+            selected = tuple(self._specs[int(value) - 7] for value in segment_ids.tolist())
+            count = int(segment_ids.numel())
+            return SimpleNamespace(
+                segment_ids=segment_ids.detach().clone(),
+                batch_size=count,
+                specs=selected,
+                perturbation_family=("index_only",) * count,
+                perturbation_strength=torch.zeros(count),
+            )
+
+    runner = SimpleNamespace(
+        device=torch.device("cpu"),
+        current_learning_iteration=3500,
+        alg=SimpleNamespace(frontres_future_offsets=(1, 2), policy=torch.nn.Linear(2, 2)),
+        env=SimpleNamespace(
+            num_envs=12,
+            _frontres_segment_index_reset_adapter=SimpleNamespace(
+                materialize_frontres_local_scenario=materialize_frontres_local_scenario
+            ),
+        ),
+        _frontres_segment_dataset=Dataset(),
+    )
+    items = (
+        SimpleNamespace(
+            item_id="a", motion_id="motion-a", start_frame=2, effective_horizon_k=16,
+            perturbation_family="local_rp", perturbation_parameters=(("dr_scale", 1.0),),
+            seed=42, comparison_signature="a" * 64,
+        ),
+        SimpleNamespace(
+            item_id="b", motion_id="motion-b", start_frame=5, effective_horizon_k=16,
+            perturbation_family="local_rp", perturbation_parameters=(("dr_scale", 1.5),),
+            seed=43, comparison_signature="b" * 64,
+        ),
+    )
+    rng_before = torch.random.get_rng_state().clone()
+    prepared = live_sampler.prepare_frontres_v017_policy_quality_batch(
+        runner, items, attempts_per_segment=3
+    )
+    assert torch.equal(torch.random.get_rng_state(), rng_before)
+    assert len(calls) == 2
+    assert tuple(prepared.sample.source_index.tolist()) == (0, 0, 0, 1, 1, 1)
+    assert tuple(prepared.sample.trial_index.tolist()) == (0, 1, 2, 0, 1, 2)
+    assert tuple(prepared.sample.horizon_k.tolist()) == (16,) * 6
+    assert prepared.plan.active_m == 3 and prepared.plan.selected_segment_count == 2
+    assert len(set(prepared.plan.scenario_ids[:3])) == 1
+    assert len(set(prepared.plan.scenario_ids[3:])) == 1
+    assert prepared.plan.scenario_ids[0] != prepared.plan.scenario_ids[3]
+    assert tuple(prepared.batch.frontres_local_scenario_clean_continuation.shape) == (6, 16, 65)
+    torch.testing.assert_close(
+        prepared.batch.stage3_index_perturbation_strength,
+        torch.tensor([1.0, 1.0, 1.0, 1.5, 1.5, 1.5]),
+    )
+    _expect_error(
+        RuntimeError,
+        lambda: live_sampler.prepare_frontres_v017_policy_quality_batch(
+            SimpleNamespace(**{**runner.__dict__, "env": SimpleNamespace(num_envs=8)}),
+            items,
+            attempts_per_segment=3,
+        ),
+    )
+    print("[T-v017-heldout] two Segment x M3, K16 and source-shared scenario identities are sealed")
+
+
 def main() -> None:
     test_t_schema()
     test_single_axis_artifacts_have_hand_computed_root_and_unchanged_q29()
@@ -698,6 +804,7 @@ def main() -> None:
     test_t_frame_budget_rejects_only_current_k_ineligible_segments()
     test_t_metamorphic()
     test_t_fixed_heldout_manifest_item()
+    test_t_v017_heldout_k16_m3_transaction()
     test_t_legacy_reject()
     print("frontres_local_scenario_kernel_contract: ok", flush=True)
 

@@ -377,6 +377,9 @@ def test_active_stage3_rejects_legacy_local_evaluation() -> None:
     assert '"frontres_segment_offline_eval_only"' not in train_source
     assert '"frontres_policy_quality_eval_only"' in train_source
     assert '"frontres_policy_quality_q2d_eval_only"' in train_source
+    legacy_tuple = train_source.split("legacy_local_evaluation_modes = tuple(", 1)[1].split(")\n", 1)[0]
+    assert '"frontres_policy_quality_eval_only"' not in legacy_tuple
+    assert '"frontres_policy_quality_q2d_eval_only"' in legacy_tuple
     assert "full-sequence composition remains a separate mode" in train_source
 
 

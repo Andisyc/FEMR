@@ -200,7 +200,7 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_segment_live_single_update_only", False)',
         '_set_if_present(alg_cfg, "frontres_segment_live_update_loop_only", False)',
         '_set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)',
-        '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", 1 if live_train_enabled else live_update_steps)',
+        '1 if (live_train_enabled or policy_quality_eval_arg) else live_update_steps',
         '_set_if_present(alg_cfg, "frontres_hsl_init_enabled", False)',
         '_set_if_present(alg_cfg, "frontres_segment_k", int(k_curriculum[0][0]))',
         'segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or _default_frontres_segment_cache_dir()',

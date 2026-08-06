@@ -5,7 +5,7 @@ if [[ $# -lt 2 ]]; then
   echo "Usage: bash run/run_frontres_stage3_segment_hrl.sh HSL_CHECKPOINT MOTION_PATH [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE] [TRAIN_ARGS...]"
   echo
   echo "Stage 3 loads an HSL Delta SE proposal checkpoint and trains Segment Replay HRL."
-  echo "MODE can be: train, sentinel, probe, storage."
+  echo "MODE can be: train, sentinel, probe, storage, policy_quality_eval."
   echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
   echo "Evaluation is launched independently through Held-out Policy Quality, Deployment Composition, or DR Sweep."
   echo "FRONTRES_SPECIALIST_MODE selects the perturbation preset for train/eval; default rp."
@@ -40,7 +40,7 @@ if ! [[ "${CHECKPOINT_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
-if [[ "${MODE}" == "train" && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
+if [[ ("${MODE}" == "train" || "${MODE}" == "policy_quality_eval") && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
   echo "FRS-TRAIN-v014 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
   exit 4
 fi
@@ -101,11 +101,35 @@ case "${MODE}" in
   storage)
     MODE_ARGS=(--frontres_segment_live_storage_write_only)
     ;;
+  policy_quality_eval)
+    if [[ "${NUM_ENVS}" != "12" ]]; then
+      echo "EVAL-v004 K16/M3 policy quality requires NUM_ENVS=12" >&2
+      exit 4
+    fi
+    required_quality_vars=(
+      POLICY_QUALITY_MANIFEST
+      POLICY_QUALITY_POLICY_CHECKPOINT
+      POLICY_QUALITY_RESULT
+    )
+    for name in "${required_quality_vars[@]}"; do
+      if [[ -z "${!name:-}" ]]; then
+        echo "EVAL-v004 policy quality requires ${name}" >&2
+        exit 4
+      fi
+    done
+    MODE_ARGS=(
+      --frontres_policy_quality_eval_only
+      --frontres_policy_quality_manifest "${POLICY_QUALITY_MANIFEST}"
+      --frontres_policy_quality_hsl_checkpoint "${HSL_CHECKPOINT}"
+      --frontres_policy_quality_policy_checkpoint "${POLICY_QUALITY_POLICY_CHECKPOINT}"
+      --frontres_policy_quality_result "${POLICY_QUALITY_RESULT}"
+    )
+    ;;
   single_update|update_loop)
     echo "FRS-PPO-v005 rejects retired optimizer-writing Stage 3 mode: ${MODE}" >&2
     exit 4
     ;;
-  offline_eval|sequence_eval|policy_quality_eval|policy_quality_q2d_eval)
+  offline_eval|sequence_eval|policy_quality_q2d_eval)
     echo "FRS-EVAL-v004 rejects legacy v002/v006/quartet local evaluation mode: ${MODE}" >&2
     exit 4
     ;;

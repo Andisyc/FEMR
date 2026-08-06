@@ -14,13 +14,42 @@ collector and proves the connection offline. E-FI-128 records the final bounded
 official transaction: B01-B08 all emit exactly once, the grouped update commits
 exactly once, critic-only keeps Actor/std unchanged, and checkpoint-v9 saves the
 matching GMT/layout/transaction identity. Formal Runtime Audit Phase B is
-runtime-complete. No Gain/PPO semantics were changed
+runtime-complete. E-FI-129 closes the support-foot coordinate blocker, and
+E-FI-130 migrates the retained Held-out Policy Quality entry in place to strict
+checkpoint-v9, fixed K16/M3 EVAL-v004 transactions and complete v007 reports.
+The evaluator is ready for a real run; policy efficacy is still unconfirmed.
+No Gain/PPO semantics were changed
 under `FRS-METHOD-v017 / FRS-GAIN-v007 / FRS-PPO-v005 / FRS-TRAIN-v014 /
 FRS-EVAL-v004`. E-FI-105 proves the previous v012 module surface;
 E-FI-106 isolates legacy updater selection. Those facts remain valid only for
 unchanged behavior. TRAIN-v013 curriculum, checkpoint-v8 and affected Test
 Cards are now covered by E-FI-109 S1/S2/S3 evidence. Simulator, training and
-Long training, policy-quality efficacy and deployment remain closed.
+Long training and deployment remain closed. Policy-quality execution is the
+next bounded action, but no policy-efficacy result is claimed offline.
+
+## Held-out Policy Quality Offline Readiness
+
+The retained evaluator is now the active EVAL-v004 route rather than a new
+parallel evaluator:
+
+```text
+checkpoint-v9 + fixed K16 manifest
+-> two held-out Segments per transaction
+-> Clean once + Noisy once per Segment
+-> exact M3 policy Repairs
+-> existing one-action-K collector
+-> existing FRS-GAIN-v007 report
+-> atomic JSON with zero training-state writes
+```
+
+The launcher uses its positional HSL-v2 checkpoint as the only HSL scaffold
+identity. The Stage-3 composition root sets policy-quality to zero training
+iterations and disables the live-training owner before dispatching the retained
+evaluator; legacy Q2D/offline/sequence routes remain rejected.
+It rejects legacy manifests/checkpoints, wrong row count, mixed K,
+missing Gain beta and ambiguous motion/frame identities before publishing a
+report. The HSL checkpoint is not a scored route and no optimizer, sampler,
+curriculum or receipt state is advanced.
 
 The current closure removes the formal HSL/Stage-3 `tanh` plus per-axis action
 scale mismatch found by the DP04 Phase A review. It versions HSL as

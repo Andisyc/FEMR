@@ -613,18 +613,17 @@
               "id": "B",
               "title": "Held-out Policy Quality",
               "status": "current",
-              "statusLabel": "当前 v015",
+              "statusLabel": "当前 v017 / EVAL-v004",
               "purpose": "判断 one-action-K 局部策略动作质量",
               "ownedFiles": [
                 "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py"
               ],
               "functions": [
                 {"sourcePath": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "name": "OnPolicyRunner.run_frontres_policy_quality_eval"},
-                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "name": "build_frontres_v015_policy_quality_eval_request"},
-                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "name": "build_frontres_v015_policy_quality_owner_bundle"},
-                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "name": "run_frontres_v015_policy_quality_heldout_eval"},
-                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "name": "_run_frontres_v015_policy_quality_heldout_eval_inference"},
-                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "name": "_v015_quality_route_result"},
+                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "name": "build_frontres_v017_policy_quality_eval_request"},
+                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "name": "run_frontres_v017_policy_quality_heldout_eval"},
+                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "name": "prepare_frontres_v017_policy_quality_batch"},
+                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", "name": "collect_frontres_v017_recovery_aware_evaluation"},
                 {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_evaluation_reporting.py", "name": "write_frontres_atomic_json"}
               ]
             },
@@ -655,13 +654,13 @@
             {"id": "MAIN-37D", "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "role": "three thin Evaluation dispatches for Deployment Composition, Held-out Policy Quality and DR Sweep", "atlasFunctionScope": "declared", "functions": ["evaluate_frontres_dr_sweep()","run_frontres_policy_quality_eval()","run_frontres_v015_deployment_composition_eval()"], "sourceLine": 641, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Fon_policy_runner.py&line=641"},
             {"id": "MAIN-37E", "path": "scripts/rsl_rl/frontres_v015_deployment_composition.py", "role": "E-FI-31 CUDA-visible CLI connector; E-FI-46 closes carrier production, but compatible trained FEMR checkpoint and paired evaluator remain G5/G6 blockers", "functions": ["validate_frontres_v015_deployment_cli_args()","configure_frontres_v015_deployment_agent_cfg()","dispatch_frontres_v015_deployment_composition()"], "sourceLine": 1, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ffrontres_v015_deployment_composition.py&line=1"},
             {"id": "MAIN-49", "path": "source/rsl_rl/rsl_rl/runners/frontres_dr_sweep_eval.py", "role": "restoring DR-sweep session plus thin scale orchestration", "functions": ["_FrontRESDRSweepSession","evaluate_frontres_dr_sweep()"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_dr_sweep_eval.py&line=1"},
-            {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "role": "v015-only held-out quality entry/report; legacy matched-route entry is explicit and fail-closed", "functions": ["run_frontres_policy_quality_eval()","run_frontres_legacy_policy_quality_eval()"], "sourceLine": 985, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=985"}
+            {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "role": "active EVAL-v004 checkpoint-v9 K16/M3 held-out entry and atomic report; historical matched-route entry remains explicit legacy", "functions": ["build_frontres_v017_policy_quality_eval_request()","run_frontres_v017_policy_quality_heldout_eval()","run_frontres_policy_quality_eval()","run_frontres_legacy_policy_quality_eval()"], "sourceLine": 660, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=660"}
           ],
       "mainRoute": [
         "B1 v015 S1: explicit NPZ + persistent corruption spec -> immutable request identities",
         "B2 v015 S2A: sealed request -> immutable command q29/dq29 + cursor -> current [B,58] and dense H [B,H+1,29]",
         "B3 v015 S1: Baseline/Repair metric rows -> immutable paired branch report",
-        "B4 Held-out Quality: committed checkpoint + fixed manifest -> one-action-K atomic quality report",
+        "B4 Held-out Quality: checkpoint-v9 + fixed K16/M3 manifest -> Clean/Noisy once + exact-M Repair -> one-action-K v007 atomic report",
         "B5 v015 S2B: T-max(H) current/H -> one 6D FEMR + frozen GMT per frame -> metrics -> atomic JSON with zero training-state diff",
         "B6 v015 S4-S0 implemented-only: CUDA-visible CLI -> exact checkpoint/file/report -> S2B-only dispatch",
         "B7 DR Sweep: fixed perturbation levels -> independent robustness-budget report",

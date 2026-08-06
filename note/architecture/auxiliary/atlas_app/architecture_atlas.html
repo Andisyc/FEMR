@@ -502,6 +502,7 @@
           code: options.code,
           display: options.display,
           family: options.family,
+          anchor: options.anchor,
         });
       });
       return rendered.length;
@@ -1048,7 +1049,7 @@
     function drawMethodNode(rc, data, node) {
       const color = conceptColor(data, node.concept, node.color || "#6688aa");
       const compact = node.h < 140;
-      const shape = rc.rectangle(node.x, node.y, node.w, node.h, {
+      const shapeOptions = {
         stroke: color,
         strokeWidth: node.kind === "external" ? 1.4 : 1.8,
         strokeLineDash: node.kind === "external" ? [7, 5] : undefined,
@@ -1056,14 +1057,70 @@
         bowing: 0.7,
         fill: colorWithAlpha(color, node.kind === "external" ? 0.025 : compact ? 0.08 : 0.12),
         fillStyle: "solid",
-      });
+      };
+      const inset = Math.min(
+        Number.isFinite(Number(node.shapeInset)) ? Number(node.shapeInset) : 42,
+        node.w * 0.3,
+        node.h * 0.35,
+      );
+      let shape;
+      if (node.shape === "encoder") {
+        shape = rc.polygon([
+          [node.x, node.y],
+          [node.x + node.w, node.y + inset],
+          [node.x + node.w, node.y + node.h - inset],
+          [node.x, node.y + node.h],
+        ], shapeOptions);
+      } else if (node.shape === "decoder") {
+        shape = rc.polygon([
+          [node.x, node.y + inset],
+          [node.x + node.w, node.y],
+          [node.x + node.w, node.y + node.h],
+          [node.x, node.y + node.h - inset],
+        ], shapeOptions);
+      } else if (node.shape === "context_encoder") {
+        shape = rc.polygon([
+          [node.x, node.y],
+          [node.x + node.w, node.y],
+          [node.x + node.w - inset, node.y + node.h],
+          [node.x + inset, node.y + node.h],
+        ], shapeOptions);
+      } else {
+        shape = rc.rectangle(node.x, node.y, node.w, node.h, shapeOptions);
+      }
       const tooltip = document.createElementNS("http://www.w3.org/2000/svg", "title");
       const codeRefs = (node.codeRefs || []).join("\n");
       tooltip.textContent = `${node.id} ${node.title}\n${node.summary || ""}${codeRefs ? `\n\nCode:\n${codeRefs}` : ""}`;
       shape.appendChild(tooltip);
       svg.appendChild(shape);
 
-      const titleLines = wrapText(node.title, node.x + 16, node.y + 31, node.w - 32, {
+      const centeredTrackerText = node.shape === "encoder" || node.shape === "decoder";
+      if (centeredTrackerText) {
+        const centerX = node.x + node.w / 2;
+        const centerY = node.y + node.h / 2;
+        wrapText(node.title, centerX, centerY - 12, node.w - 90, {
+          size: 14,
+          lineHeight: 16,
+          charWidth: 7,
+          maxLines: 2,
+          weight: 900,
+          fill: "#27313d",
+          anchor: "middle",
+        });
+        wrapText(node.summary || "", centerX, centerY + 20, node.w - 74, {
+          size: 11,
+          lineHeight: 15,
+          charWidth: 5.8,
+          maxLines: 3,
+          weight: 550,
+          fill: "#4d5966",
+          anchor: "middle",
+        });
+        return;
+      }
+
+      const textInset = node.shape === "context_encoder" ? 34 : node.shape ? 26 : 16;
+      const titleLines = wrapText(node.title, node.x + textInset, node.y + 31, node.w - textInset * 2, {
         size: compact ? 13 : 14,
         lineHeight: 16,
         charWidth: 7,
@@ -1075,7 +1132,7 @@
       const summaryY = node.y + 60 + Math.max(0, titleLines - 1) * 16;
       const summaryBottom = node.y + node.h - 14;
       const summaryMaxLines = Math.max(1, Math.floor((summaryBottom - summaryY) / summaryLineHeight));
-      wrapText(node.summary || "", node.x + 16, summaryY, node.w - 32, {
+      wrapText(node.summary || "", node.x + textInset, summaryY, node.w - textInset * 2, {
         size: compact ? 10 : 11,
         lineHeight: summaryLineHeight,
         charWidth: compact ? 5.4 : 5.8,

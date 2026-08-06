@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 _SCHEMA_VERSION = "frontres_policy_quality_manifest_v1"
 _V015_SCHEMA_VERSION = "frontres-v015-policy-quality-manifest-v1"
+_V017_SCHEMA_VERSION = "frontres-v017-policy-quality-manifest-v1"
 _ROUTES = frozenset(("zero", "hsl", "policy"))
 _Scalar = bool | int | float | str
 
@@ -372,6 +373,141 @@ class FrontRESV015PolicyQualityManifest:
             payload = json.loads(text)
         except (TypeError, json.JSONDecodeError) as exc:
             raise ValueError("v015 quality manifest must be valid JSON") from exc
+        return cls.from_dict(payload)
+
+
+@dataclass(frozen=True)
+class FrontRESV017PolicyQualityManifest:
+    """Immutable EVAL-v004 held-out bank for checkpoint-v9 K16/M3 evaluation."""
+
+    environment_revision: str
+    config_revision: str
+    evaluator_version: str
+    items: tuple[FrontRESPolicyQualityManifestItem, ...]
+    schema_version: str = _V017_SCHEMA_VERSION
+    method_contract_id: str = "FRS-METHOD-v017"
+    training_contract_id: str = "FRS-TRAIN-v014"
+    gain_contract_id: str = "FRS-GAIN-v007"
+    ppo_contract_id: str = "FRS-PPO-v005"
+    evaluation_contract_id: str = "FRS-EVAL-v004"
+    checkpoint_format: str = "frontres-v017-checkpoint-v9"
+    future_intent_layout_version: str = "frontres-v015-future-intent-q29-v1"
+    future_offsets: tuple[int, ...] = (1, 2)
+    raw_observation_dim: int = 870
+    combined_observation_dim: int = 928
+    actor_input_dim: int = 158
+    gmt_suffix_dim: int = 770
+    action_kind: str = "delta_se3"
+    action_semantics: str = "direct-world-full6-v1"
+    action_dim: int = 6
+    horizon_k: int = 16
+    attempts_per_segment: int = 3
+    segments_per_transaction: int = 2
+
+    def __post_init__(self) -> None:
+        # B1: 固定 active Contract, layout, action 和 K16/M3 identity, 拒绝旧 evaluator payload.
+        exact_identity = (
+            self.schema_version == _V017_SCHEMA_VERSION
+            and self.method_contract_id == "FRS-METHOD-v017"
+            and self.training_contract_id == "FRS-TRAIN-v014"
+            and self.gain_contract_id == "FRS-GAIN-v007"
+            and self.ppo_contract_id == "FRS-PPO-v005"
+            and self.evaluation_contract_id == "FRS-EVAL-v004"
+            and self.checkpoint_format == "frontres-v017-checkpoint-v9"
+            and self.future_intent_layout_version == "frontres-v015-future-intent-q29-v1"
+            and tuple(self.future_offsets) == (1, 2)
+            and self.raw_observation_dim == 870
+            and self.combined_observation_dim == 928
+            and self.actor_input_dim == 158
+            and self.gmt_suffix_dim == 770
+            and self.action_kind == "delta_se3"
+            and self.action_semantics == "direct-world-full6-v1"
+            and self.action_dim == 6
+            and self.horizon_k == 16
+            and self.attempts_per_segment == 3
+            and self.segments_per_transaction == 2
+        )
+        if not exact_identity:
+            raise ValueError("v017 policy-quality manifest has incompatible contract, layout, action, or K16/M3 identity")
+        object.__setattr__(self, "environment_revision", _require_text(self.environment_revision, name="environment_revision"))
+        object.__setattr__(self, "config_revision", _require_text(self.config_revision, name="config_revision"))
+        object.__setattr__(self, "evaluator_version", _require_text(self.evaluator_version, name="evaluator_version"))
+        object.__setattr__(self, "future_offsets", tuple(int(value) for value in self.future_offsets))
+        if not isinstance(self.items, tuple) or len(self.items) < 2 or len(self.items) % 2 != 0:
+            raise ValueError("v017 policy-quality manifest requires an even non-zero number of held-out Segments")
+        if not all(isinstance(item, FrontRESPolicyQualityManifestItem) for item in self.items):
+            raise ValueError("v017 policy-quality manifest items have an invalid owner")
+        if any(int(item.effective_horizon_k) != self.horizon_k for item in self.items):
+            raise ValueError("v017 policy-quality manifest requires homogeneous K16 items")
+        identities = tuple((item.motion_id, item.start_frame) for item in self.items)
+        if len(set(identities)) != len(identities):
+            raise ValueError("v017 policy-quality manifest requires distinct Segment identities")
+        ids = tuple(item.item_id for item in self.items)
+        signatures = tuple(item.comparison_signature for item in self.items)
+        if len(set(ids)) != len(ids) or len(set(signatures)) != len(signatures):
+            raise ValueError("v017 policy-quality manifest rejects duplicate item or comparison identity")
+
+    @property
+    def comparison_signature(self) -> str:
+        return _sha256(self.to_dict())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "method_contract_id": self.method_contract_id,
+            "training_contract_id": self.training_contract_id,
+            "gain_contract_id": self.gain_contract_id,
+            "ppo_contract_id": self.ppo_contract_id,
+            "evaluation_contract_id": self.evaluation_contract_id,
+            "checkpoint_format": self.checkpoint_format,
+            "future_intent_layout_version": self.future_intent_layout_version,
+            "future_offsets": list(self.future_offsets),
+            "raw_observation_dim": self.raw_observation_dim,
+            "combined_observation_dim": self.combined_observation_dim,
+            "actor_input_dim": self.actor_input_dim,
+            "gmt_suffix_dim": self.gmt_suffix_dim,
+            "action_kind": self.action_kind,
+            "action_semantics": self.action_semantics,
+            "action_dim": self.action_dim,
+            "horizon_k": self.horizon_k,
+            "attempts_per_segment": self.attempts_per_segment,
+            "segments_per_transaction": self.segments_per_transaction,
+            "environment_revision": self.environment_revision,
+            "config_revision": self.config_revision,
+            "evaluator_version": self.evaluator_version,
+            "items": [item.to_dict() for item in self.items],
+        }
+
+    def to_json(self) -> str:
+        return _canonical_json(self.to_dict())
+
+    @classmethod
+    def from_dict(cls, payload: object) -> FrontRESV017PolicyQualityManifest:
+        required = frozenset(
+            (
+                "schema_version", "method_contract_id", "training_contract_id", "gain_contract_id",
+                "ppo_contract_id", "evaluation_contract_id", "checkpoint_format",
+                "future_intent_layout_version", "future_offsets", "raw_observation_dim",
+                "combined_observation_dim", "actor_input_dim", "gmt_suffix_dim", "action_kind",
+                "action_semantics", "action_dim", "horizon_k", "attempts_per_segment",
+                "segments_per_transaction", "environment_revision", "config_revision",
+                "evaluator_version", "items",
+            )
+        )
+        values = _strict_fields(payload, required=required, name="v017 policy-quality manifest")
+        if not isinstance(values["items"], list) or not isinstance(values["future_offsets"], list):
+            raise ValueError("v017 policy-quality manifest items and future_offsets must be lists on disk")
+        values = dict(values)
+        values["items"] = tuple(FrontRESPolicyQualityManifestItem.from_dict(item) for item in values["items"])
+        values["future_offsets"] = tuple(values["future_offsets"])
+        return cls(**values)
+
+    @classmethod
+    def from_json(cls, text: str) -> FrontRESV017PolicyQualityManifest:
+        try:
+            payload = json.loads(text)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("v017 policy-quality manifest must be valid JSON") from exc
         return cls.from_dict(payload)
 
 

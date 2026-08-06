@@ -131,7 +131,10 @@ def test_cli_and_runner_are_dedicated_and_lazy() -> None:
     )
     assert lazy_import_at > method_at
     assert runner[:method_at].count("frontres_policy_quality_eval") == 0
-    assert "policy_quality_eval)" not in shell
+    assert "policy_quality_eval)" in shell
+    assert "offline_eval|sequence_eval|policy_quality_q2d_eval)" in shell
+    assert "FRS-EVAL-v004 rejects legacy v002/v006/quartet local evaluation mode" in shell
+    assert "EVAL-v004 K16/M3 policy quality requires NUM_ENVS=12" in shell
     assert "Evaluation is launched independently" in shell
     assert '--frontres_v015_hsl_initializer_checkpoint "${HSL_CHECKPOINT}"' in shell
     assert "STAGE3_IS_FULL_RESUME" not in shell
