@@ -289,6 +289,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """FrontRES update objective; formal Stage 3 overrides this with Segment Replay PPO."""
     frontres_segment_replay_enabled: bool = False
     """Enable the explicit Segment Replay HRL route. Contract-only until runner/PPO integration is wired."""
+    frontres_policy_quality_eval_only: bool = False
+    """Mark outer read-only quality dispatch without inventing another training objective."""
     frontres_segment_live_runner_enabled: bool = False
     """Allow OnPolicyRunner to enter the live Segment Replay route. Keep false until live rollout/PPO wiring lands."""
     frontres_segment_live_sentinel_only: bool = False

@@ -117,7 +117,32 @@ class FrontRESSegmentRunnerBoundary:
     def from_train_cfg(cls, train_cfg: dict[str, Any]) -> "FrontRESSegmentRunnerBoundary":
         alg_cfg = train_cfg.get("algorithm", {})
         objective = str(alg_cfg.get("frontres_training_objective", "")).lower()
-        requested = bool(alg_cfg.get("frontres_segment_replay_enabled", False)) or objective == "segment_replay_hrl"
+        evaluation_only = bool(alg_cfg.get("frontres_policy_quality_eval_only", False))
+        if evaluation_only:
+            evaluation_conflicts = tuple(
+                name
+                for name in (
+                    "frontres_segment_replay_enabled",
+                    "frontres_segment_live_runner_enabled",
+                    "frontres_segment_live_sentinel_only",
+                    "frontres_local_sentinel_only",
+                    "frontres_segment_live_probe_only",
+                    "frontres_segment_live_storage_write_only",
+                    "frontres_segment_live_single_update_only",
+                    "frontres_segment_live_update_loop_only",
+                    "frontres_segment_live_train_enabled",
+                )
+                if bool(alg_cfg.get(name, False))
+            )
+            if evaluation_conflicts:
+                raise ValueError(
+                    "policy-quality evaluation cannot enable Segment Replay/live training flags: "
+                    f"{evaluation_conflicts}"
+                )
+        requested = not evaluation_only and (
+            bool(alg_cfg.get("frontres_segment_replay_enabled", False))
+            or objective == "segment_replay_hrl"
+        )
         return cls(
             requested=requested,
             live_runner_enabled=bool(alg_cfg.get("frontres_segment_live_runner_enabled", False)),

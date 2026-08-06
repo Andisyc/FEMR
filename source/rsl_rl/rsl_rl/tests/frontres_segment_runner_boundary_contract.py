@@ -39,6 +39,7 @@ def _stage3_cfg(
         "algorithm": {
             "frontres_training_objective": "segment_replay_hrl",
             "frontres_segment_replay_enabled": True,
+            "frontres_policy_quality_eval_only": False,
             "frontres_segment_live_runner_enabled": live,
             "frontres_segment_live_sentinel_only": sentinel,
             "frontres_segment_live_probe_only": probe,
@@ -67,14 +68,25 @@ def test_stage3_boundary_rejects_live_runner_by_default() -> None:
         raise AssertionError("Stage 3 live runner must fail fast while integration is not wired")
 
 
-def test_policy_quality_is_not_a_segment_replay_run_mode() -> None:
+def test_policy_quality_constructs_stage3_identity_without_requesting_replay() -> None:
     cfg = _stage3_cfg(live=False)
-    cfg["algorithm"]["frontres_training_objective"] = "policy_quality_eval"
     cfg["algorithm"]["frontres_segment_replay_enabled"] = False
+    cfg["algorithm"]["frontres_policy_quality_eval_only"] = True
     boundary = FrontRESSegmentRunnerBoundary.from_train_cfg(cfg)
     assert boundary.requested is False
     assert boundary.live_runner_enabled is False
     boundary.assert_live_runner_ready()
+
+
+def test_policy_quality_rejects_mixed_training_flags() -> None:
+    cfg = _stage3_cfg(live=True)
+    cfg["algorithm"]["frontres_policy_quality_eval_only"] = True
+    try:
+        FrontRESSegmentRunnerBoundary.from_train_cfg(cfg)
+    except ValueError as exc:
+        assert "cannot enable Segment Replay/live training flags" in str(exc)
+    else:
+        raise AssertionError("read-only quality evaluation must reject mixed training flags")
 
 
 def test_stage3_boundary_rejects_live_flag_until_ppo_wiring_exists() -> None:
@@ -269,7 +281,8 @@ def test_startup_layout_failure_stops_load_and_dispatch() -> None:
 
 def main() -> None:
     test_stage3_boundary_rejects_live_runner_by_default()
-    test_policy_quality_is_not_a_segment_replay_run_mode()
+    test_policy_quality_constructs_stage3_identity_without_requesting_replay()
+    test_policy_quality_rejects_mixed_training_flags()
     test_stage3_boundary_rejects_live_flag_until_ppo_wiring_exists()
     test_stage3_boundary_allows_live_sentinel_only()
     test_stage3_boundary_allows_live_probe_only()
