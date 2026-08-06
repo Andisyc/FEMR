@@ -31,7 +31,13 @@ accepts only `policy_quality`, preserves the committed receipt, rejects stale
 context and cleans command/scenario/context state on success or exception. The
 complete 50-target deterministic aggregate and focused evaluator/connectivity
 regressions pass. The evaluator is ready for one rerun; policy efficacy is
-still unconfirmed.
+still unconfirmed. E-FI-134 records the next live first-invalid edge: a fresh
+evaluation runner had no transaction aggregate, so the first read-only scope
+legitimately installed the existing idle owner after the zero-write baseline
+was captured. The evaluator now installs that sole owner before the protected
+baseline, and mutation failures identify the exact changed field instead of
+reporting one opaque aggregate hash. The fresh-runner regression and complete
+50-target aggregate pass; this remains offline closure pending one real rerun.
 No Gain/PPO semantics were changed
 under `FRS-METHOD-v017 / FRS-GAIN-v007 / FRS-PPO-v005 / FRS-TRAIN-v014 /
 FRS-EVAL-v004`. E-FI-105 proves the previous v012 module surface;

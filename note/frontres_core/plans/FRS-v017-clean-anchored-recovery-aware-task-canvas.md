@@ -28,7 +28,7 @@ Formal Runtime Audit Phase A        DP-01 through DP-10 reviewed offline
 Formal Runtime Audit Phase B        runtime-complete; B01-B08 emitted once (E-FI-128)
 Step 2 / 2 bounded live sentinel    complete; checkpoint-v9 iteration 1 saved
 Policy Quality support-frame Q0     completed offline (E-FI-129)
-Policy Quality evaluator            ready offline through read-only lifecycle (E-FI-133)
+Policy Quality evaluator            ready offline through fresh-runner lifecycle (E-FI-134)
 Policy Quality efficacy             unconfirmed; real evaluation pending
 ```
 
@@ -171,7 +171,10 @@ retained evaluator to strict v017/checkpoint-v9 and fixes the K16/M3 manifest.
 E-FI-131 closes the composition-root mistake that classified the read-only
 evaluator as a legacy live runner. E-FI-132 closes the next formal edge: the
 read-only evaluator now installs the Stage-1 index dataset/reset hook needed by
-the manifest without enabling or creating the replay sampler. The next bounded
+the manifest without enabling or creating the replay sampler. E-FI-133 adds the
+read-only collection lifecycle. E-FI-134 then closes the fresh-runner boundary:
+the sole transaction aggregate is installed before the protected baseline and
+any later mutation names its exact owner field. The next bounded
 action is to rerun that evaluator on model_3500 and judge Intent,
 Contact, phase-ZMP, survival, sustained lean and unplanned steps using the
 corrected evidence. No training or long run is implied.

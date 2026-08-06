@@ -1191,7 +1191,7 @@
       "designId": "TEST-17",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "v017 report 只投影 sealed Clean/Noisy/Repair evidence；Contact/load/flight、ZMP applicability/violation/recovery、survival、lean、非计划接触与零训练写入均通过。正式 collector 的只读评估生命周期保留 committed receipt，拒绝 training route 与陈旧 context，并在异常后清理。",
+      "executionSummary": "v017 report 只投影 sealed Clean/Noisy/Repair evidence；Contact/load/flight、ZMP applicability/violation/recovery、survival、lean、非计划接触与零训练写入均通过。fresh evaluation runner 先安装唯一 idle transaction owner，再封存零写入基线；正式 collector 拒绝 training route 与陈旧 context，异常后清理，任何训练状态变化必须报告具体字段。",
       "blockId": "MOD-EVAL",
       "title": "Evaluation",
       "color": "#3f826d",

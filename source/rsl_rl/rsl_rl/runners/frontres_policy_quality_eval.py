@@ -298,14 +298,12 @@ def _frontres_v015_quality_inference_mode(runner: Any):
             module.training = was_training
 
 
-def _v015_quality_training_state_signature(runner: Any) -> str:
-    # B1: 哈希 model/optimizer/sampler/normalizer/transaction facts, 产出零写入签名.
-    """Hash every mutable training owner while excluding physical env state."""
+def _v015_quality_training_state_field_hashes(runner: Any) -> dict[str, str]:
+    """Hash each mutable training owner independently for actionable failures."""
 
-    digest = hashlib.sha256()
     alg = getattr(runner, "alg", None)
     policy = getattr(alg, "policy", None)
-    for name, value in (
+    values = (
         ("actor", getattr(getattr(policy, "residual_actor", None), "state_dict", lambda: {})()),
         ("critic", getattr(getattr(policy, "critic", None), "state_dict", lambda: {})()),
         ("optimizer", getattr(getattr(alg, "optimizer", None), "state_dict", lambda: {})()),
@@ -336,10 +334,31 @@ def _v015_quality_training_state_signature(runner: Any) -> str:
         ("receipt", getattr(runner, "_frontres_last_committed_transaction_receipt", None)),
         ("warmup", getattr(runner, "_frontres_warmup_complete", None)),
         ("iteration", getattr(runner, "current_learning_iteration", None)),
-    ):
+    )
+    return {name: _v015_quality_field_hash(name, value) for name, value in values}
+
+
+def _v015_quality_training_state_signature(runner: Any) -> str:
+    # B1: 哈希 model/optimizer/sampler/normalizer/transaction facts, 产出零写入签名.
+    """Hash every mutable training owner while excluding physical env state."""
+
+    digest = hashlib.sha256()
+    for name, field_hash in _v015_quality_training_state_field_hashes(runner).items():
         digest.update(name.encode("ascii"))
-        _v015_quality_hash_state(digest, value)
+        digest.update(field_hash.encode("ascii"))
     return digest.hexdigest()
+
+
+def _assert_v015_quality_training_state_unchanged(
+    runner: Any,
+    expected: Mapping[str, str],
+    *,
+    label: str,
+) -> None:
+    actual = _v015_quality_training_state_field_hashes(runner)
+    differing_fields = tuple(name for name in expected if actual.get(name) != expected[name])
+    if differing_fields:
+        raise RuntimeError(f"{label}; differing_fields={differing_fields}")
 
 
 def build_frontres_v015_policy_quality_owner_bundle(
@@ -1000,6 +1019,7 @@ def run_frontres_v017_policy_quality_heldout_eval(
         collect_frontres_v017_recovery_aware_evaluation,
         frontres_v017_readonly_collection_scope,
     )
+    from rsl_rl.runners.frontres_stage3_engine import frontres_stage3_transaction_aggregate
     from rsl_rl.runners.frontres_segment_live_sampler import (
         ensure_frontres_policy_quality_reset_support,
         prepare_frontres_v017_policy_quality_batch,
@@ -1012,7 +1032,13 @@ def run_frontres_v017_policy_quality_heldout_eval(
     # B1a: 安装只读 Stage-1 dataset/reset support, 产出 held-out manifest 的解析边界.
     # Eval 不启用 Segment Replay, 因此必须显式安装该只读依赖且不得创建 sampler.
     ensure_frontres_policy_quality_reset_support(runner)
-    baseline_state = _v015_quality_training_state_signature(runner)
+    # A fresh evaluation runner has no training transaction aggregate.  Install
+    # the existing owner before taking the protected baseline; otherwise the
+    # first read-only scope changes None -> idle and is misreported as a write.
+    aggregate = frontres_stage3_transaction_aggregate(runner)
+    if aggregate.execution_phase != "idle" or aggregate.persistence_phase in {"collecting", "sealed"}:
+        raise RuntimeError("EVAL-v004 requires an idle transaction owner before held-out collection")
+    baseline_state = _v015_quality_training_state_field_hashes(runner)
     transactions: list[dict[str, Any]] = []
     with _frontres_v015_quality_inference_mode(runner):
         with frontres_quality_route_actor(
@@ -1021,7 +1047,7 @@ def run_frontres_v017_policy_quality_heldout_eval(
             route="policy",
             expected_file_sha256=request.policy_checkpoint.file_sha256,
         ):
-            policy_state = _v015_quality_training_state_signature(runner)
+            policy_state = _v015_quality_training_state_field_hashes(runner)
             items = tuple(request.manifest.items)
             gain_beta = getattr(getattr(runner, "alg", None), "frontres_gain_beta", None)
             if gain_beta is None:
@@ -1058,10 +1084,16 @@ def run_frontres_v017_policy_quality_heldout_eval(
                         "report": asdict(collection.report),
                     }
                 )
-                if _v015_quality_training_state_signature(runner) != policy_state:
-                    raise RuntimeError("EVAL-v004 held-out transaction mutated training state")
-    if _v015_quality_training_state_signature(runner) != baseline_state:
-        raise RuntimeError("EVAL-v004 checkpoint route failed to restore training state")
+                _assert_v015_quality_training_state_unchanged(
+                    runner,
+                    policy_state,
+                    label="EVAL-v004 held-out transaction mutated training state",
+                )
+    _assert_v015_quality_training_state_unchanged(
+        runner,
+        baseline_state,
+        label="EVAL-v004 checkpoint route failed to restore training state",
+    )
 
     # B3: 原子写入 manifest/checkpoint/transaction identities 和完整 report, 产出唯一评估 artifact.
     payload = {

@@ -8202,3 +8202,52 @@ aggregate, evaluation remains thin orchestration, and no wrapper, fallback,
 zero-fill or duplicate collector was added. Evidence status is
 `owner-lifecycle-contract-confirmed`. A real rerun is still required to confirm
 the final atomic policy-quality JSON and policy efficacy.
+
+## E-FI-134: EVAL-v004 Fresh-Runner State-Baseline Closure
+
+Date: 2026-08-06
+
+The next model_3500 evaluation crossed the E-FI-133 read-only collection
+lifecycle and completed its first real K16/M3 Clean/Noisy/Repair collection.
+It then failed the post-transaction zero-write guard. This proves the prior
+collector-lifecycle repair was active; the new first-invalid fact was later in
+the evaluator state boundary.
+
+White-box localization found that the official policy-quality runner is a
+fresh HSL-initialized runner. Unlike the old focused fixture, it has no
+`_frontres_checkpoint_transaction_state` before evaluation. The first
+`frontres_v017_readonly_collection_scope()` therefore installed the existing
+`FrontRESStage3TransactionAggregate` and changed the protected field from
+`None` to its valid idle state after the baseline had already been captured.
+No optimizer, Actor, Critic, normalizer, sampler, receipt or iteration write is
+needed to reproduce the reported failure.
+
+The retained EVAL-v004 owner now installs and validates the sole idle
+transaction aggregate during evaluator setup, before capturing the protected
+baseline. Each later transaction remains read-only. The guard now hashes every
+training owner independently and reports `differing_fields=(...)` on a real
+mutation instead of one opaque aggregate-hash mismatch. Gain/PPO/HSL,
+one-action-K, checkpoint-v9 and simulator behavior are unchanged.
+
+Deterministic evidence:
+
+- `frontres_v017_policy_quality_eval_contract.py` now starts from the official
+  no-transaction runner shape, executes four K16/M3 transactions, emits atomic
+  JSON, and separately proves that a deliberate iteration write reports
+  `differing_fields=('iteration',)`;
+- current policy-quality entrypoint, real-owner wiring, state restore,
+  manifest and report contracts pass;
+- the complete active aggregate reports `50/50` with zero failures;
+- Module Test Atlas validation reports `18 passed / 0 partial / 0 blocked`;
+- Python compilation and `git diff --check` pass.
+
+Two explicitly historical `v015` evaluator fixtures still fail against removed
+fixture API/legacy checkpoint identity. They are not active EVAL-v004 evidence
+and remain part of the existing active/history test-owner P2 rather than being
+silently weakened or counted as this repair's regressions.
+
+`debug_fix_review` finds no P0/P1. The change adds no runner, wrapper, service,
+collector or transaction owner; it moves owner installation to the existing
+evaluation composition boundary and improves fail-closed diagnostics. Evidence
+status is `fresh-runner-owner-lifecycle-contract-confirmed`. The final JSON and
+policy efficacy remain live-unconfirmed until one real rerun.

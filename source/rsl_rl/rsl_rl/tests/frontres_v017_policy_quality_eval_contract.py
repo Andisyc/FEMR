@@ -199,10 +199,6 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
     runner = SimpleNamespace(
         alg=SimpleNamespace(policy=policy, optimizer=optimizer, frontres_gain_beta=0.02),
         current_learning_iteration=3500,
-        _frontres_checkpoint_transaction_state={
-            "state": "committed",
-            "receipt": {"transaction_id": "fixed", "optimizer_step_delta": 1},
-        },
         _frontres_last_committed_transaction_receipt={"transaction_id": "fixed", "optimizer_step_delta": 1},
     )
     calls: list[tuple[str, ...]] = []
@@ -235,7 +231,7 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
         assert route == "policy_quality" and "EVAL-v004" in label and beta == 0.02
         aggregate = runtime_types.frontres_stage3_transaction_aggregate(_runner)
         assert aggregate.execution_phase == "evaluating"
-        assert aggregate.persistence_phase == "committed"
+        assert aggregate.persistence_phase == "idle"
         runtime_types.bind_frontres_collection_context(
             _runner,
             route=route,
@@ -288,7 +284,7 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
     assert len(calls) == 4 and len(closes) == 4
     aggregate = runtime_types.frontres_stage3_transaction_aggregate(runner)
     assert aggregate.execution_phase == "idle"
-    assert aggregate.persistence_phase == "committed"
+    assert aggregate.persistence_phase == "idle"
     assert aggregate.collection_sample is None and aggregate.collection_batch is None
     assert payload["schema_version"] == "frontres-v017-policy-quality-report-v1"
     assert payload["checkpoint_format"] == "frontres-v017-checkpoint-v9"
@@ -296,6 +292,24 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
     assert all(row["policy_row_count"] == 6 and row["role_row_count"] == 12 for row in payload["transactions"])
     stored = json.loads(Path(request.result_path).read_text(encoding="utf-8"))
     assert stored == json.loads(json.dumps(payload))
+
+
+def test_training_state_guard_names_the_mutated_owner() -> None:
+    runner = SimpleNamespace(current_learning_iteration=3500)
+    expected = quality._v015_quality_training_state_field_hashes(runner)
+    runner.current_learning_iteration = 3501
+    try:
+        quality._assert_v015_quality_training_state_unchanged(
+            runner,
+            expected,
+            label="deliberate mutation",
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "deliberate mutation" in message
+        assert "differing_fields=('iteration',)" in message
+    else:
+        raise AssertionError("training-state guard must identify the mutated owner")
 
 
 if __name__ == "__main__":
@@ -306,4 +320,5 @@ if __name__ == "__main__":
         test_policy_quality_reset_support_is_readonly_and_sampler_free()
         test_policy_quality_collection_lifecycle_preserves_receipt_and_cleans_exceptions()
         test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(Path(tmp))
+        test_training_state_guard_names_the_mutated_owner()
     print("frontres_v017_policy_quality_eval_contract: ok")
