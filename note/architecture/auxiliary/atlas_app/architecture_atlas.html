@@ -1149,6 +1149,34 @@
       const rc = rough.svg(svg);
       const nodes = new Map((data.nodes || []).map((node) => [node.id, node]));
 
+      if (data.layerDivider) {
+        const divider = data.layerDivider;
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", divider.x1 ?? 40);
+        line.setAttribute("x2", divider.x2 ?? width - 40);
+        line.setAttribute("y1", divider.y);
+        line.setAttribute("y2", divider.y);
+        line.setAttribute("stroke", divider.stroke || "#8b8174");
+        line.setAttribute("stroke-width", divider.strokeWidth || 1.5);
+        line.setAttribute("stroke-dasharray", divider.dashArray || "12 10");
+        line.setAttribute("opacity", divider.opacity || 0.72);
+        svg.appendChild(line);
+        if (divider.topLabel) {
+          addText(divider.topLabel, (divider.x1 ?? 40) + 8, divider.y - 14, {
+            size: 13,
+            weight: 760,
+            fill: "#5f584f",
+          });
+        }
+        if (divider.bottomLabel) {
+          addText(divider.bottomLabel, (divider.x1 ?? 40) + 8, divider.y + 27, {
+            size: 13,
+            weight: 760,
+            fill: "#5f584f",
+          });
+        }
+      }
+
       const edgeLabels = [];
       (data.edges || []).forEach((edge) => {
         const from = nodes.get(edge.from);

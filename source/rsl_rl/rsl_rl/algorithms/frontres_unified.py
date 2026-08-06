@@ -136,6 +136,7 @@ class FrontRESUnified:
         frontres_restore_debug_print_interval: int = 10,
         frontres_training_objective: str = "supervised_restore",
         frontres_segment_replay_enabled: bool = False,
+        frontres_policy_quality_eval_only: bool = False,
         frontres_segment_live_runner_enabled: bool = False,
         frontres_segment_live_sentinel_only: bool = False,
         frontres_local_sentinel_only: bool = False,
@@ -255,6 +256,7 @@ class FrontRESUnified:
         self.frontres_restore_debug_print_interval = int(frontres_restore_debug_print_interval)
         self.frontres_training_objective = str(frontres_training_objective).lower()
         self.frontres_segment_replay_enabled = bool(frontres_segment_replay_enabled)
+        self.frontres_policy_quality_eval_only = bool(frontres_policy_quality_eval_only)
         self.frontres_segment_live_runner_enabled = bool(frontres_segment_live_runner_enabled)
         self.frontres_segment_live_sentinel_only = bool(frontres_segment_live_sentinel_only)
         self.frontres_local_sentinel_only = bool(frontres_local_sentinel_only)
@@ -359,14 +361,43 @@ class FrontRESUnified:
         if self.frontres_segment_reset_mode not in ("auto", "direct", "preroll"):
             raise ValueError("frontres_segment_reset_mode must be 'auto', 'direct', or 'preroll'")
         if self.frontres_training_objective == "segment_replay_hrl":
-            if not self.frontres_segment_replay_enabled:
+            # B1: 区分只读 evaluator 和训练 route, 产出唯一可执行 mode.
+            if self.frontres_policy_quality_eval_only:
+                evaluation_conflicts = tuple(
+                    name
+                    for name, enabled in (
+                        ("segment_replay", self.frontres_segment_replay_enabled),
+                        ("live_runner", self.frontres_segment_live_runner_enabled),
+                        ("live_sentinel", self.frontres_segment_live_sentinel_only),
+                        ("local_sentinel", self.frontres_local_sentinel_only),
+                        ("live_probe", self.frontres_segment_live_probe_only),
+                        ("storage_write", self.frontres_segment_live_storage_write_only),
+                        ("single_update", self.frontres_segment_live_single_update_only),
+                        ("update_loop", self.frontres_segment_live_update_loop_only),
+                        ("live_train", self.frontres_segment_live_train_enabled),
+                    )
+                    if enabled
+                )
+                if evaluation_conflicts:
+                    raise ValueError(
+                        "policy-quality evaluation cannot enable Segment Replay/live training modes: "
+                        f"{evaluation_conflicts}"
+                    )
+                if not self.frontres_formal_transaction_enabled:
+                    raise ValueError("policy-quality evaluation requires the formal transaction identity")
+                print(
+                    "[FrontRESUnified] Read-only policy-quality evaluator initialized; "
+                    "Segment Replay and optimizer dispatch remain disabled.",
+                    flush=True,
+                )
+            elif not self.frontres_segment_replay_enabled:
                 raise ValueError("segment_replay_hrl requires frontres_segment_replay_enabled=True")
-            if not self.frontres_segment_live_runner_enabled:
+            elif not self.frontres_segment_live_runner_enabled:
                 raise NotImplementedError(
                     "segment_replay_hrl is recognized, but live runner integration is disabled. "
                     "Use Step 4-7 toy contract tests until the live Stage 3 connector is integrated."
                 )
-            if self.frontres_local_sentinel_only:
+            elif self.frontres_local_sentinel_only:
                 print(
                     "[FrontRESUnified] v015 local identity sentinel initialized; "
                     "the dedicated formal route is opt-in and no legacy live mode is active.",
@@ -493,7 +524,10 @@ class FrontRESUnified:
         if self.frontres_training_objective == "supervised_restore":
             print("  L = L_supervised_restore  (full-6D HSL proposal update)")
         elif self.frontres_training_objective == "segment_replay_hrl":
-            print("  L = Segment Replay HRL  (dedicated runner loop; legacy update disabled)")
+            if self.frontres_policy_quality_eval_only:
+                print("  Mode = read-only policy-quality evaluation  (all updates disabled)")
+            else:
+                print("  L = Segment Replay HRL  (dedicated runner loop; legacy update disabled)")
         else:
             raise ValueError(
                 f"FrontRESUnified only supports supervised_restore or segment_replay_hrl, "

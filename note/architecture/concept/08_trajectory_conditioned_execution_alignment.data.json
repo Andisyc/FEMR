@@ -2,9 +2,16 @@
   "title": "08 In-Context Execution Calibration",
   "layout": "method_figure",
   "figureWidth": 2050,
-  "figureHeight": 760,
+  "figureHeight": 1160,
   "connectorClearance": 18,
   "showLegend": false,
+  "layerDivider": {
+    "x1": 40,
+    "x2": 2010,
+    "y": 460,
+    "topLabel": "Privileged Teacher Training",
+    "bottomLabel": "Context-Conditioned Tracker Training"
+  },
   "concepts": {
     "C-ICA3-PLANNER": {
       "name": "Planner Intent",
@@ -33,17 +40,83 @@
     "C-ICA3-LEARNING": {
       "name": "Response-Calibration Learning",
       "color": "#db2777"
+    },
+    "C-ICA3-OBJECTIVE": {
+      "name": "Teacher Objective",
+      "color": "#b45309"
     }
   },
   "zones": [],
   "nodes": [
+    {
+      "id": "ICA3-P-01",
+      "title": "Wrench Sampling",
+      "summary": "按任务先验随机采样方向与强度",
+      "concept": "C-ICA3-SHIFT",
+      "kind": "external",
+      "x": 40,
+      "y": 90,
+      "w": 220,
+      "h": 110
+    },
+    {
+      "id": "ICA3-P-02",
+      "title": "Privileged Inputs",
+      "summary": "组合当前状态、Intent 与真实 Wrench",
+      "concept": "C-ICA3-TEACHER",
+      "x": 340,
+      "y": 90,
+      "w": 230,
+      "h": 110
+    },
+    {
+      "id": "ICA3-T-08",
+      "title": "Privileged Teacher",
+      "summary": "以真实 Wrench 为条件输出恢复 Action",
+      "concept": "C-ICA3-TEACHER",
+      "x": 660,
+      "y": 90,
+      "w": 240,
+      "h": 110
+    },
+    {
+      "id": "ICA3-P-03",
+      "title": "Same-Wrench Rollout",
+      "summary": "环境承受与 Teacher 输入相同的 Wrench",
+      "concept": "C-ICA3-SUPPORT",
+      "kind": "external",
+      "x": 990,
+      "y": 90,
+      "w": 250,
+      "h": 110
+    },
+    {
+      "id": "ICA3-P-04",
+      "title": "Locomotion Objective",
+      "summary": "保持直线速度、航向与稳定性",
+      "concept": "C-ICA3-OBJECTIVE",
+      "x": 1330,
+      "y": 90,
+      "w": 240,
+      "h": 110
+    },
+    {
+      "id": "ICA3-P-05",
+      "title": "Teacher RL Update",
+      "summary": "从 nominal Tracker 微调条件恢复策略",
+      "concept": "C-ICA3-LEARNING",
+      "x": 1660,
+      "y": 90,
+      "w": 240,
+      "h": 110
+    },
     {
       "id": "ICA3-T-01",
       "title": "Planner",
       "summary": "冻结 Planner，产生同一短时程运动 Intent",
       "concept": "C-ICA3-PLANNER",
       "x": 40,
-      "y": 320,
+      "y": 800,
       "w": 190,
       "h": 110
     },
@@ -55,7 +128,7 @@
       "shape": "encoder",
       "shapeInset": 48,
       "x": 310,
-      "y": 280,
+      "y": 760,
       "w": 260,
       "h": 190
     },
@@ -67,18 +140,18 @@
       "shape": "decoder",
       "shapeInset": 48,
       "x": 660,
-      "y": 280,
+      "y": 760,
       "w": 260,
       "h": 190
     },
     {
       "id": "ICA3-T-04",
       "title": "Execution Shift",
-      "summary": "注入可恢复的 gain、bias 或 6D Wrench",
+      "summary": "注入与 Teacher 训练同分布的可恢复 Wrench",
       "concept": "C-ICA3-SHIFT",
       "kind": "external",
       "x": 1010,
-      "y": 320,
+      "y": 800,
       "w": 220,
       "h": 110
     },
@@ -89,7 +162,7 @@
       "concept": "C-ICA3-SUPPORT",
       "kind": "external",
       "x": 1320,
-      "y": 320,
+      "y": 800,
       "w": 250,
       "h": 110
     },
@@ -101,32 +174,97 @@
       "shape": "context_encoder",
       "shapeInset": 55,
       "x": 455,
-      "y": 40,
+      "y": 520,
       "w": 260,
       "h": 170
     },
     {
-      "id": "ICA3-T-08",
-      "title": "Privileged Teacher",
-      "summary": "仅训练时提供成功 Query 的监督目标",
-      "concept": "C-ICA3-TEACHER",
-      "x": 1660,
-      "y": 140,
-      "w": 220,
-      "h": 110
-    },
-    {
       "id": "ICA3-T-09",
       "title": "Calibration Learning",
-      "summary": "以 Query 结果训练 Context Encoder 与 Tracker",
+      "summary": "以 Teacher Action 训练 Context Encoder 与 Tracker",
       "concept": "C-ICA3-LEARNING",
       "x": 1650,
-      "y": 320,
+      "y": 800,
       "w": 240,
       "h": 110
     }
   ],
   "edges": [
+    {
+      "from": "ICA3-P-01",
+      "to": "ICA3-P-02",
+      "label": "sampled Wrench",
+      "concept": "C-ICA3-SHIFT"
+    },
+    {
+      "from": "ICA3-P-02",
+      "to": "ICA3-T-08",
+      "label": "特权条件",
+      "concept": "C-ICA3-TEACHER"
+    },
+    {
+      "from": "ICA3-T-08",
+      "to": "ICA3-P-03",
+      "label": "Teacher Action",
+      "concept": "C-ICA3-TEACHER"
+    },
+    {
+      "from": "ICA3-P-01",
+      "to": "ICA3-P-03",
+      "label": "同一 Wrench",
+      "concept": "C-ICA3-SHIFT",
+      "fromAnchor": "top",
+      "toAnchor": "top",
+      "via": [
+        [150, 40],
+        [1115, 40]
+      ],
+      "labelX": 635,
+      "labelY": 48
+    },
+    {
+      "from": "ICA3-P-03",
+      "to": "ICA3-P-04",
+      "label": "受扰执行",
+      "concept": "C-ICA3-SUPPORT"
+    },
+    {
+      "from": "ICA3-P-04",
+      "to": "ICA3-P-05",
+      "label": "task reward",
+      "concept": "C-ICA3-OBJECTIVE"
+    },
+    {
+      "from": "ICA3-P-05",
+      "to": "ICA3-T-08",
+      "label": "更新 Teacher",
+      "concept": "C-ICA3-LEARNING",
+      "kind": "feedback",
+      "fromAnchor": "bottom",
+      "toAnchor": "bottom",
+      "toOffset": 50,
+      "via": [
+        [1780, 350],
+        [830, 350]
+      ],
+      "labelX": 1305,
+      "labelY": 358
+    },
+    {
+      "from": "ICA3-T-08",
+      "to": "ICA3-T-09",
+      "label": "冻结 Teacher Action 目标",
+      "concept": "C-ICA3-TEACHER",
+      "fromAnchor": "bottom",
+      "fromOffset": -50,
+      "toAnchor": "top",
+      "via": [
+        [730, 420],
+        [1770, 420]
+      ],
+      "labelX": 1245,
+      "labelY": 428
+    },
     {
       "from": "ICA3-T-01",
       "to": "ICA3-T-02",
@@ -153,7 +291,7 @@
       "fromAnchor": "right",
       "toAnchor": "left",
       "labelX": 1275,
-      "labelY": 364
+      "labelY": 844
     },
     {
       "from": "ICA3-T-05",
@@ -163,10 +301,10 @@
       "fromAnchor": "top",
       "toAnchor": "right",
       "via": [
-        [1445, 125]
+        [1445, 605]
       ],
       "labelX": 1080,
-      "labelY": 114
+      "labelY": 594
     },
     {
       "from": "ICA3-T-06",
@@ -177,10 +315,10 @@
       "toAnchor": "left",
       "toOffset": -35,
       "via": [
-        [585, 340]
+        [585, 820]
       ],
       "labelX": 622,
-      "labelY": 329
+      "labelY": 809
     },
     {
       "from": "ICA3-T-05",
@@ -190,17 +328,7 @@
       "fromAnchor": "right",
       "toAnchor": "left",
       "labelX": 1610,
-      "labelY": 364
-    },
-    {
-      "from": "ICA3-T-08",
-      "to": "ICA3-T-09",
-      "label": "监督目标",
-      "concept": "C-ICA3-TEACHER",
-      "fromAnchor": "bottom",
-      "toAnchor": "top",
-      "labelX": 1782,
-      "labelY": 286
+      "labelY": 844
     },
     {
       "from": "ICA3-T-09",
@@ -212,12 +340,12 @@
       "fromOffset": -25,
       "toAnchor": "top",
       "via": [
-        [1990, 350],
-        [1990, 10],
-        [585, 10]
+        [1990, 830],
+        [1990, 490],
+        [585, 490]
       ],
       "labelX": 1295,
-      "labelY": 18
+      "labelY": 498
     },
     {
       "from": "ICA3-T-09",
@@ -229,12 +357,12 @@
       "fromOffset": 25,
       "toAnchor": "bottom",
       "via": [
-        [2020, 400],
-        [2020, 730],
-        [440, 730]
+        [2020, 880],
+        [2020, 1120],
+        [440, 1120]
       ],
       "labelX": 1310,
-      "labelY": 719
+      "labelY": 1109
     },
     {
       "from": "ICA3-T-09",
@@ -246,11 +374,11 @@
       "fromOffset": -50,
       "toAnchor": "bottom",
       "via": [
-        [1720, 680],
-        [790, 680]
+        [1720, 1060],
+        [790, 1060]
       ],
       "labelX": 1255,
-      "labelY": 669
+      "labelY": 1049
     }
   ],
   "callouts": [],

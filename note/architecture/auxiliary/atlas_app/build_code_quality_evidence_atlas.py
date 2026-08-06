@@ -161,9 +161,14 @@ def _project_function_chains(
 ) -> list[dict[str, object]]:
     """Resolve one architecture-owned chain registry against scanned functions."""
 
+    # B1: 建立当前 module 的函数索引, 产出 ownership 和 chain 标记边界.
     raw_chains = source_module.get("evaluationChains", [])
     if not raw_chains:
         return []
+    module_source_paths = {
+        str(file_entry.get("path", ""))
+        for file_entry in source_module.get("files", [])
+    }
     by_identity: dict[tuple[str, str], list[dict[str, object]]] = {}
     by_path: dict[str, list[dict[str, object]]] = {}
     for function in functions:
@@ -193,20 +198,37 @@ def _project_function_chains(
         for raw_ref in raw_chain.get("functions", []):
             identity = (str(raw_ref.get("sourcePath", "")), str(raw_ref.get("name", "")))
             matches = by_identity.get(identity, [])
-            if len(matches) != 1:
+            external_match: SourceFunction | None = None
+            # B2: 显式 chain 可引用其他 module 的 owner, 产出唯一 source link 而不改写 ownership.
+            if not matches and identity[0] not in module_source_paths:
+                external_matches = [
+                    item
+                    for item in _scan_file(identity[0])
+                    if item.name == identity[1]
+                ]
+                if len(external_matches) == 1:
+                    external_match = external_matches[0]
+            if len(matches) + int(external_match is not None) != 1:
                 raise ValueError(
                     f"{source_module['id']} chain {chain_id} must resolve exactly one scanned function: "
                     f"{identity[0]}::{identity[1]}"
                 )
-            function = matches[0]
-            if chain_id not in function["chainIds"]:
-                function["chainIds"].append(chain_id)
+            if matches:
+                function = matches[0]
+                if chain_id not in function["chainIds"]:
+                    function["chainIds"].append(chain_id)
+                source_line = int(function["sourceLine"])
+                source_href = str(function["sourceHref"])
+            else:
+                assert external_match is not None
+                source_line = external_match.source_line
+                source_href = _source_href(identity[0], source_line)
             refs.append(
                 {
                     "sourcePath": identity[0],
                     "name": identity[1],
-                    "sourceLine": function["sourceLine"],
-                    "sourceHref": function["sourceHref"],
+                    "sourceLine": source_line,
+                    "sourceHref": source_href,
                 }
             )
         assigned_function_count = sum(

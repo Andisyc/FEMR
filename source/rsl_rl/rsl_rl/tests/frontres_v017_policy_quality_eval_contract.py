@@ -17,10 +17,57 @@ import rsl_rl.runners.frontres_checkpointing as frontres_checkpointing
 import rsl_rl.runners.frontres_policy_quality_eval as quality
 import rsl_rl.runners.frontres_segment_formal_transaction as formal
 import rsl_rl.runners.frontres_segment_live_sampler as sampler
+from rsl_rl.algorithms.frontres_unified import FrontRESUnified
 
 
 ROOT = Path(__file__).resolve().parents[4]
 MANIFEST = ROOT / "note" / "testing" / "manifests" / "frontres_v017_policy_quality_k16_v1.json"
+
+
+def test_policy_quality_algorithm_constructs_readonly_stage3_identity() -> None:
+    schedule = (
+        (8, 2, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
+        (16, 3, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
+        (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-joint-v1", 625, 2.381),
+    )
+    algorithm = FrontRESUnified(
+        torch.nn.Linear(2, 1),
+        frontres_training_objective="segment_replay_hrl",
+        frontres_policy_quality_eval_only=True,
+        frontres_segment_replay_enabled=False,
+        frontres_segment_live_runner_enabled=False,
+        frontres_segment_live_train_enabled=False,
+        frontres_formal_transaction_enabled=True,
+        frontres_segment_k_curriculum=schedule,
+        frontres_segment_advantage_normalization="grouped_scale_only",
+        frontres_future_offsets=(1, 2),
+        lambda_supervised=0.0,
+        lambda_supervised_min=0.0,
+    )
+    assert algorithm.frontres_policy_quality_eval_only is True
+    assert algorithm.frontres_segment_replay_enabled is False
+    assert algorithm.frontres_segment_live_runner_enabled is False
+    assert algorithm.frontres_segment_live_train_enabled is False
+    assert algorithm.optimizer.frontres_step_count == 0
+
+    try:
+        FrontRESUnified(
+            torch.nn.Linear(2, 1),
+            frontres_training_objective="segment_replay_hrl",
+            frontres_policy_quality_eval_only=True,
+            frontres_segment_replay_enabled=True,
+            frontres_segment_live_runner_enabled=True,
+            frontres_formal_transaction_enabled=True,
+            frontres_segment_k_curriculum=schedule,
+            frontres_segment_advantage_normalization="grouped_scale_only",
+            frontres_future_offsets=(1, 2),
+            lambda_supervised=0.0,
+            lambda_supervised_min=0.0,
+        )
+    except ValueError as exc:
+        assert "cannot enable Segment Replay/live training modes" in str(exc)
+    else:
+        raise AssertionError("read-only quality algorithm must reject mixed training modes")
 
 
 @dataclass(frozen=True)
@@ -130,5 +177,6 @@ if __name__ == "__main__":
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
+        test_policy_quality_algorithm_constructs_readonly_stage3_identity()
         test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(Path(tmp))
     print("frontres_v017_policy_quality_eval_contract: ok")
