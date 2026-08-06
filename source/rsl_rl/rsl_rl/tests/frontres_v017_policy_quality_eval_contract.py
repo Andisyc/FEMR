@@ -17,6 +17,7 @@ import rsl_rl.runners.frontres_checkpointing as frontres_checkpointing
 import rsl_rl.runners.frontres_policy_quality_eval as quality
 import rsl_rl.runners.frontres_segment_formal_transaction as formal
 import rsl_rl.runners.frontres_segment_live_sampler as sampler
+import rsl_rl.runners.frontres_segment_runtime_types as runtime_types
 from rsl_rl.algorithms.frontres_unified import FrontRESUnified
 
 
@@ -107,6 +108,62 @@ def test_policy_quality_reset_support_is_readonly_and_sampler_free() -> None:
         sampler._ensure_stage1_index_reset_hook = original_hook
 
 
+def test_policy_quality_collection_lifecycle_preserves_receipt_and_cleans_exceptions() -> None:
+    """Read-only evaluation may occupy execution state but never transaction persistence."""
+
+    receipt = {"transaction_id": "committed-before-eval", "optimizer_step_delta": 1}
+    runner = SimpleNamespace(
+        _frontres_checkpoint_transaction_state={"state": "committed", "receipt": receipt}
+    )
+    original_close = formal.close_frontres_formal_training_request
+    formal.close_frontres_formal_training_request = lambda _runner: None
+    try:
+        try:
+            with formal.frontres_v017_readonly_collection_scope(runner):
+                aggregate = runtime_types.frontres_stage3_transaction_aggregate(runner)
+                assert aggregate.execution_phase == "evaluating"
+                assert aggregate.persistence_phase == "committed"
+                try:
+                    runtime_types.bind_frontres_collection_context(
+                        runner,
+                        route="training",
+                        sample=object(),
+                        batch=object(),
+                    )
+                except ValueError as route_error:
+                    assert "explicit route" in str(route_error)
+                else:
+                    raise AssertionError("read-only evaluation must reject the training route")
+                runtime_types.bind_frontres_collection_context(
+                    runner,
+                    route="policy_quality",
+                    sample=object(),
+                    batch=object(),
+                )
+                raise RuntimeError("deliberate evaluator failure")
+        except RuntimeError as exc:
+            assert "deliberate evaluator failure" in str(exc)
+        else:
+            raise AssertionError("the deliberate evaluator failure must escape the read-only scope")
+    finally:
+        formal.close_frontres_formal_training_request = original_close
+
+    aggregate = runtime_types.frontres_stage3_transaction_aggregate(runner)
+    assert aggregate.execution_phase == "idle"
+    assert aggregate.as_dict() == {"state": "committed", "receipt": receipt}
+    assert aggregate.collection_sample is None and aggregate.collection_batch is None
+
+    aggregate._collection_route = "stale"
+    try:
+        aggregate.begin_readonly_collection()
+    except RuntimeError as exc:
+        assert "stale collection context" in str(exc)
+    else:
+        raise AssertionError("read-only evaluation must reject stale collection context")
+    assert aggregate.collection_route == "stale"
+    aggregate.clear_collection_context()
+
+
 @dataclass(frozen=True)
 class _Report:
     gain_total: tuple[float, ...]
@@ -142,8 +199,11 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
     runner = SimpleNamespace(
         alg=SimpleNamespace(policy=policy, optimizer=optimizer, frontres_gain_beta=0.02),
         current_learning_iteration=3500,
-        _frontres_checkpoint_transaction_state={"state": "committed", "receipt": "fixed"},
-        _frontres_last_committed_transaction_receipt="fixed",
+        _frontres_checkpoint_transaction_state={
+            "state": "committed",
+            "receipt": {"transaction_id": "fixed", "optimizer_step_delta": 1},
+        },
+        _frontres_last_committed_transaction_receipt={"transaction_id": "fixed", "optimizer_step_delta": 1},
     )
     calls: list[tuple[str, ...]] = []
     closes: list[str] = []
@@ -161,6 +221,8 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
         assert attempts_per_segment == 3
         index = len(calls)
         return SimpleNamespace(
+            sample=object(),
+            batch=object(),
             plan=SimpleNamespace(
                 transaction_id=f"tx-{index}",
                 policy_snapshot_id=f"pi-{index}",
@@ -171,6 +233,15 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
 
     def collect(_runner, prepared, *, route, label, beta):
         assert route == "policy_quality" and "EVAL-v004" in label and beta == 0.02
+        aggregate = runtime_types.frontres_stage3_transaction_aggregate(_runner)
+        assert aggregate.execution_phase == "evaluating"
+        assert aggregate.persistence_phase == "committed"
+        runtime_types.bind_frontres_collection_context(
+            _runner,
+            route=route,
+            sample=prepared.sample,
+            batch=prepared.batch,
+        )
         return SimpleNamespace(
             observation_trace={"combined_observation_dim": 928, "femr_visible_dim": 158, "gmt_suffix_dim": 770},
             report=_Report(
@@ -214,7 +285,11 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
         formal.close_frontres_formal_training_request = original_close
 
     assert len(reset_support_calls) == 2
-    assert len(calls) == 5 and len(closes) == 5
+    assert len(calls) == 4 and len(closes) == 4
+    aggregate = runtime_types.frontres_stage3_transaction_aggregate(runner)
+    assert aggregate.execution_phase == "idle"
+    assert aggregate.persistence_phase == "committed"
+    assert aggregate.collection_sample is None and aggregate.collection_batch is None
     assert payload["schema_version"] == "frontres-v017-policy-quality-report-v1"
     assert payload["checkpoint_format"] == "frontres-v017-checkpoint-v9"
     assert (payload["horizon_k"], payload["attempts_per_segment"]) == (16, 3)
@@ -229,5 +304,6 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmp:
         test_policy_quality_algorithm_constructs_readonly_stage3_identity()
         test_policy_quality_reset_support_is_readonly_and_sampler_free()
+        test_policy_quality_collection_lifecycle_preserves_receipt_and_cleans_exceptions()
         test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(Path(tmp))
     print("frontres_v017_policy_quality_eval_contract: ok")

@@ -997,8 +997,8 @@ def run_frontres_v017_policy_quality_heldout_eval(
 
     from rsl_rl.runners.frontres_checkpointing import frontres_quality_route_actor
     from rsl_rl.runners.frontres_segment_formal_transaction import (
-        close_frontres_formal_training_request,
         collect_frontres_v017_recovery_aware_evaluation,
+        frontres_v017_readonly_collection_scope,
     )
     from rsl_rl.runners.frontres_segment_live_sampler import (
         ensure_frontres_policy_quality_reset_support,
@@ -1023,19 +1023,18 @@ def run_frontres_v017_policy_quality_heldout_eval(
         ):
             policy_state = _v015_quality_training_state_signature(runner)
             items = tuple(request.manifest.items)
+            gain_beta = getattr(getattr(runner, "alg", None), "frontres_gain_beta", None)
+            if gain_beta is None:
+                raise RuntimeError("EVAL-v004 requires the formal FRS-GAIN-v007 repair-cost beta")
             for item_offset in range(0, len(items), request.manifest.segments_per_transaction):
                 item_pair = tuple(items[item_offset : item_offset + request.manifest.segments_per_transaction])
-                prepared = None
-                try:
+                with frontres_v017_readonly_collection_scope(runner):
                     # B2: 每两个 held-out Segment 执行 Clean/Noisy 一次与 M3 Repairs, 产出完整 GAIN-v007 report.
                     prepared = prepare_frontres_v017_policy_quality_batch(
                         runner,
                         item_pair,
                         attempts_per_segment=request.manifest.attempts_per_segment,
                     )
-                    gain_beta = getattr(getattr(runner, "alg", None), "frontres_gain_beta", None)
-                    if gain_beta is None:
-                        raise RuntimeError("EVAL-v004 requires the formal FRS-GAIN-v007 repair-cost beta")
                     collection = collect_frontres_v017_recovery_aware_evaluation(
                         runner,
                         prepared,
@@ -1043,25 +1042,22 @@ def run_frontres_v017_policy_quality_heldout_eval(
                         label="EVAL-v004 held-out policy quality",
                         beta=float(gain_beta),
                     )
-                    plan = prepared.plan
-                    transactions.append(
-                        {
-                            "item_ids": [str(item.item_id) for item in item_pair],
-                            "item_comparison_signatures": [str(item.comparison_signature) for item in item_pair],
-                            "transaction_id": plan.transaction_id,
-                            "policy_snapshot_id": plan.policy_snapshot_id,
-                            "active_k": int(request.manifest.horizon_k),
-                            "active_m": int(request.manifest.attempts_per_segment),
-                            "segment_count": int(plan.selected_segment_count),
-                            "policy_row_count": int(plan.batch_size),
-                            "role_row_count": 2 * int(plan.batch_size),
-                            "observation_trace": dict(collection.observation_trace),
-                            "report": asdict(collection.report),
-                        }
-                    )
-                finally:
-                    if prepared is not None:
-                        close_frontres_formal_training_request(runner)
+                plan = prepared.plan
+                transactions.append(
+                    {
+                        "item_ids": [str(item.item_id) for item in item_pair],
+                        "item_comparison_signatures": [str(item.comparison_signature) for item in item_pair],
+                        "transaction_id": plan.transaction_id,
+                        "policy_snapshot_id": plan.policy_snapshot_id,
+                        "active_k": int(request.manifest.horizon_k),
+                        "active_m": int(request.manifest.attempts_per_segment),
+                        "segment_count": int(plan.selected_segment_count),
+                        "policy_row_count": int(plan.batch_size),
+                        "role_row_count": 2 * int(plan.batch_size),
+                        "observation_trace": dict(collection.observation_trace),
+                        "report": asdict(collection.report),
+                    }
+                )
                 if _v015_quality_training_state_signature(runner) != policy_state:
                     raise RuntimeError("EVAL-v004 held-out transaction mutated training state")
     if _v015_quality_training_state_signature(runner) != baseline_state:

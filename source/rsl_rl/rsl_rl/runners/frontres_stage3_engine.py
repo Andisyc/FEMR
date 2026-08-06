@@ -71,15 +71,40 @@ class FrontRESStage3TransactionAggregate(Mapping[str, Any]):
         self._execution_phase = "collecting"
         self._persisted = {"state": "collecting", "phase": "provider"}
 
+    def begin_readonly_collection(self) -> None:
+        """Open evaluation context without changing checkpoint-visible transaction state."""
+
+        if self._execution_phase != "idle" or self.persistence_phase in {"collecting", "sealed"}:
+            raise RuntimeError(
+                "FrontRES read-only collection cannot begin from "
+                f"execution={self._execution_phase!r} persistence={self.persistence_phase!r}"
+            )
+        if (
+            self._collection_route
+            or self._sample is not None
+            or self._batch is not None
+            or self._observation_trace
+            or self._preupdate_diagnostics
+        ):
+            raise RuntimeError("FrontRES read-only collection cannot begin with stale collection context")
+        # B1: 只占用 execution lifecycle, 保留 committed receipt 和 checkpoint identity.
+        self._execution_phase = "evaluating"
+
     def bind_plan(self, identity: Mapping[str, Any]) -> None:
         if self._execution_phase != "collecting" or self.persistence_phase != "collecting":
             raise RuntimeError("FrontRES transaction plan requires active collection")
         self._persisted = {"state": "collecting", **dict(identity)}
 
     def bind_collection_context(self, *, route: str, sample: Any, batch: Any) -> None:
-        if self._execution_phase != "collecting" or self.persistence_phase != "collecting":
+        training_collection = self._execution_phase == "collecting" and self.persistence_phase == "collecting"
+        readonly_collection = self._execution_phase == "evaluating" and self.persistence_phase not in {
+            "collecting",
+            "sealed",
+        }
+        if not training_collection and not readonly_collection:
             raise RuntimeError("FrontRES collection context requires active collection")
-        if route not in {"sentinel", "training"} or sample is None or batch is None:
+        allowed_routes = {"sentinel", "training"} if training_collection else {"policy_quality"}
+        if route not in allowed_routes or sample is None or batch is None:
             raise ValueError("FrontRES collection context requires one explicit route, sample, and batch")
         if self._batch is not None:
             raise RuntimeError("FrontRES collection context is already bound")
@@ -152,6 +177,15 @@ class FrontRESStage3TransactionAggregate(Mapping[str, Any]):
         self._execution_phase = "idle"
         if succeeded and self.persistence_phase == "collecting":
             self._persisted = {"state": "idle"}
+
+    def finish_readonly_collection(self) -> None:
+        """Close evaluation context while preserving its pre-existing receipt."""
+
+        if self._execution_phase != "evaluating":
+            raise RuntimeError("FrontRES read-only collection close requires active evaluation")
+        # B1: 清除每个 held-out transaction 的临时 carrier, 恢复 idle execution.
+        self.clear_collection_context()
+        self._execution_phase = "idle"
 
     def as_dict(self) -> dict[str, Any]:
         result = dict(self._persisted)

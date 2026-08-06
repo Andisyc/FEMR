@@ -23,8 +23,13 @@ E-FI-132 records the following live first-invalid edge: read-only evaluation
 correctly disabled Segment Replay, but therefore skipped the Stage-1 index
 dataset needed by the held-out manifest. The evaluator now explicitly installs
 only cache-backed dataset/reset support before materialization while keeping
-the replay sampler and every training writer disabled. The complete 50-target
-deterministic aggregate and the focused entry/manifest/materializer/report
+the replay sampler and every training writer disabled. E-FI-133 records the
+next live first-invalid edge: the shared formal collector required an active
+collection context, while EVAL-v004 had no read-only aggregate lifecycle. The
+existing transaction aggregate now owns an evaluation-only lifecycle that
+accepts only `policy_quality`, preserves the committed receipt, rejects stale
+context and cleans command/scenario/context state on success or exception. The
+complete 50-target deterministic aggregate and focused evaluator/connectivity
 regressions pass. The evaluator is ready for one rerun; policy efficacy is
 still unconfirmed.
 No Gain/PPO semantics were changed

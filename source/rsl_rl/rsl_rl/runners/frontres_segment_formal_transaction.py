@@ -10,6 +10,7 @@ from __future__ import annotations
 
 
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 
@@ -73,6 +74,7 @@ from rsl_rl.runners.frontres_segment_runtime_types import (
     frontres_collection_batch,
     frontres_observation_trace,
     frontres_preupdate_diagnostics,
+    frontres_stage3_transaction_aggregate,
     publish_frontres_preupdate_diagnostics,
     reset_frontres_checkpoint_transaction as _reset_frontres_checkpoint_transaction,
     seal_frontres_checkpoint_transaction_plan as _seal_frontres_checkpoint_transaction_plan,
@@ -539,6 +541,22 @@ class FrontRESV017RecoveryAwareCollection:
     report: Any
     pair_layout: Any
     observation_trace: dict[str, Any]
+
+
+@contextmanager
+def frontres_v017_readonly_collection_scope(runner: Any):
+    """Own one EVAL-v004 collection lifecycle without mutating training state."""
+
+    aggregate = frontres_stage3_transaction_aggregate(runner)
+    aggregate.begin_readonly_collection()
+    try:
+        yield
+    finally:
+        # B1: 先释放 command/scenario carrier, 再关闭 read-only aggregate lifecycle.
+        try:
+            close_frontres_formal_training_request(runner)
+        finally:
+            aggregate.finish_readonly_collection()
 
 
 def collect_frontres_v017_recovery_aware_evaluation(

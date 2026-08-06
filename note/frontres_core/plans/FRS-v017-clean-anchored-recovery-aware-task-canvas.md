@@ -28,7 +28,7 @@ Formal Runtime Audit Phase A        DP-01 through DP-10 reviewed offline
 Formal Runtime Audit Phase B        runtime-complete; B01-B08 emitted once (E-FI-128)
 Step 2 / 2 bounded live sentinel    complete; checkpoint-v9 iteration 1 saved
 Policy Quality support-frame Q0     completed offline (E-FI-129)
-Policy Quality evaluator            ready offline (E-FI-130)
+Policy Quality evaluator            ready offline through read-only lifecycle (E-FI-133)
 Policy Quality efficacy             unconfirmed; real evaluation pending
 ```
 

@@ -8154,3 +8154,51 @@ silent fallback or training-state write. Evidence status is
 `owner-lifecycle-contract-confirmed`. Real IsaacLab Clean/Noisy/Repair
 execution and the final emitted policy-quality JSON remain live-only; no policy
 efficacy claim is made from this closure.
+
+## E-FI-133: EVAL-v004 Read-Only Collection Lifecycle Closure
+
+Date: 2026-08-06
+
+The next official model_3500 evaluation crossed IsaacLab environment setup,
+frozen GMT construction, strict `928/158/770` authority, HSL-v2 initialization,
+read-only algorithm construction and cache-backed reset support. Its first
+invalid fact occurred when the retained EVAL-v004 route entered the shared
+formal collector: `bind_frontres_collection_context()` rejected because no
+aggregate collection lifecycle was active. This was not a checkpoint, dataset,
+GPU, Gain, PPO or policy-quality result failure.
+
+The existing `FrontRESStage3TransactionAggregate` remains the sole lifecycle
+owner. It now exposes one evaluation-only execution phase which:
+
+- preserves the checkpoint-visible idle/committed state and exact committed
+  receipt instead of opening or committing a training transaction;
+- accepts only the explicit `policy_quality` route and rejects training or
+  sentinel collection;
+- rejects stale sample/batch/trace/diagnostic context instead of silently
+  clearing it;
+- clears command/scenario carriers and aggregate context on success or
+  exception, then returns execution ownership to idle.
+
+`run_frontres_v017_policy_quality_heldout_eval()` opens this scope once per
+two-Segment held-out transaction and continues to check the full training-state
+signature after every transaction. Missing Gain beta rejects before scenario
+materialization, so a configuration error has zero collection side effects.
+No Gain/PPO/HSL/checkpoint/observation formula, optimizer, sampler, curriculum,
+receipt or iteration authority changed.
+
+Deterministic evidence:
+
+- `frontres_v017_policy_quality_eval_contract.py` proves four K16/M3 read-only
+  transactions, real context binding, training-route rejection, exact receipt
+  preservation, stale-context rejection and exception cleanup;
+- policy-quality entrypoint, real-owner wiring, interface-refactor and
+  one-action-K focused contracts pass;
+- Python compilation passes for all changed production and contract files;
+- the complete FrontRES deterministic aggregate reports `50/50` markers and
+  zero failures.
+
+`debug_fix_review` reports no P0/P1: lifecycle authority stays in the existing
+aggregate, evaluation remains thin orchestration, and no wrapper, fallback,
+zero-fill or duplicate collector was added. Evidence status is
+`owner-lifecycle-contract-confirmed`. A real rerun is still required to confirm
+the final atomic policy-quality JSON and policy efficacy.
