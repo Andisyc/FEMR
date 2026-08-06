@@ -70,6 +70,43 @@ def test_policy_quality_algorithm_constructs_readonly_stage3_identity() -> None:
         raise AssertionError("read-only quality algorithm must reject mixed training modes")
 
 
+def test_policy_quality_reset_support_is_readonly_and_sampler_free() -> None:
+    runner = SimpleNamespace(_frontres_segment_sampler=None)
+    calls: list[str] = []
+    original_dataset = sampler._ensure_stage1_cache_dataset
+    original_hook = sampler._ensure_stage1_index_reset_hook
+
+    def install_dataset(active_runner):
+        active_runner._frontres_segment_dataset = "stage1-index"
+        calls.append("dataset")
+
+    def install_hook(active_runner):
+        assert active_runner._frontres_segment_dataset == "stage1-index"
+        assert active_runner._frontres_segment_sampler is None
+        calls.append("reset-hook")
+
+    sampler._ensure_stage1_cache_dataset = install_dataset
+    sampler._ensure_stage1_index_reset_hook = install_hook
+    try:
+        sampler.ensure_frontres_policy_quality_reset_support(runner)
+        assert calls == ["dataset", "reset-hook"]
+        assert runner._frontres_segment_sampler is None
+
+        sampler._ensure_stage1_cache_dataset = lambda active_runner: setattr(
+            active_runner, "_frontres_segment_sampler", object()
+        )
+        sampler._ensure_stage1_index_reset_hook = lambda _active_runner: None
+        try:
+            sampler.ensure_frontres_policy_quality_reset_support(runner)
+        except RuntimeError as exc:
+            assert "must not create or replace the Segment sampler" in str(exc)
+        else:
+            raise AssertionError("policy-quality reset support must fail if a sampler is created")
+    finally:
+        sampler._ensure_stage1_cache_dataset = original_dataset
+        sampler._ensure_stage1_index_reset_hook = original_hook
+
+
 @dataclass(frozen=True)
 class _Report:
     gain_total: tuple[float, ...]
@@ -110,6 +147,7 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
     )
     calls: list[tuple[str, ...]] = []
     closes: list[str] = []
+    reset_support_calls: list[str] = []
 
     @contextmanager
     def route_actor(_runner, _path, *, route, expected_file_sha256):
@@ -117,6 +155,8 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
         yield
 
     def prepare(_runner, items, *, attempts_per_segment):
+        assert getattr(_runner, "_frontres_segment_dataset", None) == "quality-readonly-dataset"
+        assert getattr(_runner, "_frontres_segment_sampler", None) is None
         calls.append(tuple(item.item_id for item in items))
         assert attempts_per_segment == 3
         index = len(calls)
@@ -142,10 +182,18 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
         )
 
     original_route = frontres_checkpointing.frontres_quality_route_actor
+    original_reset_support = sampler.ensure_frontres_policy_quality_reset_support
     original_prepare = sampler.prepare_frontres_v017_policy_quality_batch
     original_collect = formal.collect_frontres_v017_recovery_aware_evaluation
     original_close = formal.close_frontres_formal_training_request
     frontres_checkpointing.frontres_quality_route_actor = route_actor
+
+    def ensure_reset_support(_runner):
+        assert getattr(_runner, "_frontres_segment_sampler", None) is None
+        _runner._frontres_segment_dataset = "quality-readonly-dataset"
+        reset_support_calls.append("installed")
+
+    sampler.ensure_frontres_policy_quality_reset_support = ensure_reset_support
     sampler.prepare_frontres_v017_policy_quality_batch = prepare
     formal.collect_frontres_v017_recovery_aware_evaluation = collect
     formal.close_frontres_formal_training_request = lambda _runner: closes.append("closed")
@@ -160,10 +208,12 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
             raise AssertionError("EVAL-v004 must reject a missing Gain beta instead of filling a default")
     finally:
         frontres_checkpointing.frontres_quality_route_actor = original_route
+        sampler.ensure_frontres_policy_quality_reset_support = original_reset_support
         sampler.prepare_frontres_v017_policy_quality_batch = original_prepare
         formal.collect_frontres_v017_recovery_aware_evaluation = original_collect
         formal.close_frontres_formal_training_request = original_close
 
+    assert len(reset_support_calls) == 2
     assert len(calls) == 5 and len(closes) == 5
     assert payload["schema_version"] == "frontres-v017-policy-quality-report-v1"
     assert payload["checkpoint_format"] == "frontres-v017-checkpoint-v9"
@@ -178,5 +228,6 @@ if __name__ == "__main__":
 
     with tempfile.TemporaryDirectory() as tmp:
         test_policy_quality_algorithm_constructs_readonly_stage3_identity()
+        test_policy_quality_reset_support_is_readonly_and_sampler_free()
         test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(Path(tmp))
     print("frontres_v017_policy_quality_eval_contract: ok")

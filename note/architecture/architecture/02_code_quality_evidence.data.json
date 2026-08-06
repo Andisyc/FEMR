@@ -21792,20 +21792,20 @@
             {
               "id": "B1",
               "purpose": "冻结训练状态并安装 tested checkpoint-v9, 产出 inference-only policy owner.",
-              "sourceLine": 1005,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1005"
+              "sourceLine": 1008,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1008"
             },
             {
               "id": "B2",
               "purpose": "每两个 held-out Segment 执行 Clean/Noisy 一次与 M3 Repairs, 产出完整 GAIN-v007 report.",
-              "sourceLine": 1023,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1023"
+              "sourceLine": 1030,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1030"
             },
             {
               "id": "B3",
               "purpose": "原子写入 manifest/checkpoint/transaction identities 和完整 report, 产出唯一评估 artifact.",
-              "sourceLine": 1063,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1063"
+              "sourceLine": 1070,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1070"
             }
           ],
           "reviewRefs": [],
@@ -21819,32 +21819,32 @@
           "annotationClass": "legacy",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
-          "sourceLine": 1083,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1083",
+          "sourceLine": 1090,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1090",
           "blocks": [
             {
               "id": "B1",
               "purpose": "验证 request/owners 并封存训练状态, 产出三条 route 的共同比较边界.",
-              "sourceLine": 1095,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1095"
+              "sourceLine": 1102,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1102"
             },
             {
               "id": "B2",
               "purpose": "每个 item 执行 matched zero/HSL/policy, 产出 identity-checked route rows.",
-              "sourceLine": 1107,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1107"
+              "sourceLine": 1114,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1114"
             },
             {
               "id": "B3",
               "purpose": "将三条 route 的 matched evidence 固化为一个 item row, 保留 checkpoint 与 state identity.",
-              "sourceLine": 1161,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1161"
+              "sourceLine": 1168,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1168"
             },
             {
               "id": "B4",
               "purpose": "聚合 immutable quality rows 并原子写入, 产出不反馈训练的 report artifact.",
-              "sourceLine": 1169,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1169"
+              "sourceLine": 1176,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1176"
             }
           ],
           "reviewRefs": [],
@@ -21858,20 +21858,20 @@
           "annotationClass": "legacy",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
-          "sourceLine": 1182,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1182",
+          "sourceLine": 1189,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1189",
           "blocks": [
             {
               "id": "B1",
               "purpose": "验证 formal runner 并构造 strict v017 request, 产出 checkpoint-v9 evaluation identity.",
-              "sourceLine": 1192,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1192"
+              "sourceLine": 1199,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1199"
             },
             {
               "id": "B2",
               "purpose": "直接调用现有 v017 collector/Gain/report owners, 产出 atomic EVAL-v004 report.",
-              "sourceLine": 1204,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1204"
+              "sourceLine": 1211,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1211"
             }
           ],
           "reviewRefs": [],
@@ -21885,26 +21885,26 @@
           "annotationClass": "legacy",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
-          "sourceLine": 1208,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1208",
+          "sourceLine": 1215,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1215",
           "blocks": [
             {
               "id": "B1",
               "purpose": "request 校验后安装 dedicated real-owner bundle, 不进入旧 evaluator.",
-              "sourceLine": 1225,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1225"
+              "sourceLine": 1232,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1232"
             },
             {
               "id": "B2",
               "purpose": "manifest executor 对每个 item 运行 matched zero/HSL/policy route.",
-              "sourceLine": 1226,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1226"
+              "sourceLine": 1233,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1233"
             },
             {
               "id": "B3",
               "purpose": "result 保留 comparison/state/checkpoint/owner identity, 且训练状态不变.",
-              "sourceLine": 1227,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1227"
+              "sourceLine": 1234,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1234"
             }
           ],
           "reviewRefs": [],
@@ -21918,26 +21918,26 @@
           "annotationClass": "legacy",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
-          "sourceLine": 1244,
-          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1244",
+          "sourceLine": 1251,
+          "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1251",
           "blocks": [
             {
               "id": "B1",
               "purpose": "捕获并哈希 physical, command, perturber, RNG 与 sealed scenario state.",
-              "sourceLine": 1250,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1250"
+              "sourceLine": 1257,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1257"
             },
             {
               "id": "B2",
               "purpose": "将 route-start snapshot 投影为固定字段集, 产出逐字段可比较 values.",
-              "sourceLine": 1297,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1297"
+              "sourceLine": 1304,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1304"
             },
             {
               "id": "B3",
               "purpose": "哈希每个字段并校验 role layout, 产出完整 dynamic-state identity.",
-              "sourceLine": 1312,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1312"
+              "sourceLine": 1319,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1319"
             }
           ],
           "reviewRefs": [],
@@ -22057,6 +22057,12 @@
               "name": "run_frontres_v017_policy_quality_heldout_eval",
               "sourceLine": 991,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=991"
+            },
+            {
+              "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
+              "name": "ensure_frontres_policy_quality_reset_support",
+              "sourceLine": 132,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=132"
             },
             {
               "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",

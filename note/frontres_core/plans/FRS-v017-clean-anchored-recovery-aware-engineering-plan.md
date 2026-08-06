@@ -19,7 +19,14 @@ E-FI-130 migrates the retained Held-out Policy Quality entry in place to strict
 checkpoint-v9, fixed K16/M3 EVAL-v004 transactions and complete v007 reports.
 E-FI-131 records and closes the first live composition-root misclassification:
 policy-quality no longer opens Segment Replay or the legacy live-runner mode.
-The evaluator is ready for a rerun; policy efficacy is still unconfirmed.
+E-FI-132 records the following live first-invalid edge: read-only evaluation
+correctly disabled Segment Replay, but therefore skipped the Stage-1 index
+dataset needed by the held-out manifest. The evaluator now explicitly installs
+only cache-backed dataset/reset support before materialization while keeping
+the replay sampler and every training writer disabled. The complete 50-target
+deterministic aggregate and the focused entry/manifest/materializer/report
+regressions pass. The evaluator is ready for one rerun; policy efficacy is
+still unconfirmed.
 No Gain/PPO semantics were changed
 under `FRS-METHOD-v017 / FRS-GAIN-v007 / FRS-PPO-v005 / FRS-TRAIN-v014 /
 FRS-EVAL-v004`. E-FI-105 proves the previous v012 module surface;

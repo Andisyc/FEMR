@@ -622,6 +622,7 @@
                 {"sourcePath": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "name": "OnPolicyRunner.run_frontres_policy_quality_eval"},
                 {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "name": "build_frontres_v017_policy_quality_eval_request"},
                 {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "name": "run_frontres_v017_policy_quality_heldout_eval"},
+                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "name": "ensure_frontres_policy_quality_reset_support"},
                 {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "name": "prepare_frontres_v017_policy_quality_batch"},
                 {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", "name": "collect_frontres_v017_recovery_aware_evaluation"},
                 {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_evaluation_reporting.py", "name": "write_frontres_atomic_json"}
@@ -669,7 +670,7 @@
       "mainRouteTitles": ["封存 Deployment Request", "安装 Current/H Carrier", "验证 Composition Report", "评价 Held-out Policy", "执行 Formal Composition", "连接 Dedicated CLI", "验证 DR Sweep", "验证 Paired Live Composition"],
           "review": ["确认三条能力回答不同问题", "检查 evaluation 不写训练状态", "检查外部周期调度只调用 Held-out Quality"],
           "tests": ["S1/S2 interface evidence E-FI-28--E-FI-31", "E-FI-46 deterministic fixed-carrier S1/S2", "legacy D/E route absence", "E-FI-98 runtime Gateway and paired composition S1/S2", "S4 physical composition pending"],
-          "gap": "Evaluation 只保留 A/B/C。训练进程不再内嵌 evaluator；如需周期检查，由外部调度器对 committed checkpoint 调用 Held-out Policy Quality。真实 simulator 配对、物理 composition efficacy 和 Demo 质量仍需 S4。"
+          "gap": "Evaluation 只保留 A/B/C。E-FI-132 已关闭 Held-out Quality 的只读 Stage-1 dataset/reset-support 正式边，且未启用 replay sampler 或训练写入。训练进程不再内嵌 evaluator；如需周期检查，由外部调度器对 committed checkpoint 调用 Held-out Policy Quality。真实 simulator 配对、物理 composition efficacy 和 Demo 质量仍需 S4。"
         }
       ]
     },

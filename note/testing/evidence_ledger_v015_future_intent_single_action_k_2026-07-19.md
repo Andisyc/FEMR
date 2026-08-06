@@ -8119,3 +8119,38 @@ adds no wrapper, fallback, duplicate owner or training-state mutation.
 Verdict: `owner-lifecycle-contract-confirmed`. A rerun is required only to
 promote the composition-root crossing and final atomic JSON to
 `live-confirmed`; policy efficacy remains unconfirmed.
+
+## E-FI-132: EVAL-v004 Read-Only Dataset And Final-Consumer Route Closure
+
+Date: 2026-08-06
+
+The next official model_3500 evaluation crossed runner construction, frozen
+GMT setup, HSL-v2 initialization and read-only algorithm construction. It then
+failed at `prepare_frontres_v017_policy_quality_batch()` because
+`runner._frontres_segment_dataset` was absent. The cache itself was not shown
+invalid: the first-invalid edge was that disabling Segment Replay also skipped
+`initialize_frontres_segment_live_sampler()`, while EVAL-v004 still requires
+the Stage-1 index dataset and reset hook as read-only manifest dependencies.
+
+The active evaluator now calls the existing
+`ensure_frontres_policy_quality_reset_support()` before capturing evaluation
+state or materializing a transaction. That owner loads only the cache-backed
+dataset and installs the index reset hook. It preserves
+`runner._frontres_segment_sampler is None`; no Segment Replay sampling,
+optimizer, curriculum, receipt or training update path is enabled.
+
+The formal-edge regression now fails unless reset support is installed before
+the first K16/M3 materializer call, verifies the sampler remains absent, and
+still exercises four transactions, missing-beta rejection, per-transaction
+cleanup and the production atomic JSON serializer. Focused manifest,
+entrypoint, launcher, Stage-3 composition-root, local-scenario and evaluation-
+isolation contracts pass. The complete FrontRES deterministic aggregate reports
+`50/50` targets and zero failures; Python compilation, Atlas regeneration/link
+validation and `git diff --check` pass.
+
+`debug_fix_review` finds no P0/P1: the change restores one missing dependency
+edge through its existing owner and introduces no wrapper, duplicate owner,
+silent fallback or training-state write. Evidence status is
+`owner-lifecycle-contract-confirmed`. Real IsaacLab Clean/Noisy/Repair
+execution and the final emitted policy-quality JSON remain live-only; no policy
+efficacy claim is made from this closure.

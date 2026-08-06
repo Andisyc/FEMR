@@ -46,6 +46,7 @@ const requiredNodes = [
   "ICA3-T-06",
   "ICA3-T-08",
   "ICA3-T-09",
+  "ICA3-T-10",
 ];
 const nodes = new Map((data.nodes || []).map((node) => [node.id, node]));
 
@@ -235,7 +236,7 @@ const requiredEdges = [
   "ICA3-T-05->ICA3-T-06",
   "ICA3-T-06->ICA3-T-03",
   "ICA3-T-05->ICA3-T-09",
-  "ICA3-T-08->ICA3-T-09",
+  "ICA3-T-10->ICA3-T-09",
   "ICA3-T-09->ICA3-T-06",
   "ICA3-T-09->ICA3-T-02",
   "ICA3-T-09->ICA3-T-03",
@@ -296,6 +297,7 @@ if (rolloutRoute.points.length !== 2) {
 
 const teacher = nodes.get("ICA3-T-08");
 const learning = nodes.get("ICA3-T-09");
+const distilledTeacher = nodes.get("ICA3-T-10");
 const mainAxisIds = ["ICA3-T-01", "ICA3-T-02", "ICA3-T-03", "ICA3-T-04", "ICA3-T-05", "ICA3-T-09"];
 const mainAxisGaps = mainAxisIds.slice(1).map((id, index) => {
   const previous = nodes.get(mainAxisIds[index]);
@@ -307,7 +309,7 @@ if (Math.max(...mainAxisGaps) - Math.min(...mainAxisGaps) > 10) {
 }
 
 const upperIds = ["ICA3-P-01", "ICA3-P-02", "ICA3-T-08", "ICA3-P-03", "ICA3-P-04", "ICA3-P-05"];
-const lowerIds = ["ICA3-T-01", "ICA3-T-02", "ICA3-T-03", "ICA3-T-04", "ICA3-T-05", "ICA3-T-06", "ICA3-T-09"];
+const lowerIds = ["ICA3-T-01", "ICA3-T-02", "ICA3-T-03", "ICA3-T-04", "ICA3-T-05", "ICA3-T-06", "ICA3-T-09", "ICA3-T-10"];
 if (upperIds.some((id) => nodes.get(id).y + nodes.get(id).h >= divider.y)) {
   throw new Error("Privileged Teacher training nodes must remain above the dashed divider");
 }
@@ -324,16 +326,20 @@ if (Math.max(...upperAxisGaps) - Math.min(...upperAxisGaps) > 10) {
   throw new Error(`teacher-axis spacing must remain even: ${upperAxisGaps.join(",")}`);
 }
 
-const teacherRoute = route("ICA3-T-08", "ICA3-T-09");
-if (
-  teacherRoute.points.length !== 4 ||
-  !isVertical(teacherRoute.points[0], teacherRoute.points[1]) ||
-  !isHorizontal(teacherRoute.points[1], teacherRoute.points[2]) ||
-  !isVertical(teacherRoute.points[2], teacherRoute.points[3]) ||
-  teacherRoute.points[1][1] >= divider.y ||
-  teacherRoute.points[3][1] <= divider.y
-) {
-  throw new Error("Frozen Teacher target must cross the divider through a clean two-bend route");
+for (const key of ["title", "summary", "concept", "w", "h"]) {
+  if (distilledTeacher[key] !== teacher[key]) {
+    throw new Error(`Lower Privileged Teacher must match upper card field ${key}`);
+  }
+}
+if (distilledTeacher.x + distilledTeacher.w / 2 !== learning.x + learning.w / 2) {
+  throw new Error("Lower Privileged Teacher must sit directly above Calibration Learning");
+}
+if (edgePairs.has("ICA3-T-08->ICA3-T-09")) {
+  throw new Error("Upper Teacher must not use a cross-layer connector to Calibration Learning");
+}
+const teacherRoute = route("ICA3-T-10", "ICA3-T-09");
+if (teacherRoute.points.length !== 2 || !isVertical(teacherRoute.points[0], teacherRoute.points[1])) {
+  throw new Error("Lower Teacher must connect straight down to Calibration Learning");
 }
 
 const teacherFeedback = route("ICA3-P-05", "ICA3-T-08");

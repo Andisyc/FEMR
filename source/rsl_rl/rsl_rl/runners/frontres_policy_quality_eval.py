@@ -1000,11 +1000,18 @@ def run_frontres_v017_policy_quality_heldout_eval(
         close_frontres_formal_training_request,
         collect_frontres_v017_recovery_aware_evaluation,
     )
-    from rsl_rl.runners.frontres_segment_live_sampler import prepare_frontres_v017_policy_quality_batch
+    from rsl_rl.runners.frontres_segment_live_sampler import (
+        ensure_frontres_policy_quality_reset_support,
+        prepare_frontres_v017_policy_quality_batch,
+    )
 
     # B1: 冻结训练状态并安装 tested checkpoint-v9, 产出 inference-only policy owner.
     if not isinstance(request, FrontRESV017PolicyQualityEvalRequest):
         raise TypeError("EVAL-v004 requires the strict v017 policy-quality request")
+
+    # B1a: 安装只读 Stage-1 dataset/reset support, 产出 held-out manifest 的解析边界.
+    # Eval 不启用 Segment Replay, 因此必须显式安装该只读依赖且不得创建 sampler.
+    ensure_frontres_policy_quality_reset_support(runner)
     baseline_state = _v015_quality_training_state_signature(runner)
     transactions: list[dict[str, Any]] = []
     with _frontres_v015_quality_inference_mode(runner):
