@@ -67,6 +67,16 @@ def test_stage3_boundary_rejects_live_runner_by_default() -> None:
         raise AssertionError("Stage 3 live runner must fail fast while integration is not wired")
 
 
+def test_policy_quality_is_not_a_segment_replay_run_mode() -> None:
+    cfg = _stage3_cfg(live=False)
+    cfg["algorithm"]["frontres_training_objective"] = "policy_quality_eval"
+    cfg["algorithm"]["frontres_segment_replay_enabled"] = False
+    boundary = FrontRESSegmentRunnerBoundary.from_train_cfg(cfg)
+    assert boundary.requested is False
+    assert boundary.live_runner_enabled is False
+    boundary.assert_live_runner_ready()
+
+
 def test_stage3_boundary_rejects_live_flag_until_ppo_wiring_exists() -> None:
     boundary = FrontRESSegmentRunnerBoundary.from_train_cfg(_stage3_cfg(live=True))
     try:
@@ -259,6 +269,7 @@ def test_startup_layout_failure_stops_load_and_dispatch() -> None:
 
 def main() -> None:
     test_stage3_boundary_rejects_live_runner_by_default()
+    test_policy_quality_is_not_a_segment_replay_run_mode()
     test_stage3_boundary_rejects_live_flag_until_ppo_wiring_exists()
     test_stage3_boundary_allows_live_sentinel_only()
     test_stage3_boundary_allows_live_probe_only()

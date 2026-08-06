@@ -8053,9 +8053,11 @@ Owner and route closure:
   missing artifacts, mixed K, legacy identity and missing Gain beta fail closed.
 - the Stage-3 composition root recognizes policy-quality as an explicit
   read-only EVAL-v004 mode: it installs the formal K/M transaction config with
-  `max_iterations=0` and `frontres_segment_live_train_enabled=False`, dispatches
-  the evaluator before the training loop, and continues to reject the retired
-  Q2D/offline/sequence evaluators.
+  `max_iterations=0`, `frontres_segment_replay_enabled=False`,
+  `frontres_segment_live_runner_enabled=False` and
+  `frontres_segment_live_train_enabled=False`, dispatches the evaluator before
+  the training loop, and continues to reject the retired Q2D/offline/sequence
+  evaluators.
 
 Deterministic evidence:
 
@@ -8088,3 +8090,32 @@ Code-discipline result:
 Verdict: the held-out evaluator is offline-ready for model_3500. This is S1/S2
 identity and connectivity evidence, not policy-quality evidence. No simulator,
 training, optimizer update, live evaluation or deployment composition ran.
+
+## E-FI-131: Policy-Quality Composition-Root Mode Isolation
+
+Date: 2026-08-06
+
+The first official model_3500 evaluation created the 12-env IsaacLab scene but
+stopped in `OnPolicyRunner.__init__()` before evaluator dispatch. The first
+invalid fact was `frontres_segment_live_runner_enabled=True` with no live
+sentinel/probe/train mode. `FrontRESSegmentRunnerBoundary` correctly rejected
+that legacy-live combination; the failure was not a checkpoint, simulator,
+Gain or policy defect.
+
+The Stage-3 composition root now assigns policy-quality its own read-only
+objective and keeps `frontres_segment_replay_enabled`,
+`frontres_segment_live_runner_enabled` and
+`frontres_segment_live_train_enabled` false. It retains the formal transaction
+config needed by the existing K16/M3 evaluator and keeps `max_iterations=0`.
+The runner-boundary regression proves the evaluator is not classified as a
+Segment Replay run mode. The affected entrypoint, boundary, live-sentinel and
+policy-quality deterministic regressions pass; Python compilation, shell
+syntax and `git diff --check` pass.
+
+Code review mode `debug_fix_review` reports APPROVE with no P0/P1: the change
+keeps one composition root, preserves the existing fail-closed boundary and
+adds no wrapper, fallback, duplicate owner or training-state mutation.
+
+Verdict: `owner-lifecycle-contract-confirmed`. A rerun is required only to
+promote the composition-root crossing and final atomic JSON to
+`live-confirmed`; policy efficacy remains unconfirmed.

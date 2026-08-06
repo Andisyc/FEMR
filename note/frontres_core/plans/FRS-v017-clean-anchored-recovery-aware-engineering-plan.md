@@ -17,7 +17,9 @@ matching GMT/layout/transaction identity. Formal Runtime Audit Phase B is
 runtime-complete. E-FI-129 closes the support-foot coordinate blocker, and
 E-FI-130 migrates the retained Held-out Policy Quality entry in place to strict
 checkpoint-v9, fixed K16/M3 EVAL-v004 transactions and complete v007 reports.
-The evaluator is ready for a real run; policy efficacy is still unconfirmed.
+E-FI-131 records and closes the first live composition-root misclassification:
+policy-quality no longer opens Segment Replay or the legacy live-runner mode.
+The evaluator is ready for a rerun; policy efficacy is still unconfirmed.
 No Gain/PPO semantics were changed
 under `FRS-METHOD-v017 / FRS-GAIN-v007 / FRS-PPO-v005 / FRS-TRAIN-v014 /
 FRS-EVAL-v004`. E-FI-105 proves the previous v012 module surface;
@@ -44,8 +46,9 @@ checkpoint-v9 + fixed K16 manifest
 
 The launcher uses its positional HSL-v2 checkpoint as the only HSL scaffold
 identity. The Stage-3 composition root sets policy-quality to zero training
-iterations and disables the live-training owner before dispatching the retained
-evaluator; legacy Q2D/offline/sequence routes remain rejected.
+iterations and disables Segment Replay, the legacy live-runner boundary and the
+live-training owner before dispatching the retained evaluator; legacy
+Q2D/offline/sequence routes remain rejected.
 It rejects legacy manifests/checkpoints, wrong row count, mixed K,
 missing Gain beta and ambiguous motion/frame identities before publishing a
 report. The HSL checkpoint is not a scored route and no optimizer, sampler,

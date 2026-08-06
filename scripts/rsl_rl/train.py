@@ -1012,8 +1012,13 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             or policy_quality_eval_arg
         ):
             agent_cfg.max_iterations = 0
-        _set_if_present(alg_cfg, "frontres_training_objective", "segment_replay_hrl")
-        _set_if_present(alg_cfg, "frontres_segment_replay_enabled", True)
+        # B1: 区分只读 quality evaluation 与 Stage-3 training, 产出唯一 runner mode.
+        _set_if_present(
+            alg_cfg,
+            "frontres_training_objective",
+            "policy_quality_eval" if policy_quality_eval_arg else "segment_replay_hrl",
+        )
+        _set_if_present(alg_cfg, "frontres_segment_replay_enabled", not policy_quality_eval_arg)
         _set_if_present(
             alg_cfg,
             "frontres_segment_live_runner_enabled",
@@ -1022,7 +1027,6 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
                 or local_sentinel_only
                 or live_probe_only
                 or live_storage_only
-                or policy_quality_eval_arg
                 or live_train_enabled
             ),
         )

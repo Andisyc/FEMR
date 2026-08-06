@@ -168,6 +168,8 @@ MOSAIC host change or an unresolvable P0/P1.
 Formal Runtime Audit Phase B is complete at E-FI-128 and the support-foot Q0
 coordinate blocker is closed offline at E-FI-129. E-FI-130 migrates the
 retained evaluator to strict v017/checkpoint-v9 and fixes the K16/M3 manifest.
-The next bounded action is to run that evaluator on model_3500 and judge Intent,
+E-FI-131 closes the composition-root mistake that classified the read-only
+evaluator as a legacy live runner. The next bounded action is to rerun that
+evaluator on model_3500 and judge Intent,
 Contact, phase-ZMP, survival, sustained lean and unplanned steps using the
 corrected evidence. No training or long run is implied.

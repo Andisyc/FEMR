@@ -342,7 +342,9 @@ def test_stage3_policy_quality_config_is_formal_and_read_only() -> None:
 
     alg = agent_cfg.algorithm
     assert agent_cfg.max_iterations == 0
-    assert alg.frontres_segment_live_runner_enabled is True
+    assert alg.frontres_training_objective == "policy_quality_eval"
+    assert alg.frontres_segment_replay_enabled is False
+    assert alg.frontres_segment_live_runner_enabled is False
     assert alg.frontres_segment_live_train_enabled is False
     assert alg.frontres_formal_transaction_enabled is True
     assert alg.frontres_segment_live_update_steps == 1
