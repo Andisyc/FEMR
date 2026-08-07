@@ -10,6 +10,7 @@ from __future__ import annotations
 
 
 
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 import json
@@ -109,6 +110,38 @@ from rsl_rl.runners.frontres_segment_one_action_k import (
 
 
 
+
+
+def _require_frontres_v016_observation_trace(
+    observation_trace: Mapping[str, object],
+    *,
+    policy_row_count: int,
+    label: str,
+) -> None:
+    expected_trace = {
+        "role_row_count": 2 * policy_row_count,
+        "current_command_dim": 58,
+        "raw_observation_dim": 870,
+        "q29_tail_dim": 58,
+        "combined_observation_dim": 928,
+        "normalized_observation_dim": 928,
+        "femr_visible_dim": 158,
+        "gmt_suffix_dim": 770,
+        "gmt_input_dim": 770,
+        "critic_current_observation_dim": 289,
+        "critic_future_intent_dim": 58,
+        "critic_observation_dim": 347,
+    }
+    mismatched_trace = {
+        key: (observation_trace.get(key), expected)
+        for key, expected in expected_trace.items()
+        if observation_trace.get(key) != expected
+    }
+    if mismatched_trace or int(observation_trace.get("post_advance_gmt_read_count", 0)) <= 0:
+        raise RuntimeError(
+            f"v016 {label} observation trace is incomplete or violates the frozen authority: "
+            f"mismatched={mismatched_trace}, trace={observation_trace}"
+        )
 
 
 def _v015_formal_optimizer_step_count(optimizer: Any) -> int:
@@ -775,28 +808,11 @@ def _build_frontres_v015_local_transaction_request(
         if not isinstance(artifact, torch.Tensor) or not isinstance(continuation_lengths, torch.Tensor):
             raise RuntimeError(f"v015 {label} lost sealed root-artifact or Clean-continuation identity before storage")
         observation_trace = collection.observation_trace
-        expected_trace = {
-            "role_row_count": 2 * policy_row_count,
-            "current_command_dim": 58,
-            "raw_observation_dim": 870,
-            "q29_tail_dim": 58,
-            "combined_observation_dim": 928,
-            "normalized_observation_dim": 928,
-            "femr_visible_dim": 158,
-            "gmt_suffix_dim": 770,
-            "gmt_input_dim": 770,
-            "critic_observation_dim": 289,
-        }
-        mismatched_trace = {
-            key: (observation_trace.get(key), expected)
-            for key, expected in expected_trace.items()
-            if observation_trace.get(key) != expected
-        }
-        if mismatched_trace or int(observation_trace.get("post_advance_gmt_read_count", 0)) <= 0:
-            raise RuntimeError(
-                f"v015 {label} observation trace is incomplete or violates the frozen authority: "
-                f"mismatched={mismatched_trace}, trace={observation_trace}"
-            )
+        _require_frontres_v016_observation_trace(
+            observation_trace,
+            policy_row_count=policy_row_count,
+            label=label,
+        )
         publish_frontres_preupdate_diagnostics(runner, {
             "transaction_id": plan.transaction_id,
             "policy_snapshot_id": plan.policy_snapshot_id,

@@ -70,6 +70,39 @@ def main() -> None:
 
     _load_owners()
     one_action = sys.modules["rsl_rl.runners.frontres_segment_one_action_k"]
+    formal_transaction = sys.modules["rsl_rl.runners.frontres_segment_formal_transaction"]
+    trace = {
+        "role_row_count": 8,
+        "current_command_dim": 58,
+        "raw_observation_dim": 870,
+        "q29_tail_dim": 58,
+        "combined_observation_dim": 928,
+        "normalized_observation_dim": 928,
+        "femr_visible_dim": 158,
+        "gmt_suffix_dim": 770,
+        "gmt_input_dim": 770,
+        "critic_current_observation_dim": 289,
+        "critic_future_intent_dim": 58,
+        "critic_observation_dim": 347,
+        "post_advance_gmt_read_count": 8,
+    }
+    formal_transaction._require_frontres_v016_observation_trace(
+        trace,
+        policy_row_count=4,
+        label="training",
+    )
+    stale_trace = dict(trace, critic_observation_dim=289)
+    try:
+        formal_transaction._require_frontres_v016_observation_trace(
+            stale_trace,
+            policy_row_count=4,
+            label="training",
+        )
+    except RuntimeError as exc:
+        assert "critic_observation_dim" in str(exc) and "347" in str(exc)
+    else:
+        raise AssertionError("TRAIN-v016 accepted the stale 289D Critic trace")
+
     raw = torch.arange(2 * 870, dtype=torch.float32).reshape(2, 870)
 
     class _Env:
