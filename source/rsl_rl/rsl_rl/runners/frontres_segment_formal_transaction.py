@@ -137,10 +137,25 @@ def _require_frontres_v016_observation_trace(
         for key, expected in expected_trace.items()
         if observation_trace.get(key) != expected
     }
-    if mismatched_trace or int(observation_trace.get("post_advance_gmt_read_count", 0)) <= 0:
+    shared_state_mismatch = {
+        key: observation_trace.get(key)
+        for key in ("actor_segment_state_max_abs_diff", "critic_segment_state_max_abs_diff")
+        if observation_trace.get(key) != 0.0
+    }
+    raw_state_diff = {
+        key: float(observation_trace.get(key, float("nan")))
+        for key in ("actor_raw_observation_max_abs_diff", "critic_raw_observation_max_abs_diff")
+    }
+    if (
+        mismatched_trace
+        or shared_state_mismatch
+        or any(not math.isfinite(value) or value < 0.0 for value in raw_state_diff.values())
+        or int(observation_trace.get("post_advance_gmt_read_count", 0)) <= 0
+    ):
         raise RuntimeError(
             f"v016 {label} observation trace is incomplete or violates the frozen authority: "
-            f"mismatched={mismatched_trace}, trace={observation_trace}"
+            f"mismatched={mismatched_trace}, shared_state={shared_state_mismatch}, "
+            f"raw_state_diff={raw_state_diff}, trace={observation_trace}"
         )
 
 

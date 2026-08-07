@@ -485,6 +485,13 @@ class FrontRESStage1EnvAdapter:
             # Sampled motion/frame 已显式写入, 此处只刷新 cache, 不调用会推进 time_steps 的 _update_command().
             refresh_reference_cache()
             self._write_command_reference_to_robot(ids)
+            source_state_max_abs_diff = 0.0
+            if local_scenario is not None:
+                self._synchronize_frontres_local_reset(ids)
+                source_state_max_abs_diff = self._require_frontres_source_shared_robot_state(
+                    request,
+                    repair_env_ids=role_env_ids["repair"],
+                )
             # B3: Segment index reset 后不得保留随机化的旧 episode age.
             self._reset_frontres_episode_lifecycle(ids)
         success = torch.ones(count, dtype=torch.bool, device=segment_ids.device)
@@ -508,8 +515,73 @@ class FrontRESStage1EnvAdapter:
             perturber_family_masks=getattr(getattr(self.command, "perturber", None), "_family_masks", None),
             fixed_noisy_hashes=perturbation_state.get("fixed_noisy_hashes"),
             local_scenario_hashes=perturbation_state.get("local_scenario_hashes"),
+            source_state_max_abs_diff=source_state_max_abs_diff,
         )
-        return {"reset_success": success, "velocity_mismatch": velocity}
+        return {
+            "reset_success": success,
+            "velocity_mismatch": velocity,
+            "source_state_max_abs_diff": torch.full_like(velocity, source_state_max_abs_diff),
+        }
+
+    def _synchronize_frontres_local_reset(self, env_ids: torch.Tensor) -> None:
+        """Finish the IsaacLab reset lifecycle before any Segment observation read."""
+
+        write_data = getattr(self.base_env.scene, "write_data_to_sim", None)
+        forward = getattr(getattr(self.base_env, "sim", None), "forward", None)
+        reset_observations = getattr(getattr(self.base_env, "observation_manager", None), "reset", None)
+        if not callable(write_data) or not callable(forward) or not callable(reset_observations):
+            raise RuntimeError(
+                "v016 local reset requires scene.write_data_to_sim(), sim.forward(), "
+                "and observation_manager.reset(env_ids)"
+            )
+        write_data()
+        forward()
+        reset_observations(env_ids=env_ids)
+
+    def _require_frontres_source_shared_robot_state(
+        self,
+        request: Any,
+        *,
+        repair_env_ids: torch.Tensor,
+        max_roundoff: float = 1e-5,
+    ) -> float:
+        """Prove exact-M rows share one physical state before sharing policy observations."""
+
+        source_index = torch.as_tensor(
+            getattr(request, "frontres_segment_source_index", None),
+            device=repair_env_ids.device,
+            dtype=torch.long,
+        ).flatten()
+        if tuple(source_index.shape) != tuple(repair_env_ids.shape) or bool((source_index < 0).any()):
+            raise ValueError("v016 local reset requires one nonnegative source_index per Repair row")
+        origins = self.base_env.scene.env_origins.index_select(0, repair_env_ids)
+        data = self.robot.data
+        required = (
+            data.root_pos_w.index_select(0, repair_env_ids) - origins,
+            data.root_quat_w.index_select(0, repair_env_ids),
+            data.root_lin_vel_w.index_select(0, repair_env_ids),
+            data.root_ang_vel_w.index_select(0, repair_env_ids),
+            data.joint_pos.index_select(0, repair_env_ids),
+            data.joint_vel.index_select(0, repair_env_ids),
+        )
+        if any(not bool(torch.isfinite(value).all().item()) for value in required):
+            raise RuntimeError("v016 local reset produced non-finite robot state")
+        state = torch.cat(required, dim=-1)
+        observed_max = 0.0
+        for source in torch.unique(source_index, sorted=True):
+            rows = torch.nonzero(source_index == source, as_tuple=False).reshape(-1)
+            if int(rows.numel()) == 1:
+                continue
+            values = state.index_select(0, rows)
+            max_abs_diff = float((values - values[:1]).abs().max().detach().cpu().item())
+            observed_max = max(observed_max, max_abs_diff)
+            if max_abs_diff > float(max_roundoff):
+                raise RuntimeError(
+                    "v016 local reset rows are not one physical Segment state: "
+                    f"source_index={int(source.item())} max_abs_diff={max_abs_diff:.9g} "
+                    f"limit={float(max_roundoff):.9g}"
+                )
+        return observed_max
 
     def _v015_local_scenario_reset_payload(
         self,

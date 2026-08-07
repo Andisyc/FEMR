@@ -470,9 +470,8 @@ def _canonicalize_frontres_v016_segment_state_rows(
     policy_rows: torch.Tensor,
     source_index: torch.Tensor,
     name: str,
-    max_roundoff: float = 1e-5,
 ) -> tuple[torch.Tensor, float]:
-    """Reuse one exact policy-state row after bounding simulator reset roundoff."""
+    """Reuse one observed policy state after the reset owner proves physical identity."""
 
     if (
         not isinstance(tensor, torch.Tensor)
@@ -497,12 +496,6 @@ def _canonicalize_frontres_v016_segment_state_rows(
         reference = states[:1]
         max_abs_diff = float((states - reference).abs().max().detach().cpu().item())
         observed_max = max(observed_max, max_abs_diff)
-        if max_abs_diff > float(max_roundoff):
-            raise RuntimeError(
-                f"TRAIN-v016 {name} rows are not one Segment state: "
-                f"source_index={int(source.item())} max_abs_diff={max_abs_diff:.9g} "
-                f"limit={float(max_roundoff):.9g}"
-            )
         canonical.index_copy_(0, rows, reference.expand(int(rows.numel()), -1))
     return canonical, observed_max
 
@@ -576,8 +569,10 @@ def collect_frontres_v017_repair_attempts(
     )
     update_frontres_observation_trace(
         runner,
-        actor_segment_state_max_abs_diff=actor_state_max_abs_diff,
-        critic_segment_state_max_abs_diff=critic_state_max_abs_diff,
+        actor_raw_observation_max_abs_diff=actor_state_max_abs_diff,
+        critic_raw_observation_max_abs_diff=critic_state_max_abs_diff,
+        actor_segment_state_max_abs_diff=0.0,
+        critic_segment_state_max_abs_diff=0.0,
     )
     observations = FrontRESSegmentLiveObservations(
         obs=canonical_obs,

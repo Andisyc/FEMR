@@ -248,10 +248,34 @@ class _FakeScene:
     def __init__(self, robot: _FakeRobot, num_envs: int) -> None:
         self.robot = robot
         self.env_origins = torch.zeros(num_envs, 3)
+        self.write_data_calls = 0
 
     def __getitem__(self, name: str):
         assert name == "robot"
         return self.robot
+
+    def write_data_to_sim(self) -> None:
+        self.write_data_calls += 1
+
+
+class _FakeSim:
+    def __init__(self) -> None:
+        self.forward_calls = 0
+
+    def forward(self) -> None:
+        self.forward_calls += 1
+
+
+class _FakeObservationManager:
+    def __init__(self, num_envs: int) -> None:
+        self.history = torch.ones(num_envs, 5)
+        self.reset_calls: list[torch.Tensor] = []
+
+    def reset(self, env_ids: torch.Tensor) -> dict[str, float]:
+        ids = torch.as_tensor(env_ids, dtype=torch.long).clone()
+        self.history[ids] = 0.0
+        self.reset_calls.append(ids)
+        return {}
 
 
 class _FakeEnv:
@@ -260,6 +284,8 @@ class _FakeEnv:
         self.num_envs = num_envs
         self.command_manager = _FakeCommandManager(command)
         self.scene = _FakeScene(robot, num_envs)
+        self.sim = _FakeSim()
+        self.observation_manager = _FakeObservationManager(num_envs)
         self.episode_length_buf = torch.full((num_envs,), 9, dtype=torch.long)
 
 
@@ -351,6 +377,7 @@ def _local_request(role_env_ids: dict[str, torch.Tensor]) -> SimpleNamespace:
                 "expected_support_envelope_provenance": "clean_gmt_physics_only",
             },
         ),
+        frontres_segment_source_index=torch.arange(2, dtype=torch.long),
         frontres_role_env_ids=role_env_ids,
     )
 
@@ -382,6 +409,7 @@ def _parallel_attempt_request(role_env_ids: dict[str, torch.Tensor]) -> SimpleNa
         request.frontres_local_scenario_provenance[1],
         request.frontres_local_scenario_provenance[1],
     )
+    request.frontres_segment_source_index = torch.tensor([0, 0, 1, 1], dtype=torch.long)
     return request
 
 
@@ -449,6 +477,12 @@ def test_t_state_and_identity(hooks, env, command, role_env_ids) -> None:
     expected_clean_x_t = torch.tensor([[2.0, 3.0, 4.0], [4.0, 5.0, 6.0], [2.0, 3.0, 4.0], [4.0, 5.0, 6.0]])
     torch.testing.assert_close(env.scene.robot.data.root_pos_w, expected_clean_x_t)
     assert not torch.equal(env.scene.robot.data.root_pos_w, command._cached_perturbed_pos)
+    assert env.scene.write_data_calls == 1
+    assert env.sim.forward_calls == 1
+    assert len(env.observation_manager.reset_calls) == 1
+    assert env.observation_manager.reset_calls[0].tolist() == [0, 1, 2, 3]
+    assert not bool(env.observation_manager.history.any())
+    assert result["source_state_max_abs_diff"].tolist() == [0.0, 0.0]
 
     # M attempts are new physical resets over the exact same sealed command carrier.
     retry_request = _local_request(role_env_ids)
@@ -464,6 +498,10 @@ def test_t_state_and_identity(hooks, env, command, role_env_ids) -> None:
     torch.testing.assert_close(command._cached_perturbed_pos, source_artifacts.index_select(0, expected_rows)[:, :3])
     torch.testing.assert_close(command._cached_perturbed_quat, source_artifacts.index_select(0, expected_rows)[:, 3:])
     assert command.perturber.calls == 0
+    assert env.scene.write_data_calls == 2
+    assert env.sim.forward_calls == 2
+    assert len(env.observation_manager.reset_calls) == 2
+    assert retry_result["source_state_max_abs_diff"].tolist() == [0.0, 0.0]
     print("[T-2A-scenario-identity] retry reuses x_t/artifact/q29/C/K/hash without resampling", flush=True)
 
     mutated_active_artifact = retry_snapshot["current_root_artifact_t"].clone()
@@ -554,6 +592,15 @@ def test_t_parallel_m_attempt_role_balance(commands, hooks, setup) -> None:
     torch.testing.assert_close(
         snapshot["clean_continuation"],
         request.frontres_local_scenario_clean_continuation.index_select(0, expected_rows),
+    )
+    command.robot.data.joint_pos[1, 0] += 0.1
+    _expect_error(
+        RuntimeError,
+        lambda: adapter._require_frontres_source_shared_robot_state(
+            request,
+            repair_env_ids=role_env_ids["repair"],
+        ),
+        "not one physical Segment state",
     )
 
     def install(candidate_command, *, intent_q29, roles):

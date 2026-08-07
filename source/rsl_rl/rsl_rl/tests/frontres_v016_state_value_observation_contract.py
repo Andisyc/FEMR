@@ -73,20 +73,20 @@ def main() -> None:
     policy_rows = torch.arange(4, dtype=torch.long)
     source_index = torch.tensor([0, 0, 1, 1], dtype=torch.int32)
     reset_states = torch.zeros(8, 347)
-    reset_states[1, 0] = 5e-6
+    reset_states[1, 0] = 0.25
     reset_states[2:4] = 1.0
-    reset_states[3, 0] += 5e-6
+    reset_states[3, 0] += 0.5
     canonical, observed_max = one_action._canonicalize_frontres_v016_segment_state_rows(
         reset_states,
         policy_rows=policy_rows,
         source_index=source_index,
         name="Critic observation",
     )
-    assert observed_max <= 1e-5
+    assert observed_max == 0.5
     torch.testing.assert_close(canonical[0], canonical[1], rtol=0.0, atol=0.0)
     torch.testing.assert_close(canonical[2], canonical[3], rtol=0.0, atol=0.0)
     bad_states = reset_states.clone()
-    bad_states[1, 0] = 1e-3
+    bad_states[1, 0] = float("nan")
     try:
         one_action._canonicalize_frontres_v016_segment_state_rows(
             bad_states,
@@ -94,10 +94,10 @@ def main() -> None:
             source_index=source_index,
             name="Critic observation",
         )
-    except RuntimeError as exc:
-        assert "max_abs_diff" in str(exc) and "source_index=0" in str(exc)
+    except ValueError as exc:
+        assert "detached finite" in str(exc)
     else:
-        raise AssertionError("TRAIN-v016 accepted materially different same-Segment state rows")
+        raise AssertionError("TRAIN-v016 accepted a non-finite policy observation")
 
     formal_transaction = sys.modules["rsl_rl.runners.frontres_segment_formal_transaction"]
     trace = {
@@ -114,6 +114,10 @@ def main() -> None:
         "critic_future_intent_dim": 58,
         "critic_observation_dim": 347,
         "post_advance_gmt_read_count": 8,
+        "actor_raw_observation_max_abs_diff": 0.25,
+        "critic_raw_observation_max_abs_diff": 0.5,
+        "actor_segment_state_max_abs_diff": 0.0,
+        "critic_segment_state_max_abs_diff": 0.0,
     }
     formal_transaction._require_frontres_v016_observation_trace(
         trace,

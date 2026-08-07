@@ -583,7 +583,10 @@ def _print_one_action_k_audit_facts(
         assert int(trace.get(name, -1)) == expected, f"AUDIT-B03 requires {name}={expected}"
     for name in ("actor_segment_state_max_abs_diff", "critic_segment_state_max_abs_diff"):
         value = float(trace.get(name, float("nan")))
-        assert math.isfinite(value) and 0.0 <= value <= 1e-5, f"AUDIT-B03 requires bounded {name}"
+        assert value == 0.0, f"AUDIT-B03 requires exact shared {name}"
+    for name in ("actor_raw_observation_max_abs_diff", "critic_raw_observation_max_abs_diff"):
+        value = float(trace.get(name, float("nan")))
+        assert math.isfinite(value) and value >= 0.0, f"AUDIT-B03 requires finite {name}"
 
     assert len(roles) == 8 and roles.count("repair") == roles.count("noisy") == 4
     assert len(provenance) == len(sources) == 8
@@ -628,6 +631,8 @@ def _print_one_action_k_audit_facts(
         gmt=trace["gmt_suffix_dim"],
         actor_state_max_abs_diff=trace["actor_segment_state_max_abs_diff"],
         critic_state_max_abs_diff=trace["critic_segment_state_max_abs_diff"],
+        actor_raw_max_abs_diff=trace["actor_raw_observation_max_abs_diff"],
+        critic_raw_max_abs_diff=trace["critic_raw_observation_max_abs_diff"],
         critic_kind=getattr(alg, "frontres_critic_value_kind"),
         action_conditioned=int(bool(getattr(alg, "frontres_critic_action_conditioned"))),
     )

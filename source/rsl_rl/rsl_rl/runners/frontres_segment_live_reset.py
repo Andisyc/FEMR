@@ -451,6 +451,7 @@ def _index_reset_result_from_mapping(mapping: Any, request: Any) -> FrontRESSegm
     fall = _mapping_bool(mapping, ("fall_at_reset_mask", "fall_at_reset", "fall"), count, device, False)
     contact = _mapping_bool(mapping, ("contact_mismatch_mask", "contact_mismatch"), count, device, False)
     velocity = _mapping_float(mapping, ("velocity_mismatch",), count, device, 0.0)
+    source_state = _mapping_float(mapping, ("source_state_max_abs_diff",), count, device, 0.0)
     success = success & (~fall) & (~contact)
     zero = torch.zeros(count, dtype=torch.bool, device=device)
     diagnostics = {
@@ -462,6 +463,7 @@ def _index_reset_result_from_mapping(mapping: Any, request: Any) -> FrontRESSegm
         "contact_mismatch_frac": float(contact.float().mean().item()) if count else 0.0,
         "velocity_mismatch_mean": float(velocity.float().mean().item()) if count else 0.0,
         "reference_window_applied_frac": 0.0,
+        "source_state_max_abs_diff": float(source_state.max().item()) if count else 0.0,
     }
     return FrontRESSegmentResetResult(
         success_mask=success,
@@ -528,6 +530,7 @@ def _update_reset_summary(
                 "segment_reset_contact_mismatch_frac": 0.0,
                 "segment_reset_velocity_mismatch_mean": 0.0,
                 "segment_reference_window_applied_frac": 0.0,
+                "segment_source_state_max_abs_diff": 0.0,
             }
         )
         return
@@ -544,6 +547,7 @@ def _update_reset_summary(
             "segment_reset_contact_mismatch_frac": float(diagnostics.get("contact_mismatch_frac", 0.0)),
             "segment_reset_velocity_mismatch_mean": float(diagnostics.get("velocity_mismatch_mean", 0.0)),
             "segment_reference_window_applied_frac": float(diagnostics.get("reference_window_applied_frac", 0.0)),
+            "segment_source_state_max_abs_diff": float(diagnostics.get("source_state_max_abs_diff", 0.0)),
         }
     )
 
