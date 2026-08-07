@@ -123,23 +123,33 @@
     {
       "id": "ICA3-T-02",
       "title": "Tracker Encoder",
-      "summary": "编码状态、历史与 Planner Intent",
+      "summary": "编码状态、历史与 Planner Intent，输出 nominal latent z",
       "concept": "C-ICA3-TRACKER",
       "shape": "encoder",
       "shapeInset": 48,
-      "x": 310,
+      "x": 290,
       "y": 760,
       "w": 260,
       "h": 190
     },
     {
+      "id": "ICA3-T-11",
+      "title": "Latent Add",
+      "summary": "z + Δz",
+      "concept": "C-ICA3-TRACKER",
+      "x": 610,
+      "y": 815,
+      "w": 70,
+      "h": 80
+    },
+    {
       "id": "ICA3-T-03",
       "title": "Tracker Decoder",
-      "summary": "融合 Context 生成执行 Action",
+      "summary": "解码校准后的 latent，生成执行 Action",
       "concept": "C-ICA3-TRACKER",
       "shape": "decoder",
       "shapeInset": 48,
-      "x": 660,
+      "x": 740,
       "y": 760,
       "w": 260,
       "h": 190
@@ -150,7 +160,7 @@
       "summary": "注入与 Teacher 训练同分布的可恢复 Wrench",
       "concept": "C-ICA3-SHIFT",
       "kind": "external",
-      "x": 1010,
+      "x": 1060,
       "y": 800,
       "w": 220,
       "h": 110
@@ -161,7 +171,7 @@
       "summary": "第一次轨迹作为 Context，第二次执行验证校准",
       "concept": "C-ICA3-SUPPORT",
       "kind": "external",
-      "x": 1320,
+      "x": 1340,
       "y": 800,
       "w": 250,
       "h": 110
@@ -169,11 +179,11 @@
     {
       "id": "ICA3-T-06",
       "title": "Context Encoder",
-      "summary": "将失败轨迹压缩为临时执行 Context",
+      "summary": "将失败轨迹压缩为 calibration latent Δz",
       "concept": "C-ICA3-CONTEXT",
       "shape": "context_encoder",
       "shapeInset": 55,
-      "x": 455,
+      "x": 515,
       "y": 520,
       "w": 260,
       "h": 170
@@ -278,8 +288,14 @@
     },
     {
       "from": "ICA3-T-02",
+      "to": "ICA3-T-11",
+      "label": "z",
+      "concept": "C-ICA3-TRACKER"
+    },
+    {
+      "from": "ICA3-T-11",
       "to": "ICA3-T-03",
-      "label": "latent",
+      "label": "z + Δz",
       "concept": "C-ICA3-TRACKER"
     },
     {
@@ -306,24 +322,20 @@
       "fromAnchor": "top",
       "toAnchor": "right",
       "via": [
-        [1445, 605]
+        [1465, 605]
       ],
-      "labelX": 1080,
+      "labelX": 1120,
       "labelY": 594
     },
     {
       "from": "ICA3-T-06",
-      "to": "ICA3-T-03",
-      "label": "Context",
+      "to": "ICA3-T-11",
+      "label": "Δz",
       "concept": "C-ICA3-CONTEXT",
       "fromAnchor": "bottom",
-      "toAnchor": "left",
-      "toOffset": -35,
-      "via": [
-        [585, 820]
-      ],
-      "labelX": 622,
-      "labelY": 809
+      "toAnchor": "top",
+      "labelX": 605,
+      "labelY": 753
     },
     {
       "from": "ICA3-T-05",
@@ -347,7 +359,7 @@
       "via": [
         [1990, 830],
         [1990, 490],
-        [585, 490]
+        [645, 490]
       ],
       "labelX": 1295,
       "labelY": 498
@@ -364,7 +376,7 @@
       "via": [
         [2020, 880],
         [2020, 1120],
-        [440, 1120]
+        [420, 1120]
       ],
       "labelX": 1310,
       "labelY": 1109
@@ -380,7 +392,7 @@
       "toAnchor": "bottom",
       "via": [
         [1720, 1060],
-        [790, 1060]
+        [870, 1060]
       ],
       "labelX": 1255,
       "labelY": 1049

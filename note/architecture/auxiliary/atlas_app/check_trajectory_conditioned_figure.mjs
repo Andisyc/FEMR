@@ -47,6 +47,7 @@ const requiredNodes = [
   "ICA3-T-08",
   "ICA3-T-09",
   "ICA3-T-10",
+  "ICA3-T-11",
 ];
 const nodes = new Map((data.nodes || []).map((node) => [node.id, node]));
 
@@ -230,11 +231,12 @@ const requiredEdges = [
   "ICA3-P-04->ICA3-P-05",
   "ICA3-P-05->ICA3-T-08",
   "ICA3-T-01->ICA3-T-02",
-  "ICA3-T-02->ICA3-T-03",
+  "ICA3-T-02->ICA3-T-11",
+  "ICA3-T-11->ICA3-T-03",
   "ICA3-T-03->ICA3-T-04",
   "ICA3-T-04->ICA3-T-05",
   "ICA3-T-05->ICA3-T-06",
-  "ICA3-T-06->ICA3-T-03",
+  "ICA3-T-06->ICA3-T-11",
   "ICA3-T-05->ICA3-T-09",
   "ICA3-T-10->ICA3-T-09",
   "ICA3-T-09->ICA3-T-06",
@@ -269,18 +271,18 @@ function isVertical(a, b) {
   return Math.abs(a[0] - b[0]) < 1e-6;
 }
 
-const contextRoute = route("ICA3-T-06", "ICA3-T-03");
-if (contextRoute.points.length !== 3) {
-  throw new Error("Context-to-Decoder must be a one-bend L connector");
+const contextRoute = route("ICA3-T-06", "ICA3-T-11");
+if (contextRoute.points.length !== 2) {
+  throw new Error("Context-to-Latent-Add must be a single straight connector");
 }
-if (
-  !isVertical(contextRoute.points[0], contextRoute.points[1]) ||
-  !isHorizontal(contextRoute.points[1], contextRoute.points[2])
-) {
-  throw new Error("Context-to-Decoder must end horizontally into Tracker Decoder");
+if (contextRoute.edge.label !== "Δz") {
+  throw new Error("Context Encoder must supply calibration latent Δz");
 }
-if (contextRoute.points[2][0] - contextRoute.points[1][0] < 70) {
-  throw new Error("Context Encoder must stay left enough to expose the horizontal Context route");
+
+const nominalRoute = route("ICA3-T-02", "ICA3-T-11");
+const calibratedRoute = route("ICA3-T-11", "ICA3-T-03");
+if (nominalRoute.edge.label !== "z" || calibratedRoute.edge.label !== "z + Δz") {
+  throw new Error("Tracker bottleneck must explicitly render z + Δz latent calibration");
 }
 
 const supportRoute = route("ICA3-T-05", "ICA3-T-06");
@@ -298,7 +300,15 @@ if (rolloutRoute.points.length !== 2) {
 const teacher = nodes.get("ICA3-T-08");
 const learning = nodes.get("ICA3-T-09");
 const distilledTeacher = nodes.get("ICA3-T-10");
-const mainAxisIds = ["ICA3-T-01", "ICA3-T-02", "ICA3-T-03", "ICA3-T-04", "ICA3-T-05", "ICA3-T-09"];
+const mainAxisIds = [
+  "ICA3-T-01",
+  "ICA3-T-02",
+  "ICA3-T-11",
+  "ICA3-T-03",
+  "ICA3-T-04",
+  "ICA3-T-05",
+  "ICA3-T-09",
+];
 const mainAxisGaps = mainAxisIds.slice(1).map((id, index) => {
   const previous = nodes.get(mainAxisIds[index]);
   const current = nodes.get(id);
@@ -309,7 +319,7 @@ if (Math.max(...mainAxisGaps) - Math.min(...mainAxisGaps) > 10) {
 }
 
 const upperIds = ["ICA3-P-01", "ICA3-P-02", "ICA3-T-08", "ICA3-P-03", "ICA3-P-04", "ICA3-P-05"];
-const lowerIds = ["ICA3-T-01", "ICA3-T-02", "ICA3-T-03", "ICA3-T-04", "ICA3-T-05", "ICA3-T-06", "ICA3-T-09", "ICA3-T-10"];
+const lowerIds = ["ICA3-T-01", "ICA3-T-02", "ICA3-T-11", "ICA3-T-03", "ICA3-T-04", "ICA3-T-05", "ICA3-T-06", "ICA3-T-09", "ICA3-T-10"];
 if (upperIds.some((id) => nodes.get(id).y + nodes.get(id).h >= divider.y)) {
   throw new Error("Privileged Teacher training nodes must remain above the dashed divider");
 }
