@@ -497,6 +497,7 @@ def test_phase_reset_routes_mode_through_sealed_reset_owner() -> None:
 
 
 def main() -> None:
+    torch.manual_seed(0)
     test_formal_request_owns_the_grouped_ppo_batch_dependency()
     test_exact_one_scalar_commit_and_critic_only()
     test_k_transitions_keep_one_critic_and_preserve_frozen_actor_optimizer_state()

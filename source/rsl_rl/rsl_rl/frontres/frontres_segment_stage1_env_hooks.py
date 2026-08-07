@@ -548,7 +548,7 @@ class FrontRESStage1EnvAdapter:
         """Prove exact-M rows share one physical state before sharing policy observations."""
 
         source_index = torch.as_tensor(
-            getattr(request, "frontres_segment_source_index", None),
+            getattr(request, "source_index", None),
             device=repair_env_ids.device,
             dtype=torch.long,
         ).flatten()

@@ -377,7 +377,7 @@ def _local_request(role_env_ids: dict[str, torch.Tensor]) -> SimpleNamespace:
                 "expected_support_envelope_provenance": "clean_gmt_physics_only",
             },
         ),
-        frontres_segment_source_index=torch.arange(2, dtype=torch.long),
+        source_index=torch.arange(2, dtype=torch.long),
         frontres_role_env_ids=role_env_ids,
     )
 
@@ -409,7 +409,7 @@ def _parallel_attempt_request(role_env_ids: dict[str, torch.Tensor]) -> SimpleNa
         request.frontres_local_scenario_provenance[1],
         request.frontres_local_scenario_provenance[1],
     )
-    request.frontres_segment_source_index = torch.tensor([0, 0, 1, 1], dtype=torch.long)
+    request.source_index = torch.tensor([0, 0, 1, 1], dtype=torch.long)
     return request
 
 
