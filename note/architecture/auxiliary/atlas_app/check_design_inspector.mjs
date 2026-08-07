@@ -278,16 +278,44 @@ for (const required of [
 const warmupDetails = cardsById.get("FRS-DP-09").details;
 const expectedWarmupHeadings = [
  "Critic Initialize：HSL → HRL 时重新初始化 Critic",
+ "阶段轮次：每个 K 先校准 Critic，再逐步释放 Actor",
  "Critic-only：先冻结 Actor 和 std",
  "Actor-ramp：逐渐允许 Actor 学习",
  "Joint Optimize：Actor 与 Critic 一起训练",
+ "双时间尺度 LR：同一 optimizer 内分别控制 Actor 与 Critic",
  "Recalibrate：每次 K 增长，Critic 重新进入校准",
 ];
 if (warmupDetails.length !== expectedWarmupHeadings.length
  || warmupDetails.some((detail, index) => detail.heading !== expectedWarmupHeadings[index])) {
- throw new Error("Actor & Critic Warmup must preserve the five human-readable titled explanations in order");
+ throw new Error("Actor & Critic Warmup must preserve the seven human-readable titled explanations in order");
 }
 const warmupText = JSON.stringify(warmupDetails);
+const warmupSchedule = warmupDetails[1].table;
+const expectedWarmupSchedule = [
+ ["K8 / M2", "Critic-only", "200"],
+ ["K8 / M2", "Actor-ramp", "500"],
+ ["K8 / M2", "Joint Optimize", "1300"],
+ ["K16 / M3", "Critic-only", "300"],
+ ["K16 / M3", "Actor-ramp", "300"],
+ ["K16 / M3", "Joint Optimize", "900"],
+ ["K32 / M4", "Critic-only", "400"],
+ ["K32 / M4", "Actor-ramp", "300"],
+ ["K32 / M4", "Joint Optimize", "625"],
+];
+if (!warmupSchedule || JSON.stringify(warmupSchedule.rows) !== JSON.stringify(expectedWarmupSchedule)) {
+ throw new Error("Actor & Critic Warmup must expose the active per-K Critic-only, Actor-ramp, and Joint iteration counts");
+}
+for (const required of [
+ "Critic-only → Actor-ramp → Joint Optimize",
+ "Actor LR = 3e-6",
+ "Critic LR = 1e-5",
+ "同一个 Adam optimizer",
+ "FRS-TRAIN-v015 已激活",
+]) {
+ if (!warmupText.includes(required)) {
+  throw new Error(`Actor & Critic Warmup missing phase/LR fact: ${required}`);
+ }
+}
 for (const forbidden of ["M 只表示", "Multi-Critic", "checkpoint identity"]) {
  if (warmupText.includes(forbidden)) {
   throw new Error(`Actor & Critic Warmup must keep maintenance-only detail out of Atlas: ${forbidden}`);

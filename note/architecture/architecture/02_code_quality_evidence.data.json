@@ -290,7 +290,7 @@
         },
         {
           "name": "_parse_frontres_v015_k_curriculum",
-          "purpose": "Parse and freeze the explicit FRS-TRAIN-v014 K x exact-M x DR schedule.",
+          "purpose": "Parse and freeze the explicit FRS-TRAIN-v015 K x exact-M x DR schedule.",
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "scripts/rsl_rl/train.py",
@@ -952,7 +952,7 @@
         },
         {
           "name": "OnPolicyRunner.finalize_frontres_local_sentinel_checkpoint",
-          "purpose": "Save the exact checkpoint-v9 adjacent to one completed local sentinel.",
+          "purpose": "Save the exact checkpoint-v10 adjacent to one completed local sentinel.",
           "annotationClass": "trivial",
           "simpleKind": "薄接口",
           "sourcePath": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py",
@@ -8388,7 +8388,7 @@
         },
         {
           "name": "finalize_frontres_local_sentinel_checkpoint",
-          "purpose": "Persist and verify the checkpoint-v9 produced by one local sentinel update.",
+          "purpose": "Persist and verify the checkpoint-v10 produced by one local sentinel update.",
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
@@ -13160,7 +13160,7 @@
         },
         {
           "name": "finalize_frontres_local_sentinel_checkpoint",
-          "purpose": "Persist and verify the checkpoint-v9 produced by one local sentinel update.",
+          "purpose": "Persist and verify the checkpoint-v10 produced by one local sentinel update.",
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
@@ -21640,7 +21640,7 @@
             },
             {
               "id": "B2",
-              "purpose": "对齐 HSL scaffold 与 checkpoint-v9 contract/layout/action, 产出 pre-mutation request.",
+              "purpose": "对齐 HSL scaffold 与 checkpoint-v10 contract/layout/action, 产出 pre-mutation request.",
               "sourceLine": 703,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=703"
             }
@@ -21791,7 +21791,7 @@
           "blocks": [
             {
               "id": "B1",
-              "purpose": "冻结训练状态并安装 tested checkpoint-v9, 产出 inference-only policy owner.",
+              "purpose": "冻结训练状态并安装 tested checkpoint-v10, 产出 inference-only policy owner.",
               "sourceLine": 1008,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1008"
             },
@@ -21854,7 +21854,7 @@
         },
         {
           "name": "run_frontres_policy_quality_eval",
-          "purpose": "Run the active EVAL-v004 checkpoint-v9 held-out evaluator.",
+          "purpose": "Run the active EVAL-v004 checkpoint-v10 held-out evaluator.",
           "annotationClass": "legacy",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
@@ -21863,7 +21863,7 @@
           "blocks": [
             {
               "id": "B1",
-              "purpose": "验证 formal runner 并构造 strict v017 request, 产出 checkpoint-v9 evaluation identity.",
+              "purpose": "验证 formal runner 并构造 strict v017 request, 产出 checkpoint-v10 evaluation identity.",
               "sourceLine": 1199,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1199"
             },
@@ -22073,8 +22073,8 @@
             {
               "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py",
               "name": "collect_frontres_v017_recovery_aware_evaluation",
-              "sourceLine": 544,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_formal_transaction.py&line=544"
+              "sourceLine": 577,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_formal_transaction.py&line=577"
             },
             {
               "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_evaluation_reporting.py",
@@ -22560,7 +22560,7 @@
         },
         {
           "name": "finalize_frontres_local_sentinel_checkpoint",
-          "purpose": "Persist and verify the checkpoint-v9 produced by one local sentinel update.",
+          "purpose": "Persist and verify the checkpoint-v10 produced by one local sentinel update.",
           "annotationClass": "candidate",
           "simpleKind": null,
           "sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",

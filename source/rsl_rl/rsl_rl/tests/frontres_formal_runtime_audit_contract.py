@@ -56,7 +56,7 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
         frontres_method_contract_id="FRS-METHOD-v017",
         frontres_gain_contract_id="FRS-GAIN-v007",
         frontres_optimization_contract_id="FRS-PPO-v005",
-        frontres_training_contract_id="FRS-TRAIN-v014",
+        frontres_training_contract_id="FRS-TRAIN-v015",
         policy=policy,
         optimizer=torch.optim.SGD([actor_param], lr=0.1),
     )
@@ -121,7 +121,7 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
             "method_contract_id": "FRS-METHOD-v017",
             "gain_contract_id": "FRS-GAIN-v007",
             "optimization_contract_id": "FRS-PPO-v005",
-            "training_contract_id": "FRS-TRAIN-v014",
+            "training_contract_id": "FRS-TRAIN-v015",
             "selected_segment_count": 2,
             "active_m": 2,
             "policy_row_count": 4,
@@ -145,11 +145,11 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                 "frontres_segment_sampler_state_dict": {},
                 "frontres_segment_k_curriculum": SCHEDULE,
                 "frontres_v015_checkpoint_identity": {
-                    "format": "frontres-v017-checkpoint-v9",
+                    "format": "frontres-v017-checkpoint-v10",
                     "method_contract_id": "FRS-METHOD-v017",
                     "gain_contract_id": "FRS-GAIN-v007",
                     "optimization_contract_id": "FRS-PPO-v005",
-                    "training_contract_id": "FRS-TRAIN-v014",
+                    "training_contract_id": "FRS-TRAIN-v015",
                     "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
                     "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
                     "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
@@ -204,7 +204,7 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     assert "segment_voting_weights=count=2,head=(0.5, 0.5)" in transaction_line
     assert "attempt_voting_weights=count=4,head=(0.25, 0.25, 0.25, 0.25)" in transaction_line
     assert "optimizer_step_delta=1" in transaction_line and "update_invocations=1" in transaction_line
-    assert "FRS-METHOD-v017/FRS-GAIN-v007/FRS-PPO-v005/FRS-TRAIN-v014" in transaction_line
+    assert "FRS-METHOD-v017/FRS-GAIN-v007/FRS-PPO-v005/FRS-TRAIN-v015" in transaction_line
     assert "FRS-GAIN-v002" not in output and "shape=(2, 870)" not in output
     assert "lower-k8" in output and "active_k=8" in output
 
@@ -234,11 +234,11 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v013_curriculum() -> None:
         "frontres_segment_sampler_state_dict": {},
         "frontres_segment_k_curriculum": schedule,
         "frontres_v015_checkpoint_identity": {
-            "format": "frontres-v017-checkpoint-v9",
+            "format": "frontres-v017-checkpoint-v10",
             "method_contract_id": "FRS-METHOD-v017",
             "gain_contract_id": "FRS-GAIN-v007",
             "optimization_contract_id": "FRS-PPO-v005",
-            "training_contract_id": "FRS-TRAIN-v014",
+            "training_contract_id": "FRS-TRAIN-v015",
             "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
             "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",

@@ -176,7 +176,7 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
     manifest_bytes = MANIFEST.read_bytes()
     manifest = FrontRESV017PolicyQualityManifest.from_json(manifest_bytes.decode("utf-8"))
     checkpoint = SimpleNamespace(
-        format="frontres-v017-checkpoint-v9",
+        format="frontres-v017-checkpoint-v10",
         file_sha256="c" * 64,
     )
     request = quality.FrontRESV017PolicyQualityEvalRequest(
@@ -287,7 +287,7 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
     assert aggregate.persistence_phase == "idle"
     assert aggregate.collection_sample is None and aggregate.collection_batch is None
     assert payload["schema_version"] == "frontres-v017-policy-quality-report-v1"
-    assert payload["checkpoint_format"] == "frontres-v017-checkpoint-v9"
+    assert payload["checkpoint_format"] == "frontres-v017-checkpoint-v10"
     assert (payload["horizon_k"], payload["attempts_per_segment"]) == (16, 3)
     assert all(row["policy_row_count"] == 6 and row["role_row_count"] == 12 for row in payload["transactions"])
     stored = json.loads(Path(request.result_path).read_text(encoding="utf-8"))

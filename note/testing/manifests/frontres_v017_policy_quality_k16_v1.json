@@ -1,11 +1,11 @@
 {
   "schema_version": "frontres-v017-policy-quality-manifest-v1",
   "method_contract_id": "FRS-METHOD-v017",
-  "training_contract_id": "FRS-TRAIN-v014",
+  "training_contract_id": "FRS-TRAIN-v015",
   "gain_contract_id": "FRS-GAIN-v007",
   "ppo_contract_id": "FRS-PPO-v005",
   "evaluation_contract_id": "FRS-EVAL-v004",
-  "checkpoint_format": "frontres-v017-checkpoint-v9",
+  "checkpoint_format": "frontres-v017-checkpoint-v10",
   "future_intent_layout_version": "frontres-v015-future-intent-q29-v1",
   "future_offsets": [1, 2],
   "raw_observation_dim": 870,
@@ -19,7 +19,7 @@
   "attempts_per_segment": 3,
   "segments_per_transaction": 2,
   "environment_revision": "FEMR-v017-clean-anchored-local-repair",
-  "config_revision": "FRS-METHOD-v017+FRS-TRAIN-v014+FRS-GAIN-v007+FRS-PPO-v005+FRS-EVAL-v004+local-rp+K16-M3",
+  "config_revision": "FRS-METHOD-v017+FRS-TRAIN-v015+FRS-GAIN-v007+FRS-PPO-v005+FRS-EVAL-v004+local-rp+K16-M3",
   "evaluator_version": "frontres-v017-clean-anchored-one-action-k-quality-v1",
   "items": [
     {"item_id":"v017-kit572-wave-right02-f163-s42","motion_id":"KIT/572/amass_g1_wave_right02_poses_reflect.npz","start_frame":163,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":16,"seed":42},

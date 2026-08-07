@@ -48,6 +48,8 @@ def build_frontres_formal_update_summary(result: Any) -> dict[str, Any]:
         "active_m": int(diagnostics.get("active_m", -1)),
         "warmup_phase": str(diagnostics.get("warmup_phase", "")),
         "actor_loss_weight": float(diagnostics.get("actor_loss_weight", float("nan"))),
+        "actor_learning_rate": _finite(diagnostics, "actor_learning_rate"),
+        "critic_learning_rate": _finite(diagnostics, "critic_learning_rate"),
         "ppo_total_loss_mean": float(ppo.total_loss.detach().cpu().item()),
         "ppo_actor_loss_mean": float(ppo.actor_loss.detach().cpu().item()),
         "ppo_value_loss_mean": float(ppo.value_loss.detach().cpu().item()),
@@ -159,7 +161,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         "method_contract_id": "FRS-METHOD-v017",
         "gain_contract_id": "FRS-GAIN-v007",
         "optimization_contract_id": "FRS-PPO-v005",
-        "training_contract_id": "FRS-TRAIN-v014",
+        "training_contract_id": "FRS-TRAIN-v015",
         "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -234,6 +236,8 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         "warmup_phase": str(diagnostics.get("warmup_phase", "")),
         "warmup_phase_iteration": int(diagnostics.get("warmup_phase_iteration", -1)),
         "actor_loss_weight": float(diagnostics.get("actor_loss_weight", float("nan"))),
+        "actor_learning_rate": _finite(diagnostics, "actor_learning_rate"),
+        "critic_learning_rate": _finite(diagnostics, "critic_learning_rate"),
         "dr_stage_fingerprint": str(diagnostics.get("dr_stage_fingerprint", "")),
         "dr_progress": float(diagnostics.get("dr_progress", float("nan"))),
         "d_cap": float(diagnostics.get("d_cap", float("nan"))),
@@ -247,7 +251,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         **expected_ids,
     }
     if len(telemetry["dr_class_by_segment"]) != 2 or len(telemetry["dr_strength_by_segment"]) != 2:
-        raise RuntimeError("FRS-TRAIN-v014 telemetry requires two sealed Segment DR class/strength values")
+        raise RuntimeError("FRS-TRAIN-v015 telemetry requires two sealed Segment DR class/strength values")
     FrontRESActiveTelemetryView.from_mapping(telemetry)
     return telemetry
 
@@ -290,7 +294,7 @@ def require_frontres_committed_result(runner: Any, result: Any) -> dict[str, Any
             float(actor_delta.get("param_delta_max_abs", float("nan"))) != 0.0
             or not float(critic_delta.get("param_delta_max_abs", 0.0)) > 0.0
         ):
-            raise RuntimeError("FRS-TRAIN-v014 critic-only commit requires frozen actor/std and updated Critic")
+            raise RuntimeError("FRS-TRAIN-v015 critic-only commit requires frozen actor/std and updated Critic")
     # AUDIT-B02/B05/B06/B07: 最终 serializer 只读审计, 不反馈训练状态.
     from rsl_rl.runners.frontres_formal_runtime_audit import print_phase_b_telemetry_audit
 

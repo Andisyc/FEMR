@@ -116,7 +116,7 @@ Reset may not resample, mutate, or mix them. There is no Noisy physical prefix.
 
 The active corruption family is single `local_rp`. Composite corruption is not
 part of this contract. Perturbation strength follows the K-conditioned
-four-class inner DR curriculum owned by FRS-TRAIN-v014; it is not monotonically
+four-class inner DR curriculum owned by FRS-TRAIN-v015; it is not monotonically
 ramped and is not controlled by Gain or PPO.
 
 ## Clean/Noisy/Repair Evidence
@@ -188,7 +188,7 @@ checkpoint receipt.
 
 ## Training And Persistence Authority
 
-FRS-TRAIN-v014 owns HSL-to-HRL initialization, the coordinated K x M schedule,
+FRS-TRAIN-v015 owns HSL-to-HRL initialization, the coordinated K x M schedule,
 per-K inner DR progression, Critic-only recalibration, actor ramp, joint optimization,
 calibration, and strict checkpoint identity. HSL initializes only the proposal
 actor/std and 158D actor-prefix normalizer. The scalar Critic predicts the
@@ -230,7 +230,7 @@ config and checkpoint identity
 -> frozen GMT K-step Clean-anchored evidence
 -> FRS-GAIN-v007 G_total for every valid Repair
 -> FRS-PPO-v005 grouped exact-one update
--> FRS-TRAIN-v014 committed checkpoint and diagnostics
+-> FRS-TRAIN-v015 committed checkpoint and diagnostics
 ```
 
 Stop if Clean reaches actor input, a baseline is resampled, a transaction mixes

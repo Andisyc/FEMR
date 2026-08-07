@@ -153,10 +153,10 @@ def test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds() -> None:
     assert "fresh K8/M2 campaign requires NUM_ENVS=8" in wrong.stderr
 
 
-def test_strict_v9_resume_replaces_hsl_initializer() -> None:
+def test_strict_v10_resume_replaces_hsl_initializer() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         resume_path = Path(tmp) / "model_1.pt"
-        resume_path.write_text("semantic checkpoint-v9 fixture\n")
+        resume_path.write_text("semantic checkpoint-v10 fixture\n")
         result = _run_preflight(
             "train",
             {"FRONTRES_V015_RESUME_CHECKPOINT": str(resume_path)},
@@ -172,14 +172,14 @@ def test_strict_v9_resume_replaces_hsl_initializer() -> None:
     assert "--max_iterations 199" in command
 
 
-def test_strict_v9_resume_rejects_missing_checkpoint() -> None:
+def test_strict_v10_resume_rejects_missing_checkpoint() -> None:
     result = _run_preflight(
         "train",
         {"FRONTRES_V015_RESUME_CHECKPOINT": "/definitely/missing/model_1.pt"},
         bounds=("8", "199", "1"),
     )
     assert result.returncode != 0
-    assert "checkpoint-v9 resume checkpoint not found" in result.stderr
+    assert "checkpoint-v10 resume checkpoint not found" in result.stderr
 
 
 def test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel() -> None:
@@ -196,10 +196,17 @@ def test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel() -> Non
         for other_flag in SENTINEL_FLAGS.values():
             if other_flag != expected_flag:
                 assert other_flag not in command
-def test_stage3_train_launch_passes_explicit_segment_ppo_schedule_and_lr_args() -> None:
+def test_stage3_train_launch_passes_explicit_fixed_split_lr_args() -> None:
     result = _run_preflight(
         "train",
-        extra_args=["--frontres_segment_ppo_schedule", "adaptive", "--frontres_segment_ppo_lr", "1e-6"],
+        extra_args=[
+            "--frontres_segment_ppo_schedule",
+            "fixed",
+            "--frontres_segment_actor_lr",
+            "3e-6",
+            "--frontres_segment_critic_lr",
+            "1e-5",
+        ],
     )
     assert result.returncode == 0, result.stderr
     command = _command_line(result)
@@ -207,8 +214,9 @@ def test_stage3_train_launch_passes_explicit_segment_ppo_schedule_and_lr_args() 
 
     assert "--frontres_segment_live_update_loop_only" not in command
     assert "--frontres_segment_live_single_update_only" not in command
-    assert "--frontres_segment_ppo_schedule adaptive" in command
-    assert "--frontres_segment_ppo_lr 1e-6" in command
+    assert "--frontres_segment_ppo_schedule fixed" in command
+    assert "--frontres_segment_actor_lr 3e-6" in command
+    assert "--frontres_segment_critic_lr 1e-5" in command
 
 
 def test_stage3_launch_rejects_unknown_mode_before_training() -> None:
@@ -268,10 +276,10 @@ if __name__ == "__main__":
     test_g5_s4_bounded_launch_freezes_8_1_1_and_audit()
     test_stage3_train_launch_accepts_explicit_checkpoint_interval()
     test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds()
-    test_strict_v9_resume_replaces_hsl_initializer()
-    test_strict_v9_resume_rejects_missing_checkpoint()
+    test_strict_v10_resume_replaces_hsl_initializer()
+    test_strict_v10_resume_rejects_missing_checkpoint()
     test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel()
-    test_stage3_train_launch_passes_explicit_segment_ppo_schedule_and_lr_args()
+    test_stage3_train_launch_passes_explicit_fixed_split_lr_args()
     test_stage3_launch_rejects_retired_optimizer_modes()
     test_stage3_launch_rejects_legacy_local_evaluation_modes()
     test_stage3_launch_builds_active_v017_policy_quality_command()

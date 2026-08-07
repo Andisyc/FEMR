@@ -152,11 +152,11 @@ def test_v017_k16_m3_manifest_has_strict_active_identity() -> None:
     path = ROOT / "note" / "testing" / "manifests" / "frontres_v017_policy_quality_k16_v1.json"
     manifest = FrontRESV017PolicyQualityManifest.from_json(path.read_text(encoding="utf-8"))
     assert manifest.method_contract_id == "FRS-METHOD-v017"
-    assert manifest.training_contract_id == "FRS-TRAIN-v014"
+    assert manifest.training_contract_id == "FRS-TRAIN-v015"
     assert manifest.gain_contract_id == "FRS-GAIN-v007"
     assert manifest.ppo_contract_id == "FRS-PPO-v005"
     assert manifest.evaluation_contract_id == "FRS-EVAL-v004"
-    assert manifest.checkpoint_format == "frontres-v017-checkpoint-v9"
+    assert manifest.checkpoint_format == "frontres-v017-checkpoint-v10"
     assert (manifest.horizon_k, manifest.attempts_per_segment, manifest.segments_per_transaction) == (16, 3, 2)
     assert len(manifest.items) == 8
     assert len({(item.motion_id, item.start_frame) for item in manifest.items}) == 8

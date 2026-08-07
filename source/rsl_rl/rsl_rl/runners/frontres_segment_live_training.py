@@ -385,9 +385,9 @@ def finalize_frontres_local_sentinel_checkpoint(runner: Any, result: Any) -> str
         if not isinstance(identity, Mapping):
             raise RuntimeError("v015 local sentinel checkpoint has no checkpoint-v9 identity")
         required_identity = {
-            "format": "frontres-v017-checkpoint-v9",
+            "format": "frontres-v017-checkpoint-v10",
             "method_contract_id": "FRS-METHOD-v017",
-            "training_contract_id": "FRS-TRAIN-v014",
+            "training_contract_id": "FRS-TRAIN-v015",
             "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
             "gain_contract_id": "FRS-GAIN-v007",
             "optimization_contract_id": "FRS-PPO-v005",
@@ -481,7 +481,7 @@ def _resolve_required_k_stage_handoff(runner: Any) -> FrontRESKStageIdentity | N
     previous_required_envs = 4 * int(previous.active_m)
     if observed_envs != previous_required_envs:
         raise RuntimeError(
-            "FRS-TRAIN-v014 completed K-stage width drifted before process handoff: "
+            "FRS-TRAIN-v015 completed K-stage width drifted before process handoff: "
             f"active_m={previous.active_m} required={previous_required_envs} observed={observed_envs}"
         )
     next_required_envs = 4 * int(transition.active_m)
@@ -519,7 +519,7 @@ def run_frontres_segment_live_training_loop(
     absolute_start = int(getattr(runner, "current_learning_iteration", 0))
     if formal_v015 and absolute_start + num_learning_iterations > FRONTRES_V011_MAX_ABSOLUTE_ITERATION:
         raise RuntimeError(
-            "FRS-TRAIN-v014 run would cross maximum_absolute_iteration=8000: "
+            "FRS-TRAIN-v015 run would cross maximum_absolute_iteration=8000: "
             f"start={absolute_start} requested={num_learning_iterations}"
         )
     # B3: 首次正式 update iteration 前截获 route identity.
@@ -595,7 +595,7 @@ def run_frontres_segment_live_training_loop(
             if transition is not None:
                 if runner.log_dir is None or runner.disable_logs:
                     raise RuntimeError(
-                        "FRS-TRAIN-v014 K-stage process handoff requires an enabled committed checkpoint owner"
+            "FRS-TRAIN-v015 K-stage process handoff requires an enabled committed checkpoint owner"
                     )
                 checkpoint_path = os.path.join(
                     runner.log_dir,

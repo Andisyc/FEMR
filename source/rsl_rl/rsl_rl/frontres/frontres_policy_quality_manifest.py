@@ -386,11 +386,11 @@ class FrontRESV017PolicyQualityManifest:
     items: tuple[FrontRESPolicyQualityManifestItem, ...]
     schema_version: str = _V017_SCHEMA_VERSION
     method_contract_id: str = "FRS-METHOD-v017"
-    training_contract_id: str = "FRS-TRAIN-v014"
+    training_contract_id: str = "FRS-TRAIN-v015"
     gain_contract_id: str = "FRS-GAIN-v007"
     ppo_contract_id: str = "FRS-PPO-v005"
     evaluation_contract_id: str = "FRS-EVAL-v004"
-    checkpoint_format: str = "frontres-v017-checkpoint-v9"
+    checkpoint_format: str = "frontres-v017-checkpoint-v10"
     future_intent_layout_version: str = "frontres-v015-future-intent-q29-v1"
     future_offsets: tuple[int, ...] = (1, 2)
     raw_observation_dim: int = 870
@@ -409,11 +409,11 @@ class FrontRESV017PolicyQualityManifest:
         exact_identity = (
             self.schema_version == _V017_SCHEMA_VERSION
             and self.method_contract_id == "FRS-METHOD-v017"
-            and self.training_contract_id == "FRS-TRAIN-v014"
+            and self.training_contract_id == "FRS-TRAIN-v015"
             and self.gain_contract_id == "FRS-GAIN-v007"
             and self.ppo_contract_id == "FRS-PPO-v005"
             and self.evaluation_contract_id == "FRS-EVAL-v004"
-            and self.checkpoint_format == "frontres-v017-checkpoint-v9"
+            and self.checkpoint_format == "frontres-v017-checkpoint-v10"
             and self.future_intent_layout_version == "frontres-v015-future-intent-q29-v1"
             and tuple(self.future_offsets) == (1, 2)
             and self.raw_observation_dim == 870

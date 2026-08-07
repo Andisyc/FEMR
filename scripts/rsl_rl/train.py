@@ -8,6 +8,7 @@
 """Launch Isaac Sim Simulator first."""
 import os
 import argparse
+import math
 import sys
 import faulthandler
 import signal
@@ -302,7 +303,7 @@ parser.add_argument(
     "--frontres_v015_resume_checkpoint",
     type=str,
     default=None,
-    help="Strict frontres-v017-checkpoint-v9 full resume for ordinary Stage-3 training; mutually exclusive with HSL initialization.",
+    help="Strict frontres-v017-checkpoint-v10 full resume for ordinary Stage-3 training; mutually exclusive with HSL initialization.",
 )
 parser.add_argument(
     "--frontres_segment_live_probe_only",
@@ -349,9 +350,20 @@ parser.add_argument(
     type=float,
     default=None,
     help=(
-        "For Stage 3 only: explicitly override algorithm.learning_rate for Segment Replay PPO. "
-        "Use this instead of fragile Hydra deep overrides such as algorithm.learning_rate=..."
+        "Retired shared Stage-3 LR override. FRS-TRAIN-v015 rejects this option."
     ),
+)
+parser.add_argument(
+    "--frontres_segment_actor_lr",
+    type=float,
+    default=None,
+    help="For Stage 3 only: explicit fixed residual Actor learning rate.",
+)
+parser.add_argument(
+    "--frontres_segment_critic_lr",
+    type=float,
+    default=None,
+    help="For Stage 3 only: explicit fixed scalar Critic learning rate.",
 )
 parser.add_argument(
     "--frontres_formal_runtime_audit",
@@ -834,7 +846,7 @@ def _parse_frontres_v015_future_offsets(raw_offsets: str | None) -> tuple[int, .
 
 
 def _parse_frontres_v015_k_curriculum(raw_schedule: str | None) -> tuple[tuple[object, ...], ...]:
-    """Parse and freeze the explicit FRS-TRAIN-v014 K x exact-M x DR schedule."""
+    """Parse and freeze the explicit FRS-TRAIN-v015 K x exact-M x DR schedule."""
 
     if raw_schedule is None:
         raise ValueError("v015 Stage-3 requires --frontres_segment_k_curriculum")
@@ -1169,24 +1181,42 @@ def _apply_frontres_segment_ppo_schedule_override(agent_cfg, args_cli) -> None:
     if alg_cfg is None or not hasattr(alg_cfg, "schedule"):
         raise AttributeError("--frontres_segment_ppo_schedule requires an agent config with algorithm.schedule")
     schedule = str(schedule).lower()
+    if schedule != "fixed":
+        raise ValueError("FRS-TRAIN-v015 Stage 3 rejects adaptive LR; schedule must be fixed")
     alg_cfg.schedule = schedule
     print(f"[FrontRES Stage3 Segment HRL] ppo_schedule_override schedule={schedule}", flush=True)
 
 
-def _apply_frontres_segment_ppo_lr_override(agent_cfg, args_cli) -> None:
-    lr = getattr(args_cli, "frontres_segment_ppo_lr", None)
-    if lr is None:
-        return
+def _apply_frontres_segment_split_lr_override(agent_cfg, args_cli) -> None:
     if getattr(args_cli, "frontres_stage", None) != "stage3_segment_hrl":
-        raise ValueError("--frontres_segment_ppo_lr requires --frontres_stage stage3_segment_hrl")
+        if any(
+            getattr(args_cli, name, None) is not None
+            for name in ("frontres_segment_ppo_lr", "frontres_segment_actor_lr", "frontres_segment_critic_lr")
+        ):
+            raise ValueError("FrontRES Stage-3 LR options require --frontres_stage stage3_segment_hrl")
+        return
+    if getattr(args_cli, "frontres_segment_ppo_lr", None) is not None:
+        raise ValueError("FRS-TRAIN-v015 rejects --frontres_segment_ppo_lr; provide Actor and Critic LR separately")
     alg_cfg = getattr(agent_cfg, "algorithm", None)
-    if alg_cfg is None or not hasattr(alg_cfg, "learning_rate"):
-        raise AttributeError("--frontres_segment_ppo_lr requires an agent config with algorithm.learning_rate")
-    lr = float(lr)
-    if lr <= 0.0:
-        raise ValueError("--frontres_segment_ppo_lr must be positive")
-    alg_cfg.learning_rate = lr
-    print(f"[FrontRES Stage3 Segment HRL] ppo_lr_override learning_rate={lr:.6g}", flush=True)
+    if alg_cfg is None or not hasattr(alg_cfg, "learning_rate") or not hasattr(alg_cfg, "critic_learning_rate"):
+        raise AttributeError("FRS-TRAIN-v015 requires Actor and Critic LR config fields")
+    actor_arg = getattr(args_cli, "frontres_segment_actor_lr", None)
+    critic_arg = getattr(args_cli, "frontres_segment_critic_lr", None)
+    if (actor_arg is None) != (critic_arg is None):
+        raise ValueError("FRS-TRAIN-v015 requires Actor and Critic LR overrides together")
+    actor_lr = float(alg_cfg.learning_rate if actor_arg is None else actor_arg)
+    critic_lr = float(alg_cfg.critic_learning_rate if critic_arg is None else critic_arg)
+    if not math.isfinite(actor_lr) or actor_lr <= 0.0 or not math.isfinite(critic_lr) or critic_lr <= 0.0:
+        raise ValueError("FRS-TRAIN-v015 Actor and Critic LRs must be positive and finite")
+    if str(getattr(alg_cfg, "schedule", "")).lower() != "fixed":
+        raise ValueError("FRS-TRAIN-v015 Stage 3 requires schedule=fixed")
+    alg_cfg.learning_rate = actor_lr
+    alg_cfg.critic_learning_rate = critic_lr
+    print(
+        "[FrontRES Stage3 Segment HRL] split_lr "
+        f"actor_learning_rate={actor_lr:.6g} critic_learning_rate={critic_lr:.6g} schedule=fixed",
+        flush=True,
+    )
 
 
 def _parse_frontres_segment_cache_strengths(value: str) -> list[float]:
@@ -1525,7 +1555,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             agent_cfg.frontres_perturbation_channels = "rp_z"
     _apply_frontres_stage_preset(agent_cfg, args_cli)
     _apply_frontres_segment_ppo_schedule_override(agent_cfg, args_cli)
-    _apply_frontres_segment_ppo_lr_override(agent_cfg, args_cli)
+    _apply_frontres_segment_split_lr_override(agent_cfg, args_cli)
 
     # set seeds (explicit rank offset for distributed to avoid identical sampling across ranks)
     # note: certain randomizations occur in the environment initialization so we set the seed here

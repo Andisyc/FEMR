@@ -322,6 +322,24 @@
           "text": "HSL 只初始化 proposal Actor，没有训练 Stage-3 的 scalar Critic。进入 HRL 时，Critic 从头学习 Recovery-Aware G_total；HSL 初始化过的 Actor 保留，不随 Critic 一起重新初始化。"
         },
         {
+          "heading": "阶段轮次：每个 K 先校准 Critic，再逐步释放 Actor",
+          "text": "每个 K 都执行 Critic-only → Actor-ramp → Joint Optimize。Critic-only 冻结 Actor/std；Actor-ramp 只逐步增加 Actor loss weight，Critic 继续更新；Joint Optimize 中 Actor 与 Critic 共同更新。轮次是 committed transaction 数，不是 simulator step 数。",
+          "table": {
+            "columns": ["K / M", "Phase", "Committed iterations"],
+            "rows": [
+              ["K8 / M2", "Critic-only", "200"],
+              ["K8 / M2", "Actor-ramp", "500"],
+              ["K8 / M2", "Joint Optimize", "1300"],
+              ["K16 / M3", "Critic-only", "300"],
+              ["K16 / M3", "Actor-ramp", "300"],
+              ["K16 / M3", "Joint Optimize", "900"],
+              ["K32 / M4", "Critic-only", "400"],
+              ["K32 / M4", "Actor-ramp", "300"],
+              ["K32 / M4", "Joint Optimize", "625"]
+            ]
+          }
+        },
+        {
           "heading": "Critic-only：先冻结 Actor 和 std",
           "text": "新 Critic 刚开始还不会判断 Repair 好坏。如果此时立即更新 Actor，Actor 会跟随一个尚未校准的判断者乱走。因此先保持 Actor 的动作策略和探索强度不变，只训练 Critic，让它先学会预测当前 K 下的 G_total。"
         },
@@ -332,6 +350,10 @@
         {
           "heading": "Joint Optimize：Actor 与 Critic 一起训练",
           "text": "进入正常训练后：Actor 根据 PPO 信号改善 Repair；Critic 继续学习这些新 Repair 对应的 G_total。Critic 不能停止更新，因为 Actor 改变后，动作结果的分布也会改变，Critic 必须持续跟上。"
+        },
+        {
+          "heading": "双时间尺度 LR：同一 optimizer 内分别控制 Actor 与 Critic",
+          "text": "FRS-TRAIN-v015 已激活同一个 Adam optimizer 的两个命名 parameter group：Actor LR = 3e-6，Critic LR = 1e-5，schedule 固定。Critic-only 令 Actor weight = 0，并保持 Actor 参数和 Adam state 不变；Actor-ramp 令 Actor weight 从 0 逐步增至 1，同时 Critic 持续以自己的 LR 更新；Joint Optimize 保持两者共同更新。checkpoint-v10 严格保存组名、成员、两个 LR、moments 和共享 step count；checkpoint-v9 只保留为历史证据，不能 resume。离线工程证据已通过，策略质量仍需新训练验证。"
         },
         {
           "heading": "Recalibrate：每次 K 增长，Critic 重新进入校准",

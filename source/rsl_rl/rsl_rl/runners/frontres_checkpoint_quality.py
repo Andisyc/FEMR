@@ -23,7 +23,7 @@ from rsl_rl.frontres.frontres_segment_warmup import (
 )
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-_V015_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v9"
+_V015_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v10"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
 _V015_HSL_CHECKPOINT_IDENTITY_KEY = "frontres_v015_hsl_checkpoint_identity"
 _V015_HSL_CHECKPOINT_FORMAT = "frontres-v017-hsl-proposal-v2"
@@ -144,7 +144,7 @@ def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, A
         "method_contract_id": "FRS-METHOD-v017",
         "gain_contract_id": "FRS-GAIN-v007",
         "optimization_contract_id": "FRS-PPO-v005",
-        "training_contract_id": "FRS-TRAIN-v014",
+        "training_contract_id": "FRS-TRAIN-v015",
         "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -374,7 +374,7 @@ def _inspect_frontres_v015_hsl_quality_payload(
     if (
         identity["format"] != _V015_HSL_CHECKPOINT_FORMAT
         or identity["method_contract_id"] != "FRS-METHOD-v017"
-        or identity["training_contract_id"] != "FRS-TRAIN-v014"
+        or identity["training_contract_id"] != "FRS-TRAIN-v015"
         or identity["objective"] != "proposal_only_current_antidr_delta_se3"
         or identity["future_intent_layout"] != _v015_quality_expected_layout()
         or identity["action"]
@@ -424,7 +424,7 @@ def _inspect_frontres_v015_hsl_quality_payload(
         format=_V015_HSL_CHECKPOINT_FORMAT,
         file_sha256=file_sha256,
         method_contract_id="FRS-METHOD-v017",
-        training_contract_id="FRS-TRAIN-v014",
+        training_contract_id="FRS-TRAIN-v015",
         gain_contract_id=None,
         ppo_contract_id=None,
         future_intent_layout=tuple(_v015_quality_expected_layout().items()),
@@ -450,7 +450,7 @@ def _inspect_frontres_v015_policy_quality_payload(
     if (
         identity.get("format") != _V015_CHECKPOINT_FORMAT
         or identity.get("method_contract_id") != "FRS-METHOD-v017"
-        or identity.get("training_contract_id") != "FRS-TRAIN-v014"
+        or identity.get("training_contract_id") != "FRS-TRAIN-v015"
         or identity.get("gain_contract_id") != "FRS-GAIN-v007"
         or identity.get("optimization_contract_id") != "FRS-PPO-v005"
         or identity.get("future_intent_layout") != _v015_quality_expected_layout()
@@ -470,7 +470,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         raise RuntimeError("quality policy has an incompatible v007 scalar/Physics identity")
     curriculum = identity.get("curriculum")
     if not isinstance(curriculum, Mapping):
-        raise RuntimeError("quality policy has no FRS-TRAIN-v014 curriculum identity")
+        raise RuntimeError("quality policy has no FRS-TRAIN-v015 curriculum identity")
     schedule = curriculum.get("schedule")
     require_frontres_v013_campaign_schedule(schedule if isinstance(schedule, (tuple, list)) else ())
     iteration = int(curriculum.get("absolute_iteration", -1))
@@ -500,7 +500,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         "d_cap": expected.d_cap,
     }
     if dict(curriculum) != expected_payload:
-        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v014 curriculum identity")
+        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v015 curriculum identity")
     transaction = identity.get("transaction")
     if not isinstance(transaction, Mapping) or str(transaction.get("state", "")) not in {"idle", "committed"}:
         raise RuntimeError("quality policy rejects partial or malformed transaction identity")
@@ -534,7 +534,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         format=_V015_CHECKPOINT_FORMAT,
         file_sha256=file_sha256,
         method_contract_id="FRS-METHOD-v017",
-        training_contract_id="FRS-TRAIN-v014",
+        training_contract_id="FRS-TRAIN-v015",
         gain_contract_id="FRS-GAIN-v007",
         ppo_contract_id="FRS-PPO-v005",
         future_intent_layout=tuple(_v015_quality_expected_layout().items()),

@@ -2,15 +2,15 @@
 
 Status: visual interaction approved. The K-DR interaction reopened by E-FI-107
 was human-confirmed and activated as TRAIN-v013 on 2026-08-03, then retained by
-the active direct-action TRAIN-v014 contract. Perturbation Data, K-step
+the active direct-action and fixed split-LR TRAIN-v015 contract. Perturbation Data, K-step
 Curriculum and Actor & Critic Warmup project the active nested K-DR curriculum.
 E-FI-109 closes the offline curriculum migration;
 E-FI-111 through E-FI-119 confirm DP01 through DP10 for Phase A, including the
 formal `actor_ramp` identity, same-Critic K-transition recalibration, and exact
 future deployment/Noisy offsets `(1,2)` through the offline 928/158/770 route.
-Formal Runtime Audit Phase A offline review is complete; Phase B/live remains
-unconfirmed and unauthorized. E-FI-120 projects the remaining live-only facts
-into eight human-reviewable cards in Atlas 06; it does not add runtime evidence.
+E-FI-135 confirms named Actor/Critic `3e-6/1e-5` groups, fixed scheduling,
+committed telemetry and checkpoint-v10 round-trip offline. The new campaign's
+bounded official transaction remains live-unconfirmed.
 
 Interactive page: `../02_frontres_design_inspector.html`
 

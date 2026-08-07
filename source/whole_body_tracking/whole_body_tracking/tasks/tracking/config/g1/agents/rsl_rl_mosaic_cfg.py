@@ -861,8 +861,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
                                            # → anchor_ori terminations → σ explosion.
         num_learning_epochs  = 5,
         num_mini_batches     = 16,       # split the 288k-step FrontRES rollout into smaller update chunks to reduce CUDA peak memory
-        learning_rate        = 1.0e-4,
-        schedule             = "fixed",    # fixed: adaptive KL deadlocks with FrontRES 8-DoF output
+        learning_rate        = 3.0e-6,      # FRS-TRAIN-v015 Actor group
+        critic_learning_rate = 1.0e-5,      # FRS-TRAIN-v015 scalar Critic group
+        schedule             = "fixed",    # split-LR identity rejects adaptive writes
         gamma                = 0.99,
         lam                  = 0.95,
         desired_kl           = 0.01,       # kept as reference (not used in fixed mode)

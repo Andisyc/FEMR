@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import math
 import os
 from pathlib import Path
 import sys
@@ -56,7 +57,7 @@ def _load_stage_preset():
         "_parse_frontres_v015_k_curriculum",
         "_apply_frontres_stage_preset",
         "_apply_frontres_segment_ppo_schedule_override",
-        "_apply_frontres_segment_ppo_lr_override",
+        "_apply_frontres_segment_split_lr_override",
         "_configure_frontres_stage3_segment_hrl_env_cfg",
     }
     nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in wanted]
@@ -66,6 +67,7 @@ def _load_stage_preset():
         "RslRlOnPolicyRunnerCfg": object,
         "os": os,
         "tempfile": tempfile,
+        "math": math,
         "_FEMR_DATA_ROOT": str(ROOT.parent),
         "_FRONTRES_RUNTIME_TEMP_HANDLES": [],
     }
@@ -75,7 +77,7 @@ def _load_stage_preset():
         namespace["_configure_frontres_asset_converter_dir"],
         namespace["_apply_frontres_stage_preset"],
         namespace["_apply_frontres_segment_ppo_schedule_override"],
-        namespace["_apply_frontres_segment_ppo_lr_override"],
+        namespace["_apply_frontres_segment_split_lr_override"],
         namespace["_configure_frontres_stage3_segment_hrl_env_cfg"],
     )
 
@@ -85,7 +87,7 @@ def _load_stage_preset():
     _configure_frontres_asset_converter_dir,
     _apply_frontres_stage_preset,
     _apply_frontres_segment_ppo_schedule_override,
-    _apply_frontres_segment_ppo_lr_override,
+    _apply_frontres_segment_split_lr_override,
     _configure_frontres_stage3_segment_hrl_env_cfg,
 ) = _load_stage_preset()
 
@@ -198,6 +200,7 @@ def _alg_cfg() -> SimpleNamespace:
         frontres_segment_reset_mode="unset",
         schedule="fixed",
         learning_rate=1.0e-4,
+        critic_learning_rate=1.0e-5,
     )
 
 
@@ -240,6 +243,8 @@ def _args(**overrides) -> SimpleNamespace:
         "frontres_v015_hsl_initializer_checkpoint": "/tmp/frontres-v017-hsl-proposal-v2.pt",
         "frontres_segment_ppo_schedule": None,
         "frontres_segment_ppo_lr": None,
+        "frontres_segment_actor_lr": None,
+        "frontres_segment_critic_lr": None,
         "experiment_name": None,
         "is_full_resume": None,
         "frontres_checkpoint_interval": None,
@@ -432,14 +437,15 @@ def test_default_frontres_policy_config_is_proposal_only_6d() -> None:
     assert "direct correction proposal = [Δpos(3), Δrpy(3)]" in config
 
 
-def test_stage3_ppo_schedule_override_is_explicit_parse_arg() -> None:
+def test_stage3_ppo_schedule_rejects_adaptive() -> None:
     agent_cfg = _agent_cfg()
 
-    _apply_frontres_stage_preset(agent_cfg, _args(frontres_segment_ppo_schedule="adaptive"))
-    _apply_frontres_segment_ppo_schedule_override(agent_cfg, _args(frontres_segment_ppo_schedule="adaptive"))
-    _probe_stage3_config("stage3_ppo_schedule_override", agent_cfg)
-
-    assert agent_cfg.algorithm.schedule == "adaptive"
+    try:
+        _apply_frontres_segment_ppo_schedule_override(agent_cfg, _args(frontres_segment_ppo_schedule="adaptive"))
+    except ValueError as exc:
+        assert "schedule must be fixed" in str(exc)
+    else:
+        raise AssertionError("FRS-TRAIN-v015 must reject adaptive Stage-3 scheduling")
 
 
 def test_stage3_ppo_schedule_override_rejects_non_stage3() -> None:
@@ -456,42 +462,52 @@ def test_stage3_ppo_schedule_override_rejects_non_stage3() -> None:
         raise AssertionError("PPO schedule override must require Stage 3")
 
 
-def test_stage3_ppo_lr_override_is_explicit_parse_arg() -> None:
+def test_stage3_split_lr_override_is_explicit_and_fixed() -> None:
     agent_cfg = _agent_cfg()
 
-    _apply_frontres_stage_preset(agent_cfg, _args(frontres_segment_ppo_lr=1.0e-6))
-    _apply_frontres_segment_ppo_lr_override(agent_cfg, _args(frontres_segment_ppo_lr=1.0e-6))
-    _probe_stage3_config("stage3_ppo_lr_override", agent_cfg)
+    _apply_frontres_segment_split_lr_override(
+        agent_cfg,
+        _args(frontres_segment_actor_lr=3.0e-6, frontres_segment_critic_lr=1.0e-5),
+    )
+    assert agent_cfg.algorithm.learning_rate == 3.0e-6
+    assert agent_cfg.algorithm.critic_learning_rate == 1.0e-5
 
-    assert agent_cfg.algorithm.learning_rate == 1.0e-6
 
-
-def test_stage3_ppo_lr_override_rejects_non_stage3() -> None:
+def test_stage3_split_lr_override_rejects_non_stage3() -> None:
     agent_cfg = _agent_cfg()
     try:
-        _apply_frontres_segment_ppo_lr_override(
+        _apply_frontres_segment_split_lr_override(
             agent_cfg,
-            _args(frontres_stage="stage1_hsl", frontres_segment_ppo_lr=1.0e-6),
+            _args(frontres_stage="stage1_hsl", frontres_segment_actor_lr=3.0e-6, frontres_segment_critic_lr=1.0e-5),
         )
     except ValueError as exc:
         _probe_exception("rejects_ppo_lr_without_stage3", exc)
-        assert "requires --frontres_stage stage3_segment_hrl" in str(exc)
+        assert "require --frontres_stage stage3_segment_hrl" in str(exc)
     else:
         raise AssertionError("PPO LR override must require Stage 3")
 
 
-def test_stage3_ppo_lr_override_rejects_non_positive_lr() -> None:
+def test_stage3_split_lr_override_rejects_shared_and_partial_inputs() -> None:
     agent_cfg = _agent_cfg()
     try:
-        _apply_frontres_segment_ppo_lr_override(
+        _apply_frontres_segment_split_lr_override(
             agent_cfg,
-            _args(frontres_segment_ppo_lr=0.0),
+            _args(frontres_segment_ppo_lr=1.0e-6),
         )
     except ValueError as exc:
         _probe_exception("rejects_non_positive_ppo_lr", exc)
-        assert "must be positive" in str(exc)
+        assert "rejects --frontres_segment_ppo_lr" in str(exc)
     else:
-        raise AssertionError("PPO LR override must reject non-positive values")
+        raise AssertionError("FRS-TRAIN-v015 must reject the shared LR option")
+    try:
+        _apply_frontres_segment_split_lr_override(
+            agent_cfg,
+            _args(frontres_segment_actor_lr=3.0e-6),
+        )
+    except ValueError as exc:
+        assert "together" in str(exc)
+    else:
+        raise AssertionError("FRS-TRAIN-v015 must reject a partial split-LR override")
 
 
 def test_stage3_rejects_multiple_live_sentinel_modes() -> None:
@@ -599,11 +615,11 @@ if __name__ == "__main__":
     test_retired_optimizer_flags_reject_before_stage3_config_mutation()
     test_stage2_hsl_warmup_constructs_proposal_only_6d_policy()
     test_default_frontres_policy_config_is_proposal_only_6d()
-    test_stage3_ppo_schedule_override_is_explicit_parse_arg()
+    test_stage3_ppo_schedule_rejects_adaptive()
     test_stage3_ppo_schedule_override_rejects_non_stage3()
-    test_stage3_ppo_lr_override_is_explicit_parse_arg()
-    test_stage3_ppo_lr_override_rejects_non_stage3()
-    test_stage3_ppo_lr_override_rejects_non_positive_lr()
+    test_stage3_split_lr_override_is_explicit_and_fixed()
+    test_stage3_split_lr_override_rejects_non_stage3()
+    test_stage3_split_lr_override_rejects_shared_and_partial_inputs()
     test_stage3_rejects_multiple_live_sentinel_modes()
     test_live_sentinel_flags_require_stage3()
     test_stage3_motion_loader_cfg_aligns_with_index_cache()

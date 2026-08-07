@@ -33,8 +33,9 @@ EXTRA_TRAIN_ARGS=("${@:7}")
 
 # B5: PPO safety knobs for direct Delta SE Stage 3.
 
-FRONTRES_SEGMENT_PPO_SCHEDULE="${FRONTRES_SEGMENT_PPO_SCHEDULE:-adaptive}"
-FRONTRES_SEGMENT_PPO_LR="${FRONTRES_SEGMENT_PPO_LR:-1e-6}"
+FRONTRES_SEGMENT_PPO_SCHEDULE="${FRONTRES_SEGMENT_PPO_SCHEDULE:-fixed}"
+FRONTRES_SEGMENT_ACTOR_LR="${FRONTRES_SEGMENT_ACTOR_LR:-3e-6}"
+FRONTRES_SEGMENT_CRITIC_LR="${FRONTRES_SEGMENT_CRITIC_LR:-1e-5}"
 
 # B6: Cache, logging, and distributed launch.
 
@@ -89,7 +90,8 @@ CMD=(
   "${UPDATE_STEPS}"
   "${MODE}"
   --frontres_segment_ppo_schedule "${FRONTRES_SEGMENT_PPO_SCHEDULE}"
-  --frontres_segment_ppo_lr "${FRONTRES_SEGMENT_PPO_LR}"
+  --frontres_segment_actor_lr "${FRONTRES_SEGMENT_ACTOR_LR}"
+  --frontres_segment_critic_lr "${FRONTRES_SEGMENT_CRITIC_LR}"
 )
 
 if [[ ${#EXTRA_TRAIN_ARGS[@]} -gt 0 ]]; then
@@ -115,6 +117,7 @@ echo "[FrontRES Stage3] num_envs=${NUM_ENVS}"
 echo "[FrontRES Stage3] max_iters=${MAX_ITERS}"
 echo "[FrontRES Stage3] update_steps=${UPDATE_STEPS}"
 echo "[FrontRES Stage3] ppo_schedule=${FRONTRES_SEGMENT_PPO_SCHEDULE}"
-echo "[FrontRES Stage3] ppo_lr=${FRONTRES_SEGMENT_PPO_LR}"
+echo "[FrontRES Stage3] actor_lr=${FRONTRES_SEGMENT_ACTOR_LR}"
+echo "[FrontRES Stage3] critic_lr=${FRONTRES_SEGMENT_CRITIC_LR}"
 echo "[FrontRES Stage3] log=${LOG_PATH}"
 echo "[FrontRES Stage3] follow: tail -f ${LOG_PATH}"

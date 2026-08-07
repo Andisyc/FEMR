@@ -93,7 +93,7 @@ def test_lazy_public_facade() -> None:
     before = set(sys.modules)
     interface_module = importlib.import_module("rsl_rl.frontres.frontres_interfaces")
     imported = set(sys.modules).difference(before)
-    assert interface_module.FRONTRES_CHECKPOINT_FORMAT == "frontres-v017-checkpoint-v9"
+    assert interface_module.FRONTRES_CHECKPOINT_FORMAT == "frontres-v017-checkpoint-v10"
     assert not any(name.startswith("isaaclab") for name in imported)
     facade = importlib.import_module("rsl_rl.frontres")
     assert "FrontRESActionCone" not in facade.__all__
@@ -276,11 +276,11 @@ def test_schema_and_identity(interfaces) -> None:
         "method_contract_id": "FRS-METHOD-v017",
         "gain_contract_id": "FRS-GAIN-v007",
         "optimization_contract_id": "FRS-PPO-v005",
-        "training_contract_id": "FRS-TRAIN-v014",
+            "training_contract_id": "FRS-TRAIN-v015",
         "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",
-        "checkpoint_format": "frontres-v017-checkpoint-v9",
+            "checkpoint_format": "frontres-v017-checkpoint-v10",
         "transaction_id": "tx-interface",
         "active_k": 8,
         "active_m": 2,
@@ -289,6 +289,8 @@ def test_schema_and_identity(interfaces) -> None:
         "role_row_count": 8,
         "optimizer_step_delta": 1,
         "update_count": 1,
+        "actor_learning_rate": 3.0e-6,
+        "critic_learning_rate": 1.0e-5,
     }
     interfaces.FrontRESActiveTelemetryView.from_mapping(telemetry)
     missing_checkpoint = dict(telemetry)

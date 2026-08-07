@@ -1,8 +1,8 @@
-# FRS-v017 / TRAIN-v014 Engineering Checklist
+# FRS-v017 / TRAIN-v015 Engineering Checklist
 
 This checklist tracks only the active
-`v017/v007/v005/v014/v004` route. TRAIN-v013/checkpoint-v8 and HSL-v1 remain
-historical evidence only; the direct full-6D route uses HSL-v2/checkpoint-v9.
+`v017/v007/v005/v015/v004` route. TRAIN-v014/checkpoint-v9 and HSL-v1 remain
+historical evidence only; the current route uses HSL-v2/checkpoint-v10.
 
 | Gate | Owner / tier | Acceptance assertion | Status | Evidence / stop |
 | --- | --- | --- | --- | --- |
@@ -36,6 +36,14 @@ historical evidence only; the direct full-6D route uses HSL-v2/checkpoint-v9.
 | V014-DP10-LAYOUT | S1/S2 | the only legal deployment/Noisy q29 future offsets are exactly `(1,2)`; `(1,3)` and other layouts reject before mutation | completed offline | TEST-04/05 and config/layout rejection contracts; E-FI-119 |
 | V014-DP10-AUTHORITY | formal S2 | the real observation reader produces `870D + 58D = 928D`; FrontRES sees 158D, frozen GMT sees 770D, with one actor action and no Clean/root/global future leakage | completed offline; live pending | unmocked observation connectivity + TEST-10; E-FI-119 |
 | V014-DP10-PERSIST | S3 | checkpoint-v9 preserves exact future-layout identity and rejects offset drift before mutation | completed offline | TEST-16 strict checkpoint contract; E-FI-119 |
+| V015-GOV-AUTH | governance | TRAIN-v015/checkpoint-v10 is active; v014 is historical; registry and Inspector agree | completed | active contract/registry/Inspector; E-FI-135 |
+| V015-SPLIT-GROUPS | S1 | one Adam has exactly named, disjoint Actor `3e-6` and Critic `1e-5` groups; fixed std is excluded | completed offline | real optimizer owner contract; E-FI-135 |
+| V015-PHASE-COMMIT | S1/S2 | critic-only preserves Actor parameters and Adam state while Critic changes; exact-one count is shared | completed offline | optimizer and formal transaction contracts; E-FI-135 |
+| V015-CONFIG | S1/S2 | official Stage-3 composition installs fixed split LR; shared, adaptive and partial inputs reject | completed offline | entrypoint/preflight contracts; E-FI-135 |
+| V015-TELEMETRY | S2 | final committed serializer emits exact Actor/Critic LR facts without training feedback | completed offline | transaction/typed telemetry contracts; E-FI-135 |
+| V015-PERSIST | S3 | checkpoint-v10 round-trips groups/LRs/moments/count and v9/missing/duplicate/overlap/nonfinite/malformed identity rejects pre-mutation | completed offline | strict checkpoint contract; E-FI-135 |
+| V015-REGRESSION | S0-S3 | complete affected Stage-3 suite retains all prior method behavior | completed offline | 50/50 contract suite; E-FI-135 |
+| V015-LIVE | live S4/S3 | one official K8/M2 critic-only transaction emits split groups/LRs, Actor zero delta, Critic nonzero delta, step delta 1 and checkpoint-v10 | pending external authority/artifact | no new live run performed; previous v014 evidence is stale for optimizer/checkpoint identity |
 | PHASE-B-01 | live S4 | official train entry emits active contract/HSL-v2/K8-M2/offset `(1,2)` identity with no legacy route | runtime-confirmed | AUDIT-B01 / Runtime Audit Atlas R01 / E-FI-122 |
 | PHASE-B-02 | live S4 | sampler emits two sealed Segments x exact M=2 with four immutable policy rows and no reset resampling | runtime-confirmed | AUDIT-B02 / R02 / E-FI-123 / E-FI-124 / E-FI-126 |
 | PHASE-B-03 | live S4 | real reset/command/observation route proves B=8 roles and `870+58 -> 928 -> 158/770` with Noisy provenance | runtime-confirmed | AUDIT-B03 / R03 / E-FI-128 |

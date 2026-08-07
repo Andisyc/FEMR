@@ -438,7 +438,7 @@ def main() -> None:
     assert 'SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"' in stage3
     assert 'EXTRA_TRAIN_ARGS=("${@:7}")' in stage3
     assert 'SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size.' in stage3
-    assert '--frontres_segment_ppo_schedule adaptive' in stage3
+    assert 'FRS-TRAIN-v015 uses fixed Actor LR=3e-6 and Critic LR=1e-5' in stage3
     assert '--frontres_segment_cache_dir "${CACHE_DIR}"' in stage3
     assert '--frontres_segment_shard_cache_size "${SHARD_CACHE_SIZE}"' in stage3
     assert '--frontres_segment_live_update_steps "${UPDATE_STEPS}"' in stage3

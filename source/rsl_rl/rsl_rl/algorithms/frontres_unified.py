@@ -45,7 +45,7 @@ def validate_frontres_v015_stage3_supervision_config(
     resolve_frontres_future_intent_layout(offsets, FRONTRES_FUTURE_INTENT_LAYOUT_VERSION)
     if abs(float(lambda_supervised)) > 1.0e-12 or abs(float(lambda_supervised_min)) > 1.0e-12:
         raise ValueError(
-                "FRS-TRAIN-v014 requires lambda_supervised=0 and lambda_supervised_min=0 "
+                "FRS-TRAIN-v015 requires lambda_supervised=0 and lambda_supervised_min=0 "
             "for the v015 future-intent Stage-3 route; HSL is initialization-only"
         )
 
@@ -102,6 +102,7 @@ class FrontRESUnified:
         value_loss_coef=1.0,
         entropy_coef=0.0,
         learning_rate=1e-3,
+        critic_learning_rate: float | None = None,
         max_grad_norm=1.0,
         use_clipped_value_loss=True,
         schedule="fixed",
@@ -214,9 +215,23 @@ class FrontRESUnified:
 
         self.policy = policy.to(self.device)
 
-        trainable_params = self._collect_trainable_params(policy)
+        strict_split_lr = bool(frontres_formal_transaction_enabled and not frontres_policy_quality_eval_only)
+        if strict_split_lr:
+            if str(schedule).lower() != "fixed":
+                raise ValueError("FRS-TRAIN-v015 requires schedule='fixed' for Stage-3 training")
+            actor_lr = self._require_positive_finite_lr(learning_rate, name="actor_learning_rate")
+            critic_lr = self._require_positive_finite_lr(critic_learning_rate, name="critic_learning_rate")
+            trainable_params = self._collect_trainable_param_groups(
+                policy,
+                actor_learning_rate=actor_lr,
+                critic_learning_rate=critic_lr,
+            )
+        else:
+            actor_lr = self._require_positive_finite_lr(learning_rate, name="learning_rate")
+            critic_lr = None
+            trainable_params = self._collect_trainable_params(policy)
         optimizer_type = FrontRESTrackedAdam if frontres_formal_transaction_enabled else optim.Adam
-        self.optimizer = optimizer_type(trainable_params, lr=learning_rate)
+        self.optimizer = optimizer_type(trainable_params, lr=actor_lr)
 
         self.storage: RolloutStorage = None
         self.transition = RolloutStorage.Transition()
@@ -233,7 +248,9 @@ class FrontRESUnified:
         self.use_clipped_value_loss = use_clipped_value_loss
         self.desired_kl = desired_kl
         self.schedule = schedule
-        self.learning_rate = learning_rate
+        self.learning_rate = actor_lr
+        self.actor_learning_rate = actor_lr
+        self.critic_learning_rate = critic_lr
         self.normalize_advantage_per_mini_batch = normalize_advantage_per_mini_batch
 
         self.lambda_supervised = lambda_supervised
@@ -269,7 +286,7 @@ class FrontRESUnified:
         self.frontres_method_contract_id = "FRS-METHOD-v017"
         self.frontres_gain_contract_id = "FRS-GAIN-v007"
         self.frontres_optimization_contract_id = "FRS-PPO-v005"
-        self.frontres_training_contract_id = "FRS-TRAIN-v014"
+        self.frontres_training_contract_id = "FRS-TRAIN-v015"
         self.frontres_dr_curriculum_schema_id = "nested-k-dr-four-class-v1"
         self.frontres_scalar_target_id = "clean-anchored-recovery-aware-gain-v1"
         self.frontres_physics_schema_id = "clean-anchored-contact-zmp-survival-v1"
@@ -327,7 +344,7 @@ class FrontRESUnified:
             if self.frontres_gain_beta != 0.02:
                 raise ValueError("FRS-GAIN-v007 formal route requires the frozen beta_init=0.02")
             if not self.frontres_segment_k_curriculum:
-                raise ValueError("FRS-TRAIN-v014 formal transaction requires an explicit K x M x DR curriculum")
+                raise ValueError("FRS-TRAIN-v015 formal transaction requires an explicit K x M x DR curriculum")
             if self.frontres_segment_advantage_normalization != "grouped_scale_only":
                 raise ValueError("v015 formal transaction requires grouped_scale_only normalization")
             if (
@@ -500,6 +517,45 @@ class FrontRESUnified:
         print("[FrontRESUnified] Reference velocity estimator loaded and frozen")
 
     @staticmethod
+    def _require_positive_finite_lr(value, *, name: str) -> float:
+        if value is None:
+            raise ValueError(f"FRS-TRAIN-v015 requires explicit {name}")
+        lr = float(value)
+        if not math.isfinite(lr) or lr <= 0.0:
+            raise ValueError(f"FRS-TRAIN-v015 requires positive finite {name}")
+        return lr
+
+    @staticmethod
+    def _collect_trainable_param_groups(policy, *, actor_learning_rate: float, critic_learning_rate: float):
+        if not isinstance(policy, (ResidualActorCritic, FrontRESActorCritic)):
+            raise TypeError("FRS-TRAIN-v015 Stage-3 optimizer requires a FrontRES Actor/Critic policy")
+        actor_params = list(policy.residual_actor.parameters())
+        critic_params = list(policy.critic.parameters())
+        if not actor_params or not critic_params:
+            raise ValueError("FRS-TRAIN-v015 requires non-empty Actor and Critic parameter groups")
+        if hasattr(policy, "std") and getattr(policy.std, "requires_grad", False):
+            raise ValueError("FRS-TRAIN-v015 task-space policy std must remain fixed")
+        if hasattr(policy, "log_std") and getattr(policy.log_std, "requires_grad", False):
+            raise ValueError("FRS-TRAIN-v015 task-space policy std must remain fixed")
+        actor_ids = {id(parameter) for parameter in actor_params}
+        critic_ids = {id(parameter) for parameter in critic_params}
+        if actor_ids.intersection(critic_ids):
+            raise ValueError("FRS-TRAIN-v015 Actor and Critic optimizer groups must be disjoint")
+        trainable_ids = {id(parameter) for parameter in policy.parameters() if parameter.requires_grad}
+        if trainable_ids != actor_ids.union(critic_ids):
+            raise ValueError(
+                "FRS-TRAIN-v015 Actor and Critic optimizer groups must exhaust all trainable policy parameters"
+            )
+        print(
+            "[FrontRESUnified] Optimizer groups "
+            f"actor(lr={actor_learning_rate:.6g}) + critic(lr={critic_learning_rate:.6g}); fixed policy std"
+        )
+        return [
+            {"params": actor_params, "lr": actor_learning_rate, "frontres_role": "actor"},
+            {"params": critic_params, "lr": critic_learning_rate, "frontres_role": "critic"},
+        ]
+
+    @staticmethod
     def _collect_trainable_params(policy):
         if isinstance(policy, (ResidualActorCritic, FrontRESActorCritic)):
             params = list(policy.residual_actor.parameters())
@@ -534,7 +590,13 @@ class FrontRESUnified:
                 f"got {self.frontres_training_objective!r}"
             )
         print("=" * 80)
-        print(f"  LR={self.learning_rate}  clip={self.clip_param}  ent_coef={self.entropy_coef}")
+        if self.critic_learning_rate is None:
+            print(f"  LR={self.learning_rate}  clip={self.clip_param}  ent_coef={self.entropy_coef}")
+        else:
+            print(
+                f"  Actor LR={self.actor_learning_rate}  Critic LR={self.critic_learning_rate} "
+                f"schedule={self.schedule}  clip={self.clip_param}  ent_coef={self.entropy_coef}"
+            )
         print(f"  epochs={self.num_learning_epochs}  mini_batches={self.num_mini_batches}")
         print(f"  Supervised  λ={self.lambda_supervised:.3f} → {self.lambda_supervised_min}"
               f"  decay={self.lambda_supervised_decay_rate}"

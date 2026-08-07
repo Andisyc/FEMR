@@ -293,7 +293,7 @@ CONTRACTS = (
     ContractTarget(
         name="v017_checkpoint_resume",
         path="source/rsl_rl/rsl_rl/tests/frontres_v015_checkpoint_resume_contract.py",
-        expected_marker="frontres_v015_checkpoint_resume_contract: v9 strict safe save/resume ok",
+        expected_marker="frontres_v015_checkpoint_resume_contract: v10 strict safe save/resume ok",
         path_class="core_param_path",
         requires_torch=True,
     ),

@@ -86,6 +86,8 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
     return SimpleNamespace(
         policy=policy,
         optimizer=optimizer,
+        actor_learning_rate=3.0e-6,
+        critic_learning_rate=1.0e-5,
         clip_param=0.2,
         value_loss_coef=1.0,
         entropy_coef=0.0,
@@ -108,7 +110,7 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
         frontres_method_contract_id="FRS-METHOD-v017",
         frontres_gain_contract_id="FRS-GAIN-v007",
         frontres_optimization_contract_id="FRS-PPO-v005",
-        frontres_training_contract_id="FRS-TRAIN-v014",
+        frontres_training_contract_id="FRS-TRAIN-v015",
         frontres_scalar_target_id="clean-anchored-recovery-aware-gain-v1",
         frontres_physics_schema_id="clean-anchored-contact-zmp-survival-v1",
         frontres_grouped_schema_id="grouped-all-attempt-scalar-v1",
@@ -198,7 +200,20 @@ def _request(
 ) -> tuple[SimpleNamespace, FrontRESFormalTransactionRequest, _Policy]:
     if runner is None:
         policy = _Policy()
-        optimizer = _TrackingAdam(policy.parameters())
+        optimizer = _TrackingAdam(
+            [
+                {
+                    "params": (*tuple(policy.actor.parameters()), policy.log_std),
+                    "lr": 3.0e-6,
+                    "frontres_role": "actor",
+                },
+                {
+                    "params": tuple(policy.critic.parameters()),
+                    "lr": 1.0e-5,
+                    "frontres_role": "critic",
+                },
+            ]
+        )
         runner = SimpleNamespace(alg=_alg(policy, optimizer), current_learning_iteration=iteration)
     else:
         policy = runner.alg.policy

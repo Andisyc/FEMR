@@ -211,6 +211,9 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
 
     class_name: str = "FrontRESUnified"
 
+    critic_learning_rate: float | None = None
+    """Stage-3 scalar Critic learning rate; explicit under FRS-TRAIN-v015."""
+
     hybrid: bool = True
     """Kept for runner/config compatibility; FrontRESUnified requires True."""
     use_ppo: bool = True

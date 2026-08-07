@@ -82,8 +82,9 @@ if [[ ! -s "${BASE_JSON}" ]]; then
   POLICY_QUALITY_RESULT="${BASE_JSON}" \
   bash run/run_frontres_stage3_segment_hrl.sh \
     "${HSL}" "${MOTIONS}" 8 0 1 policy_quality_eval \
-    --frontres_segment_ppo_schedule adaptive \
-    --frontres_segment_ppo_lr 1e-6 \
+    --frontres_segment_ppo_schedule fixed \
+    --frontres_segment_actor_lr 3e-6 \
+    --frontres_segment_critic_lr 1e-5 \
     >"${BASE_LOG}" 2>&1
   if [[ ! -s "${BASE_JSON}" ]] || grep -q 'Traceback' "${BASE_LOG}"; then
     echo "[P4-CLOSURE] baseline report failed" >&2
@@ -104,8 +105,9 @@ FRONTRES_V015_K_CURRICULUM=8:200:500:0 \
 FRONTRES_V015_RESUME_CHECKPOINT="${MODEL201}" \
 bash run/run_frontres_stage3_segment_hrl.sh \
   "${MODEL201}" "${MOTIONS}" 8 50 1 train \
-  --frontres_segment_ppo_schedule adaptive \
-  --frontres_segment_ppo_lr 1e-6 \
+  --frontres_segment_ppo_schedule fixed \
+  --frontres_segment_actor_lr 3e-6 \
+  --frontres_segment_critic_lr 1e-5 \
   --frontres_checkpoint_interval 50 \
   --frontres_formal_runtime_audit \
   --frontres_segment_critic_warmup_iterations 200 \
@@ -134,8 +136,9 @@ POLICY_QUALITY_POLICY_CHECKPOINT="${POLICY_AFTER}" \
 POLICY_QUALITY_RESULT="${AFTER_JSON}" \
 bash run/run_frontres_stage3_segment_hrl.sh \
   "${HSL}" "${MOTIONS}" 8 0 1 policy_quality_eval \
-  --frontres_segment_ppo_schedule adaptive \
-  --frontres_segment_ppo_lr 1e-6 \
+  --frontres_segment_ppo_schedule fixed \
+  --frontres_segment_actor_lr 3e-6 \
+  --frontres_segment_critic_lr 1e-5 \
   >"${AFTER_LOG}" 2>&1
 
 if [[ ! -s "${AFTER_JSON}" ]]; then

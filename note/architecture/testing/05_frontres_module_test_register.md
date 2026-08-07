@@ -1,13 +1,12 @@
 # FrontRES Module Test Atlas
 
-Status: all 18 human-confirmed active cards pass after the TRAIN-v013 refresh.
+Status: all 18 human-confirmed active cards pass after the TRAIN-v015 split-LR refresh.
 
-Current result: `18 passed / 0 partial / 0 blocked` at E-FI-110. The confirmed
-answers were not changed after observing code. One stale v012 string in the
-TEST-10 executable translation was corrected to v013; its rejection oracle was
-unchanged. This module result admits a human Formal Runtime Audit Phase A
-review but does not prove official connectivity. E-FI-109's earlier Phase A
-result remains separate evidence; Phase B and all live tests remain closed.
+Current result: `18 passed / 0 partial / 0 blocked`. The user-confirmed v015
+optimizer/config/persistence questions are integrated into TEST-01, TEST-02,
+TEST-15 and TEST-16 without adding a duplicate module family. E-FI-135 records
+their execution and the 50/50 affected suite. The new campaign's bounded live
+transaction and policy quality remain separate evidence gates.
 
 Interactive page: `../05_frontres_module_test_atlas.html`
 

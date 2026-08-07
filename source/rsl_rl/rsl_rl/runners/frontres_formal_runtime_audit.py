@@ -259,7 +259,7 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
         "frontres_method_contract_id": "FRS-METHOD-v017",
         "frontres_gain_contract_id": "FRS-GAIN-v007",
         "frontres_optimization_contract_id": "FRS-PPO-v005",
-        "frontres_training_contract_id": "FRS-TRAIN-v014",
+        "frontres_training_contract_id": "FRS-TRAIN-v015",
     }
     for name, expected in required_identity.items():
         assert getattr(alg, name, None) == expected, f"AUDIT-B01 requires {name}={expected}"
@@ -276,7 +276,7 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
         "AUDIT-B01",
         limit=1,
         checkpoint=checkpoint_path,
-        contracts="FRS-METHOD-v017/FRS-GAIN-v007/FRS-PPO-v005/FRS-TRAIN-v014",
+        contracts="FRS-METHOD-v017/FRS-GAIN-v007/FRS-PPO-v005/FRS-TRAIN-v015",
         future_offsets=offsets,
         active_k=8,
         active_m=2,
@@ -476,7 +476,7 @@ def print_segment_replay_transaction_audit(runner: Any, *, result: Any) -> None:
         "method_contract_id": "FRS-METHOD-v017",
         "gain_contract_id": "FRS-GAIN-v007",
         "optimization_contract_id": "FRS-PPO-v005",
-        "training_contract_id": "FRS-TRAIN-v014",
+        "training_contract_id": "FRS-TRAIN-v015",
     }
     for key, expected in required_identity.items():
         assert diagnostics.get(key) == expected, f"active Segment Replay audit requires {key}={expected}"
@@ -529,7 +529,7 @@ def print_segment_replay_transaction_audit(runner: Any, *, result: Any) -> None:
         attempt_voting_weights=attempt_mass,
         optimizer_step_delta=getattr(result, "optimizer_step_delta", "missing"),
         update_invocations=getattr(result, "update_invocation_count", "missing"),
-        contracts="FRS-METHOD-v017/FRS-GAIN-v007/FRS-PPO-v005/FRS-TRAIN-v014",
+        contracts="FRS-METHOD-v017/FRS-GAIN-v007/FRS-PPO-v005/FRS-TRAIN-v015",
     )
 
 
@@ -862,11 +862,11 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
     # B2: Cross-check the top-level resume schedule and coordinated v8 identity.
     identity = payload["frontres_v015_checkpoint_identity"]
     assert isinstance(identity, Mapping), "formal Stage 3 checkpoint identity must be a mapping"
-    assert identity.get("format") == "frontres-v017-checkpoint-v9", "formal audit requires checkpoint-v9"
+    assert identity.get("format") == "frontres-v017-checkpoint-v10", "formal audit requires checkpoint-v10"
     assert identity.get("method_contract_id") == "FRS-METHOD-v017", "formal audit requires FRS-METHOD-v017"
     assert identity.get("gain_contract_id") == "FRS-GAIN-v007", "formal audit requires FRS-GAIN-v007"
     assert identity.get("optimization_contract_id") == "FRS-PPO-v005", "formal audit requires FRS-PPO-v005"
-    assert identity.get("training_contract_id") == "FRS-TRAIN-v014", "formal audit requires FRS-TRAIN-v014"
+    assert identity.get("training_contract_id") == "FRS-TRAIN-v015", "formal audit requires FRS-TRAIN-v015"
     assert identity.get("dr_curriculum_schema_id") == "nested-k-dr-four-class-v1", "formal audit requires TRAIN-v014 DR identity"
     assert identity.get("scalar_target_id") == "clean-anchored-recovery-aware-gain-v1"
     assert identity.get("physics_schema_id") == "clean-anchored-contact-zmp-survival-v1"

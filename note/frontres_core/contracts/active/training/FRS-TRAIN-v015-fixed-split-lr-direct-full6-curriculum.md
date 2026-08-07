@@ -1,13 +1,13 @@
 ---
-contract_id: FRS-TRAIN-v014
+contract_id: FRS-TRAIN-v015
 status: active
-effective_date: 2026-08-03
-updated_date: 2026-08-03
-supersedes: FRS-TRAIN-v013
-scope: Direct full-6D HSL-to-HRL Recovery-Aware scalar training, coordinated K x exact-M schedule, per-K lower-to-higher DR curriculum, Critic recalibration, actor ramp, grouped scalar PPO, and strict checkpoint-v9 persistence
+effective_date: 2026-08-07
+updated_date: 2026-08-07
+supersedes: FRS-TRAIN-v014
+scope: Direct full-6D HSL-to-HRL Recovery-Aware scalar training with one fixed split-LR Adam, coordinated K x exact-M schedule, per-K lower-to-higher DR curriculum, Critic recalibration, actor ramp, grouped scalar PPO, and strict checkpoint-v10 persistence
 ---
 
-# Direct Full-6D Nested K-DR Recovery-Aware Training Curriculum
+# Fixed Split-LR Direct Full-6D Nested K-DR Training Curriculum
 
 ## Design Delta
 
@@ -15,7 +15,7 @@ FRS-TRAIN-v013 named the full-6D world-frame action but retained an older
 implementation identity in which HSL and Stage 3 interpreted Actor outputs
 through `tanh` and separate position/rotation scales. That transform changes
 the meaning of the Actor output and contradicts FRS-METHOD-v017. It is retired.
-FRS-TRAIN-v014 uses one direct action coordinate throughout:
+FRS-TRAIN-v015 preserves the v014 direct action coordinate throughout:
 
 ```text
 158D actor prefix -> finite raw [B,6] Delta SE(3)
@@ -34,7 +34,7 @@ That requirement is retired. Frozen-GMT survival measures baseline difficulty;
 it cannot determine in advance when a learned Repair needs a longer K to expose
 its consequence.
 
-FRS-TRAIN-v014 preserves the proven K8/M2 -> K16/M3 -> K32/M4 transaction
+FRS-TRAIN-v015 preserves the proven K8/M2 -> K16/M3 -> K32/M4 transaction
 schedule and gives each K an inner, deterministic lower-to-higher DR curriculum.
 At every K transition, DR returns to the configured lower informative
 distribution while the same Critic recalibrates. In the current GMT, robot and
@@ -81,14 +81,14 @@ A fresh campaign may initialize only from strict
 ```text
 restore proposal actor parameters, full-6D distribution/std and 158D normalizer
 fresh-initialize Recovery-Aware scalar Critic, optimizer and sampler
-resolve and seal TRAIN-v014 curriculum identity
+resolve and seal TRAIN-v015 curriculum identity
 enter K8/M2 critic_only with actor_loss_weight=0
 ```
 
 HSL initialization and strict Stage-3 resume are mutually exclusive. Old
 HSL-v1 artifacts and Stage-3 checkpoint-v8 artifacts reject before mutation.
 Old Stage-3 Critic, optimizer, transaction or curriculum state cannot initialize
-a fresh v014 campaign.
+a fresh v015 campaign.
 
 ## Scalar Critic Authority
 
@@ -236,20 +236,39 @@ l_j >= N_c_j + N_a_j:
 Actor/std are immutable during critic-only. The same Critic continues updating
 during actor ramp and joint training.
 
+## Fixed Split-LR Optimizer Identity
+
+Stage 3 owns exactly one `FrontRESTrackedAdam` with two named, disjoint and
+exhaustive parameter groups:
+
+```text
+actor:  residual_actor parameters, learning_rate = 3e-6
+critic: scalar Critic parameters, learning_rate = 1e-5
+schedule = fixed
+```
+
+The task-space exploration std remains a fixed buffer and is absent from both
+groups. There is no second optimizer or scheduler. Adaptive or group-wide LR
+writes and the retired shared Stage-3 LR option fail closed. The phase owner
+still controls gradients: critic-only installs no Actor gradient and preserves
+Actor parameters plus Adam state; actor-ramp and joint retain their existing
+loss weights. Both groups participate in the same exact-one optimizer call and
+carry the same persisted optimizer step count.
+
 ## Beta Calibration Boundary
 
 The first bounded calibration uses `beta_init=0.02`. Telemetry may support
 human revision between bounded runs, but training cannot mutate beta. Once
 accepted, beta is fixed across Segments, attempts and K stages.
 
-## Checkpoint-v9 Identity
+## Checkpoint-v10 Identity
 
 ```text
-checkpoint_schema = frontres-v017-checkpoint-v9
+checkpoint_schema = frontres-v017-checkpoint-v10
 method_contract_id = FRS-METHOD-v017
 gain_contract_id = FRS-GAIN-v007
 optimization_contract_id = FRS-PPO-v005
-training_contract_id = FRS-TRAIN-v014
+training_contract_id = FRS-TRAIN-v015
 scalar_target_id = clean-anchored-recovery-aware-gain-v1
 dr_curriculum_schema_id = nested-k-dr-four-class-v1
 ```
@@ -260,9 +279,16 @@ weight; current committed inner-DR progress and `d_cap`; fixed scales, beta and
 Gain identity; sampler/RNG state; exact row/Segment counts; absolute committed
 update; and adjacent committed transaction receipt.
 
-Checkpoint-v8 and earlier, HSL-v1, v012 `g_8/g_16/g_32`, unversioned payloads, mismatched DR specs,
+Checkpoint-v9 and earlier, HSL-v1, v012 `g_8/g_16/g_32`, unversioned payloads, mismatched DR specs,
 hidden episode-length-controller state, partial receipts, HSL-as-resume or
 identity drift reject before any mutable restoration.
+
+The optimizer payload must contain exactly the `actor` and `critic` groups,
+their exact configured LRs, disjoint role-correct membership, optimizer moments
+and one shared nonnegative step count. Missing, duplicated, overlapping or
+non-finite group identity rejects before actor, Critic, optimizer, sampler,
+curriculum or receipt mutation. Checkpoint-v9 is retained only as historical
+evidence and cannot initialize or resume this campaign.
 
 ## Required Telemetry
 
@@ -274,7 +300,7 @@ identity drift reject before any mutable restoration.
 - Contact, support drift, phase-ZMP, survival, sustained lean and unplanned
   support changes;
 - action magnitude and actor/std/Critic parameter deltas;
-- direct-full6 action identity, checkpoint-v9 and all active contract identities;
+- direct-full6 action identity, both group LRs, checkpoint-v10 and all active contract identities;
 - diagnostic-only cross-horizon ordering, never sampler feedback.
 
 ## Required Evidence And Stop Conditions
@@ -282,7 +308,7 @@ identity drift reject before any mutable restoration.
 Deterministic evidence must cover K/M/phase resolution, all four DR class
 boundaries and weights, stage-local DR restart/advance, exact-M and environment
 widths, critic-only isolation, same-Critic K transition, no-resample, no
-Gain/PPO feedback, committed-only progress, checkpoint-v9 roundtrip and v7/
+Gain/PPO feedback, committed-only progress, checkpoint-v10 roundtrip and v9/
 `g_K` pre-mutation rejection. Formal and live evidence remain separate gates.
 
 Stop if any active HSL, Stage-3, PPO, checkpoint, evaluation or deployment

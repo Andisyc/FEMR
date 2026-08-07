@@ -108,7 +108,7 @@ def _hsl_payload(checkpointing) -> dict[str, object]:
         "frontres_v015_hsl_checkpoint_identity": {
             "format": "frontres-v017-hsl-proposal-v2",
             "method_contract_id": "FRS-METHOD-v017",
-            "training_contract_id": "FRS-TRAIN-v014",
+            "training_contract_id": "FRS-TRAIN-v015",
             "objective": "proposal_only_current_antidr_delta_se3",
             "future_intent_layout": _layout(),
             "action": {

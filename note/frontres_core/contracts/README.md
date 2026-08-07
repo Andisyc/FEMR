@@ -7,7 +7,7 @@ This registry is the only default entrypoint for FrontRES contracts.
 | Category | Active contract | Status |
 | --- | --- | --- |
 | Method | `active/method/FRS-METHOD-v017-clean-anchored-recovery-aware-segment-replay.md` | active |
-| Training | `active/training/FRS-TRAIN-v014-direct-full6-action-curriculum.md` | active |
+| Training | `active/training/FRS-TRAIN-v015-fixed-split-lr-direct-full6-curriculum.md` | active |
 | Reward | `active/reward/FRS-GAIN-v007-clean-anchored-recovery-aware-ranking.md` | active |
 | Optimization | `active/optimization/FRS-PPO-v005-grouped-recovery-aware-scalar-update.md` | active |
 | Evaluation | `active/evaluation/FRS-EVAL-v004-clean-anchored-local-and-composition-evaluation.md` | active |
@@ -21,16 +21,16 @@ Concept Figure. Canonical names and block IDs come from
 
 | Design ID | Canonical human name | Active contract section | Figure block ID | Current code/evidence gap |
 | --- | --- | --- | --- | --- |
-| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v017` / `Sealed Local Scenario`; `FRS-TRAIN-v014` / `Per-K Inner DR Curriculum` | `M-02` | TRAIN-v013 curriculum evidence remains valid; E-FI-114 confirms unchanged scheduling under v014 checkpoint-v9 offline. |
-| `FRS-DP-01P` | Perturbation Probing | `FRS-TRAIN-v014` / `Optional GMT Boundary Acquisition` | `M-12` | The current campaign directly configures the measured 2.381 boundary; optional re-probing for a changed setup remains unimplemented and is not required for the current route. |
-| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v017` / `Frozen-Policy Transaction`; `FRS-PPO-v005` / `Grouped Equal-Mass Reduction`; `FRS-TRAIN-v014` / `Exact-M Frozen-Policy Transaction` | `SR-01` | Transaction semantics remain confirmed by E-FI-112; E-FI-114 confirms direct 6D rows and checkpoint-v9 offline. |
-| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v017` / `One-Action K Evidence`; `FRS-TRAIN-v014` / `Nested K x M x DR Schedule` | `M-06` | K/M/DR semantics remain confirmed by E-FI-113; E-FI-114 confirms unchanged one-action-K and checkpoint-v9 offline. |
-| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v017` / `Actor And Information Boundary`; `FRS-TRAIN-v014` / `Design Delta` | `M-04` | E-FI-114 removes active action `tanh`/scale and 12D slicing; HSL/Stage3/storage/log-prob share direct `[B,6]`. Phase B physical execution remains pending. |
+| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v017` / `Sealed Local Scenario`; `FRS-TRAIN-v015` / `Per-K Inner DR Curriculum` | `M-02` | TRAIN-v013 curriculum evidence remains valid; v015 changes only optimizer/checkpoint identity. |
+| `FRS-DP-01P` | Perturbation Probing | `FRS-TRAIN-v015` / `Optional GMT Boundary Acquisition` | `M-12` | The current campaign directly configures the measured 2.381 boundary; optional re-probing for a changed setup remains outside this change. |
+| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v017` / `Frozen-Policy Transaction`; `FRS-PPO-v005` / `Grouped Equal-Mass Reduction`; `FRS-TRAIN-v015` / `Exact-M Frozen-Policy Transaction` | `SR-01` | E-FI-135 confirms the unchanged exact-one route with the new named optimizer identity offline. |
+| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v017` / `One-Action K Evidence`; `FRS-TRAIN-v015` / `Nested K x M x DR Schedule` | `M-06` | K/M/DR semantics are unchanged; checkpoint-v10 binds the same schedule. |
+| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v017` / `Actor And Information Boundary`; `FRS-TRAIN-v015` / `Design Delta` | `M-04` | Direct finite `[B,6]` action semantics are unchanged by the split-LR campaign. |
 | `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v017` / `One-Action K Evidence And Frozen GMT` | `M-10` | E-FI-101 closes the one-action-K/frozen-770D route offline; simulator evidence pending. |
 | `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v017` / `Clean/Noisy/Repair Evidence`; `FRS-GAIN-v007` / `Evidence Authority And Lifecycle`; `FRS-EVAL-v004` / `Local Clean/Noisy/Repair Evaluation` | `Q-PAIR` | E-FI-101 closes typed lifecycle; E-FI-102 proves authoritative capture cardinality offline; physical counts remain Step-2 evidence. |
 | `FRS-DP-07` | Repair Gain | `FRS-GAIN-v007` / `Recovery-Aware Total Gain`; `FRS-PPO-v005` / `Scalar Actor And Critic Signal`; `FRS-EVAL-v004` / `Local Report` | `Q-01` | E-FI-101 closes v007 formula, scalar Critic/PPO, local report and projection retirement offline; beta quality pending. |
-| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v014` / `First Entry From HSL` | `M-03` | E-FI-114 confirms HSL-v2 direct full-6D coordinates and HSL-v1 pre-mutation rejection offline. |
-| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v014` / `Critic Recalibration And Actor Ramp` | `M-05` | E-FI-118 unifies the formal phase identity as `critic_only -> actor_ramp -> joint`, proves the same Critic survives K8->K16->K32, and preserves Actor/std parameters plus optimizer state during critic-only recalibration. |
+| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v015` / `First Entry From HSL` | `M-03` | HSL-v2 remains Actor-only initialization; Critic and split optimizer start fresh. |
+| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v015` / `Critic Recalibration And Actor Ramp`; `Fixed Split-LR Optimizer Identity` | `M-05` | E-FI-135 proves `critic_only -> actor_ramp -> joint`, Actor freeze, one Adam with named Actor `3e-6` and Critic `1e-5` groups, exact-one count, telemetry and strict v10 persistence offline. |
 | `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v017` / `Actor And Information Boundary` | `M-11` | E-FI-119 fixes exact deployment/Noisy offsets `(1,2)` at layout/config/formal/checkpoint boundaries and proves the unmocked offline 928/158/770 route; Phase B/live remains pending. |
 
 ## Active Recovery-Aware Contract Migration
@@ -39,14 +39,15 @@ Human review of all ten Design Inspector cards completed on 2026-08-01.
 The reopened Perturbation Data, K-step Curriculum and Actor & Critic Warmup
 details were re-confirmed on 2026-08-03. The subsequent DP04 Phase A review
 confirmed that the active implementation must remove its older squashed action
-coordinate, which is activated as FRS-TRAIN-v014.
+coordinate. FRS-TRAIN-v015 retains that direct action and activates the fixed
+split-LR/checkpoint-v10 campaign identity.
 The coordinated active semantic authority is now:
 
 ```text
 FRS-METHOD-v017
 FRS-GAIN-v007
 FRS-PPO-v005
-FRS-TRAIN-v014
+FRS-TRAIN-v015
 FRS-EVAL-v004
 ```
 

@@ -158,45 +158,45 @@
           "id": "AUDIT-R07",
           "title": "07 Grouped PPO 与 Exact-One Update",
           "summary": "确认四条 attempt 按两个 Segment 公平归约，整个 sealed transaction 只发生一次 optimizer update",
-          "owns": "group mass、scalar PPO loss、phase weight、Actor/Critic delta、optimizer step count",
+          "owns": "group mass、scalar PPO loss、phase weight、Actor/Critic delta、两个命名 LR group、optimizer step count",
           "mustNot": "收集期间不得更新；legacy updater 不得进入；critic_only 不得改变 Actor/std",
           "designIds": ["FRS-DP-02", "FRS-DP-07", "FRS-DP-09"],
-          "objects": ["2 equal Segment groups", "optimizer step delta=1", "K8 critic_only", "actor delta=0", "critic delta>0"],
+          "objects": ["2 equal Segment groups", "actor LR=3e-6", "critic LR=1e-5", "optimizer step delta=1", "K8 critic_only", "actor delta=0", "critic delta>0"],
           "files": [
             {"id": "R07-1", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "grouped scalar PPO owner", "functions": ["compute_frontres_segment_ppo_loss()", "step_frontres_v005_scalar_optimizer()"], "sourceLine": 277, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=277"},
             {"id": "R07-2", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", "role": "transaction commit owner", "functions": ["run_frontres_formal_transaction_update()"], "sourceLine": 243, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_formal_transaction.py&line=243"}
           ],
           "mainRoute": [
             "B1 sealed four-row batch -> two equal Segment groups",
-            "B2 grouped scalar loss -> one optimizer call",
+            "B2 grouped scalar loss -> named Actor/Critic groups -> one optimizer call",
             "B3 critic_only commit -> Critic changes, Actor/std unchanged"
           ],
           "mainRouteTitles": ["公平归约 Transaction", "执行一次 Optimizer", "核验 Phase 参数变化"],
-          "review": ["AUDIT-B07：打印 group mass、loss/advantage、before/after steps 与 parameter deltas", "正确结果：step_delta=1；fresh K8 critic_only 的 Actor/std delta=0"],
-          "tests": ["Offline instrumentation contract passed; real optimizer state remains live-only"],
-          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B07"
+          "review": ["AUDIT-B07：打印 group mass、Actor/Critic LR、before/after steps 与 parameter deltas", "正确结果：LR=3e-6/1e-5，step_delta=1；fresh K8 critic_only 的 Actor/std delta=0"],
+          "tests": ["TRAIN-v015 split groups and critic-only state freeze pass offline; new official transaction remains live-only"],
+          "gap": "STALE_RERUN_REQUIRED for TRAIN-v015；offline E-FI-135，previous E-FI-128 used the v014 optimizer identity"
         },
         {
           "id": "AUDIT-R08",
           "title": "08 Commit、Telemetry 与 Checkpoint",
-          "summary": "确认只有完整 transaction 才推进 iteration/curriculum 并保存严格 checkpoint-v9，日志能够复原本次运行事实",
-          "owns": "committed receipt、absolute iteration、curriculum progress、checkpoint-v9、GMT hash、structured telemetry",
+          "summary": "确认只有完整 transaction 才推进 iteration/curriculum 并保存严格 checkpoint-v10，日志能够复原两个 LR 与本次运行事实",
+          "owns": "committed receipt、absolute iteration、curriculum progress、checkpoint-v10、split-LR identity、GMT hash、structured telemetry",
           "mustNot": "partial transaction 不得推进或保存；checkpoint 身份不得缺失或静默替换 GMT",
           "designIds": ["FRS-DP-01", "FRS-DP-02", "FRS-DP-05", "FRS-DP-09", "FRS-DP-10"],
-          "objects": ["committed=1", "absolute_iteration=1", "checkpoint-v9", "GMT SHA256", "receipt identity"],
+          "objects": ["committed=1", "absolute_iteration=1", "checkpoint-v10", "Actor/Critic LR", "GMT SHA256", "receipt identity"],
           "files": [
             {"id": "R08-1", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "formal telemetry serializer", "functions": ["run_frontres_segment_live_training_loop()", "_print_v015_formal_train_summary()"], "sourceLine": 239, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=239"},
-            {"id": "R08-2", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "checkpoint-v9 Gateway", "functions": ["save_runner()"], "sourceLine": 1327, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1327"}
+            {"id": "R08-2", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "checkpoint-v10 Gateway", "functions": ["save_runner()"], "sourceLine": 1327, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1327"}
           ],
           "mainRoute": [
             "B1 exact-one result -> committed receipt",
             "B2 commit -> iteration/curriculum advance + telemetry",
-            "B3 committed state -> checkpoint-v9 atomic save"
+            "B3 committed state -> checkpoint-v10 atomic save"
           ],
           "mainRouteTitles": ["封存 Transaction Receipt", "推进唯一训练状态", "保存严格 Checkpoint"],
-          "review": ["AUDIT-B08：打印 receipt、iteration、schedule fingerprint、GMT hash、save identity", "正确结果：commit=1、iteration=1、checkpoint-v9；无 partial/mixed state"],
-          "tests": ["Offline instrumentation contract passed; actual committed save remains live-only"],
-          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B08"
+          "review": ["AUDIT-B08：打印 receipt、iteration、两个 LR、schedule fingerprint、GMT hash、save identity", "正确结果：commit=1、iteration=1、checkpoint-v10；无 partial/mixed state"],
+          "tests": ["checkpoint-v10 strict round-trip passes offline; actual committed save remains live-only"],
+          "gap": "STALE_RERUN_REQUIRED for TRAIN-v015；offline E-FI-135，previous E-FI-128 used checkpoint-v9"
         }
       ]
     },

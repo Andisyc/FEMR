@@ -778,7 +778,7 @@ def test_t_hsl_checkpoint_identity_and_pre_mutation() -> None:
         identity = payload["frontres_v015_hsl_checkpoint_identity"]
         assert identity["format"] == "frontres-v017-hsl-proposal-v2"
         assert identity["method_contract_id"] == "FRS-METHOD-v017"
-        assert identity["training_contract_id"] == "FRS-TRAIN-v014"
+        assert identity["training_contract_id"] == "FRS-TRAIN-v015"
         assert identity["future_intent_layout"]["actor_dim"] == 928
         assert identity["future_intent_layout"]["prefix_dim"] == 158
         assert identity["future_intent_layout"]["gmt_dim"] == 770
@@ -1110,14 +1110,14 @@ def test_t_hsl_loss_reject() -> None:
         lambda: unified.validate_frontres_v015_stage3_supervision_config(
             future_offsets=(1, 2), lambda_supervised=1.0, lambda_supervised_min=0.0
         ),
-        "FRS-TRAIN-v014",
+        "FRS-TRAIN-v015",
     )
     _expect_error(
         ValueError,
         lambda: unified.validate_frontres_v015_stage3_supervision_config(
             future_offsets=(1, 2), lambda_supervised=0.0, lambda_supervised_min=0.2
         ),
-        "FRS-TRAIN-v014",
+        "FRS-TRAIN-v015",
     )
     unified.validate_frontres_v015_stage3_supervision_config(
         future_offsets=(1, 2), lambda_supervised=0.0, lambda_supervised_min=0.0
@@ -1265,7 +1265,7 @@ def test_t_hsl_direct_write_reject() -> None:
             is_task_space_mode=True,
             n_train=1,
         ),
-        "FRS-TRAIN-v014",
+        "FRS-TRAIN-v015",
     )
     runner.alg.lambda_supervised = 0.0
     rollout_step._write_supervised_target_before_step(

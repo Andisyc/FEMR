@@ -17,11 +17,11 @@ from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 FRONTRES_METHOD_CONTRACT_ID = "FRS-METHOD-v017"
 FRONTRES_GAIN_CONTRACT_ID = "FRS-GAIN-v007"
 FRONTRES_OPTIMIZATION_CONTRACT_ID = "FRS-PPO-v005"
-FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v014"
+FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v015"
 FRONTRES_SCALAR_TARGET_ID = "clean-anchored-recovery-aware-gain-v1"
 FRONTRES_PHYSICS_SCHEMA_ID = "clean-anchored-contact-zmp-survival-v1"
 FRONTRES_GROUPED_SCHEMA_ID = "grouped-all-attempt-scalar-v1"
-FRONTRES_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v9"
+FRONTRES_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v10"
 FRONTRES_DR_CURRICULUM_SCHEMA_ID = "nested-k-dr-four-class-v1"
 
 
@@ -149,7 +149,7 @@ class FrontRESActiveTransactionRequestView:
             if isinstance(value, bool) or int(value) < 0:
                 raise ValueError(f"FrontRES request {name} must be a nonnegative integer")
         if self.warmup_phase_name not in {"critic_only", "actor_ramp", "joint"}:
-            raise ValueError("FrontRES request has an invalid TRAIN-v014 phase")
+            raise ValueError("FrontRES request has an invalid TRAIN-v015 phase")
         if not math.isfinite(float(self.warmup_actor_loss_weight)) or not 0.0 <= float(
             self.warmup_actor_loss_weight
         ) <= 1.0:
@@ -250,6 +250,8 @@ class FrontRESActiveTelemetryView:
     shape: FrontRESActiveTransactionShape
     optimizer_step_delta: int
     update_count: int
+    actor_learning_rate: float
+    critic_learning_rate: float
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any]) -> "FrontRESActiveTelemetryView":
@@ -270,6 +272,8 @@ class FrontRESActiveTelemetryView:
             "role_row_count",
             "optimizer_step_delta",
             "update_count",
+            "actor_learning_rate",
+            "critic_learning_rate",
         }
         missing = tuple(sorted(required.difference(values)))
         if missing:
@@ -295,6 +299,8 @@ class FrontRESActiveTelemetryView:
             ),
             optimizer_step_delta=int(values["optimizer_step_delta"]),
             update_count=int(values["update_count"]),
+            actor_learning_rate=float(values["actor_learning_rate"]),
+            critic_learning_rate=float(values["critic_learning_rate"]),
         )
         view.validate()
         return view
@@ -306,6 +312,8 @@ class FrontRESActiveTelemetryView:
             raise ValueError("FrontRES telemetry requires transaction identity")
         if self.optimizer_step_delta != 1 or self.update_count != 1:
             raise ValueError("FrontRES telemetry requires exact-one update identity")
+        if self.actor_learning_rate != 3.0e-6 or self.critic_learning_rate != 1.0e-5:
+            raise ValueError("FRS-TRAIN-v015 telemetry requires Actor LR=3e-6 and Critic LR=1e-5")
 
 
 class FrontRESTransactionLifecyclePort(Protocol):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CPU-only S3 contract for strict TRAIN-v014 checkpoint-v9 persistence."""
+"""CPU-only S3 contract for strict TRAIN-v015 checkpoint-v10 persistence."""
 
 from __future__ import annotations
 
@@ -117,7 +117,7 @@ def _runner(layout_module, policy_base, *, iteration: int, gmt_checkpoint_path: 
             super().__init__()
             self.residual_actor = torch.nn.Linear(158, 6)
             self.critic = torch.nn.Linear(928, 1)
-            self.std = torch.nn.Parameter(torch.full((6,), 0.7))
+            self.register_buffer("std", torch.full((6,), 0.7))
             self.num_actor_obs = 928
             self.num_frontres_obs = 158
             self.num_task_corrections = 6
@@ -131,8 +131,20 @@ def _runner(layout_module, policy_base, *, iteration: int, gmt_checkpoint_path: 
 
     policy = _Policy()
     optimizer = torch.optim.Adam(
-        [parameter for parameter in policy.parameters() if parameter.requires_grad],
-        lr=1.0e-3,
+        [
+            {
+                "params": list(policy.residual_actor.parameters()),
+                "lr": 3.0e-6,
+                "frontres_role": "actor",
+                "frontres_step_count": 0,
+            },
+            {
+                "params": list(policy.critic.parameters()),
+                "lr": 1.0e-5,
+                "frontres_role": "critic",
+                "frontres_step_count": 0,
+            },
+        ]
     )
     alg = SimpleNamespace(
         policy=policy,
@@ -145,13 +157,16 @@ def _runner(layout_module, policy_base, *, iteration: int, gmt_checkpoint_path: 
         frontres_segment_max_horizon_k=32,
         frontres_gain_beta=0.02,
         frontres_formal_runtime_audit=False,
+        learning_rate=3.0e-6,
+        actor_learning_rate=3.0e-6,
+        critic_learning_rate=1.0e-5,
         rnd=None,
     )
     return SimpleNamespace(
         alg=alg,
         current_learning_iteration=iteration,
         cfg={"is_full_resume": True},
-        alg_cfg={"learning_rate": 1.0e-3},
+        alg_cfg={"learning_rate": 3.0e-6, "critic_learning_rate": 1.0e-5},
         policy_cfg={
             "init_noise_std": 1.0,
             "noise_std_type": "scalar",
@@ -183,7 +198,7 @@ def _receipt(checkpointing, *, training_iteration: int = 2) -> dict[str, object]
             "method_contract_id": "FRS-METHOD-v017",
             "gain_contract_id": "FRS-GAIN-v007",
             "optimization_contract_id": "FRS-PPO-v005",
-            "training_contract_id": "FRS-TRAIN-v014",
+            "training_contract_id": "FRS-TRAIN-v015",
             "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -243,11 +258,16 @@ def main() -> None:
         payload = torch.load(path, weights_only=False)
         identity = payload["frontres_v015_checkpoint_identity"]
         assert set(payload["frontres_v013_rng_state"]) == {"python", "numpy", "torch_cpu", "torch_cuda"}
-        assert identity["format"] == "frontres-v017-checkpoint-v9"
+        assert identity["format"] == "frontres-v017-checkpoint-v10"
         assert identity["method_contract_id"] == "FRS-METHOD-v017"
         assert identity["gain_contract_id"] == "FRS-GAIN-v007"
         assert identity["optimization_contract_id"] == "FRS-PPO-v005"
-        assert identity["training_contract_id"] == "FRS-TRAIN-v014"
+        assert identity["training_contract_id"] == "FRS-TRAIN-v015"
+        assert [group["frontres_role"] for group in payload["optimizer_state_dict"]["param_groups"]] == [
+            "actor",
+            "critic",
+        ]
+        assert [group["lr"] for group in payload["optimizer_state_dict"]["param_groups"]] == [3.0e-6, 1.0e-5]
         assert identity["dr_curriculum_schema_id"] == "nested-k-dr-four-class-v1"
         assert identity["scalar_target_id"] == "clean-anchored-recovery-aware-gain-v1"
         assert identity["grouped_schema_id"] == "grouped-all-attempt-scalar-v1"
@@ -278,8 +298,8 @@ def main() -> None:
             torch.testing.assert_close(fresh.alg.policy.critic.state_dict()[name], value)
 
         for label, mutate, message in (
+            ("v9", lambda item: item.update(format="frontres-v017-checkpoint-v9"), "contract or format"),
             ("v8", lambda item: item.update(format="frontres-v015-checkpoint-v8"), "contract or format"),
-            ("v7", lambda item: item.update(format="frontres-v015-checkpoint-v7"), "contract or format"),
             ("g-k", lambda item: item["curriculum"].update(g_K=2.0), "stage/phase/DR"),
             ("old-phase", lambda item: item["curriculum"].update(phase="actor_warmup"), "stage/phase/DR"),
             ("beta", lambda item: item["gain"].update(beta=0.2), "beta identity"),
@@ -294,6 +314,53 @@ def main() -> None:
             _expect_error(lambda: checkpointing.load_runner(target, str(tampered_path)), message)
             for name, value in before.items():
                 torch.testing.assert_close(target.alg.policy.residual_actor.state_dict()[name], value)
+            assert not hasattr(target, "_frontres_last_loaded_checkpoint_path")
+
+        optimizer_tampers = (
+            (
+                "missing-role",
+                lambda groups: groups[0].pop("frontres_role"),
+                "exact actor/critic optimizer groups",
+            ),
+            (
+                "duplicate-role",
+                lambda groups: groups[1].update(frontres_role="actor"),
+                "exact actor/critic optimizer groups",
+            ),
+            (
+                "overlap",
+                lambda groups: groups[1]["params"].__setitem__(0, groups[0]["params"][0]),
+                "membership overlaps",
+            ),
+            (
+                "nonfinite-lr",
+                lambda groups: groups[0].update(lr=float("nan")),
+                "LR identity",
+            ),
+            (
+                "malformed-lr",
+                lambda groups: groups[0].update(lr={"not": "a number"}),
+                "LR identity",
+            ),
+            (
+                "step-disagreement",
+                lambda groups: groups[1].update(frontres_step_count=1),
+                "disagree on the persisted step count",
+            ),
+        )
+        for label, mutate, message in optimizer_tampers:
+            tampered = copy.deepcopy(payload)
+            mutate(tampered["optimizer_state_dict"]["param_groups"])
+            tampered_path = Path(directory) / f"optimizer-{label}.pt"
+            torch.save(tampered, tampered_path)
+            target = _runner(layout, policy_base, iteration=0, gmt_checkpoint_path=gmt_path)
+            actor_before = copy.deepcopy(target.alg.policy.residual_actor.state_dict())
+            sampler_before = target._frontres_segment_sampler.value
+            _expect_error(lambda: checkpointing.load_runner(target, str(tampered_path)), message)
+            for name, value in actor_before.items():
+                torch.testing.assert_close(target.alg.policy.residual_actor.state_dict()[name], value)
+            assert target._frontres_segment_sampler.value == sampler_before
+            assert not target._frontres_segment_sampler.loaded
             assert not hasattr(target, "_frontres_last_loaded_checkpoint_path")
 
         different_gmt = _runner(
@@ -355,7 +422,7 @@ def main() -> None:
             checkpointing.torch.save = real_save
         assert atomic_path.read_bytes() == b"last committed checkpoint"
         assert not tuple(Path(directory).glob("atomic.pt.tmp-*"))
-    print("frontres_v015_checkpoint_resume_contract: v9 strict safe save/resume ok", flush=True)
+    print("frontres_v015_checkpoint_resume_contract: v10 strict safe save/resume ok", flush=True)
 
 
 if __name__ == "__main__":

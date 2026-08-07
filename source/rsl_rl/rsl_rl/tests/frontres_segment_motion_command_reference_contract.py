@@ -96,6 +96,11 @@ def _load_commands_module():
 
 
 def _load_dataset_module():
+    rsl_rl = _package("rsl_rl")
+    rsl_rl.__path__ = [str(RSL_ROOT / "rsl_rl")]
+    frontres = _package("rsl_rl.frontres")
+    frontres.__path__ = [str(RSL_ROOT / "rsl_rl" / "frontres")]
+    rsl_rl.frontres = frontres
     return _load(
         "frontres_segment_dataset_for_motion_command_reference_contract",
         RSL_ROOT / "rsl_rl" / "frontres" / "frontres_segment_dataset.py",

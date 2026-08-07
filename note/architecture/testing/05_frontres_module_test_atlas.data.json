@@ -183,8 +183,8 @@
                 "fresh 路径唯一"
               ],
               [
-                "只给 checkpoint-v9 resume",
-                "恢复 v9；绝不再加载 HSL",
+                "只给 checkpoint-v10 resume",
+                "恢复 v10；绝不再加载 HSL",
                 "resume 与 HSL 互斥"
               ],
               [
@@ -211,7 +211,7 @@
       "designId": "TEST-02",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "TRAIN-v014 保留的 K/M/phase、每个 K 的 DR restart/advance、显式 DRStageSpec、committed-only progress 与无隐藏默认值均通过独立边界测试。",
+      "executionSummary": "TRAIN-v015 的 K/M/phase、显式 DR、fixed schedule 与 Actor 3e-6/Critic 1e-5 composition 均通过；shared/adaptive/partial LR 输入拒绝。",
       "blockId": "MOD-CONFIG",
       "title": "Training Config",
       "color": "#3b6f9c",
@@ -263,7 +263,17 @@
           [
             "旧 contract/checkpoint identity",
             "状态修改前拒绝",
-            "active v017/v9 身份唯一"
+            "active v017/v10 身份唯一"
+          ],
+          [
+            "Actor LR=3e-6、Critic LR=1e-5、schedule=fixed",
+            "两值原样进入同一个 optimizer 的命名组",
+            "Stage3 split-LR composition 唯一"
+          ],
+          [
+            "shared LR、adaptive schedule 或只给一个 LR",
+            "配置阶段拒绝",
+            "旧 LR authority 不能静默恢复"
           ],
           [
             "只发生 partial/failed collection，committed iteration 不变",
@@ -1060,7 +1070,7 @@
       "designId": "TEST-15",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "clipped scalar PPO、grouped mass、sign/mask/permutation、exact-one update 与 legacy projection isolation 已测。",
+      "executionSummary": "clipped scalar PPO、grouped mass、exact-one update，以及一个 Adam 内 Actor 3e-6/Critic 1e-5 命名组和 critic-only Actor state freeze 已测。",
       "blockId": "MOD-PPO",
       "title": "Segment PPO",
       "color": "#a5548b",
@@ -1115,6 +1125,16 @@
                 "exact-one update"
               ],
               [
+                "toy Actor/Critic 各有可识别参数，LR=3e-6/1e-5",
+                "两个命名、互斥、穷尽参数组，共享同一 step count",
+                "optimizer partition 正确"
+              ],
+              [
+                "critic_only 下 Actor 与 Critic loss 都非零",
+                "Actor 参数和 Adam state 不变，Critic 改变",
+                "phase owner 真正冻结 Actor commit"
+              ],
+              [
                 "尝试进入旧 projection",
                 "active v017 路径拒绝",
                 "旧 Physics projection 已退役"
@@ -1128,7 +1148,7 @@
       "designId": "TEST-16",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "checkpoint-v9 原子 round-trip、exact future offsets (1,2)、direct 6D action identity、完整 DR/RNG/receipt 身份，以及 offset drift、v8/v7/g_K/partial/tampered pre-mutation reject 均通过；E-FI-119。",
+      "executionSummary": "checkpoint-v10 原子 round-trip 两个命名组、LR、moments、共享 count 与完整训练身份；v9、缺名、重名、重叠、非有限 LR 和篡改均 pre-mutation reject；E-FI-135。",
       "blockId": "MOD-CHECKPOINT",
       "title": "Checkpointing",
       "color": "#3f826d",
@@ -1140,7 +1160,7 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "checkpoint-v9 必须原子保存并严格恢复 direct 6D action identity 和完整训练身份，包括每个 DRStageSpec、当前 d_cap/progress、RNG、optimizer、normalizers、sampler 和相邻 committed receipt；任何旧、缺失或被篡改的 payload 都要在修改内存状态前拒绝。"
+          "text": "checkpoint-v10 必须原子保存并严格恢复 direct 6D action identity、Actor/Critic 命名组、两个 LR、moments、共享 step count 和完整训练身份；任何 v9、缺失、重叠、非有限或被篡改的 payload 都要在修改内存状态前拒绝。"
         },
         {
           "heading": "伪样本测试",
@@ -1153,8 +1173,8 @@
             ],
             "rows": [
               [
-            "完整 v9 payload round-trip",
-            "Actor、std、同一 Critic、optimizer、sampler、normalizers、K/M/DR schedule、d_cap/progress、RNG、receipt 全相同",
+            "完整 v10 payload round-trip",
+            "Actor、固定 std、同一 Critic、两个 optimizer group/LR/moments/count、sampler、normalizers、K/M/DR、RNG、receipt 全相同",
                 "full resume"
               ],
               [
@@ -1168,7 +1188,7 @@
                 "只恢复 committed Transaction"
               ],
               [
-            "给 checkpoint-v8/v7、带 g_K 或 unversioned payload",
+            "给 checkpoint-v9、缺名/重名/重叠 group、非有限 LR 或 unversioned payload",
                 "pre-mutation reject",
                 "旧格式不兼容加载"
               ],
