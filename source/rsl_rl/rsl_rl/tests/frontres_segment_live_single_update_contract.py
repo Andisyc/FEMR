@@ -86,7 +86,7 @@ def _install_import_stubs():
     sys.modules[training_setup.__name__] = training_setup
     runners_pkg.frontres_training_setup = training_setup
 
-    modules_pkg = types.ModuleType("rsl_rl.modules")
+    modules_pkg = _package("rsl_rl.modules")
     modules_pkg.FrontRESActorCritic = object
     sys.modules[modules_pkg.__name__] = modules_pkg
     rsl_rl_pkg.modules = modules_pkg

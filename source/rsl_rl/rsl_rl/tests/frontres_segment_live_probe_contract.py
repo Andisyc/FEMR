@@ -53,6 +53,7 @@ def _install_live_probe_import_stubs():
 
     ppo_module.compute_frontres_segment_ppo_loss = _unused_ppo_loss
     ppo_module.install_frontres_v005_scalar_gradients = lambda *_args, **_kwargs: None
+    ppo_module.install_frontres_v006_scalar_gradients = lambda *_args, **_kwargs: None
     ppo_module.step_frontres_v005_scalar_optimizer = lambda *_args, **_kwargs: None
     sys.modules[ppo_module.__name__] = ppo_module
     algorithms_pkg.frontres_segment_ppo = ppo_module
@@ -94,7 +95,7 @@ def _install_live_probe_import_stubs():
         ROOT / "rsl_rl" / "frontres" / "frontres_interfaces.py",
     )
 
-    modules_pkg = types.ModuleType("rsl_rl.modules")
+    modules_pkg = _package("rsl_rl.modules")
     modules_pkg.FrontRESActorCritic = object
     sys.modules[modules_pkg.__name__] = modules_pkg
     rsl_rl_pkg.modules = modules_pkg

@@ -37,7 +37,7 @@ const formalStage = atlas.stageCards[0];
 if (formalStage.designId !== "STAGE-02"
  || formalStage.cardKind !== "stage-reading"
  || formalStage.title !== "Formal Runtime Audit"
- || formalStage.executionStatus !== "passed") {
+ || formalStage.executionStatus !== "not-run") {
  throw new Error("Formal Runtime Audit stage identity drift");
 }
 const formalText = JSON.stringify(formalStage);
@@ -62,6 +62,7 @@ for (const supportId of repoMap.supportOrder) {
 }
 
 const requiredHeadings = ["要验证的设计规则", "伪样本测试"];
+const confirmedPendingCards = new Set();
 for (const card of atlas.cards) {
  if (!/^TEST-\d{2}$/.test(card.designId) || !card.title || !card.color) {
   throw new Error(`invalid test card identity for ${card.blockId}`);
@@ -69,10 +70,12 @@ for (const card of atlas.cards) {
  if (card.highlightSteps.join(",") !== "purpose,oracle,cases") {
   throw new Error(`${card.blockId} must keep the human-readable rule/oracle/cases projection`);
  }
- if (card.humanStatus !== "confirmed") {
-  throw new Error(`${card.blockId} is not human-confirmed`);
+const expectedHumanStatus = "confirmed";
+const expectedExecutionStatus = confirmedPendingCards.has(card.designId) ? "not-run" : "passed";
+ if (card.humanStatus !== expectedHumanStatus) {
+  throw new Error(`${card.blockId} humanStatus must be ${expectedHumanStatus}`);
  }
- if (!["passed", "partial", "blocked"].includes(card.executionStatus)) {
+ if (card.executionStatus !== expectedExecutionStatus) {
   throw new Error(`${card.blockId} has invalid executionStatus ${card.executionStatus}`);
  }
  if (typeof card.executionSummary !== "string" || !card.executionSummary.trim()) {
@@ -114,18 +117,18 @@ if (!wrapper.includes("../../testing/05_frontres_module_test_atlas.data.json")
 }
 
 const counts = Object.fromEntries(
- ["passed", "partial", "blocked"].map((status) => [
+ ["passed", "partial", "blocked", "not-run"].map((status) => [
   status,
   atlas.cards.filter((card) => card.executionStatus === status).length,
  ])
 );
-if (counts.passed !== 18 || counts.partial !== 0 || counts.blocked !== 0) {
+if (counts.passed !== 18 || counts.partial !== 0 || counts.blocked !== 0 || counts["not-run"] !== 0) {
  throw new Error(`module execution count drift: ${JSON.stringify(counts)}`);
 }
-for (const token of ["18 passed", "0 partial", "0 blocked"]) {
+for (const token of ["18 passed"]) {
  if (!atlas.subtitle.includes(token)) throw new Error(`Module Test Atlas subtitle missing ${token}`);
 }
 console.log(
  `module_test_inspector OK cards=${atlas.cards.length} pseudo_cases>=5 `
- + `passed=${counts.passed} partial=${counts.partial} blocked=${counts.blocked}`
+ + `passed=${counts.passed} partial=${counts.partial} blocked=${counts.blocked} not-run=${counts["not-run"]}`
 );

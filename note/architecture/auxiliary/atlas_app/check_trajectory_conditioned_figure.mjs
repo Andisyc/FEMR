@@ -48,6 +48,11 @@ const requiredNodes = [
   "ICA3-T-09",
   "ICA3-T-10",
   "ICA3-T-11",
+  "ICA3-D-01",
+  "ICA3-D-02",
+  "ICA3-D-03",
+  "ICA3-D-04",
+  "ICA3-D-05",
 ];
 const nodes = new Map((data.nodes || []).map((node) => [node.id, node]));
 
@@ -56,9 +61,6 @@ for (const id of requiredNodes) {
 }
 if (nodes.size !== requiredNodes.length) {
   throw new Error("Concept Figure contains unexpected or retired nodes");
-}
-if ([...nodes.keys()].some((id) => id.includes("-D-"))) {
-  throw new Error("Concept Figure must not retain deployment nodes");
 }
 if (nodes.has("ICA3-T-07")) {
   throw new Error("Support and Query must remain merged into one Rollout node");
@@ -70,17 +72,28 @@ if (
   throw new Error("Rollout node must explain that the first trajectory becomes Context");
 }
 
-const divider = data.layerDivider;
+const dividers = data.layerDividers || (data.layerDivider ? [data.layerDivider] : []);
+if (dividers.length !== 2) {
+  throw new Error("Concept Figure must contain two labeled horizontal layer dividers");
+}
+for (const divider of dividers) {
+  if (
+    !Number.isFinite(divider.x1) ||
+    !Number.isFinite(divider.x2) ||
+    !Number.isFinite(divider.y) ||
+    divider.x1 >= divider.x2
+  ) {
+    throw new Error("Concept Figure contains an invalid horizontal layer divider");
+  }
+}
+const [teacherDivider, demoDivider] = dividers;
 if (
-  !divider ||
-  !Number.isFinite(divider.x1) ||
-  !Number.isFinite(divider.x2) ||
-  !Number.isFinite(divider.y) ||
-  divider.x1 >= divider.x2 ||
-  divider.topLabel !== "Privileged Teacher Training" ||
-  divider.bottomLabel !== "Context-Conditioned Tracker Training"
+  teacherDivider.topLabel !== "Privileged Teacher Training" ||
+  teacherDivider.bottomLabel !== "Context-Conditioned Tracker Training" ||
+  demoDivider.topLabel !== "Context-Conditioned Tracker Training" ||
+  demoDivider.bottomLabel !== "Controlled Real-World Proof of Concept"
 ) {
-  throw new Error("Concept Figure must contain one labeled horizontal layer divider");
+  throw new Error("Concept Figure layer divider labels do not match the three figure layers");
 }
 
 const requiredShapes = new Map([
@@ -242,6 +255,10 @@ const requiredEdges = [
   "ICA3-T-09->ICA3-T-06",
   "ICA3-T-09->ICA3-T-02",
   "ICA3-T-09->ICA3-T-03",
+  "ICA3-D-01->ICA3-D-02",
+  "ICA3-D-02->ICA3-D-03",
+  "ICA3-D-03->ICA3-D-04",
+  "ICA3-D-04->ICA3-D-05",
 ];
 const edgePairs = new Set((data.edges || []).map((edge) => `${edge.from}->${edge.to}`));
 for (const pair of requiredEdges) {
@@ -320,11 +337,28 @@ if (Math.max(...mainAxisGaps) - Math.min(...mainAxisGaps) > 10) {
 
 const upperIds = ["ICA3-P-01", "ICA3-P-02", "ICA3-T-08", "ICA3-P-03", "ICA3-P-04", "ICA3-P-05"];
 const lowerIds = ["ICA3-T-01", "ICA3-T-02", "ICA3-T-11", "ICA3-T-03", "ICA3-T-04", "ICA3-T-05", "ICA3-T-06", "ICA3-T-09", "ICA3-T-10"];
-if (upperIds.some((id) => nodes.get(id).y + nodes.get(id).h >= divider.y)) {
+const demoIds = ["ICA3-D-01", "ICA3-D-02", "ICA3-D-03", "ICA3-D-04", "ICA3-D-05"];
+if (upperIds.some((id) => nodes.get(id).y + nodes.get(id).h >= teacherDivider.y)) {
   throw new Error("Privileged Teacher training nodes must remain above the dashed divider");
 }
-if (lowerIds.some((id) => nodes.get(id).y <= divider.y)) {
-  throw new Error("Tracker training nodes must remain below the dashed divider");
+if (
+  lowerIds.some(
+    (id) => nodes.get(id).y <= teacherDivider.y || nodes.get(id).y + nodes.get(id).h >= demoDivider.y,
+  )
+) {
+  throw new Error("Tracker training nodes must remain between the two dashed dividers");
+}
+if (demoIds.some((id) => nodes.get(id).y <= demoDivider.y)) {
+  throw new Error("Controlled proof-of-concept nodes must remain below the second dashed divider");
+}
+
+const demoAxisGaps = demoIds.slice(1).map((id, index) => {
+  const previous = nodes.get(demoIds[index]);
+  const current = nodes.get(id);
+  return current.x - (previous.x + previous.w);
+});
+if (Math.max(...demoAxisGaps) - Math.min(...demoAxisGaps) > 10) {
+  throw new Error(`demo-axis spacing must remain even: ${demoAxisGaps.join(",")}`);
 }
 
 const upperAxisGaps = upperIds.slice(1).map((id, index) => {

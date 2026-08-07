@@ -23,6 +23,7 @@ class FrontRESSegmentPPOConfig:
     advantage_scale_epsilon: float = 1.0e-8
     max_log_ratio: float = 20.0
     actor_loss_weight: float = 1.0
+    critic_target_id: str = "per-attempt-return-v005"
 
 
 @dataclass(frozen=True)
@@ -149,6 +150,10 @@ class FrontRESSegmentPPOResult:
     post_update_log_ratio_contrib_abs_dim_max: tuple[float, ...] = ()
     post_update_log_jacobian_dim_mean: tuple[float, ...] = ()
     post_update_log_jacobian_abs_dim_max: tuple[float, ...] = ()
+    actor_advantages: tuple[float, ...] = ()
+    critic_value_targets: tuple[float, ...] = ()
+    critic_segment_target_means: tuple[float, ...] = ()
+    critic_segment_keys: tuple[int, ...] = ()
 
     @property
     def should_step(self) -> bool:
@@ -224,6 +229,129 @@ class FrontRESScalarOptimizerCommitResult:
     actor_optimizer_state_preserved: bool
 
 
+@dataclass(frozen=True)
+class FrontRESScalarGradientInstallResult:
+    """Disjoint parameter identities and finite role-specific clipping facts."""
+
+    actor_parameters: tuple[torch.Tensor, ...]
+    critic_parameters: tuple[torch.Tensor, ...]
+    actor_pre_clip_norm: float
+    actor_post_clip_norm: float
+    actor_clip_coefficient: float
+    critic_pre_clip_norm: float
+    critic_post_clip_norm: float
+    critic_clip_coefficient: float
+    actor_nonzero_parameter_count: int
+    critic_nonzero_parameter_count: int
+
+
+def _frontres_scalar_parameter_partition(
+    policy: Any,
+    optimizer_parameters: tuple[torch.Tensor, ...],
+    *,
+    contract_id: str,
+) -> tuple[tuple[torch.Tensor, ...], tuple[torch.Tensor, ...]]:
+    critic = getattr(policy, "critic", None)
+    if not isinstance(critic, torch.nn.Module):
+        raise RuntimeError(f"{contract_id} requires one explicit scalar Critic module")
+    critic_ids = {id(parameter) for parameter in critic.parameters()}
+    actor_parameters = tuple(parameter for parameter in optimizer_parameters if id(parameter) not in critic_ids)
+    critic_parameters = tuple(parameter for parameter in optimizer_parameters if id(parameter) in critic_ids)
+    if not actor_parameters or not critic_parameters:
+        raise RuntimeError(f"{contract_id} requires disjoint actor/std and Critic parameters")
+    return actor_parameters, critic_parameters
+
+
+def _frontres_loss_gradients(
+    loss: torch.Tensor,
+    parameters: tuple[torch.Tensor, ...],
+    *,
+    retain_graph: bool,
+) -> tuple[torch.Tensor, ...]:
+    values = torch.autograd.grad(loss, parameters, retain_graph=retain_graph, allow_unused=True)
+    return tuple(
+        torch.zeros_like(parameter) if gradient is None else gradient
+        for parameter, gradient in zip(parameters, values, strict=True)
+    )
+
+
+def _frontres_gradient_norm(parameters: tuple[torch.Tensor, ...]) -> float:
+    gradients = tuple(parameter.grad.detach().float() for parameter in parameters if parameter.grad is not None)
+    return math.sqrt(sum(float(gradient.square().sum().cpu().item()) for gradient in gradients))
+
+
+def _frontres_nonzero_gradient_count(parameters: tuple[torch.Tensor, ...]) -> int:
+    return sum(
+        int(bool((parameter.grad.detach() != 0.0).any().cpu().item()))
+        for parameter in parameters
+        if parameter.grad is not None
+    )
+
+
+def install_frontres_v006_scalar_gradients(
+    policy: Any,
+    result: FrontRESSegmentPPOResult,
+    cfg: FrontRESSegmentPPOConfig,
+    optimizer_parameters: tuple[torch.Tensor, ...],
+    *,
+    max_grad_norm: float,
+) -> FrontRESScalarGradientInstallResult:
+    """Install and independently clip Actor/std and state-value Critic gradients."""
+
+    # B1: 按 explicit Critic module identity 分组, 产出互斥且完整的 parameter families.
+    actor_parameters, critic_parameters = _frontres_scalar_parameter_partition(
+        policy,
+        optimizer_parameters,
+        contract_id="FRS-PPO-v006",
+    )
+    max_norm = float(max_grad_norm)
+    if not math.isfinite(max_norm) or max_norm <= 0.0:
+        raise ValueError("FRS-PPO-v006 max_grad_norm must be positive and finite")
+
+    # B2: 分别安装 Actor 与 Critic loss gradients, critic-only 保持 Actor grad 为空.
+    actor_frozen = float(cfg.actor_loss_weight) == 0.0
+    if actor_frozen:
+        for parameter in actor_parameters:
+            parameter.grad = None
+    else:
+        actor_loss = float(cfg.actor_loss_weight) * (
+            result.actor_loss - float(cfg.entropy_coef) * result.entropy
+        )
+        actor_gradients = _frontres_loss_gradients(actor_loss, actor_parameters, retain_graph=True)
+        for parameter, gradient in zip(actor_parameters, actor_gradients, strict=True):
+            parameter.grad = gradient.detach().clone()
+    critic_loss = float(cfg.value_loss_coef) * result.value_loss
+    critic_gradients = _frontres_loss_gradients(critic_loss, critic_parameters, retain_graph=False)
+    for parameter, gradient in zip(critic_parameters, critic_gradients, strict=True):
+        parameter.grad = gradient.detach().clone()
+
+    # B3: 两个 family 各自 clip 并发布 finite norms/coefficients, 不共享 clip coefficient.
+    actor_pre = _frontres_gradient_norm(actor_parameters)
+    critic_pre = _frontres_gradient_norm(critic_parameters)
+    if not actor_frozen:
+        torch.nn.utils.clip_grad_norm_(actor_parameters, max_norm)
+    torch.nn.utils.clip_grad_norm_(critic_parameters, max_norm)
+    actor_post = _frontres_gradient_norm(actor_parameters)
+    critic_post = _frontres_gradient_norm(critic_parameters)
+    actor_coefficient = 1.0 if actor_pre <= max_norm else max_norm / (actor_pre + 1.0e-6)
+    critic_coefficient = 1.0 if critic_pre <= max_norm else max_norm / (critic_pre + 1.0e-6)
+    facts = (actor_pre, actor_post, actor_coefficient, critic_pre, critic_post, critic_coefficient)
+    if not all(math.isfinite(value) for value in facts):
+        raise FloatingPointError(f"FRS-PPO-v006 produced non-finite gradient facts: {facts!r}")
+    return FrontRESScalarGradientInstallResult(
+        actor_parameters=actor_parameters,
+        critic_parameters=critic_parameters,
+        actor_pre_clip_norm=actor_pre,
+        actor_post_clip_norm=actor_post,
+        actor_clip_coefficient=actor_coefficient,
+        critic_pre_clip_norm=critic_pre,
+        critic_post_clip_norm=critic_post,
+        critic_clip_coefficient=critic_coefficient,
+        actor_nonzero_parameter_count=_frontres_nonzero_gradient_count(actor_parameters),
+        critic_nonzero_parameter_count=_frontres_nonzero_gradient_count(critic_parameters),
+    )
+
+
 def install_frontres_v005_scalar_gradients(
     policy: Any,
     result: FrontRESSegmentPPOResult,
@@ -233,26 +361,11 @@ def install_frontres_v005_scalar_gradients(
     """Install disjoint actor and scalar-Critic gradients from one G_total loss."""
 
     # B1: 以 scalar Critic module identity 分离 Actor/std 与 Critic optimizer parameters.
-    critic = getattr(policy, "critic", None)
-    if not isinstance(critic, torch.nn.Module):
-        raise RuntimeError("FRS-PPO-v005 requires one explicit scalar Critic module")
-    critic_ids = {id(parameter) for parameter in critic.parameters()}
-    actor_parameters = tuple(parameter for parameter in optimizer_parameters if id(parameter) not in critic_ids)
-    critic_parameters = tuple(parameter for parameter in optimizer_parameters if id(parameter) in critic_ids)
-    if not actor_parameters or not critic_parameters:
-        raise RuntimeError("FRS-PPO-v005 requires disjoint actor/std and Critic parameters")
-
-    def gradients(
-        loss: torch.Tensor,
-        parameters: tuple[torch.Tensor, ...],
-        *,
-        retain_graph: bool,
-    ) -> tuple[torch.Tensor, ...]:
-        values = torch.autograd.grad(loss, parameters, retain_graph=retain_graph, allow_unused=True)
-        return tuple(
-            torch.zeros_like(parameter) if gradient is None else gradient
-            for parameter, gradient in zip(parameters, values, strict=True)
-        )
+    actor_parameters, critic_parameters = _frontres_scalar_parameter_partition(
+        policy,
+        optimizer_parameters,
+        contract_id="FRS-PPO-v005",
+    )
 
     # B2: Actor 只接收完整 scalar PPO loss; critic-only phase 保持 Actor/std grad 为空.
     actor_frozen = float(cfg.actor_loss_weight) == 0.0
@@ -263,12 +376,12 @@ def install_frontres_v005_scalar_gradients(
         actor_loss = float(cfg.actor_loss_weight) * (
             result.actor_loss - float(cfg.entropy_coef) * result.entropy
         )
-        actor_gradients = gradients(actor_loss, actor_parameters, retain_graph=True)
+        actor_gradients = _frontres_loss_gradients(actor_loss, actor_parameters, retain_graph=True)
         for parameter, gradient in zip(actor_parameters, actor_gradients, strict=True):
             parameter.grad = gradient.detach().clone()
     # B3: Critic 只拟合 G_total value target, 不恢复独立 Physics gradient authority.
     critic_loss = float(cfg.value_loss_coef) * result.value_loss
-    critic_gradients = gradients(critic_loss, critic_parameters, retain_graph=False)
+    critic_gradients = _frontres_loss_gradients(critic_loss, critic_parameters, retain_graph=False)
     for parameter, gradient in zip(critic_parameters, critic_gradients, strict=True):
         parameter.grad = gradient.detach().clone()
     return actor_parameters, critic_parameters
@@ -355,6 +468,85 @@ class _FrontRESSegmentPPOGroupedReduction:
     valid_step_mass_shares: tuple[float, ...]
 
 
+@dataclass(frozen=True)
+class _FrontRESSegmentValueTargets:
+    row_targets: torch.Tensor
+    segment_keys: tuple[int, ...]
+    segment_means: tuple[float, ...]
+
+
+def _build_frontres_v006_segment_value_targets(
+    batch: FrontRESSegmentPPOBatch,
+    rows: _FrontRESSegmentPPOTransactionRows,
+    valid: torch.Tensor,
+) -> _FrontRESSegmentValueTargets:
+    """Build row-aligned exact-M means after proving one shared state per Segment."""
+
+    # B1: 校验完整 two-Segment x exact-M rows, 产出每个 Segment 的共享 state/value group.
+    privileged = batch.privileged_observations
+    if (
+        not isinstance(privileged, torch.Tensor)
+        or privileged.ndim != 2
+        or tuple(privileged.shape) != (int(batch.actions.shape[0]), 347)
+        or privileged.requires_grad
+        or not bool(torch.isfinite(privileged).all().item())
+    ):
+        raise ValueError("FRS-PPO-v006 requires detached finite Critic observations with shape [B,347]")
+    selected_sources = rows.source_index[valid]
+    segment_keys_tensor = torch.unique(selected_sources, sorted=True)
+    if int(segment_keys_tensor.numel()) != 2:
+        raise ValueError("FRS-PPO-v006 requires exactly two Segment state groups")
+    selected_returns = batch.returns[valid].detach()
+    selected_old_values = batch.old_values[valid].detach()
+    selected_privileged = privileged[valid].detach()
+    selected_trials = rows.trial_index[valid]
+    selected_segment_ids = rows.segment_ids[valid]
+    valid_indices = torch.nonzero(valid, as_tuple=False).reshape(-1).detach().cpu().tolist()
+    selected_scenarios = tuple(rows.scenario_ids[index] for index in valid_indices)
+    selected_hashes = tuple(rows.noisy_segment_hashes[index] for index in valid_indices)
+
+    row_targets = torch.empty_like(selected_returns)
+    segment_means: list[float] = []
+    expected_m: int | None = None
+    for segment_key_tensor in segment_keys_tensor:
+        segment_key = int(segment_key_tensor.item())
+        local_rows = torch.nonzero(selected_sources == segment_key, as_tuple=False).reshape(-1)
+        count = int(local_rows.numel())
+        if expected_m is None:
+            expected_m = count
+        if count < 2 or count != expected_m:
+            raise ValueError("FRS-PPO-v006 requires the same exact-M count for both Segments")
+        expected_trials = torch.arange(count, device=selected_trials.device, dtype=torch.long)
+        if not torch.equal(torch.sort(selected_trials[local_rows]).values, expected_trials):
+            raise ValueError("FRS-PPO-v006 requires unique trial_index=0..M-1 within each Segment")
+        if int(torch.unique(selected_segment_ids[local_rows]).numel()) != 1:
+            raise ValueError("FRS-PPO-v006 source rows cannot mix Segment identity")
+        scenario_values = {selected_scenarios[int(index)] for index in local_rows.detach().cpu().tolist()}
+        hash_values = {selected_hashes[int(index)] for index in local_rows.detach().cpu().tolist()}
+        if len(scenario_values) != 1 or len(hash_values) != 1:
+            raise ValueError("FRS-PPO-v006 Segment rows cannot mix scenario or Noisy hash identity")
+        states = selected_privileged[local_rows]
+        if not torch.equal(states, states[:1].expand_as(states)):
+            raise ValueError("FRS-PPO-v006 requires identical Critic state rows within each Segment")
+        old_values = selected_old_values[local_rows]
+        if not torch.equal(old_values, old_values[:1].expand_as(old_values)):
+            raise ValueError("FRS-PPO-v006 requires one shared old value within each Segment")
+
+        # B2: 仅对该 Segment 的 exact-M realized returns 求均值, 产出一个 state-value target.
+        target = selected_returns[local_rows].mean()
+        if not bool(torch.isfinite(target).item()):
+            raise FloatingPointError("FRS-PPO-v006 produced a non-finite Segment value target")
+        row_targets[local_rows] = target
+        segment_means.append(float(target.detach().cpu().item()))
+
+    # B3: 将两个 mean 对齐回 policy rows, 不改逐 attempt Actor advantage 或 row ordering.
+    return _FrontRESSegmentValueTargets(
+        row_targets=row_targets,
+        segment_keys=tuple(int(value) for value in segment_keys_tensor.detach().cpu().tolist()),
+        segment_means=tuple(segment_means),
+    )
+
+
 def compute_frontres_segment_ppo_loss(
     policy: Any,
     batch: FrontRESSegmentPPOBatch,
@@ -414,6 +606,11 @@ def compute_frontres_segment_ppo_loss(
             & (policy_eval.sigma > 0.0).all(dim=-1)
         )
     normalization_mode = _advantage_normalization_mode(cfg)
+    critic_target_id = str(cfg.critic_target_id)
+    if critic_target_id not in {"per-attempt-return-v005", "segment-exact-m-mean-v1"}:
+        raise ValueError(f"unsupported FrontRES Critic target identity: {critic_target_id!r}")
+    if critic_target_id == "segment-exact-m-mean-v1" and normalization_mode != "grouped_scale_only":
+        raise ValueError("FRS-PPO-v006 Segment mean target requires grouped_scale_only transaction rows")
     transaction_rows: _FrontRESSegmentPPOTransactionRows | None = None
     if normalization_mode == "grouped_scale_only":
         transaction_rows = _transaction_metadata_rows(batch)
@@ -450,6 +647,16 @@ def compute_frontres_segment_ppo_loss(
     old_value = batch.old_values[valid].detach()
     returns = batch.returns[valid].detach()
     advantages = batch.advantages[valid].detach()
+    actor_advantages = advantages.detach().clone()
+    value_targets = returns
+    segment_target_means: tuple[float, ...] = ()
+    segment_target_keys: tuple[int, ...] = ()
+    if critic_target_id == "segment-exact-m-mean-v1":
+        assert transaction_rows is not None
+        target_facts = _build_frontres_v006_segment_value_targets(batch, transaction_rows, valid)
+        value_targets = target_facts.row_targets
+        segment_target_means = target_facts.segment_means
+        segment_target_keys = target_facts.segment_keys
     grouped_reduction: _FrontRESSegmentPPOGroupedReduction | None = None
     if normalization_mode == "grouped_scale_only":
         assert transaction_rows is not None
@@ -471,9 +678,12 @@ def compute_frontres_segment_ppo_loss(
 
     if cfg.use_clipped_value_loss:
         value_clipped = old_value + (value - old_value).clamp(-cfg.value_clip_param, cfg.value_clip_param)
-        value_row_loss = 0.5 * torch.max((value - returns).square(), (value_clipped - returns).square())
+        value_row_loss = 0.5 * torch.max(
+            (value - value_targets).square(),
+            (value_clipped - value_targets).square(),
+        )
     else:
-        value_row_loss = 0.5 * (value - returns).square()
+        value_row_loss = 0.5 * (value - value_targets).square()
 
     if policy_eval.entropy is None:
         entropy_rows = log_prob.new_zeros(log_prob.shape)
@@ -607,6 +817,10 @@ def compute_frontres_segment_ppo_loss(
         advantage_scale=float(advantage_scale),
         advantage_sign_flip_count=int(advantage_sign_flip_count),
         prepared_advantages=tuple(float(value) for value in advantages.detach().cpu().tolist()),
+        actor_advantages=tuple(float(value) for value in actor_advantages.detach().cpu().tolist()),
+        critic_value_targets=tuple(float(value) for value in value_targets.detach().cpu().tolist()),
+        critic_segment_target_means=segment_target_means,
+        critic_segment_keys=segment_target_keys,
         grouped_reduction_active=grouped_reduction is not None,
         grouped_motion_count=0 if grouped_reduction is None else len(grouped_reduction.motion_keys),
         grouped_segment_count=0 if grouped_reduction is None else len(grouped_reduction.segment_keys),

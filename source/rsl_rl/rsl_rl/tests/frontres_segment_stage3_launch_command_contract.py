@@ -153,33 +153,33 @@ def test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds() -> None:
     assert "fresh K8/M2 campaign requires NUM_ENVS=8" in wrong.stderr
 
 
-def test_strict_v10_resume_replaces_hsl_initializer() -> None:
+def test_strict_v11_resume_replaces_hsl_initializer() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         resume_path = Path(tmp) / "model_1.pt"
-        resume_path.write_text("semantic checkpoint-v10 fixture\n")
+        resume_path.write_text("semantic checkpoint-v11 fixture\n")
         result = _run_preflight(
             "train",
             {"FRONTRES_V015_RESUME_CHECKPOINT": str(resume_path)},
             bounds=("8", "199", "1"),
         )
-    assert result.returncode == 0, result.stderr
-    command = _command_line(result)
-    assert f"--frontres_v015_resume_checkpoint {resume_path}" in command
-    assert "--frontres_v015_hsl_initializer_checkpoint" not in command
-    assert "--resume_student_checkpoint" not in command
-    assert "--resume " not in command
-    assert "--is_full_resume" not in command
-    assert "--max_iterations 199" in command
+        assert result.returncode == 0, result.stderr
+        command = _command_line(result)
+        assert f"--frontres_v015_resume_checkpoint {resume_path}" in command
+        assert "--frontres_v015_hsl_initializer_checkpoint" not in command
+        assert "--resume_student_checkpoint" not in command
+        assert "--resume " not in command
+        assert "--is_full_resume" not in command
+        assert "--max_iterations 199" in command
 
 
-def test_strict_v10_resume_rejects_missing_checkpoint() -> None:
+def test_strict_v11_resume_rejects_missing_checkpoint() -> None:
     result = _run_preflight(
         "train",
         {"FRONTRES_V015_RESUME_CHECKPOINT": "/definitely/missing/model_1.pt"},
         bounds=("8", "199", "1"),
     )
     assert result.returncode != 0
-    assert "checkpoint-v10 resume checkpoint not found" in result.stderr
+    assert "checkpoint-v11 resume checkpoint not found" in result.stderr
 
 
 def test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel() -> None:
@@ -267,7 +267,7 @@ def test_stage3_launch_rejects_retired_optimizer_modes() -> None:
     for mode in ("single_update", "update_loop"):
         result = _run_preflight(mode)
         assert result.returncode == 4
-        assert "FRS-PPO-v005 rejects retired optimizer-writing Stage 3 mode" in result.stderr
+        assert "FRS-PPO-v006 rejects retired optimizer-writing Stage 3 mode" in result.stderr
         assert "Command: " not in result.stdout
 
 
@@ -276,8 +276,8 @@ if __name__ == "__main__":
     test_g5_s4_bounded_launch_freezes_8_1_1_and_audit()
     test_stage3_train_launch_accepts_explicit_checkpoint_interval()
     test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds()
-    test_strict_v10_resume_replaces_hsl_initializer()
-    test_strict_v10_resume_rejects_missing_checkpoint()
+    test_strict_v11_resume_replaces_hsl_initializer()
+    test_strict_v11_resume_rejects_missing_checkpoint()
     test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel()
     test_stage3_train_launch_passes_explicit_fixed_split_lr_args()
     test_stage3_launch_rejects_retired_optimizer_modes()

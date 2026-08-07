@@ -2,7 +2,7 @@
   "layout": "design_transaction_inspector",
   "defaultZoom": 0.8,
   "title": "FrontRES Design Inspector",
-  "subtitle": "Clean-anchored Recovery-Aware 设计核验：TRAIN-v014 direct full-6D action 与双层 K-DR Curriculum 已确认并激活",
+  "subtitle": "TRAIN-v016 离线实现与模块闭环：保持 V(s)，补齐 future Intent，并分离 Actor/Critic 梯度裁剪；Phase B 探针已插入并离线验证，bounded official transaction 待执行",
   "cards": [
     {
       "designId": "FRS-DP-01",
@@ -218,11 +218,11 @@
       "blockId": "Q-01",
       "title": "Repair Gain",
       "color": "#a75555",
-      "responsibility": "Gain 在每次尝试内组合 Intent Gain 与压力加权的 Physics Gain，从而定义 Recovery-Aware；Segment Replay 让同组全部有效 G_total 通过各自 advantage 传递排序信用。",
+      "responsibility": "Gain 为每个 Repair 产生自己的实际结果；Critic 只给同一状态提供一条共享参考线，Actor 仍按每次 Repair 的实际结果学习。",
       "details": [
         {
           "heading": "Intent、Physics 与 Segment Replay",
-          "text": "Gain 分为 Intent Gain 和 Physics Gain；两者在 G_total 中的连续交互定义 Recovery-Aware。Segment Replay 不再定义这种交互；同一 sealed scenario 的全部有效 attempt 都进入 grouped PPO，并由各自 G_total 和共享 Critic baseline 形成排序信用。Critic 预测完整 Recovery-Aware G_total。Contact、support-foot drift、phase-ZMP 与 survival 只经 P_X、G_P、G_total 进入学习，不再同时建立独立 Physics projection。"
+          "text": "Gain 分为 Intent Gain 和 Physics Gain；两者在 G_total 中的连续交互定义 Recovery-Aware。每个 Repair attempt 都保留自己的 G_total。Critic 不判断哪一个动作更好，只预测从当前 sealed state 按冻结 pi_old 采样 Repair 时的期望 G_total；同一 Segment 的 M 次尝试共享这个 state-value baseline。每次尝试用自己的 G_total 减去共享 baseline，因此动作排序仍由实际 rollout 结果决定。Contact、support-foot drift、phase-ZMP 与 survival 只经 P_X、G_P、G_total 进入学习，不再建立独立 Physics projection。"
         },
         {
           "heading": "Recovery-Aware 分类规则",
@@ -315,11 +315,11 @@
       "blockId": "M-05",
       "title": "Actor & Critic Warmup",
       "color": "#725781",
-      "responsibility": "先让 Critic 学会判断 Repair 的好坏，再让 Actor 根据这个判断逐渐学习；每次 K 增长后，Critic 都重新适应新的判断范围。",
+      "responsibility": "Critic 先学会判断当前 sealed state 的预期 Repair 得分，再逐步释放 Actor；它不接收 6D Action，也不直接判断哪个 Repair 更好。",
       "details": [
         {
-          "heading": "Critic Initialize：HSL → HRL 时重新初始化 Critic",
-          "text": "HSL 只初始化 proposal Actor，没有训练 Stage-3 的 scalar Critic。进入 HRL 时，Critic 从头学习 Recovery-Aware G_total；HSL 初始化过的 Actor 保留，不随 Critic 一起重新初始化。"
+          "heading": "Critic 的职责：预测状态难度，不预测指定动作",
+          "text": "Critic 保持 V(s)：它预测在当前 sealed state 下，从冻结 pi_old 采样一次 Repair 所能得到的期望 G_total。同一 Segment 的 M 个 Repair 共享一个 baseline；每个动作自己的 rollout G_total 决定它高于还是低于这条参考线。6D Repair action 不进入 Critic，因此不会把当前 PPO 悄悄改成 Q(s,a)。"
         },
         {
           "heading": "阶段轮次：每个 K 先校准 Critic，再逐步释放 Actor",
@@ -340,24 +340,24 @@
           }
         },
         {
-          "heading": "Critic-only：先冻结 Actor 和 std",
-          "text": "新 Critic 刚开始还不会判断 Repair 好坏。如果此时立即更新 Actor，Actor 会跟随一个尚未校准的判断者乱走。因此先保持 Actor 的动作策略和探索强度不变，只训练 Critic，让它先学会预测当前 K 下的 G_total。"
+          "heading": "Critic 输入：289D 当前特权状态 + 58D future Intent",
+          "text": "Critic 读取当前 289D privileged observation，再拼接与 Actor 完全同源的 Noisy q29[t+1]、q29[t+2] 共 58D，形成 347D state input。这样它能区分当前身体状态相同、但未来动作难度不同的情境。future tail 在同一 Segment 内固定复用；Clean future、6D Repair action、K、noise label 和 evaluator evidence 都不进入 Critic。"
         },
         {
-          "heading": "Actor-ramp：逐渐允许 Actor 学习",
-          "text": "Critic 初步校准后，不立刻让 Actor 全力更新，而是逐渐增加 Actor 更新强度。直白地说，就是从‘只训练裁判’逐渐过渡到‘裁判已经基本可靠，可以开始指导选手’。"
+          "heading": "Critic target：同一状态的 exact-M 平均结果",
+          "text": "同一 Segment 的 exact M 个 Repair 都来自同一个 frozen pi_old 和同一个 sealed state。Critic 用这 M 个 G_total 的平均值作为该状态的监督目标；Actor 仍保留每个 attempt 自己的 G_total 和 advantage。这样 Critic 学的是状态期望，不被要求同时拟合同一状态下互相不同的动作结果。"
         },
         {
-          "heading": "Joint Optimize：Actor 与 Critic 一起训练",
-          "text": "进入正常训练后：Actor 根据 PPO 信号改善 Repair；Critic 继续学习这些新 Repair 对应的 G_total。Critic 不能停止更新，因为 Actor 改变后，动作结果的分布也会改变，Critic 必须持续跟上。"
+          "heading": "Critic-only 与 Actor-ramp：参考线稳定后再释放 Actor",
+          "text": "HSL 只初始化 proposal Actor，Stage 3 的 347D Critic 从头初始化。Critic-only 保持 Actor 与固定 std 不变；Actor-ramp 再逐步增加 Actor loss weight。Actor 改变后，Critic 继续更新，因为 frozen pi_old 所代表的 Repair 分布也会随 Transaction 改变。"
         },
         {
-          "heading": "双时间尺度 LR：同一 optimizer 内分别控制 Actor 与 Critic",
-          "text": "FRS-TRAIN-v015 已激活同一个 Adam optimizer 的两个命名 parameter group：Actor LR = 3e-6，Critic LR = 1e-5，schedule 固定。Critic-only 令 Actor weight = 0，并保持 Actor 参数和 Adam state 不变；Actor-ramp 令 Actor weight 从 0 逐步增至 1，同时 Critic 持续以自己的 LR 更新；Joint Optimize 保持两者共同更新。checkpoint-v10 严格保存组名、成员、两个 LR、moments 和共享 step count；checkpoint-v9 只保留为历史证据，不能 resume。离线工程证据已通过，策略质量仍需新训练验证。"
+          "heading": "独立梯度裁剪：Critic 误差不能压缩 Actor",
+          "text": "Actor 与 Critic 已经是两个不重叠的 parameter group，因此分别计算并裁剪各自的 gradient norm，阈值都保持 0.5；随后仍由同一个 Adam 执行 exactly one step。Critic gradient 再大也不能改变 Actor 的裁剪比例，Actor gradient 同样不能改变 Critic 的裁剪比例。Actor LR = 3e-6，Critic LR = 1e-5，schedule 仍为 fixed。"
         },
         {
-          "heading": "Recalibrate：每次 K 增长，Critic 重新进入校准",
-          "text": "当 K 从 8 增长到 16 时，我们观察的已经不是‘8 步后的修复结果’，而是‘16 步后的修复结果’。因此先把 DR 降回较低但仍有明确修复信号的水平，冻结 Actor/std，只让同一 Critic 适应更长的后果范围；Critic 校准后再进入 Actor-ramp、Joint Optimize，并在当前 K 内重新提高 DR。K32 重复同样过程。"
+          "heading": "Recalibrate 与 checkpoint：新 Critic 身份必须冷启动",
+          "text": "K 增长时仍保留同一 Critic，降低 DR 后重新进入 critic-only。由于 Critic 输入从 289D 变为 347D，新的 Stage-3 campaign 使用 checkpoint-v11；旧 checkpoint-v10 不能 resume。HSL-v2 仍可只初始化 158D Actor，因为它不携带 Stage-3 Critic、optimizer 或 Transaction state。"
         }
       ],
       "highlightSteps": ["resolve-km", "grouped-update", "commit-state"],
@@ -368,18 +368,18 @@
       "blockId": "M-11",
       "title": "Future Motion Context",
       "color": "#3c7485",
-      "responsibility": "FEMR 在 t 时刻读取同一条固定 Noisy reference 中 t+1、t+2 两帧的 29D 内部关节 Intent，共 58D。未来 root/global 不进入 FEMR。",
+      "responsibility": "Actor 与 state-value Critic 在 t 时刻共享同一条 sealed Noisy reference 的 t+1、t+2 q29 Intent；未来 root/global 与 6D Repair action 均不进入 Critic。",
       "details": [
-        "未来窗口固定为 t+1 与 t+2 两帧。",
-        "每帧只提取 29D 内部关节 Intent，共 58D。",
-        "两帧均来自同一条 sealed Noisy/deployment reference。",
-        "root-only perturbation 使 q29 数值偶然等于 Clean calibration 时，provenance 仍然是 Noisy。",
-        "future root/global、Clean future、noise label 与 perturbation timing 不进入 FEMR。",
-        "FrontRES input 为当前 100D 加 future Intent 58D，共 158D。",
-        "H=2 只辅助当前动作方向消歧；K=8/16/32 仍只评价 executable consequences。",
-        "同一 Segment 的 M 次尝试只读复用这两帧，不重采样或变异。"
+        "未来窗口固定为 t+1 与 t+2 两帧。每帧只提取 29D 内部关节 Intent，共 58D。",
+        "两帧均来自同一条 sealed Noisy/deployment reference；root-only perturbation 使 q29 数值偶然等于 Clean calibration 时，provenance 仍然是 Noisy。",
+        "Actor input 保持当前 100D 加 future Intent 58D，共 158D。",
+        "Critic input 为当前 289D privileged observation 加同一 future Intent 58D，共 347D。环境的原始 privileged observation 仍是 289D。",
+        "future root/global、Clean future、noise label、perturbation timing、K、evaluator evidence 与 6D Repair action 均不进入 Critic。",
+        "H=2 只为当前 Actor action 与 Critic state value 提供未来运动条件；K=8/16/32 仍只评价 executable consequences。",
+        "同一 Segment 的 M 次尝试只读复用同一个 347D Critic state，不重采样或变异；因此共享一个 old value baseline。",
+        "冻结 GMT 仍只接收原有 770D suffix；新增 future Intent 不改变 GMT 或部署 authority。"
       ],
-      "highlightSteps": ["seal-scenarios", "frontres-action"],
+      "highlightSteps": ["seal-scenarios", "frontres-action", "grouped-update"],
       "chips": []
     }
   ],
@@ -407,7 +407,7 @@
         "id": "seal-scenarios",
         "phase": "collection",
         "label": "封存每个 Segment 的 scenario",
-        "detail": "固定 x_t、首帧 Noisy artifact、两帧 Noisy 内部 Intent、Clean continuation、K 与 hash"
+        "detail": "固定 x_t、首帧 Noisy artifact、供 Actor/Critic 共享的两帧 Noisy 内部 Intent、Clean continuation、K 与 hash"
       },
       {
         "id": "restore-xt",
@@ -443,7 +443,7 @@
         "id": "build-objectives",
         "phase": "update",
         "label": "形成 scalar Recovery-Aware Gain",
-        "detail": "Gain 用 Clean-conditioned Intent improvement 与恢复压力加权的 Physics improvement 形成每个 attempt 的 G_total"
+        "detail": "Gain 为每个 attempt 形成自己的 G_total；Critic target 是同一 Segment exact-M 个 G_total 的平均值"
       },
       {
         "id": "seal-policy-rows",
@@ -455,7 +455,7 @@
         "id": "grouped-update",
         "phase": "update",
         "label": "完整封存后执行一次 grouped update",
-        "detail": "全部 attempt 的 scalar advantage 共同更新；不选赢家、不再执行独立 Physics projection，optimizer update 数为一"
+        "detail": "每个 attempt 用自己的 G_total 减共享 V(s)；Actor/Critic 分别裁剪梯度后由同一 Adam exactly one step"
       },
       {
         "id": "commit-state",

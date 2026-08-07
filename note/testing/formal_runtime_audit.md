@@ -1,6 +1,13 @@
 # Formal Runtime Audit
 
-Status: historical v002/v014 runtime evidence; not an active v015 acceptance gate
+Active status (2026-08-08): TRAIN-v016 offline module closure is complete and
+Formal Runtime Audit Phase A was human-confirmed. The active Runtime Audit Atlas
+now carries the confirmed v016 `AUDIT-B01..B08` Phase B reading plan. The
+audit-only probes are inserted and pass offline regression; the bounded official
+transaction is pending. No TRAIN-v016 live PASS is claimed below.
+
+Status of remaining content: historical v002/v014 runtime evidence; not an
+active TRAIN-v016 acceptance gate.
 
 Historical boundary 2026-07-17: the then-active reward contract was
 `FRS-GAIN-v002`. The formal audit was updated to expose raw survival steps,

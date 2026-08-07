@@ -262,28 +262,29 @@ for (const required of [
 "首轮 bounded live test 使用 beta_init=0.02",
 "只有‘恢复收益更高，同时动作也更大’的同 Segment trade-off pair",
 "live test 不自动修改 beta",
-"Critic 预测完整 Recovery-Aware G_total",
+"Critic 不判断哪一个动作更好",
+"Critic input 为当前 289D privileged observation 加同一 future Intent 58D，共 347D",
+"Critic target 是同一 Segment exact-M 个 G_total 的平均值",
 "HSL 只初始化 proposal Actor",
-"HSL 初始化过的 Actor 保留",
-"让它先学会预测当前 K 下的 G_total",
-"逐渐增加 Actor 更新强度",
-"Critic 必须持续跟上",
-"较低但仍有明确修复信号",
+"Critic-only 保持 Actor 与固定 std 不变",
+"Actor-ramp 再逐步增加 Actor loss weight",
+"分别计算并裁剪各自的 gradient norm",
+"旧 checkpoint-v10 不能 resume",
 "每个 K 都拥有一轮独立的 DR Curriculum",
-"只让同一 Critic 适应更长的后果范围",
-"不再同时建立独立 Physics projection",
+"降低 DR 后重新进入 critic-only",
+"不再建立独立 Physics projection",
 ]) {
  if (!transactionText.includes(required)) throw new Error(`Transaction inspector missing exact fact: ${required}`);
 }
 const warmupDetails = cardsById.get("FRS-DP-09").details;
 const expectedWarmupHeadings = [
- "Critic Initialize：HSL → HRL 时重新初始化 Critic",
- "阶段轮次：每个 K 先校准 Critic，再逐步释放 Actor",
- "Critic-only：先冻结 Actor 和 std",
- "Actor-ramp：逐渐允许 Actor 学习",
- "Joint Optimize：Actor 与 Critic 一起训练",
- "双时间尺度 LR：同一 optimizer 内分别控制 Actor 与 Critic",
- "Recalibrate：每次 K 增长，Critic 重新进入校准",
+"Critic 的职责：预测状态难度，不预测指定动作",
+"阶段轮次：每个 K 先校准 Critic，再逐步释放 Actor",
+"Critic 输入：289D 当前特权状态 + 58D future Intent",
+"Critic target：同一状态的 exact-M 平均结果",
+"Critic-only 与 Actor-ramp：参考线稳定后再释放 Actor",
+"独立梯度裁剪：Critic 误差不能压缩 Actor",
+"Recalibrate 与 checkpoint：新 Critic 身份必须冷启动",
 ];
 if (warmupDetails.length !== expectedWarmupHeadings.length
  || warmupDetails.some((detail, index) => detail.heading !== expectedWarmupHeadings[index])) {
@@ -306,11 +307,15 @@ if (!warmupSchedule || JSON.stringify(warmupSchedule.rows) !== JSON.stringify(ex
  throw new Error("Actor & Critic Warmup must expose the active per-K Critic-only, Actor-ramp, and Joint iteration counts");
 }
 for (const required of [
- "Critic-only → Actor-ramp → Joint Optimize",
- "Actor LR = 3e-6",
- "Critic LR = 1e-5",
- "同一个 Adam optimizer",
- "FRS-TRAIN-v015 已激活",
+"Critic-only → Actor-ramp → Joint Optimize",
+"Actor LR = 3e-6",
+"Critic LR = 1e-5",
+"同一个 Adam",
+"checkpoint-v11",
+"V(s)",
+"6D Repair action 不进入 Critic",
+"347D state input",
+"M 个 G_total 的平均值",
 ]) {
  if (!warmupText.includes(required)) {
   throw new Error(`Actor & Critic Warmup missing phase/LR fact: ${required}`);
@@ -356,6 +361,9 @@ throw new Error("two-frame Noisy internal Intent must attach to the one action-s
 }
 if (!cardsById.get("FRS-DP-10").highlightSteps.includes("seal-scenarios")) {
 throw new Error("two-frame Noisy internal Intent must be sealed before actor consumption");
+}
+if (!cardsById.get("FRS-DP-10").highlightSteps.includes("grouped-update")) {
+throw new Error("two-frame Noisy internal Intent must condition the shared state-value update");
 }
 
 const repairGainDetails = cardsById.get("FRS-DP-07").details;

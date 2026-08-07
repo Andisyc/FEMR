@@ -12,11 +12,14 @@ FRONTRES_FUTURE_INTENT_LAYOUT_VERSION = "frontres-v015-future-intent-q29-v1"
 FRONTRES_FUTURE_INTENT_DIM = 29
 FRONTRES_FUTURE_INTENT_OFFSETS = (1, 2)
 FRONTRES_V015_GMT_SUFFIX_DIM = 770
+FRONTRES_V016_CRITIC_CURRENT_DIM = 289
+FRONTRES_V016_CRITIC_FUTURE_INTENT_DIM = 58
+FRONTRES_V016_CRITIC_DIM = FRONTRES_V016_CRITIC_CURRENT_DIM + FRONTRES_V016_CRITIC_FUTURE_INTENT_DIM
 
 
 @dataclass(frozen=True)
 class FrontRESFutureIntentLayout:
-    """Versioned actor-only layout for future deployment-provenance q29 intent."""
+    """Versioned layout for future deployment-provenance q29 intent."""
 
     version: str
     future_offsets: tuple[int, ...]
@@ -137,6 +140,40 @@ def build_frontres_future_intent_tail(
         )
     _validate_frontres_future_intent_provenance(provenance, batch_size=int(intent_q29.shape[0]))
     return intent_q29[:, layout.future_offsets, :].reshape(intent_q29.shape[0], layout.actor_tail_dim).detach().clone()
+
+
+def compose_frontres_v016_critic_observation(
+    current_privileged_observation: torch.Tensor,
+    future_intent_tail: torch.Tensor,
+) -> torch.Tensor:
+    """Compose the detached 347D TRAIN-v016 state-value Critic observation."""
+
+    # B1: 校验 current privileged state 与 sealed Noisy q29 tail, 产出同批可信输入.
+    values = (
+        ("current privileged observation", current_privileged_observation, FRONTRES_V016_CRITIC_CURRENT_DIM),
+        ("future intent tail", future_intent_tail, FRONTRES_V016_CRITIC_FUTURE_INTENT_DIM),
+    )
+    for name, value, expected_dim in values:
+        if not isinstance(value, torch.Tensor) or value.ndim != 2 or int(value.shape[-1]) != expected_dim:
+            raise ValueError(f"FrontRES v016 {name} must have shape [B,{expected_dim}]")
+        if value.requires_grad:
+            raise ValueError(f"FrontRES v016 {name} must be detached scenario state")
+        if not torch.is_floating_point(value) or not bool(torch.isfinite(value).all().item()):
+            raise ValueError(f"FrontRES v016 {name} must contain finite floating-point values")
+    if int(current_privileged_observation.shape[0]) != int(future_intent_tail.shape[0]):
+        raise ValueError("FrontRES v016 Critic state and future tail must share batch identity")
+
+    # B2: 按 [current privileged 289D | future intent 58D] 拼接一次, 产出 347D state.
+    tail = future_intent_tail.to(
+        device=current_privileged_observation.device,
+        dtype=current_privileged_observation.dtype,
+    )
+    critic_observation = torch.cat([current_privileged_observation, tail], dim=-1).detach().clone()
+
+    # B3: 以精确宽度发布 state-value 输入, 禁止 action-conditioned 或 padded fallback.
+    if int(critic_observation.shape[-1]) != FRONTRES_V016_CRITIC_DIM:
+        raise RuntimeError("FrontRES v016 Critic observation lost the exact 347D authority")
+    return critic_observation
 
 
 def _validate_frontres_future_intent_provenance(

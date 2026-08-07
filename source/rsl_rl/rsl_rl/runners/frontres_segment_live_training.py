@@ -250,14 +250,14 @@ def _print_v015_formal_train_summary(
 ) -> None:
     telemetry = summary.get("frontres_transaction_telemetry")
     if not isinstance(telemetry, Mapping):
-        raise RuntimeError("v015 formal train summary requires sealed transaction telemetry")
+        raise RuntimeError("v016 formal train summary requires sealed transaction telemetry")
     print(
-        "[FrontRES v015 Transaction Telemetry] "
+        "[FrontRES v016 Transaction Telemetry] "
         + json.dumps(dict(telemetry), sort_keys=True, separators=(",", ":"), allow_nan=False),
         flush=True,
     )
     print(
-        "[FrontRES v015 Formal Train] "
+        "[FrontRES v016 Formal Train] "
         f"absolute_iter={runner.current_learning_iteration} "
         f"local={local_iteration}/{num_learning_iterations} "
         f"transaction={summary['transaction_id']} "
@@ -350,7 +350,7 @@ def _save_live_checkpoint(
 
 
 def finalize_frontres_local_sentinel_checkpoint(runner: Any, result: Any) -> str:
-    """Persist and verify the checkpoint-v10 produced by one local sentinel update."""
+    """Persist and verify the checkpoint-v11 produced by one local sentinel update."""
 
     summary = _require_v015_committed_result(runner, result)
     telemetry = summary.get("frontres_transaction_telemetry")
@@ -383,14 +383,14 @@ def finalize_frontres_local_sentinel_checkpoint(runner: Any, result: Any) -> str
         payload = load_frontres_checkpoint_mapping(checkpoint_path, map_location="cpu")
         identity = payload.get("frontres_v015_checkpoint_identity") if isinstance(payload, Mapping) else None
         if not isinstance(identity, Mapping):
-            raise RuntimeError("v015 local sentinel checkpoint has no checkpoint-v10 identity")
+            raise RuntimeError("v016 local sentinel checkpoint has no checkpoint-v11 identity")
         required_identity = {
-            "format": "frontres-v017-checkpoint-v10",
-            "method_contract_id": "FRS-METHOD-v017",
-            "training_contract_id": "FRS-TRAIN-v015",
+            "format": "frontres-v017-checkpoint-v11",
+            "method_contract_id": "FRS-METHOD-v018",
+            "training_contract_id": "FRS-TRAIN-v016",
             "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
             "gain_contract_id": "FRS-GAIN-v007",
-            "optimization_contract_id": "FRS-PPO-v005",
+            "optimization_contract_id": "FRS-PPO-v006",
             "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -435,7 +435,7 @@ def finalize_frontres_local_sentinel_checkpoint(runner: Any, result: Any) -> str
     updated["checkpoint_v6"] = checkpoint_evidence
     runner._frontres_local_sentinel_telemetry = updated
     print(
-        "[FrontRES v015 Checkpoint Sentinel] "
+        "[FrontRES v016 Checkpoint Sentinel] "
         + json.dumps(checkpoint_evidence, sort_keys=True, allow_nan=False),
         flush=True,
     )
@@ -481,7 +481,7 @@ def _resolve_required_k_stage_handoff(runner: Any) -> FrontRESKStageIdentity | N
     previous_required_envs = 4 * int(previous.active_m)
     if observed_envs != previous_required_envs:
         raise RuntimeError(
-            "FRS-TRAIN-v015 completed K-stage width drifted before process handoff: "
+            "FRS-TRAIN-v016 completed K-stage width drifted before process handoff: "
             f"active_m={previous.active_m} required={previous_required_envs} observed={observed_envs}"
         )
     next_required_envs = 4 * int(transition.active_m)
@@ -519,7 +519,7 @@ def run_frontres_segment_live_training_loop(
     absolute_start = int(getattr(runner, "current_learning_iteration", 0))
     if formal_v015 and absolute_start + num_learning_iterations > FRONTRES_V011_MAX_ABSOLUTE_ITERATION:
         raise RuntimeError(
-            "FRS-TRAIN-v015 run would cross maximum_absolute_iteration=8000: "
+            "FRS-TRAIN-v016 run would cross maximum_absolute_iteration=8000: "
             f"start={absolute_start} requested={num_learning_iterations}"
         )
     # B3: 首次正式 update iteration 前截获 route identity.
@@ -595,7 +595,7 @@ def run_frontres_segment_live_training_loop(
             if transition is not None:
                 if runner.log_dir is None or runner.disable_logs:
                     raise RuntimeError(
-            "FRS-TRAIN-v015 K-stage process handoff requires an enabled committed checkpoint owner"
+                        "FRS-TRAIN-v016 K-stage process handoff requires an enabled committed checkpoint owner"
                     )
                 checkpoint_path = os.path.join(
                     runner.log_dir,

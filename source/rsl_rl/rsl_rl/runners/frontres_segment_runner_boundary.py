@@ -251,7 +251,7 @@ class FrontRESSegmentRunnerBoundary:
         if not (self.requested and self.live_runner_enabled and self.local_sentinel_only):
             return None
         return (
-            "[FrontRES v015 Local Sentinel] "
+            "[FrontRES v016 Local Sentinel] "
             f"objective={self.objective} "
             f"segment_k={self.segment_k} "
             f"max_horizon_k={self.max_horizon_k} "

@@ -1,8 +1,8 @@
 ---
 contract_id: FRS-PPO-v005
-status: active
+status: superseded
 effective_date: 2026-08-01
-updated_date: 2026-08-03
+updated_date: 2026-08-08
 supersedes: FRS-PPO-v004
 scope: equal-motion, equal-Segment, equal-attempt grouped PPO over one Recovery-Aware scalar row per policy-sampled attempt, with sign-preserving advantage scaling and exactly one optimizer update per sealed transaction
 ---

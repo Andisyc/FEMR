@@ -6,10 +6,10 @@ This registry is the only default entrypoint for FrontRES contracts.
 
 | Category | Active contract | Status |
 | --- | --- | --- |
-| Method | `active/method/FRS-METHOD-v017-clean-anchored-recovery-aware-segment-replay.md` | active |
-| Training | `active/training/FRS-TRAIN-v015-fixed-split-lr-direct-full6-curriculum.md` | active |
+| Method | `active/method/FRS-METHOD-v018-future-conditioned-state-value-segment-replay.md` | active |
+| Training | `active/training/FRS-TRAIN-v016-future-conditioned-state-value-curriculum.md` | active |
 | Reward | `active/reward/FRS-GAIN-v007-clean-anchored-recovery-aware-ranking.md` | active |
-| Optimization | `active/optimization/FRS-PPO-v005-grouped-recovery-aware-scalar-update.md` | active |
+| Optimization | `active/optimization/FRS-PPO-v006-state-value-segment-mean-update.md` | active |
 | Evaluation | `active/evaluation/FRS-EVAL-v004-clean-anchored-local-and-composition-evaluation.md` | active |
 | Engineering | `active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md` | active |
 
@@ -21,55 +21,53 @@ Concept Figure. Canonical names and block IDs come from
 
 | Design ID | Canonical human name | Active contract section | Figure block ID | Current code/evidence gap |
 | --- | --- | --- | --- | --- |
-| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v017` / `Sealed Local Scenario`; `FRS-TRAIN-v015` / `Per-K Inner DR Curriculum` | `M-02` | TRAIN-v013 curriculum evidence remains valid; v015 changes only optimizer/checkpoint identity. |
-| `FRS-DP-01P` | Perturbation Probing | `FRS-TRAIN-v015` / `Optional GMT Boundary Acquisition` | `M-12` | The current campaign directly configures the measured 2.381 boundary; optional re-probing for a changed setup remains outside this change. |
-| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v017` / `Frozen-Policy Transaction`; `FRS-PPO-v005` / `Grouped Equal-Mass Reduction`; `FRS-TRAIN-v015` / `Exact-M Frozen-Policy Transaction` | `SR-01` | E-FI-135 confirms the unchanged exact-one route with the new named optimizer identity offline. |
-| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v017` / `One-Action K Evidence`; `FRS-TRAIN-v015` / `Nested K x M x DR Schedule` | `M-06` | K/M/DR semantics are unchanged; checkpoint-v10 binds the same schedule. |
-| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v017` / `Actor And Information Boundary`; `FRS-TRAIN-v015` / `Design Delta` | `M-04` | Direct finite `[B,6]` action semantics are unchanged by the split-LR campaign. |
-| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v017` / `One-Action K Evidence And Frozen GMT` | `M-10` | E-FI-101 closes the one-action-K/frozen-770D route offline; simulator evidence pending. |
-| `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v017` / `Clean/Noisy/Repair Evidence`; `FRS-GAIN-v007` / `Evidence Authority And Lifecycle`; `FRS-EVAL-v004` / `Local Clean/Noisy/Repair Evaluation` | `Q-PAIR` | E-FI-101 closes typed lifecycle; E-FI-102 proves authoritative capture cardinality offline; physical counts remain Step-2 evidence. |
-| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v007` / `Recovery-Aware Total Gain`; `FRS-PPO-v005` / `Scalar Actor And Critic Signal`; `FRS-EVAL-v004` / `Local Report` | `Q-01` | E-FI-101 closes v007 formula, scalar Critic/PPO, local report and projection retirement offline; beta quality pending. |
-| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v015` / `First Entry From HSL` | `M-03` | HSL-v2 remains Actor-only initialization; Critic and split optimizer start fresh. |
-| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v015` / `Critic Recalibration And Actor Ramp`; `Fixed Split-LR Optimizer Identity` | `M-05` | E-FI-135 proves `critic_only -> actor_ramp -> joint`, Actor freeze, one Adam with named Actor `3e-6` and Critic `1e-5` groups, exact-one count, telemetry and strict v10 persistence offline. |
-| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v017` / `Actor And Information Boundary` | `M-11` | E-FI-119 fixes exact deployment/Noisy offsets `(1,2)` at layout/config/formal/checkpoint boundaries and proves the unmocked offline 928/158/770 route; Phase B/live remains pending. |
+| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v018` / `Sealed Local Scenario`; `FRS-TRAIN-v016` / `Per-K Inner DR Curriculum` | `M-02` | K/DR semantics are unchanged; prior evidence is characterization only until the v016 formal route is re-confirmed. |
+| `FRS-DP-01P` | Perturbation Probing | `FRS-TRAIN-v016` / `Optional GMT Boundary Acquisition` | `M-12` | The current campaign directly configures the measured 2.381 boundary; optional re-probing for a changed setup remains outside this change. |
+| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v018` / `Frozen-Policy Transaction`; `FRS-PPO-v006` / `Grouped Equal-Mass Reduction`; `FRS-TRAIN-v016` / `Exact-M Frozen-Policy Transaction` | `SR-01` | Existing exact-M/exact-one behavior is retained; the shared-value/Segment-mean route requires fresh S1/S2 evidence. |
+| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v018` / `One-Action K Evidence`; `FRS-TRAIN-v016` / `Nested K x M x DR Schedule` | `M-06` | K/M/DR semantics are unchanged; checkpoint-v11 must bind the same schedule. |
+| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v018` / `Actor And Information Boundary`; `FRS-TRAIN-v016` / `Design Delta` | `M-04` | Direct finite `[B,6]` action semantics are unchanged; action-conditioned Critic remains forbidden. |
+| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v018` / `One-Action K Evidence And Frozen GMT` | `M-10` | Frozen 770D GMT authority is unchanged; new future context must remain isolated from it. |
+| `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v018` / `Clean/Noisy/Repair Evidence`; `FRS-GAIN-v007` / `Evidence Authority And Lifecycle`; `FRS-EVAL-v004` / `Local Clean/Noisy/Repair Evaluation` | `Q-PAIR` | Rollout evidence is unchanged; exact-M returns now also form one Segment value target. |
+| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v007` / `Recovery-Aware Total Gain`; `FRS-PPO-v006` / `Scalar Actor And Critic Signal`; `FRS-EVAL-v004` / `Local Report` | `Q-01` | Gain remains per-attempt; new tests must prove the Critic mean target does not change Actor ordering. |
+| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v016` / `First Entry From HSL` | `M-03` | HSL-v2 remains Actor-only initialization; the 347D Critic and optimizer start fresh. |
+| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v016` / `Critic Recalibration And Actor Ramp`; `Fixed Split-LR Optimizer Identity`; `FRS-PPO-v006` / `Warmup Weight Boundary` | `M-05` | Phase counts/LRs remain; 347D state value, Segment-mean target, separate clipping and v11 persistence require fresh evidence. |
+| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v018` / `Actor And Information Boundary`; `FRS-TRAIN-v016` / `Scalar Critic Authority` | `M-11` | Actor remains 158D; the Critic must receive the same sealed 58D tail as 347D state while GMT remains 770D. |
 
 ## Active Recovery-Aware Contract Migration
 
-Human review of all ten Design Inspector cards completed on 2026-08-01.
-The reopened Perturbation Data, K-step Curriculum and Actor & Critic Warmup
-details were re-confirmed on 2026-08-03. The subsequent DP04 Phase A review
-confirmed that the active implementation must remove its older squashed action
-coordinate. FRS-TRAIN-v015 retains that direct action and activates the fixed
-split-LR/checkpoint-v10 campaign identity.
+Human review confirmed the DP07 Repair Gain, DP09 Actor & Critic Warmup and
+DP10 Future Motion Context proposal on 2026-08-08. The confirmed change keeps
+the Critic as `V(s)`, extends its state from 289D to 347D with the same sealed
+58D future q29 Intent used by the Actor, trains it against one exact-M Segment
+mean return, and clips Actor/Critic gradients independently before one Adam
+step. The Actor, Gain, GMT, K/M/DR and simulator semantics are unchanged.
 The coordinated active semantic authority is now:
 
 ```text
-FRS-METHOD-v017
+FRS-METHOD-v018
 FRS-GAIN-v007
-FRS-PPO-v005
-FRS-TRAIN-v015
+FRS-PPO-v006
+FRS-TRAIN-v016
 FRS-EVAL-v004
 ```
 
 The accepted route executes one Clean and one fixed Noisy baseline per Segment,
 scores every valid Repair with
 `G_total = G_I + lambda_RA G_P - beta C_repair`, and sends all attempts through
-one grouped scalar PPO update. The old independent Physics projection/KKT path
-is superseded. The active source implements this contract set offline; remaining
-formal-runtime and physical facts stay unconfirmed until Phase B. The coordinated
-Engineering Plan is
-`../plans/FRS-v017-clean-anchored-recovery-aware-engineering-plan.md`; planning
-passed independent `engineering_plan_review` as E-FI-100. That READY verdict
-does not itself authorize implementation, checkpoint migration, simulator, or
-training.
+one grouped scalar PPO update. All attempts in one Segment share the same old
+state value; their mean `G_total` supervises the Critic while their individual
+returns supervise Actor credit. Checkpoint-v11 is the only compatible Stage-3
+persistence identity. The current Engineering Plan and Module Test Cards are
+the executable-work and oracle control surfaces; implementation, formal route
+and live evidence remain unconfirmed until their own gates close.
 
 The local/composition evaluation boundary is aligned by `FRS-EVAL-v004`.
-The closed proposal at
-`../plans/FRS-GAIN-v007-clean-anchored-recovery-aware-ranking-proposal.md`
-is retained only as design rationale. The five coordinated method, Gain,
-optimization, training, and evaluation contracts above are now the default
-semantic authority. Evidence below that names v016/v006/v004/v011
-describes the superseded implementation route and must not override them.
+The confirmed proposal at
+`../plans/FRS-METHOD-v018-state-value-future-context-proposal.md` is retained as
+design rationale. The five coordinated method, Gain, optimization, training,
+and evaluation contracts above are now the default semantic authority. No
+prior v10 training or evaluation artifact is evidence for the new formal route
+or policy quality.
 
 ## Superseded Runtime Evidence
 

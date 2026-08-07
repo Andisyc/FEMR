@@ -1,38 +1,40 @@
 ---
-contract_id: FRS-METHOD-v017
+contract_id: FRS-METHOD-v018
 status: active
-effective_date: 2026-08-01
-updated_date: 2026-08-03
-supersedes: FRS-METHOD-v016
-scope: Clean-anchored Recovery-Aware local root-artifact repair with deployable future Intent, one full-6D action, one-action-K frozen-GMT evidence, one Clean plus one fixed Noisy baseline, exact-M Segment Replay, and grouped scalar PPO
+effective_date: 2026-08-08
+updated_date: 2026-08-08
+supersedes: FRS-METHOD-v017
+scope: Clean-anchored Recovery-Aware local root-artifact repair with one full-6D Actor action, a future-conditioned state-value Critic, one-action-K frozen-GMT evidence, exact-M Segment Replay, and grouped scalar PPO
 ---
 
-# Clean-Anchored Recovery-Aware Segment Replay
+# Future-Conditioned State-Value Segment Replay
 
 ## Design Delta
 
-FRS-METHOD-v016 used a scalar paired Intent objective while Contact,
-phase-ZMP, and survival separately constrained the actor through first-order
-projection. Long-run evidence established that the evidence route was
-executable, but the split authority did not express the accepted
-Recovery-Aware ordering: Physics recovery must matter most under high remaining
-physical pressure, while Intent must regain ranking authority near the Clean
-physical regime.
+FRS-METHOD-v017 defined one state-value Critic over the current 289D privileged
+observation while the Actor already used the sealed 58D future q29 Intent.
+That omits a variable required to distinguish states with the same current
+physical condition but different upcoming motion difficulty. It also presented
+each action-specific return as a separate desired value for one identical
+state input.
 
-FRS-METHOD-v017 replaces that split with one Clean-anchored scalar ordering:
+FRS-METHOD-v018 keeps the scalar Critic as `V(s)`, not `Q(s,a)`. It adds the
+same deployable 58D future Intent to the current 289D privileged state, and
+defines the exact-M Segment mean return as the Critic target. Each Repair still
+keeps its own realized `G_total` and advantage, so action ordering remains:
 
 ```text
 Clean Rollout            -> desired motion and support semantics
 fixed Noisy Rollout      -> zero-action baseline
 M Repair Rollouts        -> one-action reachable candidates
 Intent + Physics + cost  -> one Recovery-Aware G_total per attempt
-all valid attempts       -> grouped equal-mass PPO and one update
+shared V(s)              -> expected exact-M Segment return
+each G_total_m - V(s)    -> grouped equal-mass Actor credit
 ```
 
-The old independent Physics projection, constraint Critic interpretation, KKT
-actor gate, and fallback recovery update are retired from the active method.
-Contact, support-foot drift, phase-ZMP, and survival remain indispensable raw
-Physics evidence inside FRS-GAIN-v007.
+The 6D Repair action, Clean future, evaluator evidence, K, perturbation label
+and timing do not enter the Critic. The previous 289D Critic identity and all
+checkpoint-v10 state are incompatible with this method version.
 
 ## Concept Figure Mapping
 
@@ -83,6 +85,22 @@ leaves its numbers equal to Clean calibration. Clean continuation, expected
 Contact, phase-ZMP, survival, noise labels, perturbation timing, and future
 root/global quantities never enter the actor input.
 
+The state-value Critic reads one 347D training-only state:
+
+```text
+current privileged observation                              289D
+same sealed Noisy q29[t+1] and q29[t+2]                     58D
+                                      ----
+                                      347D
+```
+
+The 58D tail has the same detached `deployment_noisy_q29` provenance, ordering,
+row identity and Segment lifetime as the Actor tail. It is sealed once and
+reused by all M attempts. The environment's original privileged observation
+remains 289D before this FrontRES-specific concatenation. The Critic receives
+neither the 6D Repair action nor Clean continuation, expected Contact,
+phase-ZMP, survival, K, noise label, perturbation timing or evaluator outputs.
+
 The actor emits exactly one world-frame full-6D residual at `t`:
 
 ```text
@@ -116,7 +134,7 @@ Reset may not resample, mutate, or mix them. There is no Noisy physical prefix.
 
 The active corruption family is single `local_rp`. Composite corruption is not
 part of this contract. Perturbation strength follows the K-conditioned
-four-class inner DR curriculum owned by FRS-TRAIN-v015; it is not monotonically
+four-class inner DR curriculum owned by FRS-TRAIN-v016; it is not monotonically
 ramped and is not controlled by Gain or PPO.
 
 ## Clean/Noisy/Repair Evidence
@@ -181,22 +199,29 @@ keeps equal structural mass and contributes its own `G_total`, value, and
 advantage. Winner-only, argmax, best-of-M loss weights, priority weights, and
 score-proportional row mass are forbidden.
 
+All M attempts from one Segment share one old `V(s)` value. The Critic target
+is the arithmetic mean of their exact-M `G_total` values, while every Actor row
+keeps `advantage_m = G_total_m - V_old(s)`. Subtracting one shared baseline
+preserves every strict within-Segment action ordering.
+
 Only after all Segment x M attempts and shared baselines are sealed may
-FRS-PPO-v005 perform exactly one grouped optimizer update. A partial or mixed
+FRS-PPO-v006 perform exactly one grouped optimizer update. A partial or mixed
 transaction cannot update policy, Critic, optimizer, sampler, curriculum, or
 checkpoint receipt.
 
 ## Training And Persistence Authority
 
-FRS-TRAIN-v015 owns HSL-to-HRL initialization, the coordinated K x M schedule,
+FRS-TRAIN-v016 owns HSL-to-HRL initialization, the coordinated K x M schedule,
 per-K inner DR progression, Critic-only recalibration, actor ramp, joint optimization,
 calibration, and strict checkpoint identity. HSL initializes only the proposal
-actor/std and 158D actor-prefix normalizer. The scalar Critic predicts the
-complete Recovery-Aware `G_total` and is recalibrated whenever K increases.
+actor/std and 158D actor-prefix normalizer. The fresh 347D scalar Critic predicts
+the expected complete Recovery-Aware `G_total` under frozen `pi_old` and is
+recalibrated whenever K increases. Actor and Critic gradients are clipped
+independently before the same exact-one Adam step.
 
-Old checkpoint-v6 and earlier identities cannot resume the changed scalar
-target. Strict resume requires the new versioned contract and committed
-transaction identity before any mutable state is restored.
+Checkpoint-v10 and earlier cannot resume the changed observation, target and
+clipping identity. Strict resume requires checkpoint-v11 and the new versioned
+contract before any mutable state is restored.
 
 ## Deployment Boundary
 
@@ -229,12 +254,14 @@ config and checkpoint identity
 -> deployable 158D actor input and one full-6D action
 -> frozen GMT K-step Clean-anchored evidence
 -> FRS-GAIN-v007 G_total for every valid Repair
--> FRS-PPO-v005 grouped exact-one update
--> FRS-TRAIN-v015 committed checkpoint and diagnostics
+-> one shared 347D V(s) and one exact-M mean Critic target per Segment
+-> FRS-PPO-v006 grouped exact-one update with separate gradient clipping
+-> FRS-TRAIN-v016 committed checkpoint-v11 and diagnostics
 ```
 
 Stop if Clean reaches actor input, a baseline is resampled, a transaction mixes
 scenario/K/M/policy identity, evidence is silently zero-filled, an old
 projection path remains active, valid attempts are winner-filtered, more than
-one optimizer step occurs, or runtime ordering contradicts the raw paired
-evidence.
+one optimizer step occurs, the Critic receives the 6D action or lacks the sealed
+future Intent, Actor/Critic share one clip factor, or runtime ordering
+contradicts the raw paired evidence.

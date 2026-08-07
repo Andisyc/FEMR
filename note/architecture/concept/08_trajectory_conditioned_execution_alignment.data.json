@@ -2,16 +2,25 @@
   "title": "08 In-Context Execution Calibration",
   "layout": "method_figure",
   "figureWidth": 2050,
-  "figureHeight": 1160,
+  "figureHeight": 1540,
   "connectorClearance": 18,
   "showLegend": false,
-  "layerDivider": {
-    "x1": 40,
-    "x2": 2010,
-    "y": 460,
-    "topLabel": "Privileged Teacher Training",
-    "bottomLabel": "Context-Conditioned Tracker Training"
-  },
+  "layerDividers": [
+    {
+      "x1": 40,
+      "x2": 2010,
+      "y": 460,
+      "topLabel": "Privileged Teacher Training",
+      "bottomLabel": "Context-Conditioned Tracker Training"
+    },
+    {
+      "x1": 40,
+      "x2": 2010,
+      "y": 1190,
+      "topLabel": "Context-Conditioned Tracker Training",
+      "bottomLabel": "Controlled Real-World Proof of Concept"
+    }
+  ],
   "concepts": {
     "C-ICA3-PLANNER": {
       "name": "Planner Intent",
@@ -207,6 +216,59 @@
       "y": 800,
       "w": 240,
       "h": 110
+    },
+    {
+      "id": "ICA3-D-01",
+      "title": "Controlled Action Shift",
+      "summary": "固定降低单侧 Action 强度，制造可重复直线偏移",
+      "concept": "C-ICA3-SHIFT",
+      "kind": "external",
+      "x": 40,
+      "y": 1300,
+      "w": 280,
+      "h": 110
+    },
+    {
+      "id": "ICA3-D-02",
+      "title": "First Rollout",
+      "summary": "相同 Tracker 首次执行，记录偏移下的 State-Action 轨迹",
+      "concept": "C-ICA3-SUPPORT",
+      "kind": "external",
+      "x": 390,
+      "y": 1300,
+      "w": 280,
+      "h": 110
+    },
+    {
+      "id": "ICA3-D-03",
+      "title": "Calibration Signal",
+      "summary": "少量真机 Rollout 成为下一次执行的校准信号",
+      "concept": "C-ICA3-CONTEXT",
+      "x": 740,
+      "y": 1300,
+      "w": 290,
+      "h": 110
+    },
+    {
+      "id": "ICA3-D-04",
+      "title": "Frozen Re-execution",
+      "summary": "模型参数保持冻结，仅根据首次轨迹校准第二次执行",
+      "concept": "C-ICA3-TRACKER",
+      "x": 1100,
+      "y": 1300,
+      "w": 300,
+      "h": 110
+    },
+    {
+      "id": "ICA3-D-05",
+      "title": "Corrected Execution",
+      "summary": "相同缺陷下横向偏移与航向误差减小",
+      "concept": "C-ICA3-OBJECTIVE",
+      "kind": "external",
+      "x": 1470,
+      "y": 1300,
+      "w": 300,
+      "h": 110
     }
   ],
   "edges": [
@@ -396,6 +458,30 @@
       ],
       "labelX": 1255,
       "labelY": 1049
+    },
+    {
+      "from": "ICA3-D-01",
+      "to": "ICA3-D-02",
+      "label": "受控缺陷",
+      "concept": "C-ICA3-SHIFT"
+    },
+    {
+      "from": "ICA3-D-02",
+      "to": "ICA3-D-03",
+      "label": "失败轨迹",
+      "concept": "C-ICA3-SUPPORT"
+    },
+    {
+      "from": "ICA3-D-03",
+      "to": "ICA3-D-04",
+      "label": "Context",
+      "concept": "C-ICA3-CONTEXT"
+    },
+    {
+      "from": "ICA3-D-04",
+      "to": "ICA3-D-05",
+      "label": "第二次执行",
+      "concept": "C-ICA3-TRACKER"
     }
   ],
   "callouts": [],

@@ -1,6 +1,6 @@
 # FEMR Current Test Control Board
 
-Updated: 2026-08-07
+Updated: 2026-08-08
 
 This is a current-state view, not a chronological test log. Dated command
 evidence belongs in evidence ledgers.
@@ -24,10 +24,10 @@ The human-confirmed Module Test Atlas is the current authority for admission to
 formal-runtime audit.
 
 ```text
-18 cards retained under active TRAIN-v015
-18 passed / 0 partial / 0 blocked after human confirmation (E-FI-135/E-FI-136)
-formal-runtime-audit Phase A: CONFIRMED
-formal-runtime-audit Phase B: TRAIN-v015 bounded rerun authorized
+18 cards retained; TEST-05/15/16/18 changed under active TRAIN-v016
+18 passed / 0 partial / 0 blocked; changed cards human-confirmed before execution
+formal-runtime-audit Phase A: TRAIN-v016 CONFIRMED on 2026-08-08
+formal-runtime-audit Phase B: probes inserted/offline-verified; one bounded official transaction authorized
 long training: NOT AUTHORIZED
 ```
 
@@ -95,10 +95,10 @@ acceptance surface and supersedes it for all new implementation work.
 ## Current Training Gate
 
 ```text
-active semantics: METHOD-v017 / GAIN-v007 / PPO-v005 / TRAIN-v015 / EVAL-v004
+active semantics: METHOD-v018 / GAIN-v007 / PPO-v006 / TRAIN-v016 / EVAL-v004
 HSL-v2 artifact identity: FRS-TRAIN-v014 proposal-only initialization
-module test gate: 18 passed / 0 partial / 0 blocked at E-FI-135/E-FI-136
-formal Phase A: confirmed; one bounded official transaction authorized
+module test gate: 18 passed / 0 partial / 0 blocked; changed v016 cards confirmed
+formal Phase A: confirmed; Phase B probes inserted/offline-verified; bounded transaction pending
 long training remains closed
 ```
 

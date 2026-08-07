@@ -64,6 +64,9 @@ def _load_owners():
     ppo_module.install_frontres_v005_scalar_gradients = lambda *_args, **_kwargs: (_ for _ in ()).throw(
         AssertionError("one-action K collection must not install PPO gradients")
     )
+    ppo_module.install_frontres_v006_scalar_gradients = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("one-action K collection must not install PPO gradients")
+    )
     ppo_module.step_frontres_v005_scalar_optimizer = lambda *_args, **_kwargs: (_ for _ in ()).throw(
         AssertionError("one-action K collection must not enter optimizer authority")
     )

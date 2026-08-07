@@ -1,6 +1,30 @@
 {
   "schemaVersion": 1,
   "modules": {
+    "MOD-OBS": {
+      "assessment": "approve",
+      "reviewedAt": "2026-08-08",
+      "reportPath": "note/code_reviews/frontres_v016_state_value_code_review.md",
+      "findings": []
+    },
+    "MOD-PPO": {
+      "assessment": "approve",
+      "reviewedAt": "2026-08-08",
+      "reportPath": "note/code_reviews/frontres_v016_state_value_code_review.md",
+      "findings": []
+    },
+    "MOD-CHECKPOINT": {
+      "assessment": "approve",
+      "reviewedAt": "2026-08-08",
+      "reportPath": "note/code_reviews/frontres_v016_state_value_code_review.md",
+      "findings": []
+    },
+    "MOD-DIAGNOSTICS": {
+      "assessment": "approve",
+      "reviewedAt": "2026-08-08",
+      "reportPath": "note/code_reviews/frontres_v016_state_value_code_review.md",
+      "findings": []
+    },
     "MOD-EVAL": {
       "assessment": "approve",
       "reviewedAt": "2026-07-31",

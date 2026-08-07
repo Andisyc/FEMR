@@ -256,10 +256,10 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
     assert getattr(runner.alg, "frontres_training_objective", "") == "segment_replay_hrl"
     assert bool(getattr(boundary, "live_train_enabled", False)) and not alternate
     required_identity = {
-        "frontres_method_contract_id": "FRS-METHOD-v017",
+        "frontres_method_contract_id": "FRS-METHOD-v018",
         "frontres_gain_contract_id": "FRS-GAIN-v007",
-        "frontres_optimization_contract_id": "FRS-PPO-v005",
-        "frontres_training_contract_id": "FRS-TRAIN-v015",
+        "frontres_optimization_contract_id": "FRS-PPO-v006",
+        "frontres_training_contract_id": "FRS-TRAIN-v016",
     }
     for name, expected in required_identity.items():
         assert getattr(alg, name, None) == expected, f"AUDIT-B01 requires {name}={expected}"
@@ -267,6 +267,20 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
     checkpoint_path = str(getattr(runner, "_frontres_last_loaded_checkpoint_path", ""))
     assert offsets == (1, 2), "AUDIT-B01 requires future offsets (1,2)"
     assert checkpoint_path, "AUDIT-B01 requires a validated HSL-v2 initializer path"
+    optimizer_groups = tuple(getattr(getattr(alg, "optimizer", None), "param_groups", ()) or ())
+    optimizer_by_role = {
+        str(group.get("frontres_role", "")): group
+        for group in optimizer_groups
+        if isinstance(group, Mapping)
+    }
+    assert len(optimizer_groups) == 2 and set(optimizer_by_role) == {"actor", "critic"}, (
+        "AUDIT-B01 requires exact Actor/Critic optimizer groups"
+    )
+    actor_lr = float(optimizer_by_role["actor"].get("lr", float("nan")))
+    critic_lr = float(optimizer_by_role["critic"].get("lr", float("nan")))
+    assert actor_lr == 3.0e-6 and critic_lr == 1.0e-5, (
+        "AUDIT-B01 requires fixed Actor/Critic LR=3e-6/1e-5"
+    )
     assert int(num_learning_iterations) == 1 and int(getattr(runner, "current_learning_iteration", -1)) == 0, (
         "AUDIT-B01 is admitted only for the fresh one-transaction Phase B run"
     )
@@ -276,8 +290,10 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
         "AUDIT-B01",
         limit=1,
         checkpoint=checkpoint_path,
-        contracts="FRS-METHOD-v017/FRS-GAIN-v007/FRS-PPO-v005/FRS-TRAIN-v015",
+        contracts="FRS-METHOD-v018/FRS-GAIN-v007/FRS-PPO-v006/FRS-TRAIN-v016",
         future_offsets=offsets,
+        actor_lr=actor_lr,
+        critic_lr=critic_lr,
         active_k=8,
         active_m=2,
         envs=8,
@@ -298,7 +314,7 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
 def print_sampler_audit(runner: Any, *, update_step: int, sample: Any, batch: Any, summary: Mapping[str, Any]) -> None:
     """Emit the retained legacy sampler snapshot.
 
-    TRAIN-v015 K/M identity is owned by ``frontres_segment_warmup.py`` and the
+    TRAIN-v016 K/M identity is owned by ``frontres_segment_warmup.py`` and the
     sealed formal transaction. This compatibility projection cannot prove the
     active K-step Curriculum.
     """
@@ -465,7 +481,7 @@ def print_rollout_storage_audit(
 
 
 def print_segment_replay_transaction_audit(runner: Any, *, result: Any) -> None:
-    """Audit the committed v017 Segment Replay transaction without mutation."""
+    """Audit the committed v016 Segment Replay transaction without mutation."""
 
     if not formal_runtime_audit_enabled(runner):
         return
@@ -473,10 +489,10 @@ def print_segment_replay_transaction_audit(runner: Any, *, result: Any) -> None:
     if not isinstance(diagnostics, Mapping):
         raise AssertionError("active Segment Replay audit requires immutable transaction diagnostics")
     required_identity = {
-        "method_contract_id": "FRS-METHOD-v017",
+        "method_contract_id": "FRS-METHOD-v018",
         "gain_contract_id": "FRS-GAIN-v007",
-        "optimization_contract_id": "FRS-PPO-v005",
-        "training_contract_id": "FRS-TRAIN-v015",
+        "optimization_contract_id": "FRS-PPO-v006",
+        "training_contract_id": "FRS-TRAIN-v016",
     }
     for key, expected in required_identity.items():
         assert diagnostics.get(key) == expected, f"active Segment Replay audit requires {key}={expected}"
@@ -529,7 +545,7 @@ def print_segment_replay_transaction_audit(runner: Any, *, result: Any) -> None:
         attempt_voting_weights=attempt_mass,
         optimizer_step_delta=getattr(result, "optimizer_step_delta", "missing"),
         update_invocations=getattr(result, "update_invocation_count", "missing"),
-        contracts="FRS-METHOD-v017/FRS-GAIN-v007/FRS-PPO-v005/FRS-TRAIN-v015",
+        contracts="FRS-METHOD-v018/FRS-GAIN-v007/FRS-PPO-v006/FRS-TRAIN-v016",
     )
 
 
@@ -559,6 +575,9 @@ def _print_one_action_k_audit_facts(
         "femr_visible_dim": 158,
         "gmt_suffix_dim": 770,
         "gmt_input_dim": 770,
+        "critic_current_observation_dim": 289,
+        "critic_future_intent_dim": 58,
+        "critic_observation_dim": 347,
     }
     for name, expected in expected_trace.items():
         assert int(trace.get(name, -1)) == expected, f"AUDIT-B03 requires {name}={expected}"
@@ -579,11 +598,17 @@ def _print_one_action_k_audit_facts(
     assert int(trace.get("post_advance_gmt_read_count", -1)) == 8
 
     policy = getattr(getattr(runner, "alg", None), "policy", None)
+    alg = getattr(runner, "alg", None)
+    assert getattr(alg, "frontres_critic_value_kind", None) == "state_value"
+    assert getattr(alg, "frontres_critic_input_dim", None) == 347
+    assert getattr(alg, "frontres_critic_action_conditioned", None) is False
+    assert getattr(alg, "frontres_critic_target_id", None) == "segment-exact-m-mean-v1"
+    assert int(trace["critic_future_intent_dim"]) == int(trace["q29_tail_dim"])
     gmt_policy = getattr(policy, "gmt_policy", None)
     assert isinstance(gmt_policy, torch.nn.Module) and not gmt_policy.training
     assert all(not parameter.requires_grad for parameter in gmt_policy.parameters())
 
-    # AUDIT-B03: 检查角色、Noisy provenance 与 928/158/770 权限分割.
+    # AUDIT-B03: 检查角色、Noisy provenance 与 158/347/770 权限分割.
     # Result: PENDING_LIVE.
     emit_formal_runtime_probe(
         "AUDIT-B03",
@@ -593,8 +618,13 @@ def _print_one_action_k_audit_facts(
         raw=trace["raw_observation_dim"],
         q29_tail=trace["q29_tail_dim"],
         combined=trace["combined_observation_dim"],
-        femr=trace["femr_visible_dim"],
+        actor=trace["femr_visible_dim"],
+        critic_current=trace["critic_current_observation_dim"],
+        critic_future=trace["critic_future_intent_dim"],
+        critic=trace["critic_observation_dim"],
         gmt=trace["gmt_suffix_dim"],
+        critic_kind=getattr(alg, "frontres_critic_value_kind"),
+        action_conditioned=int(bool(getattr(alg, "frontres_critic_action_conditioned"))),
     )
     # AUDIT-B04: 检查一次 FEMR action 后仅 frozen GMT 执行 K8.
     # Result: PENDING_LIVE.
@@ -680,6 +710,7 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
     scenario_ids = tuple(telemetry.get("scenario_ids", ()))
     noisy_hashes = tuple(telemetry.get("noisy_segment_hashes", ()))
     assert rows == 4 and active_m == 2 and int(telemetry.get("selected_segment_count", -1)) == 2
+    assert int(telemetry.get("role_row_count", -1)) == 8
     assert len(source_index) == len(trial_index) == len(scenario_ids) == len(noisy_hashes) == rows
     unique_sources = sorted(set(source_index))
     assert len(unique_sources) == 2
@@ -700,6 +731,7 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
         scenario_ids=scenario_ids,
         noisy_hashes=noisy_hashes,
         policy_rows=rows,
+        role_rows=telemetry["role_row_count"],
     )
 
     gain_fields = (
@@ -745,7 +777,33 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
     gains = tuple(float(value) for value in telemetry["gain_total"])
     assert int(telemetry.get("active_k", -1)) == 8
     assert tuple(bool(value) for value in telemetry.get("valid_policy_row_mask", ())) == (True,) * 4
-    # AUDIT-B06: 复现正式 float32 return reduction, 检查每条 PPO row 的 return=G_total.
+    critic_targets = tuple(float(value) for value in telemetry.get("critic_value_targets", ()))
+    segment_targets = tuple(float(value) for value in telemetry.get("critic_segment_target_means", ()))
+    actor_advantages = tuple(float(value) for value in telemetry.get("actor_advantages", ()))
+    policy_values = tuple(float(value) for value in telemetry.get("policy_values", ()))
+    raw_advantages = tuple(float(value) for value in telemetry.get("raw_advantages", ()))
+    assert all(
+        len(values) == rows and all(math.isfinite(value) for value in values)
+        for values in (critic_targets, actor_advantages, policy_values, raw_advantages)
+    )
+    assert len(segment_targets) == len(unique_sources) and all(math.isfinite(value) for value in segment_targets)
+    expected_segment_targets: list[float] = []
+    for segment_position, source in enumerate(unique_sources):
+        indices = [index for index, value in enumerate(source_index) if value == source]
+        expected_target = float(torch.tensor([gains[index] for index in indices], dtype=torch.float32).mean().item())
+        expected_segment_targets.append(expected_target)
+        assert math.isclose(segment_targets[segment_position], expected_target, rel_tol=0.0, abs_tol=1e-6)
+        assert all(
+            math.isclose(critic_targets[index], expected_target, rel_tol=0.0, abs_tol=1e-6)
+            for index in indices
+        )
+    for row in range(rows):
+        assert math.isclose(actor_advantages[row], raw_advantages[row], rel_tol=0.0, abs_tol=1e-6)
+        assert math.isclose(
+            actor_advantages[row], gains[row] - policy_values[row], rel_tol=0.0, abs_tol=1e-6
+        )
+
+    # AUDIT-B06: 检查 exact-M state-value target 与逐 attempt Actor advantage.
     expected_returns = torch.tensor(gains, dtype=torch.float32)
     expected_return_mean = float(expected_returns.mean().item())
     expected_return_min = float(expected_returns.min().item())
@@ -760,7 +818,12 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
         policy_rows=rows,
         active_k=telemetry.get("active_k"),
         valid=telemetry.get("valid_policy_row_mask"),
+        source_index=source_index,
         gain_total=gains,
+        policy_values=policy_values,
+        segment_targets=segment_targets,
+        critic_targets=critic_targets,
+        actor_advantages=actor_advantages,
         return_mean=telemetry["return_mean"],
         return_min=telemetry["return_min"],
         return_max=telemetry["return_max"],
@@ -771,12 +834,45 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
     assert tuple(float(value) for value in telemetry.get("grouped_attempt_mass_shares", ())) == (0.25,) * 4
     assert int(telemetry.get("optimizer_step_delta", -1)) == 1
     assert int(telemetry.get("update_count", -1)) == 1
+    assert int(telemetry.get("actor_observation_dim", -1)) == 158
+    assert int(telemetry.get("critic_observation_dim", -1)) == 347
+    assert int(telemetry.get("gmt_observation_dim", -1)) == 770
+    assert telemetry.get("critic_value_kind") == "state_value"
+    assert telemetry.get("critic_action_conditioned") is False
+    assert telemetry.get("critic_target_id") == "segment-exact-m-mean-v1"
+    assert telemetry.get("gradient_clip_identity") == "separate-actor-critic-v1"
+    max_norm = float(telemetry.get("gradient_clip_max_norm", float("nan")))
+    assert max_norm == 0.5
+    gradient_facts = {
+        role: {
+            name: float(telemetry.get(f"{role}_gradient_{name}", float("nan")))
+            for name in ("pre_clip_norm", "post_clip_norm", "clip_coefficient")
+        }
+        for role in ("actor", "critic")
+    }
+    for facts in gradient_facts.values():
+        assert all(math.isfinite(value) for value in facts.values())
+        assert facts["pre_clip_norm"] >= 0.0
+        assert 0.0 <= facts["post_clip_norm"] <= max_norm + 1e-6
+        assert 0.0 < facts["clip_coefficient"] <= 1.0
+        if facts["pre_clip_norm"] == 0.0:
+            assert facts["post_clip_norm"] == 0.0 and facts["clip_coefficient"] == 1.0
+    actor_nonzero = int(telemetry.get("actor_gradient_nonzero_parameter_count", -1))
+    critic_nonzero = int(telemetry.get("critic_gradient_nonzero_parameter_count", -1))
+    assert float(telemetry.get("actor_learning_rate", float("nan"))) == 3.0e-6
+    assert float(telemetry.get("critic_learning_rate", float("nan"))) == 1.0e-5
     if telemetry.get("warmup_phase") == "critic_only":
         actor_delta = telemetry.get("actor_std_parameter_delta", {})
         critic_delta = telemetry.get("critic_parameter_delta", {})
         assert float(actor_delta.get("param_delta_max_abs", float("nan"))) == 0.0
         assert float(critic_delta.get("param_delta_max_abs", 0.0)) > 0.0
-    # AUDIT-B07: 检查 grouped 等权、exact-one update 和 critic-only freeze.
+        assert actor_nonzero == 0 and critic_nonzero > 0
+        assert gradient_facts["actor"] == {
+            "pre_clip_norm": 0.0,
+            "post_clip_norm": 0.0,
+            "clip_coefficient": 1.0,
+        }
+    # AUDIT-B07: 检查 separate clip、grouped 等权、exact-one 和 critic-only freeze.
     # Result: PENDING_LIVE.
     emit_formal_runtime_probe(
         "AUDIT-B07",
@@ -785,6 +881,11 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
         attempt_mass=telemetry["grouped_attempt_mass_shares"],
         update_count=telemetry["update_count"],
         optimizer_step_delta=telemetry["optimizer_step_delta"],
+        actor_lr=telemetry["actor_learning_rate"],
+        critic_lr=telemetry["critic_learning_rate"],
+        max_norm=max_norm,
+        actor_gradient={**gradient_facts["actor"], "nonzero_parameters": actor_nonzero},
+        critic_gradient={**gradient_facts["critic"], "nonzero_parameters": critic_nonzero},
         phase=telemetry.get("warmup_phase"),
         actor_std_delta=telemetry.get("actor_std_parameter_delta"),
         critic_delta=telemetry.get("critic_parameter_delta"),
@@ -846,12 +947,11 @@ def print_ppo_audit(runner: Any, *, result: Any) -> None:
 def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[str, Any]) -> None:
     if not formal_runtime_audit_enabled(runner):
         return
-    # B1: active persistence audit follows the checkpoint-v10 coordinated owner.
+    # B1: inspect the complete in-memory checkpoint-v11 envelope before serialization.
     required = (
         "model_state_dict",
         "optimizer_state_dict",
         "iter",
-        "obs_norm_state_dict",
         "frontres_segment_sampler_state_dict",
         "frontres_segment_k_curriculum",
         "frontres_v015_checkpoint_identity",
@@ -859,22 +959,35 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
     missing = [key for key in required if key not in payload]
     assert not missing, f"formal Stage 3 checkpoint missing audit fields: {missing}"
 
-    # B2: Cross-check the top-level resume schedule and coordinated v8 identity.
+    # B2: cross-check v11 identity without treating optional normalizers as unconditional.
     identity = payload["frontres_v015_checkpoint_identity"]
     assert isinstance(identity, Mapping), "formal Stage 3 checkpoint identity must be a mapping"
-    assert identity.get("format") == "frontres-v017-checkpoint-v10", "formal audit requires checkpoint-v10"
-    assert identity.get("method_contract_id") == "FRS-METHOD-v017", "formal audit requires FRS-METHOD-v017"
+    assert identity.get("format") == "frontres-v017-checkpoint-v11", "formal audit requires checkpoint-v11"
+    assert identity.get("method_contract_id") == "FRS-METHOD-v018", "formal audit requires FRS-METHOD-v018"
     assert identity.get("gain_contract_id") == "FRS-GAIN-v007", "formal audit requires FRS-GAIN-v007"
-    assert identity.get("optimization_contract_id") == "FRS-PPO-v005", "formal audit requires FRS-PPO-v005"
-    assert identity.get("training_contract_id") == "FRS-TRAIN-v015", "formal audit requires FRS-TRAIN-v015"
-    assert identity.get("dr_curriculum_schema_id") == "nested-k-dr-four-class-v1", "formal audit requires TRAIN-v015 DR identity"
+    assert identity.get("optimization_contract_id") == "FRS-PPO-v006", "formal audit requires FRS-PPO-v006"
+    assert identity.get("training_contract_id") == "FRS-TRAIN-v016", "formal audit requires FRS-TRAIN-v016"
+    assert identity.get("dr_curriculum_schema_id") == "nested-k-dr-four-class-v1", "formal audit requires TRAIN-v016 DR identity"
     assert identity.get("scalar_target_id") == "clean-anchored-recovery-aware-gain-v1"
     assert identity.get("physics_schema_id") == "clean-anchored-contact-zmp-survival-v1"
     assert identity.get("grouped_schema_id") == "grouped-all-attempt-scalar-v1"
+    assert identity.get("critic") == {
+        "value_kind": "state_value",
+        "input_dim": 347,
+        "action_conditioned": False,
+        "target_id": "segment-exact-m-mean-v1",
+    }
+    assert identity.get("gradient_clip") == {
+        "identity": "separate-actor-critic-v1",
+        "max_norm": 0.5,
+    }
     assert identity.get("gain") == {"beta": 0.02}, "formal audit requires the frozen v007 beta"
     assert "constraint_solver" not in identity and "projection_schema_id" not in identity
-    assert "frontres_gain_config" not in payload, "active checkpoint-v10 must exclude legacy scalar Gain metadata"
-    assert "dr_scale" not in payload and not any(str(key).startswith("frontres_gmt_frontier_") for key in payload), "active checkpoint-v10 must exclude legacy adaptive DR state"
+    assert "frontres_gain_config" not in payload, "active checkpoint-v11 must exclude legacy scalar Gain metadata"
+    assert "dr_scale" not in payload and not any(str(key).startswith("frontres_gmt_frontier_") for key in payload), "active checkpoint-v11 must exclude legacy adaptive DR state"
+    normalizer = identity.get("normalizer")
+    if isinstance(normalizer, Mapping) and normalizer.get("mode") == "empirical_prefix_plus_frozen_gmt":
+        assert "obs_norm_state_dict" in payload and "privileged_obs_norm_state_dict" in payload
     curriculum = identity.get("curriculum")
     assert isinstance(curriculum, Mapping), "formal Stage 3 checkpoint has no sealed curriculum identity"
     try:
@@ -903,11 +1016,20 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
     assert len(str(gmt.get("checkpoint_sha256", ""))) == 64
     assert len(str(gmt.get("normalizer_fingerprint", ""))) == 64
     layout = identity.get("future_intent_layout")
-    assert isinstance(layout, Mapping), "AUDIT-B08 requires the 928/158/770 layout identity"
+    assert isinstance(layout, Mapping), "AUDIT-B08 requires the 928 Actor / 158 Actor-prefix / 770 GMT layout identity"
     assert int(layout.get("actor_dim", -1)) == 928
     assert int(layout.get("prefix_dim", -1)) == 158
     assert int(layout.get("gmt_dim", -1)) == 770
     assert tuple(layout.get("future_offsets", ())) == (1, 2)
+    optimizer_state = payload.get("optimizer_state_dict")
+    groups = optimizer_state.get("param_groups") if isinstance(optimizer_state, Mapping) else None
+    if isinstance(groups, list) and groups:
+        groups_by_role = {
+            str(group.get("frontres_role", "")): group for group in groups if isinstance(group, Mapping)
+        }
+        assert len(groups) == 2 and set(groups_by_role) == {"actor", "critic"}
+        assert float(groups_by_role["actor"].get("lr", float("nan"))) == 3.0e-6
+        assert float(groups_by_role["critic"].get("lr", float("nan"))) == 1.0e-5
 
     # B3: Emit the exact coordinated identity immediately before torch.save.
     print(
@@ -923,13 +1045,66 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
         f"fingerprint={curriculum.get('schedule_fingerprint', 'missing')}",
         flush=True,
     )
-    # AUDIT-B08: 检查 committed receipt 与 checkpoint-v10 的同一身份.
+def print_checkpoint_reload_audit(
+    runner: Any,
+    *,
+    path: str,
+    payload: Mapping[str, Any],
+    validated_identity: Mapping[str, Any],
+    file_sha256: str,
+) -> None:
+    """Project a strictly validated post-``os.replace`` checkpoint-v11 readback."""
+
+    if not formal_runtime_audit_enabled(runner):
+        return
+    identity = payload.get("frontres_v015_checkpoint_identity")
+    assert isinstance(identity, Mapping) and dict(identity) == dict(validated_identity)
+    assert len(file_sha256) == 64
+    assert identity.get("format") == "frontres-v017-checkpoint-v11"
+    critic = identity.get("critic")
+    layout = identity.get("future_intent_layout")
+    transaction = identity.get("transaction")
+    assert isinstance(critic, Mapping) and critic.get("input_dim") == 347
+    assert isinstance(layout, Mapping)
+    assert int(layout.get("prefix_dim", -1)) == 158 and int(layout.get("gmt_dim", -1)) == 770
+    assert isinstance(transaction, Mapping) and transaction.get("state") == "committed"
+    receipt = transaction.get("receipt")
+    assert isinstance(receipt, Mapping) and int(receipt.get("optimizer_step_delta", -1)) == 1
+    assert int(receipt.get("policy_row_count", -1)) == 4 and int(receipt.get("role_row_count", -1)) == 8
+    assert int(payload.get("iter", -1)) == int(identity.get("curriculum", {}).get("absolute_iteration", -2))
+    gmt = identity.get("gmt")
+    curriculum = identity.get("curriculum")
+    gradient_clip = identity.get("gradient_clip")
+    assert isinstance(gmt, Mapping) and len(str(gmt.get("checkpoint_sha256", ""))) == 64
+    assert len(str(gmt.get("normalizer_fingerprint", ""))) == 64
+    assert isinstance(curriculum, Mapping) and str(curriculum.get("schedule_fingerprint", ""))
+    assert gradient_clip == {"identity": "separate-actor-critic-v1", "max_norm": 0.5}
+
+    optimizer_state = payload.get("optimizer_state_dict")
+    groups = optimizer_state.get("param_groups") if isinstance(optimizer_state, Mapping) else None
+    assert isinstance(groups, list) and len(groups) == 2
+    groups_by_role = {
+        str(group.get("frontres_role", "")): group for group in groups if isinstance(group, Mapping)
+    }
+    assert set(groups_by_role) == {"actor", "critic"}
+    lrs = (float(groups_by_role["actor"]["lr"]), float(groups_by_role["critic"]["lr"]))
+    assert lrs == (3.0e-6, 1.0e-5)
+
+    # AUDIT-B08: atomic save -> strict loader/validator -> read-only identity projection.
     # Result: PENDING_LIVE.
     emit_formal_runtime_probe(
         "AUDIT-B08",
         limit=1,
         path=path,
+        readback=1,
+        file_sha256=file_sha256,
         checkpoint_format=identity["format"],
+        contracts=(
+            identity.get("method_contract_id"),
+            identity.get("gain_contract_id"),
+            identity.get("optimization_contract_id"),
+            identity.get("training_contract_id"),
+        ),
         transaction_id=receipt.get("transaction_id"),
         iteration=payload.get("iter"),
         active_k=receipt.get("active_k"),
@@ -937,15 +1112,21 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
         policy_rows=receipt.get("policy_row_count"),
         role_rows=receipt.get("role_row_count"),
         optimizer_step_delta=receipt.get("optimizer_step_delta"),
+        optimizer_lrs=lrs,
+        layout=(layout["prefix_dim"], critic["input_dim"], layout["gmt_dim"]),
+        gradient_clip=gradient_clip,
+        schedule_fingerprint=curriculum["schedule_fingerprint"],
+        normalizer_mode=identity.get("normalizer", {}).get("mode"),
         gmt_sha256=gmt["checkpoint_sha256"],
         gmt_normalizer=gmt["normalizer_fingerprint"],
-        layout=(layout["actor_dim"], layout["prefix_dim"], layout["gmt_dim"]),
+        runner_mutated=0,
     )
 
 
 __all__ = [
     "formal_runtime_audit_enabled",
     "print_checkpoint_payload_audit",
+    "print_checkpoint_reload_audit",
     "print_formal_route_audit",
     "print_one_action_k_audit",
     "print_v017_repair_attempts_audit",

@@ -1,13 +1,13 @@
 # FrontRES Module Test Atlas
 
-Status: all 18 human-confirmed active cards pass after the TRAIN-v015 split-LR refresh.
+Status: TRAIN-v016 cards confirmed and executed; Phase A review pending.
 
-Current result: `18 passed / 0 partial / 0 blocked`. The user-confirmed v015
-optimizer/config/persistence questions are integrated into TEST-01, TEST-02,
-TEST-15 and TEST-16 without adding a duplicate module family. E-FI-135 records
-their execution and the 50/50 affected suite. The new campaign's bounded live
-transaction is runtime-confirmed by E-FI-136; policy quality remains a separate
-evidence gate.
+Current result: `18 passed / 0 partial / 0 blocked`. TEST-05, TEST-15, TEST-16
+and TEST-18 contain the confirmed v018/v016/v006 observation, optimization,
+persistence and diagnostics changes. Their TRAIN-v015 results remain historical
+characterization, not evidence for checkpoint-v11. The user confirmed all four
+changed cards on 2026-08-08; the tests were then implemented and executed
+without changing their oracles.
 
 Interactive page: `../05_frontres_module_test_atlas.html`
 
@@ -60,8 +60,10 @@ surface.
 | Status | Cards |
 | --- | --- |
 | passed | TEST-01--18 |
+| not-run | none |
 | partial | none |
 | blocked | none |
 
-The detailed claim, test, observed fact, and limitation ledger is
-`../../testing/frontres_module_test_execution_2026-08-03.md`.
+The current detailed claim, test, observed fact, and limitation ledger is
+`../../testing/frontres_v016_state_value_module_test_execution_2026-08-08.md`.
+The 2026-08-03 TRAIN-v015 ledger remains historical evidence only.

@@ -256,7 +256,9 @@ controller.
 \]
 
 Every valid Repair contributes one return and one policy row. The scalar Critic
-owned by FRS-TRAIN-v015 predicts the expected complete `G_total` at the active K.
+owned by FRS-TRAIN-v016 predicts the expected complete `G_total` at the active K
+from the future-conditioned state; Gain remains per-attempt evidence and does
+not own the Segment-mean value target.
 Contact, support-foot drift, phase-ZMP, and survival reach learning only through
 `P_X -> G_P -> G_total`. They do not simultaneously produce independent actor
 constraints, projection gradients, KKT gates, or fallback updates.

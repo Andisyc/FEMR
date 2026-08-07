@@ -1,6 +1,21 @@
 # FEMR Current Test Inventory
 
-Updated: 2026-08-07
+Updated: 2026-08-08
+
+## TRAIN-v016 Future-Conditioned State-Value Offline Closure
+
+- the user confirmed TEST-05, TEST-15, TEST-16 and TEST-18 before execution;
+  all four pass against independent tensor, parameter and checkpoint oracles;
+- the active Critic state is `[289 current privileged | 58 sealed Noisy q29] =
+  347D`; the Actor remains 158D and GMT remains 770D;
+- Actor advantages remain per-attempt while the Critic target is the exact-M
+  arithmetic mean per transaction source; Actor/std and Critic gradients clip
+  independently at 0.5 before one two-group Adam step;
+- checkpoint-v11 is the only active resume identity; v10 remains strict
+  read-only characterization and cannot initialize TRAIN-v016;
+- the Stage-3 pseudo suite passes 13/13 and the active deterministic aggregate
+  passes 52/52. This is offline evidence only; Formal Runtime Audit Phase A was
+  human-confirmed on 2026-08-08 and Phase B probe-plan review is pending.
 
 ## TRAIN-v015 HSL Identity Runtime Repair E-FI-136
 
@@ -197,7 +212,11 @@ is excluded from active aggregation.
 
 | Test | Tier | Current ownership |
 | --- | --- | --- |
-| `frontres_segment_all_contract_suite.py` | active S0-S3 aggregate | Secondary 50-target regression runner. Its passing result does not replace the 18 independently answered Module Test Cards. |
+| `frontres_segment_all_contract_suite.py` | active S0-S3 aggregate | Secondary 52-target regression runner. Its passing result does not replace the 18 independently answered Module Test Cards. |
+| `frontres_v016_state_value_observation_contract.py` | S1/S2 | Exact shared future tail, 289+58=347 Critic state, preserved 158D Actor/770D GMT and malformed-input rejection. |
+| `frontres_v016_state_value_ppo_contract.py` | S1 | Per-source exact-M mean Critic target, unchanged per-attempt Actor advantages, repeated local Segment-id isolation and separate clip(0.5). |
+| `frontres_v016_checkpoint_contract.py` | S3 | Atomic checkpoint-v11 round-trip and pre-mutation v10/malformed rejection; HSL-v2 remains Actor-only. |
+| `frontres_v016_runtime_telemetry_contract.py` | S1/S2 | Faithful v018/v006/v016 target, dimension, gradient, exact-one and receipt projection with fail-closed malformed facts. |
 | `frontres_gain_v007_contract.py` | S1 | Clean anchor, fixed scales, K evidence, family aggregation, Recovery-Aware pressure, N/A/fail-closed behavior, baseline reuse, permutation and beta-cost ordering. |
 | `frontres_v017_step1_contract.py` | S1/S2 | Sealed Clean/Noisy/M-Repair evidence -> v007 Gain -> grouped scalar PPO-v005 -> atomic local report, plus active legacy-local-evaluator rejection. |
 | `frontres_v015_checkpoint_resume_contract.py` | S3 | Real temporary checkpoint-v10 atomic roundtrip with direct-action, split-LR optimizer groups and full DR/RNG/receipt state; v9 and malformed identity reject pre-mutation. |
@@ -242,7 +261,7 @@ is excluded from active aggregation.
 | `frontres_segment_live_single_update_contract.py` | S2 | Optimizer order, adaptive LR, post-KL, rollback, diagnostics. |
 | `frontres_segment_warmup_contract.py` | S1/S2 | DP-09 phase values and actor/critic gradient boundaries. |
 | `frontres_frozen_gmt_contract.py` | S1/S2 | GMT freeze, optimizer exclusion, and bitwise no-update boundary. |
-| `frontres_formal_runtime_audit_contract.py` | S1/S2 | Phase B flag, active v017/v007/v005/v015 two-Segment x exact-M group weights, B03/B04 Repair-collector connectivity and K8 step rejection, split-LR exact-one update, checkpoint-v10 direct-action identity, formal-owner hooks, active K isolation, invalid identity/mass rejection and silent-off behavior. |
+| `frontres_formal_runtime_audit_contract.py` | S1/S2 | Phase B flag, active v018/v007/v006/v016 two-Segment x exact-M target, B03/B04 Repair-collector connectivity, separate clipping, exact-one update, checkpoint-v11 atomic readback, formal-owner hooks, invalid identity/value rejection and silent-off behavior. |
 | `frontres_segment_checkpoint_contract.py` | S3 | Detached helper persistence compatibility tests; not the formal `OnPolicyRunner` owner. |
 | `frontres_segment_live_sampler_contract.py` | historical v002 S3 | Historical sampler persistence and retired Gain identity characterization; excluded from active v017 aggregation. |
 | `frontres_segment_live_training_pseudo_contract.py` | S2 | Training-loop diagnostics/checkpoint behavior and proof that no evaluator is embedded in training. |

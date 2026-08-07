@@ -1,18 +1,15 @@
 # FrontRES Design Inspector
 
-Status: visual interaction approved. The K-DR interaction reopened by E-FI-107
-was human-confirmed and activated as TRAIN-v013 on 2026-08-03, then retained by
-the active direct-action and fixed split-LR TRAIN-v015 contract. Perturbation Data, K-step
-Curriculum and Actor & Critic Warmup project the active nested K-DR curriculum.
-E-FI-109 closes the offline curriculum migration;
-E-FI-111 through E-FI-119 confirm DP01 through DP10 for Phase A, including the
-formal `actor_ramp` identity, same-Critic K-transition recalibration, and exact
-future deployment/Noisy offsets `(1,2)` through the offline 928/158/770 route.
-E-FI-135 confirms named Actor/Critic `3e-6/1e-5` groups, fixed scheduling,
-committed telemetry and checkpoint-v10 round-trip offline. E-FI-136
-live-confirms the new campaign's bounded official B01-B08 transaction,
-critic-only role deltas, exact-one update and checkpoint-v10 save. Long
-training and policy quality remain separate evidence gates.
+Status: DP07, DP09 and DP10 were human-confirmed on 2026-08-08 and activated as
+METHOD-v018 / PPO-v006 / TRAIN-v016. The offline implementation and all four
+changed Module Test Cards are complete; Formal Runtime Audit Phase A was
+human-confirmed on 2026-08-08. The confirmed Phase B probes are inserted and
+offline-verified; one bounded official transaction remains. The Actor remains 158D and GMT remains 770D. The
+state-value Critic now reads 289D current privileged state plus the same sealed
+58D future q29 Intent, uses one exact-M Segment mean target, and has its
+gradient clipped independently from the Actor before one Adam step. Prior
+TRAIN-v015/checkpoint-v10 evidence is historical characterization only. The
+checkpoint-v11 live sentinel and policy quality remain separate evidence gates.
 
 Interactive page: `../02_frontres_design_inspector.html`
 
@@ -65,7 +62,9 @@ pre-Transaction initialization
 -> use Clean direction, Noisy zero point, and every Repair consequence to form
 one active scalar Recovery-Aware Gain per attempt
 -> seal 2 x M PPO policy rows
--> use every attempt's scalar advantage in exactly one grouped optimizer update
+-> form one shared 347D state value and exact-M mean target per Segment
+-> use every attempt's scalar advantage, clip Actor/Critic separately, and
+execute exactly one grouped optimizer update
 -> commit checkpoint and curriculum state
 ```
 
@@ -82,10 +81,10 @@ English outline above.
 | FrontRES 6D Repair | consume the deployable actor prefix and emit one full-6D `Delta SE(3)` action at `t` |
 | Frozen GMT | freeze FrontRES and let frozen GMT execute the common continuation |
 | Paired Rollouts | execute one Clean anchor and one fixed Noisy zero point once per sealed Segment, then read-only reuse both while evaluating M Repair rollouts |
-| Repair Gain | combine Clean-conditioned Intent and pressure-weighted Physics into one scalar `G_total` per attempt, consumed by all-attempt grouped PPO without the old Physics projection |
+| Repair Gain | keep one scalar `G_total` per attempt; subtract one shared state value so Actor ordering remains action-specific while the Critic target is the exact-M mean |
 | HSL Warmup | initialize the proposal Actor before the first Stage-3 Transaction and never use HSL as its target |
-| Actor & Critic Warmup | first teach the Critic to judge Repair quality, then gradually let the Actor learn from it; recalibrate the same Critic whenever K increases |
-| Future Motion Context | seal q29 at `t+1,t+2` from one fixed deployment Noisy reference, then read it at the one action-sampling step |
+| Actor & Critic Warmup | first calibrate the 347D state-value Critic, then release the Actor; clip their gradients independently and recalibrate the same Critic whenever K increases |
+| Future Motion Context | seal q29 at `t+1,t+2` from one fixed deployment Noisy reference, then reuse it in the 158D Actor input and 347D Critic state while keeping GMT at 770D |
 
 ## Atomic Decisions Kept In The Primary View
 
@@ -154,13 +153,15 @@ decision itself. They are not rendered as separate metadata chips:
 - every valid Repair attempt remains one equal-structure-mass PPO row; ordering
   comes from its own `G_total` and advantage, not winner-only selection,
   argmax, best-of-M weighting, or replay priority;
-- full observation `928D`, FrontRES prefix `158D`, frozen GMT suffix `770D`;
+- full observation `928D`, FrontRES Actor prefix `158D`, FrontRES Critic state
+ `347D`, frozen GMT suffix `770D`;
 - the actor reads two future 29D internal-Intent frames, `q29[t+1]` and
   `q29[t+2]`, from the same sealed Noisy/deployment reference;
-- those two frames contribute `58D` to the `158D` FrontRES input, while future
-  root/global information remains excluded;
-- H supplies the two-frame actor context; K remains the executable-evidence
-  horizon.
+- those two frames contribute `58D` to the `158D` Actor input and to the
+ `289D + 58D = 347D` state-value Critic input, while future root/global,
+ Clean future, evaluator evidence, K and the 6D Repair action remain excluded;
+- H supplies the two-frame Actor/Critic context; K remains the executable-evidence
+horizon.
 - Clean Rollout is evaluator-only phase and demo-quality evidence; it does not
   become an actor input or PPO row.
 - each sealed Segment executes one Clean Rollout and one fixed zero-action Noisy
@@ -239,8 +240,12 @@ decision itself. They are not rendered as separate metadata chips:
   frozen across Segments and K rather than becoming a per-stage controller;
 - `G_total = G_I + lambda_RA G_P - beta C_repair` is the complete
   Recovery-Aware candidate score consumed by Segment Replay ranking;
-- `return_K=G_total`; one scalar Critic predicts the expected complete
-  Recovery-Aware score for the active K stage;
+- `return_K=G_total`; all exact-M attempts share one old state value, their
+ arithmetic mean `G_total` is the Critic target, and each Actor advantage keeps
+ its own return minus that shared baseline;
+- Actor and Critic gradients are clipped independently at 0.5, then the two
+ named LR groups still execute exactly one Adam step and persist as
+ checkpoint-v11;
 - Contact phase, support-foot drift, phase-ZMP and survival remain fail-closed
   Physics evidence, but their learning route is `P_X -> G_P -> G_total`; the
   old independent constraint projection and KKT actor gate retire rather than
@@ -308,9 +313,9 @@ does not delete or supersede them.
  trajectories without discounting early Contact/survival failures;
 - the Repair Gain card shows separate smooth worst-item aggregation for Intent
  and Physics before group-level improvement and Recovery pressure;
-- the Repair Gain and Actor & Critic Warmup cards show `G_total` as the scalar
-  return/Critic target and explicitly retire the old independent Physics
-  projection;
+- the Repair Gain and Actor & Critic Warmup cards show per-attempt `G_total` as
+ Actor evidence, the exact-M mean as the shared state-value target, and the old
+ independent Physics projection as retired;
 - the bottom card contains four to eight numbered atomic decisions and no
   implementation/evidence panels;
 - Segment Replay visibly covers same-`x_t` reset, exact-M collection, zero updates
@@ -328,12 +333,13 @@ does not delete or supersede them.
   per-frame deployment composition, and the soft upward `dz` treatment without
   hiding a hard clip, mask, or scale;
 - HSL is visibly pre-Transaction rather than a per-Transaction operation;
-- Actor & Critic Warmup states the direct `HSL -> HRL` transition and does not
-  describe a vague "new target";
+- Actor & Critic Warmup states the direct `HSL -> HRL` transition, the 347D
+ state-value input, exact-M mean target, separate gradient clipping and
+ checkpoint-v11 cold-start boundary;
 - the `Future Motion Context` detail card explicitly states `t+1,t+2`,
   `29D x 2 = 58D`,
-  extraction from one fixed deployment Noisy reference, and exclusion of
-  future root/global information;
+ extraction from one fixed deployment Noisy reference, Actor/Critic reuse, and
+ exclusion of future root/global, Clean/evaluator and 6D action information;
 - primary prose follows the Chinese-sentence language contract;
 - the full page is readable at default browser zoom without vertical scanning
   through multiple long panels.

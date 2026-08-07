@@ -403,7 +403,7 @@ class FrontRESStage3Engine:
                     if rejection_count >= _MAX_REJECTED_COLLECTIONS:
                         break
                     print(
-                        "[FrontRES v015 Transaction Rejected] "
+                        "[FrontRES v016 Transaction Rejected] "
                         f"rejection={rejection_count + 1}/{_MAX_REJECTED_COLLECTIONS} "
                         f"optimizer_step_delta=0 reason={error}",
                         flush=True,

@@ -13,6 +13,7 @@ from rsl_rl.frontres.frontres_segment_evidence import (
     FrontRESRepairAttemptEvidence,
 )
 from rsl_rl.frontres.frontres_segment_grouped_adapter import build_frontres_v015_grouped_candidate_storage
+from rsl_rl.modules.frontres_observation_layout import compose_frontres_v016_critic_observation
 
 from rsl_rl.runners.frontres_rollout_step import append_frontres_future_intent_actor_context, frontres_motion_command, prepare_frontres_v015_frozen_gmt_step, prepare_frontres_v015_one_action_at_t
 from rsl_rl.runners.frontres_formal_runtime_audit import (
@@ -93,13 +94,17 @@ def _read_live_observations(runner: Any) -> FrontRESSegmentLiveObservations:
     obs = obs.to(runner.device)
     raw_obs_dim = int(obs.shape[-1])
     uses_v015_future_intent = _uses_v015_future_intent_route_local(runner)
-    # v015 的 actor 只能看到 deployment-q29 intent. 旧 65D fixed tape 只保留给
-    # 历史路径, 两者不能在同一个 observation 中拼接.
+    # B1: Actor 读取 deployment-q29 tail, 产出原有 928D policy observation.
     if uses_v015_future_intent:
         obs = append_frontres_future_intent_actor_context(runner, obs)
     else:
         obs = _append_fixed_noisy_actor_context(runner, obs)
     combined_obs_dim = int(obs.shape[-1])
+    sealed_future_tail = (
+        obs[:, : int(getattr(runner, "_frontres_future_intent_actor_context_dim", 0) or 0)].detach().clone()
+        if uses_v015_future_intent
+        else None
+    )
     obs = runner._apply_obs_normalizer(obs)
     if uses_v015_future_intent:
         policy = getattr(getattr(runner, "alg", None), "policy", None)
@@ -116,7 +121,32 @@ def _read_live_observations(runner: Any) -> FrontRESSegmentLiveObservations:
             gmt_input_dim=0,
             post_advance_gmt_read_count=0,
         )
-    privileged_obs = runner.privileged_obs_normalizer(privileged_obs.to(runner.device))
+    # B2: Critic 复用同一个 sealed 58D tail, 产出 [current 289D | future 58D].
+    privileged_obs = privileged_obs.to(runner.device)
+    if uses_v015_future_intent and bool(
+        getattr(getattr(runner, "alg", None), "frontres_formal_transaction_enabled", False)
+    ):
+        tail_dim = int(getattr(runner, "_frontres_future_intent_actor_context_dim", 0) or 0)
+        if tail_dim != 58:
+            raise RuntimeError("TRAIN-v016 Critic route requires the exact sealed 58D future tail")
+        if not isinstance(sealed_future_tail, torch.Tensor):
+            raise RuntimeError("TRAIN-v016 Critic route lost the sealed pre-normalization future tail")
+        privileged_obs = compose_frontres_v016_critic_observation(privileged_obs, sealed_future_tail)
+        expected_critic_dim = int(getattr(runner, "_frontres_critic_observation_dim", 0) or 0)
+        if expected_critic_dim != int(privileged_obs.shape[-1]):
+            raise RuntimeError(
+                "TRAIN-v016 runner/Critic observation dimensions disagree: "
+                f"runner={expected_critic_dim} observed={int(privileged_obs.shape[-1])}"
+            )
+        update_frontres_observation_trace(
+            runner,
+            critic_current_observation_dim=289,
+            critic_future_intent_dim=tail_dim,
+            critic_observation_dim=int(privileged_obs.shape[-1]),
+        )
+
+    # B3: 分别归一化 Actor/Critic 输入, 不向 teacher 或 frozen GMT 泄露 Critic state.
+    privileged_obs = runner.privileged_obs_normalizer(privileged_obs)
     teacher_obs = runner.teacher_obs_normalizer(teacher_obs.to(runner.device))
     if ref_vel_estimator_obs is not None:
         ref_vel_estimator_obs = ref_vel_estimator_obs.to(runner.device)

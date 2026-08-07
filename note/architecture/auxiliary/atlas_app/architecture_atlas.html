@@ -1149,8 +1149,8 @@
       const rc = rough.svg(svg);
       const nodes = new Map((data.nodes || []).map((node) => [node.id, node]));
 
-      if (data.layerDivider) {
-        const divider = data.layerDivider;
+      const layerDividers = data.layerDividers || (data.layerDivider ? [data.layerDivider] : []);
+      layerDividers.forEach((divider) => {
         const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
         line.setAttribute("x1", divider.x1 ?? 40);
         line.setAttribute("x2", divider.x2 ?? width - 40);
@@ -1175,7 +1175,7 @@
             fill: "#5f584f",
           });
         }
-      }
+      });
 
       const edgeLabels = [];
       (data.edges || []).forEach((edge) => {

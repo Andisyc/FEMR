@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic S2 formal Unit-of-Work contract for v017/v005/v012."""
+"""Deterministic S2 formal Unit-of-Work contract for v018/v006/v016."""
 
 from __future__ import annotations
 
@@ -48,14 +48,20 @@ class _Policy(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.actor = torch.nn.Linear(2, 1, bias=False)
-        self.critic = torch.nn.Linear(2, 1, bias=False)
+        self.critic = torch.nn.Linear(347, 1, bias=False)
         self.log_std = torch.nn.Parameter(torch.tensor(-0.4))
+
+
+class _PolicyEvaluator:
+    def __init__(self, policy: _Policy, critic_observations: torch.Tensor) -> None:
+        self.policy = policy
+        self.critic_observations = critic_observations
 
     def evaluate_segment_actions(self, observations: torch.Tensor, actions: torch.Tensor):
         return {
-            "log_prob": self.actor(observations).reshape(-1) + self.log_std,
-            "value": self.critic(observations).reshape(-1),
-            "entropy": self.log_std.expand(observations.shape[0]),
+            "log_prob": self.policy.actor(observations).reshape(-1) + self.policy.log_std,
+            "value": self.policy.critic(self.critic_observations).reshape(-1),
+            "entropy": self.policy.log_std.expand(observations.shape[0]),
         }
 
 
@@ -92,7 +98,7 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
         value_loss_coef=1.0,
         entropy_coef=0.0,
         use_clipped_value_loss=True,
-        max_grad_norm=1.0,
+        max_grad_norm=0.5,
         lambda_supervised=0.0,
         lambda_supervised_min=0.0,
         frontres_formal_transaction_enabled=True,
@@ -107,10 +113,10 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
         frontres_segment_live_train_enabled=False,
         frontres_segment_live_update_loop_only=False,
         frontres_segment_live_single_update_only=False,
-        frontres_method_contract_id="FRS-METHOD-v017",
+        frontres_method_contract_id="FRS-METHOD-v018",
         frontres_gain_contract_id="FRS-GAIN-v007",
-        frontres_optimization_contract_id="FRS-PPO-v005",
-        frontres_training_contract_id="FRS-TRAIN-v015",
+        frontres_optimization_contract_id="FRS-PPO-v006",
+        frontres_training_contract_id="FRS-TRAIN-v016",
         frontres_scalar_target_id="clean-anchored-recovery-aware-gain-v1",
         frontres_physics_schema_id="clean-anchored-contact-zmp-survival-v1",
         frontres_grouped_schema_id="grouped-all-attempt-scalar-v1",
@@ -269,10 +275,13 @@ def _request(
         [[float(row + 1), 0.0] for row in range(identity.active_m)]
         + [[0.0, float(row + 1)] for row in range(identity.active_m)]
     )
+    critic_obs = torch.zeros(count, 347)
+    critic_obs[: identity.active_m, 0] = 1.0
+    critic_obs[identity.active_m :, 0] = 2.0
     returns = torch.tensor(_report(transaction_id, count=count, horizon_k=identity.active_k).gain_total)
     batch = FrontRESSegmentPPOBatch(
         observations=obs,
-        privileged_observations=obs.clone(),
+        privileged_observations=critic_obs,
         actions=torch.zeros(count, 6),
         old_log_probs=torch.zeros(count),
         old_values=torch.zeros(count),
@@ -302,7 +311,7 @@ def _request(
         d_cap=identity.d_cap,
         dr_class_by_segment=("easy", "hard"),
         dr_strength_by_segment=(0.1, 0.4),
-        policy_evaluator=policy,
+        policy_evaluator=_PolicyEvaluator(policy, critic_obs),
     )
     return runner, request, policy
 
@@ -356,7 +365,7 @@ def test_exact_one_scalar_commit_and_critic_only() -> None:
     assert all(torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
     assert any(not torch.equal(value, critic_before[name]) for name, value in policy.critic.state_dict().items())
     assert result.diagnostics["gain_contract_id"] == "FRS-GAIN-v007"
-    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v005"
+    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v006"
     assert "constraint_kkt_max_violation" not in result.diagnostics
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
     assert telemetry["clean_execution_count"] == (1, 1)
@@ -494,7 +503,7 @@ def main() -> None:
     test_actor_ramp_identity_reaches_transaction_and_telemetry()
     test_partial_transaction_rejects_before_update()
     test_phase_reset_routes_mode_through_sealed_reset_owner()
-    print("frontres_v015_transaction_route_contract: v017 scalar exact-one ok", flush=True)
+    print("frontres_v015_transaction_route_contract: v018 state-value exact-one ok", flush=True)
 
 
 if __name__ == "__main__":

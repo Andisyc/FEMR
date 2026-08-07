@@ -1,6 +1,6 @@
 {
   "title": "FrontRES Module Test Atlas",
-  "subtitle": "TRAIN-v015/checkpoint-v10：18 passed、0 partial、0 blocked；HSL-v2 保留 TRAIN-v014 proposal identity；一次 bounded official transaction 已授权",
+  "subtitle": "TRAIN-v016/checkpoint-v11：18 passed；TEST-05/15/16/18 已按人工确认的 oracle 执行；TRAIN-v015 结果仅作历史 characterization",
   "humanStatus": "confirmed",
   "layout": "module_test_inspector",
   "defaultZoom": 0.8,
@@ -62,8 +62,8 @@
       "designId": "STAGE-02",
       "cardKind": "stage-reading",
       "humanStatus": "confirmed",
-      "executionStatus": "passed",
-      "executionSummary": "E-FI-119 已完成 DP01-DP10 的 Phase A 离线审查。Phase B 的八张正式运行卡已投影到 06 Runtime Audit Atlas；probe 插入和 live 仍待人类确认。",
+      "executionStatus": "not-run",
+      "executionSummary": "FRS-METHOD-v018 / TRAIN-v016 / PPO-v006 的 18 张 Module Test Card 已通过；当前只进入 Phase A，旧 TRAIN-v015 live evidence 不能替代本轮 Phase B。",
       "blockId": "FORMAL-RUNTIME",
       "title": "Formal Runtime Audit",
       "color": "#9a6718",
@@ -127,15 +127,15 @@
       "details": [
         {
           "heading": "这一阶段回答什么",
-          "text": "E-FI-110 已在人类确认测试题后重新证明 TRAIN-v013 的 18/18 模块正确性。它只说明模块自身计算和状态行为正确。E-FI-109 的离线 Method-Code Alignment 是另一份证据，不能由模块 PASS 自动推出。"
+          "text": "旧 TRAIN-v015 的 18/18 模块结果只刻画旧实现。FRS-METHOD-v018 / TRAIN-v016 / PPO-v006 必须先通过本轮已确认的变化测试卡，随后才能进入新的 Phase A。"
         },
         {
           "heading": "Phase A：Method-Code Alignment",
-          "text": "按十个 Concept Figure 设计点逐项核对 active contract、语义对象、唯一 owner、正式上游和下游。E-FI-111 至 E-FI-119 已完成 DP01-DP10 的离线审查；不存在带入 Phase B 的已知 contract、owner 或 legacy 冲突。"
+          "text": "按十个 Concept Figure 设计点逐项核对 active contract、语义对象、唯一 owner 和正式上游、下游。只有本轮 Module Test 全部通过后，才能刷新 v018/v016/v006 的 Phase A 结论。"
         },
         {
           "heading": "Phase B：Formal Runtime Audit",
-          "text": "只检查 Phase A 无法离线确认的事实。06 Runtime Audit Atlas 已按正式运行顺序列出八张卡：启动身份、情境封存、Observation、one-action-K、paired Gain、storage、exact-one update、committed checkpoint。诊断项和 live 尚未执行。"
+          "text": "只检查新 Phase A 无法离线确认的事实。06 Runtime Audit Atlas 必须在 Phase A 后刷新为 v016：启动身份、情境封存、158/347/770 Observation、one-action-K、paired Gain、Segment mean target、separate clipping、exact-one update 与 committed v11 checkpoint。"
         },
         {
           "heading": "怎样判断问题属于哪一层",
@@ -420,7 +420,7 @@
       "designId": "TEST-05",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "exact (1,2) tail、870+58=928、158/770 authority、row permutation、bad tail、(1,3) reject 与 num_frontres_obs=0 已测；E-FI-119。",
+      "executionSummary": "PASS：手算 composer 与无 simulator gateway fixture 均证明同一 sealed 58D tail 进入 158D Actor context 和 347D Critic；GMT suffix 逐元素保持 770D。",
       "blockId": "MOD-OBS",
       "title": "Observation Layout",
       "color": "#7656a8",
@@ -432,11 +432,11 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "完整 observation 必须是 870D raw 加 58D q29 tail；FEMR 只看前 158D，GMT 只看后 770D。"
+          "text": "同一 sealed deployment-Noisy q29[t+1,t+2] tail 必须同时服务 Actor 与 Critic：Actor 仍只看 158D，Critic 看 289D current privileged + 58D tail = 347D，GMT 仍只看 770D suffix；任何 action、Clean 或 evaluator 字段不得进入 Critic。"
         },
         {
           "heading": "伪样本测试",
-          "text": "用连续整数填充各区间，直接检查拼接和切片。",
+          "text": "用连续整数和 row identity 填充 current/tail 各区间，直接检查共享来源、拼接和禁止信息。",
           "table": {
             "columns": [
               "伪样本",
@@ -445,34 +445,34 @@
             ],
             "rows": [
               [
-                "870D=0..869，58D=1000..1057",
-                "combined 恰为 928D 且顺序不变",
-                "拼接没有遗漏或覆盖"
+                "Actor raw 870D、Critic current 289D、sealed tail 58D 均填连续 sentinel",
+                "Actor combined=928D；Actor visible=158D；Critic=347D；GMT=770D",
+                "四个维度和 authority 精确"
               ],
               [
-                "切分 combined",
-                "FEMR=前158D；GMT=后770D",
-                "authority split 精确"
+                "同一 scenario 的 exact-M rows",
+                "每行 Actor/Critic tail 逐元素相同且 provenance/hash 相同",
+                "future Intent 不按 attempt 重采样"
               ],
               [
-                "只修改 GMT suffix",
-                "FEMR 输入逐元素不变",
-                "FEMR 看不到 GMT-only 数据"
+                "只修改 current privileged 289D",
+                "Critic current 区变化，Actor 158D 与共享 tail 不变",
+                "Actor/Critic current-state authority 分离"
               ],
               [
-                "tail 为 57D 或 59D",
+                "tail 为57D/59D、offset 不是(1,2)或 provenance 不是 deployment-Noisy",
                 "直接拒绝",
-                "不 padding、不截断"
+                "不 padding、不截断、不静默换源"
               ],
               [
-                "打乱 batch rows",
-                "combined 与两个切片同步重排",
+                "按同一 permutation 打乱 current、tail 和 identity rows",
+                "Actor/Critic context 与 identity 同步重排",
                 "行身份不漂移"
               ],
               [
-                "num_frontres_obs=0",
-                "v017 配置拒绝",
-                "不会回退旧 870D Actor"
+                "向 Critic carrier 注入6D action、Clean continuation 或 evaluator sentinel",
+                "active composition 拒绝未知字段或输出中完全不存在这些 sentinel",
+                "Critic 保持 V(s)，不泄漏 Q/Clean 信息"
               ]
             ]
           }
@@ -1075,7 +1075,7 @@
       "designId": "TEST-15",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "clipped scalar PPO、grouped mass、exact-one update，以及一个 Adam 内 Actor 3e-6/Critic 1e-5 命名组和 critic-only Actor state freeze 已测。",
+      "executionSummary": "PASS：两个 source 的 exact-M mean target、逐 attempt Actor advantage、permutation、重复局部 segment_id、共享 state/value rejection 与独立 0.5 clipping 全部符合手算。",
       "blockId": "MOD-PPO",
       "title": "Segment PPO",
       "color": "#a5548b",
@@ -1087,11 +1087,11 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "PPO 必须先让每条动作序列拥有相同发言权，再让每个 Segment 拥有相同发言权，最后让同一 Segment 的每次有效尝试拥有相同发言权；不能因为某组数据行更多就压倒其他组。每个 committed Transaction 只调用一次 optimizer。"
+          "text": "同一 sealed Segment 的 exact-M attempts 必须共享一个 old V(s)，Critic 拟合这些 returns 的 Segment mean，Actor 仍使用每个 attempt 自己的 return-V(s)。Actor/std 与 Critic 梯度分别裁剪到0.5，随后同一两组 Adam 只 step 一次。"
         },
         {
           "heading": "伪样本测试",
-          "text": "用两组小 logits、advantages 和 masks 手算 clipped surrogate 与 group mass。",
+          "text": "用两个 Segment、每个 exact-M 个小整数 returns，再用可识别的 toy Actor/Critic 参数手算 target、advantage、clip 和 commit。",
           "table": {
             "columns": [
               "伪样本",
@@ -1100,49 +1100,49 @@
             ],
             "rows": [
               [
-                "ratio=1，advantages=[+1,-1]",
-                "两行保留各自正负方向，不取绝对值",
-                "sign-preserving"
+                "一个 Segment 的 returns=[1,3]，shared old V=1.5",
+                "Critic targets=[2,2]；Actor advantages=[-0.5,1.5]",
+                "V(s) target 与动作 credit 分离"
               ],
               [
-                "ratio 超出 clip 区间",
-                "逐行采用 PPO 手算 clipped surrogate",
-                "clipping 数学正确"
+                "同一 Segment 的 attempts 任意重排",
+                "shared state/value/mean target 不变；returns/advantages 同步重排",
+                "Critic 不区分 action 且 Actor ordering 保留"
               ],
               [
-                "重排 motion、Segment 或 attempt rows",
-                "总 loss 不变",
-                "归约不依赖排列"
+                "两个 Segment returns=[1,3] 与 [10,14]",
+                "各自 target=2 与12，绝不求 transaction 全局均值7",
+                "target owner 按 Segment 分组"
               ],
               [
-                "M=2 与 M=4 的两个 Segment",
-                "每个 Segment/motion 的结构质量相等，不因 attempts 多而压倒其他组",
-                "grouped mass 正确"
+                "Segment 声明 M=3 但只有2个有效 policy attempts，或混入另一个 Segment",
+                "在计算 loss 前拒绝",
+                "exact-M 与 sealed identity fail closed"
               ],
               [
-                "valid mask 去掉一行",
-                "该行对 loss 和 gradient 贡献均为0",
-                "mask 真正生效"
+                "Actor grad norm=2、Critic grad norm=20、max=0.5",
+                "两者 post norm 各为0.5，各自 clip coefficient 独立",
+                "Critic 大梯度不能压缩 Actor"
               ],
               [
-                "一个 committed Transaction",
-                "optimizer.step 恰好1次",
-                "exact-one update"
+                "只把 Critic loss 放大10倍，Actor loss/graph 不变",
+                "Actor clipped gradient 与 coefficient 逐元素不变",
+                "gradient families 无裁剪耦合"
               ],
               [
-                "toy Actor/Critic 各有可识别参数，LR=3e-6/1e-5",
-                "两个命名、互斥、穷尽参数组，共享同一 step count",
-                "optimizer partition 正确"
+                "只把 Actor loss 放大10倍，Critic loss/graph 不变",
+                "Critic clipped gradient 与 coefficient 逐元素不变",
+                "独立性双向成立"
               ],
               [
-                "critic_only 下 Actor 与 Critic loss 都非零",
-                "Actor 参数和 Adam state 不变，Critic 改变",
-                "phase owner 真正冻结 Actor commit"
+                "critic_only 下 Actor 与 Critic raw loss 都非零",
+                "Actor 参数和 Adam state 不变，Critic 改变且 step count +1",
+                "phase freeze 与 exact-one commit"
               ],
               [
-                "尝试进入旧 projection",
-                "active v017 路径拒绝",
-                "旧 Physics projection 已退役"
+                "一个完整 two-Segment x M transaction",
+                "optimizer.step 恰好1次；两个命名 LR 仍为3e-6/1e-5",
+                "fixed split-LR 身份不被新 target/clip 改写"
               ]
             ]
           }
@@ -1153,7 +1153,7 @@
       "designId": "TEST-16",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "checkpoint-v10 原子 round-trip 两个命名组、LR、moments、共享 count 与完整训练身份；v9、缺名、重名、重叠、非有限 LR 和篡改均 pre-mutation reject；E-FI-135。",
+      "executionSummary": "PASS：checkpoint-v11 完整原子 round-trip；v10 不能 resume 但保留严格只读 quality inspection；缺 Critic identity 在任何 runner mutation 前拒绝；HSL-v2 仍为 Actor-only。",
       "blockId": "MOD-CHECKPOINT",
       "title": "Checkpointing",
       "color": "#3f826d",
@@ -1165,7 +1165,7 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "checkpoint-v10 必须原子保存并严格恢复 direct 6D action identity、Actor/Critic 命名组、两个 LR、moments、共享 step count 和完整训练身份；任何 v9、缺失、重叠、非有限或被篡改的 payload 都要在修改内存状态前拒绝。"
+          "text": "checkpoint-v11 必须原子保存并严格恢复 direct 6D Actor、347D state-value Critic、Segment exact-M mean target、separate Actor/Critic clipping、命名 split-LR optimizer 和完整 transaction identity；checkpoint-v10 或 malformed payload 必须在任何内存修改前拒绝。"
         },
         {
           "heading": "伪样本测试",
@@ -1178,14 +1178,14 @@
             ],
             "rows": [
               [
-            "完整 v10 payload round-trip",
-            "Actor、固定 std、同一 Critic、两个 optimizer group/LR/moments/count、sampler、normalizers、K/M/DR、RNG、receipt 全相同",
+                "完整 v11 payload round-trip",
+                "Actor、347D Critic、固定 std、两个 group/LR/moments/count、sampler、normalizers、K/M/DR、RNG、receipt 全相同",
                 "full resume"
               ],
               [
-                "只篡改 contract identity",
+                "分别篡改 critic_input_dim=289、value_kind、target_id 或 clip_identity",
                 "加载前拒绝，内存参数零变化",
-                "身份严格"
+                "新语义身份严格"
               ],
               [
                 "receipt 标记 partial",
@@ -1193,14 +1193,19 @@
                 "只恢复 committed Transaction"
               ],
               [
-            "给 checkpoint-v9、缺名/重名/重叠 group、非有限 LR 或 unversioned payload",
+                "给 checkpoint-v10、缺名/重名/重叠 group、非有限 LR 或 unversioned payload",
                 "pre-mutation reject",
-                "旧格式不兼容加载"
+                "旧 Stage-3 状态不兼容加载"
               ],
               [
                 "模拟写临时文件后失败",
                 "旧正式 checkpoint 仍完整可读",
                 "atomic save"
+              ],
+              [
+                "从 HSL-v2 artifact 冷启动 TRAIN-v016",
+                "只载入158D proposal Actor；347D Critic、optimizer、normalizer、sampler、receipt 全新",
+                "允许的 Actor-only initialization"
               ],
               [
                 "resume 后继续一次采样",
@@ -1284,7 +1289,7 @@
       "designId": "TEST-18",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "v007 的归一化 Intent/Physics 各项、I_N/I_R/P_N/P_R、支撑脚漂移、G_I/G_P/lambda_RA、加权 Physics Gain、完整 6D 修复代价、cost-free score、beta/penalty/G_total，以及动作、mask、identity、Contact/ZMP/lean、group mass 和 exact-one facts 均原样投影；ZMP 不适用保持 N/A，置换保持行身份且不重算、不补零、不反馈训练。",
+      "executionSummary": "PASS：一次完整离线 formal update 原样序列化 158/347/770、Segment mean target、逐 attempt advantage、separate clip facts、exact-one receipt 与 checkpoint-v11；缺失/非有限/错行全部拒绝。",
       "blockId": "MOD-DIAGNOSTICS",
       "title": "Runtime Diagnostics",
       "color": "#3f826d",
@@ -1296,7 +1301,7 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "Diagnostics 只能忠实投影已有事实，必须区分数值、NaN、N/A 和缺失，绝不能重算或反馈训练。"
+          "text": "Diagnostics 只能忠实投影已有事实：除既有 v007 Gain 外，还必须报告158/347/770 layout、shared state value、Segment exact-M mean target、逐 attempt return/advantage、Actor/Critic 独立 pre/post clip norm/coefficient 与 checkpoint-v11 receipt；绝不能重算或反馈训练。"
         },
         {
           "heading": "伪样本测试",
@@ -1309,9 +1314,14 @@
             ],
             "rows": [
               [
-                "每个字段放不同数字或字符串",
+                "layout 各放158、347、770 sentinel",
+                "报告逐字段原样保留且 identity 为v018/v016/v006/v11",
+                "观察与合同身份没有错接"
+              ],
+              [
+                "shared value=1.5、Segment target=2、returns=[1,3]、advantages=[-0.5,1.5]",
                 "报告逐字段原样保留",
-                "没有错接字段"
+                "state value 与 action credit 不混写"
               ],
               [
                 "必要字段缺失",
@@ -1319,14 +1329,14 @@
                 "缺失不会伪装成功"
               ],
               [
-                "一个字段是 NaN，另一个是 N/A",
-                "输出保持两种不同语义",
-                "数值异常与不适用可区分"
+                "Actor pre/post norm=2/0.5，Critic=20/0.5，各自 coefficient 不同",
+                "四个 norm 和两个 coefficient 原样输出",
+                "separate clipping 可观察"
               ],
               [
-                "重排 attempt rows",
-                "diagnostics 随 identity 同步重排",
-                "不会错配 action/Gain"
+                "重排 attempts",
+                "return/advantage/action/Gain 随 identity 重排；shared value/target 不变",
+                "行事实与 Segment 事实不混淆"
               ],
               [
                 "调用 diagnostics 前后比较输入对象",
@@ -1339,9 +1349,9 @@
                 "diagnostics 不成为第二 owner"
               ],
               [
-                "update_count=1，group mass 已给定",
-                "输出仍为1和原 group mass",
-                "exact-one 事实不被重新解释"
+                "update_count=1、group mass 与 v11 receipt 已给定",
+                "输出仍为1、原 group mass 与同一 committed receipt",
+                "exact-one 与 persistence 事实不被重新解释"
               ]
             ]
           }

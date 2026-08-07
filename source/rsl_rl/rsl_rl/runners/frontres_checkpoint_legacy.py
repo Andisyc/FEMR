@@ -1,6 +1,6 @@
 """Explicit compatibility owner for superseded pre-v7 FrontRES checkpoints.
 
-The active HSL-v2 and Stage3 checkpoint-v10 paths never use these payload
+The active HSL-v2 and Stage3 checkpoint-v11 paths never use these payload
 builders. Remove this module when pre-v7 initialization/resume is retired.
 """
 

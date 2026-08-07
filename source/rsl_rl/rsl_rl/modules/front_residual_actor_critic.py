@@ -231,7 +231,7 @@ class FrontRESActorCritic(nn.Module):
         retired_task_bounds = {name: kwargs.pop(name) for name in ("max_delta_pos", "max_delta_rpy") if name in kwargs}
         if retired_task_bounds:
             raise ValueError(
-                "FRS-TRAIN-v015 rejects retired task-space action bounds: "
+                "FRS-TRAIN-v016 rejects retired task-space action bounds: "
                 f"{tuple(sorted(retired_task_bounds))}"
             )
         legacy_actor_hidden_dims = kwargs.pop("actor_hidden_dims", None)

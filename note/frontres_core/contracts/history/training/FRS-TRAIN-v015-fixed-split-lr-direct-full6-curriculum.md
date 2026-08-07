@@ -1,8 +1,8 @@
 ---
 contract_id: FRS-TRAIN-v015
-status: active
+status: superseded
 effective_date: 2026-08-07
-updated_date: 2026-08-07
+updated_date: 2026-08-08
 supersedes: FRS-TRAIN-v014
 scope: Direct full-6D HSL-to-HRL Recovery-Aware scalar training with one fixed split-LR Adam, coordinated K x exact-M schedule, per-K lower-to-higher DR curriculum, Critic recalibration, actor ramp, grouped scalar PPO, and strict checkpoint-v10 persistence
 ---

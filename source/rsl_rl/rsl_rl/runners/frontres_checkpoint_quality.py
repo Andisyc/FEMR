@@ -23,7 +23,8 @@ from rsl_rl.frontres.frontres_segment_warmup import (
 )
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-_V015_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v10"
+_V015_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v11"
+_V015_LEGACY_POLICY_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v10"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
 _V015_HSL_CHECKPOINT_IDENTITY_KEY = "frontres_v015_hsl_checkpoint_identity"
 _V015_HSL_CHECKPOINT_FORMAT = "frontres-v017-hsl-proposal-v2"
@@ -82,7 +83,11 @@ def require_frontres_v013_campaign_schedule(schedule: object) -> None:
         raise RuntimeError(str(exc)) from exc
 
 
-def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, Any]:
+def _v015_committed_transaction_receipt(
+    state: Mapping[str, Any],
+    *,
+    expected_contract_identity: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     """校验可跨越 v015 checkpoint boundary 的 metadata-only receipt."""
 
     if str(state.get("state", "")) != "committed":
@@ -141,15 +146,28 @@ def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, A
     ):
         if not isinstance(result[name], str) or not result[name]:
             raise RuntimeError(f"v015 committed checkpoint receipt has invalid {name}")
-    expected_identity = {
-        "method_contract_id": "FRS-METHOD-v017",
-        "gain_contract_id": "FRS-GAIN-v007",
-        "optimization_contract_id": "FRS-PPO-v005",
-        "training_contract_id": "FRS-TRAIN-v015",
-        "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
-        "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
-        "grouped_schema_id": "grouped-all-attempt-scalar-v1",
-    }
+    expected_identity = dict(
+        expected_contract_identity
+        or {
+            "method_contract_id": "FRS-METHOD-v018",
+            "gain_contract_id": "FRS-GAIN-v007",
+            "optimization_contract_id": "FRS-PPO-v006",
+            "training_contract_id": "FRS-TRAIN-v016",
+            "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
+            "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
+            "grouped_schema_id": "grouped-all-attempt-scalar-v1",
+        }
+    )
+    if set(expected_identity) != {
+        "method_contract_id",
+        "gain_contract_id",
+        "optimization_contract_id",
+        "training_contract_id",
+        "scalar_target_id",
+        "physics_schema_id",
+        "grouped_schema_id",
+    }:
+        raise ValueError("committed checkpoint receipt expected identity is malformed")
     if any(result[name] != value for name, value in expected_identity.items()):
         raise RuntimeError("v015 committed checkpoint receipt has legacy contract identity")
     for name in (
@@ -453,17 +471,60 @@ def _inspect_frontres_v015_policy_quality_payload(
     identity = checkpoint.get(_V015_CHECKPOINT_IDENTITY_KEY)
     if not isinstance(identity, Mapping):
         raise RuntimeError("quality policy requires the strict Stage-3 v015 checkpoint identity")
+    checkpoint_format = identity.get("format")
+    if checkpoint_format == _V015_CHECKPOINT_FORMAT:
+        contract_identity = {
+            "method_contract_id": "FRS-METHOD-v018",
+            "gain_contract_id": "FRS-GAIN-v007",
+            "optimization_contract_id": "FRS-PPO-v006",
+            "training_contract_id": "FRS-TRAIN-v016",
+            "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
+            "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
+            "grouped_schema_id": "grouped-all-attempt-scalar-v1",
+        }
+    elif checkpoint_format == _V015_LEGACY_POLICY_CHECKPOINT_FORMAT:
+        # Historical v10 is accepted only by this read-only inspection owner.
+        if "critic" in identity or "gradient_clip" in identity:
+            raise RuntimeError("quality policy v10 cannot claim checkpoint-v11 Critic identity")
+        contract_identity = {
+            "method_contract_id": "FRS-METHOD-v017",
+            "gain_contract_id": "FRS-GAIN-v007",
+            "optimization_contract_id": "FRS-PPO-v005",
+            "training_contract_id": "FRS-TRAIN-v015",
+            "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
+            "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
+            "grouped_schema_id": "grouped-all-attempt-scalar-v1",
+        }
+    else:
+        raise RuntimeError("quality policy has an unsupported checkpoint format")
     if (
-        identity.get("format") != _V015_CHECKPOINT_FORMAT
-        or identity.get("method_contract_id") != "FRS-METHOD-v017"
-        or identity.get("training_contract_id") != "FRS-TRAIN-v015"
-        or identity.get("gain_contract_id") != "FRS-GAIN-v007"
-        or identity.get("optimization_contract_id") != "FRS-PPO-v005"
+        any(identity.get(name) != value for name, value in contract_identity.items())
         or identity.get("future_intent_layout") != _v015_quality_expected_layout()
         or identity.get("action")
         != {"kind": "delta_se3", "dim": 6, "semantics": "direct-world-full6-v1"}
     ):
         raise RuntimeError("quality policy has an incompatible v015 contract or layout identity")
+    model_state = checkpoint.get("model_state_dict")
+    critic_state = model_state.get("critic") if isinstance(model_state, Mapping) else None
+    if not isinstance(critic_state, Mapping):
+        raise RuntimeError("quality policy requires a Critic payload for calibration")
+    _v015_state_dict_fingerprint(critic_state, label="quality policy Critic")
+    if checkpoint_format == _V015_CHECKPOINT_FORMAT:
+        if identity.get("critic") != {
+            "value_kind": "state_value",
+            "input_dim": 347,
+            "action_conditioned": False,
+            "target_id": "segment-exact-m-mean-v1",
+        } or identity.get("gradient_clip") != {
+            "identity": "separate-actor-critic-v1",
+            "max_norm": 0.5,
+        }:
+            raise RuntimeError("quality policy has an incompatible v016 Critic or gradient identity")
+        if not any(
+            isinstance(value, torch.Tensor) and value.ndim == 2 and int(value.shape[1]) == 347
+            for value in critic_state.values()
+        ):
+            raise RuntimeError("quality policy requires an exact 347D state-value Critic payload")
     if identity.get("grouped_loss") != {
         "advantage_normalization": "grouped_scale_only",
         "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
@@ -515,7 +576,10 @@ def _inspect_frontres_v015_policy_quality_payload(
     if transaction["state"] == "committed":
         if set(transaction) != {"state", "receipt"}:
             raise RuntimeError("quality policy committed transaction identity is malformed")
-        _v015_committed_transaction_receipt(transaction)
+        _v015_committed_transaction_receipt(
+            transaction,
+            expected_contract_identity=contract_identity,
+        )
     normalizer_identity = identity.get("normalizer")
     if (
         not isinstance(normalizer_identity, Mapping)
@@ -537,12 +601,12 @@ def _inspect_frontres_v015_policy_quality_payload(
     )
     return FrontRESActiveQualityCheckpointIdentity(
         route="policy",
-        format=_V015_CHECKPOINT_FORMAT,
+        format=str(checkpoint_format),
         file_sha256=file_sha256,
-        method_contract_id="FRS-METHOD-v017",
-        training_contract_id="FRS-TRAIN-v015",
-        gain_contract_id="FRS-GAIN-v007",
-        ppo_contract_id="FRS-PPO-v005",
+        method_contract_id=contract_identity["method_contract_id"],
+        training_contract_id=contract_identity["training_contract_id"],
+        gain_contract_id=contract_identity["gain_contract_id"],
+        ppo_contract_id=contract_identity["optimization_contract_id"],
         future_intent_layout=tuple(_v015_quality_expected_layout().items()),
         action_kind="delta_se3",
         action_dim=6,
@@ -578,6 +642,7 @@ def inspect_frontres_quality_checkpoint(
 # aliases remain local implementation details for compatibility inside this owner.
 EMPIRICAL_NORMALIZER_STATE_KEYS = _EMPIRICAL_NORMALIZER_STATE_KEYS
 FRONTRES_ACTIVE_CHECKPOINT_FORMAT = _V015_CHECKPOINT_FORMAT
+FRONTRES_LEGACY_POLICY_CHECKPOINT_FORMAT = _V015_LEGACY_POLICY_CHECKPOINT_FORMAT
 FRONTRES_ACTIVE_CHECKPOINT_IDENTITY_KEY = _V015_CHECKPOINT_IDENTITY_KEY
 FRONTRES_ACTIVE_GROUPED_CANDIDATE_LAYOUT = _V015_GROUPED_CANDIDATE_LAYOUT
 FRONTRES_HSL_CHECKPOINT_FORMAT = _V015_HSL_CHECKPOINT_FORMAT
@@ -595,6 +660,7 @@ validate_frontres_v015_normalizer_state = _validate_v015_normalizer_state
 __all__ = (
     "EMPIRICAL_NORMALIZER_STATE_KEYS",
     "FRONTRES_ACTIVE_CHECKPOINT_FORMAT",
+    "FRONTRES_LEGACY_POLICY_CHECKPOINT_FORMAT",
     "FRONTRES_ACTIVE_CHECKPOINT_IDENTITY_KEY",
     "FRONTRES_ACTIVE_GROUPED_CANDIDATE_LAYOUT",
     "FRONTRES_HSL_CHECKPOINT_FORMAT",
