@@ -71,7 +71,7 @@ def main() -> None:
     _load_owners()
     one_action = sys.modules["rsl_rl.runners.frontres_segment_one_action_k"]
     policy_rows = torch.arange(4, dtype=torch.long)
-    source_index = torch.tensor([0, 0, 1, 1], dtype=torch.long)
+    source_index = torch.tensor([0, 0, 1, 1], dtype=torch.int32)
     reset_states = torch.zeros(8, 347)
     reset_states[1, 0] = 5e-6
     reset_states[2:4] = 1.0

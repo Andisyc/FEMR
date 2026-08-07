@@ -487,8 +487,9 @@ def _canonicalize_frontres_v016_segment_state_rows(
         raise ValueError(f"TRAIN-v016 requires detached finite row-aligned {name} state")
     canonical = tensor.detach().clone()
     observed_max = 0.0
-    for source in torch.unique(source_index.detach().to(dtype=torch.long), sorted=True):
-        local = torch.nonzero(source_index == source, as_tuple=False).reshape(-1)
+    grouped_sources = source_index.detach().to(device=policy_rows.device, dtype=torch.long)
+    for source in torch.unique(grouped_sources, sorted=True):
+        local = torch.nonzero(grouped_sources == source, as_tuple=False).reshape(-1)
         rows = policy_rows.index_select(0, local).to(device=tensor.device, dtype=torch.long)
         if int(rows.numel()) < 2:
             raise ValueError("TRAIN-v016 requires exact-M policy rows for every Segment state")
