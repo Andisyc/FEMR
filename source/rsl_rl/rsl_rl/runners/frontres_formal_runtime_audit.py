@@ -298,7 +298,7 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
 def print_sampler_audit(runner: Any, *, update_step: int, sample: Any, batch: Any, summary: Mapping[str, Any]) -> None:
     """Emit the retained legacy sampler snapshot.
 
-    TRAIN-v014 K/M identity is owned by ``frontres_segment_warmup.py`` and the
+    TRAIN-v015 K/M identity is owned by ``frontres_segment_warmup.py`` and the
     sealed formal transaction. This compatibility projection cannot prove the
     active K-step Curriculum.
     """
@@ -846,7 +846,7 @@ def print_ppo_audit(runner: Any, *, result: Any) -> None:
 def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[str, Any]) -> None:
     if not formal_runtime_audit_enabled(runner):
         return
-    # B1: active persistence audit follows the checkpoint-v9 coordinated owner.
+    # B1: active persistence audit follows the checkpoint-v10 coordinated owner.
     required = (
         "model_state_dict",
         "optimizer_state_dict",
@@ -867,14 +867,14 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
     assert identity.get("gain_contract_id") == "FRS-GAIN-v007", "formal audit requires FRS-GAIN-v007"
     assert identity.get("optimization_contract_id") == "FRS-PPO-v005", "formal audit requires FRS-PPO-v005"
     assert identity.get("training_contract_id") == "FRS-TRAIN-v015", "formal audit requires FRS-TRAIN-v015"
-    assert identity.get("dr_curriculum_schema_id") == "nested-k-dr-four-class-v1", "formal audit requires TRAIN-v014 DR identity"
+    assert identity.get("dr_curriculum_schema_id") == "nested-k-dr-four-class-v1", "formal audit requires TRAIN-v015 DR identity"
     assert identity.get("scalar_target_id") == "clean-anchored-recovery-aware-gain-v1"
     assert identity.get("physics_schema_id") == "clean-anchored-contact-zmp-survival-v1"
     assert identity.get("grouped_schema_id") == "grouped-all-attempt-scalar-v1"
     assert identity.get("gain") == {"beta": 0.02}, "formal audit requires the frozen v007 beta"
     assert "constraint_solver" not in identity and "projection_schema_id" not in identity
-    assert "frontres_gain_config" not in payload, "active checkpoint-v9 must exclude legacy scalar Gain metadata"
-    assert "dr_scale" not in payload and not any(str(key).startswith("frontres_gmt_frontier_") for key in payload), "active checkpoint-v9 must exclude legacy adaptive DR state"
+    assert "frontres_gain_config" not in payload, "active checkpoint-v10 must exclude legacy scalar Gain metadata"
+    assert "dr_scale" not in payload and not any(str(key).startswith("frontres_gmt_frontier_") for key in payload), "active checkpoint-v10 must exclude legacy adaptive DR state"
     curriculum = identity.get("curriculum")
     assert isinstance(curriculum, Mapping), "formal Stage 3 checkpoint has no sealed curriculum identity"
     try:
@@ -923,7 +923,7 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
         f"fingerprint={curriculum.get('schedule_fingerprint', 'missing')}",
         flush=True,
     )
-    # AUDIT-B08: 检查 committed receipt 与 checkpoint-v9 的同一身份.
+    # AUDIT-B08: 检查 committed receipt 与 checkpoint-v10 的同一身份.
     # Result: PENDING_LIVE.
     emit_formal_runtime_probe(
         "AUDIT-B08",

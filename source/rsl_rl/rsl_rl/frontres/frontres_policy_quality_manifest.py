@@ -378,7 +378,7 @@ class FrontRESV015PolicyQualityManifest:
 
 @dataclass(frozen=True)
 class FrontRESV017PolicyQualityManifest:
-    """Immutable EVAL-v004 held-out bank for checkpoint-v9 K16/M3 evaluation."""
+    """Immutable EVAL-v004 held-out bank for checkpoint-v10 K16/M3 evaluation."""
 
     environment_revision: str
     config_revision: str

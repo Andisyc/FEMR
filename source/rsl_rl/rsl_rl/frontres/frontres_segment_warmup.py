@@ -450,7 +450,7 @@ def frontres_segment_warmup_phase(
             )
     # B3: AUDIT-WARMUP-01 截获 PPO loss weighting 实际消费的 phase.
     # Historical result: E68/E69 used the retired actor_warmup label. The active
-    # TRAIN-v014 identity is actor_ramp with the same persisted schedule weight.
+    # TRAIN-v015 identity is actor_ramp with the same persisted schedule weight.
     # phase_iter=20, actor_weight=0.042, 没有重启 warmup schedule.
     emit_formal_runtime_probe(
         "AUDIT-WARMUP-01",

@@ -882,7 +882,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     if (hsl_initializer_arg or v015_resume_arg) and stage != "stage3_segment_hrl":
         raise ValueError("v015 HSL initialization/full resume requires --frontres_stage stage3_segment_hrl")
     if hsl_initializer_arg and v015_resume_arg:
-        raise ValueError("v015 HSL initialization and checkpoint-v9 full resume are mutually exclusive")
+        raise ValueError("v015 HSL initialization and checkpoint-v10 full resume are mutually exclusive")
     if hsl_live_smoke_arg and stage != "stage1_hsl":
         raise ValueError("--frontres_hsl_live_smoke requires --frontres_stage stage1_hsl")
     if (
@@ -1116,7 +1116,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
                 )
             if resume_checkpoint:
                 if not os.path.isfile(resume_checkpoint):
-                    raise FileNotFoundError(f"v015 checkpoint-v9 resume checkpoint not found: {resume_checkpoint}")
+                    raise FileNotFoundError(f"v015 checkpoint-v10 resume checkpoint not found: {resume_checkpoint}")
                 agent_cfg.resume = True
                 agent_cfg.is_full_resume = True
                 agent_cfg.student_checkpoint_path = os.path.abspath(resume_checkpoint)
@@ -1654,7 +1654,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         getattr(args_cli, "frontres_v015_resume_checkpoint", "") or ""
     ).strip()
     if hsl_initializer and v015_resume_checkpoint:
-        raise ValueError("Stage-3 HSL initialization and checkpoint-v9 full resume are mutually exclusive")
+        raise ValueError("Stage-3 HSL initialization and checkpoint-v10 full resume are mutually exclusive")
     if hsl_initializer:
         if args_cli.frontres_stage != "stage3_segment_hrl":
             raise ValueError("--frontres_v015_hsl_initializer_checkpoint requires Stage 3")

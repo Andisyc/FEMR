@@ -1,6 +1,6 @@
 {
   "title": "FrontRES Formal Runtime Audit Atlas",
-  "subtitle": "Phase B 已完成：E-FI-128 在同一次 8-env / 1-transaction / 1-update 正式 Stage3 运行中确认 B01-B08",
+  "subtitle": "TRAIN-v015 bounded rerun：B01-B06 保留 E-FI-128 runtime evidence；split-LR B07 与 checkpoint-v10 B08 待本次唯一 official transaction",
   "layout": "repository_reading_atlas",
   "canvasWidth": 4300,
   "defaultZoom": 1.0,
@@ -29,7 +29,7 @@
           "owns": "运行模式、contract identity、HSL-v2、K/M/DR schedule、future offsets",
           "mustNot": "不得使用 HSL-v1、checkpoint-v8、legacy resume、旁路 evaluator 或隐藏默认值",
           "designIds": ["FRS-DP-01", "FRS-DP-03", "FRS-DP-08", "FRS-DP-10"],
-          "objects": ["METHOD-v017", "GAIN-v007", "PPO-v005", "TRAIN-v014", "HSL-v2", "offsets=(1,2)"],
+          "objects": ["METHOD-v017", "GAIN-v007", "PPO-v005", "TRAIN-v015", "HSL-v2/TRAIN-v014 proposal", "offsets=(1,2)"],
           "files": [
             {"id": "R01-1", "path": "scripts/rsl_rl/train.py", "role": "正式 Composition Root", "functions": ["main()"], "sourceLine": 1407, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1407"},
             {"id": "R01-2", "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "role": "正式 runner 初始化", "functions": ["OnPolicyRunner.__init__()"], "sourceLine": 245, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Fon_policy_runner.py&line=245"}
@@ -209,7 +209,7 @@
         {
           "id": "AUDIT-RUN",
           "title": "运行前必须确认",
-          "summary": "真实 HSL-v2 checkpoint 已确认；旧 HSL-v1 artifact 仍不得进入正式运行",
+          "summary": "真实 HSL-v2/TRAIN-v014 proposal checkpoint 已确认；它只初始化 active TRAIN-v015 Actor",
           "owns": "正式命令、artifact path、GPU、log path 与成本边界",
           "mustNot": "没有 HSL-v2 identity 时不得启动；不得改用 sentinel/probe 旁路",
           "designIds": ["FRS-DP-08"],
@@ -224,9 +224,9 @@
             "B3 run train mode with 8 env / 1 iteration / 1 update"
           ],
           "mainRouteTitles": ["核验 Artifact", "安装正式边界诊断", "执行一次 Tiny Train"],
-          "review": ["HSL_V2=/hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt", "成本：一个 K8/M2 transaction、一次 optimizer update、一个 checkpoint"],
-          "tests": ["Artifact and offline instrumentation confirmed; no live run executed"],
-          "gap": "COMPLETED；E-FI-128；no further Phase B live run required"
+          "review": ["HSL_V2=/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt", "成本：一个 K8/M2 transaction、一次 optimizer update、一个 checkpoint"],
+          "tests": ["Artifact identity and offline instrumentation confirmed; TRAIN-v015 bounded rerun pending"],
+          "gap": "AUTHORIZED_PENDING；E-FI-136；one bounded official transaction only"
         }
       ]
     }

@@ -715,7 +715,7 @@ class OnPolicyRunner:
         return self._dispatch_frontres_startup_once("local_sentinel", operation)
 
     def finalize_frontres_local_sentinel_checkpoint(self, result: object) -> str:
-        """Save the exact checkpoint-v9 adjacent to one completed local sentinel."""
+        """Save the exact checkpoint-v10 adjacent to one completed local sentinel."""
 
         return finalize_frontres_local_sentinel_checkpoint_helper(self, result)
 

@@ -1,12 +1,14 @@
 # FRS-v017 / TRAIN-v015 Engineering Checklist
 
 This checklist tracks only the active
-`v017/v007/v005/v015/v004` route. TRAIN-v014/checkpoint-v9 and HSL-v1 remain
-historical evidence only; the current route uses HSL-v2/checkpoint-v10.
+`v017/v007/v005/v015/v004` route. TRAIN-v014/checkpoint-v9 Stage-3 evidence and
+HSL-v1 remain historical only. The current route cold-starts from the frozen
+HSL-v2 artifact whose proposal identity remains TRAIN-v014, then persists only
+TRAIN-v015/checkpoint-v10.
 
 | Gate | Owner / tier | Acceptance assertion | Status | Evidence / stop |
 | --- | --- | --- | --- | --- |
-| GOV-AUTH | governance | TRAIN-v014 is active; v013 is historical and registry/Inspector agree | completed | E-FI-114 |
+| GOV-AUTH | governance | TRAIN-v015/checkpoint-v10 is active; frozen HSL-v2 alone retains its TRAIN-v014 proposal identity | completed | E-FI-135/E-FI-136 |
 | GOV-PLAN | engineering review | Boundary Record, owner/interface/lifecycle/proof route pass FRS-ENG-v001 | completed | v013 plan review READY; E-FI-108 |
 | CARD-CONFIG | S1 | Training Config card covers K/M plus explicit inner-DR restart/advance and no hidden defaults | completed, human-confirmed rerun | TEST-02; E-FI-110 |
 | CARD-PERTURB | S1 | Perturbation card covers 20/30/40/10 boundaries, no-resample and no feedback | completed, human-confirmed rerun | TEST-06; E-FI-110 |
@@ -43,17 +45,17 @@ historical evidence only; the current route uses HSL-v2/checkpoint-v10.
 | V015-TELEMETRY | S2 | final committed serializer emits exact Actor/Critic LR facts without training feedback | completed offline | transaction/typed telemetry contracts; E-FI-135 |
 | V015-PERSIST | S3 | checkpoint-v10 round-trips groups/LRs/moments/count and v9/missing/duplicate/overlap/nonfinite/malformed identity rejects pre-mutation | completed offline | strict checkpoint contract; E-FI-135 |
 | V015-REGRESSION | S0-S3 | complete affected Stage-3 suite retains all prior method behavior | completed offline | 50/50 contract suite; E-FI-135 |
-| V015-LIVE | live S4/S3 | one official K8/M2 critic-only transaction emits split groups/LRs, Actor zero delta, Critic nonzero delta, step delta 1 and checkpoint-v10 | pending external authority/artifact | no new live run performed; previous v014 evidence is stale for optimizer/checkpoint identity |
+| V015-LIVE | live S4/S3 | one official K8/M2 critic-only transaction emits split groups/LRs, Actor zero delta, Critic nonzero delta, step delta 1 and checkpoint-v10 | authorized, execution pending | pulled first attempt failed pre-rollout on the repaired HSL identity boundary; no quality claim |
 | PHASE-B-01 | live S4 | official train entry emits active contract/HSL-v2/K8-M2/offset `(1,2)` identity with no legacy route | runtime-confirmed | AUDIT-B01 / Runtime Audit Atlas R01 / E-FI-122 |
 | PHASE-B-02 | live S4 | sampler emits two sealed Segments x exact M=2 with four immutable policy rows and no reset resampling | runtime-confirmed | AUDIT-B02 / R02 / E-FI-123 / E-FI-124 / E-FI-126 |
 | PHASE-B-03 | live S4 | real reset/command/observation route proves B=8 roles and `870+58 -> 928 -> 158/770` with Noisy provenance | runtime-confirmed | AUDIT-B03 / R03 / E-FI-128 |
 | PHASE-B-04 | live S4 | each attempt has one finite `[6]` action, then FEMR freezes while eval/no-grad GMT executes K8 | runtime-confirmed | AUDIT-B04 / R04 / E-FI-128 |
 | PHASE-B-05 | live S4 | Clean=2, Noisy=2 and Repair=4 feed complete v007 `G_I/G_P/P_N/P_R/lambda/cost/G_total` evidence | runtime-confirmed | AUDIT-B05 / R05 / E-FI-121 / E-FI-126 |
 | PHASE-B-06 | live S4 | storage writes four policy rows, not K-expanded rows; return equals G_total and identity remains sealed | runtime-confirmed | AUDIT-B06 / R06 / E-FI-128 |
-| PHASE-B-07 | live S4 | grouped loss gives two Segments equal influence and exactly one optimizer update; K8 critic-only freezes Actor/std | runtime-confirmed | AUDIT-B07 / R07 / E-FI-128 |
-| PHASE-B-08 | live S4/S3 | one committed receipt advances iteration/curriculum and saves checkpoint-v9 with GMT/layout identity | runtime-confirmed | AUDIT-B08 / R08 / E-FI-128 |
+| PHASE-B-07 | live S4 | grouped loss gives two Segments equal influence and exactly one optimizer update; K8 critic-only freezes Actor/std | stale rerun required for v015 | prior AUDIT-B07/E-FI-128 used the v014 optimizer identity; v015 split-LR evidence pending |
+| PHASE-B-08 | live S4/S3 | one committed receipt advances iteration/curriculum and saves checkpoint-v10 with split-LR/GMT/layout identity | stale rerun required for v015 | prior AUDIT-B08/E-FI-128 saved checkpoint-v9; v10 evidence pending |
 | QUALITY-Q0-SUPPORT-FRAME | Q-mechanism | support-foot drift compares Clean and Repair in one shared environment-local coordinate before Physics aggregation | completed offline; policy efficacy pending | cross-origin zero-drift, row-permutation and malformed-origin contracts; E-FI-129 |
-| PHASE-B-ARTIFACT | authority | a real `frontres-v017-hsl-proposal-v2` absolute path is verified before command release | runtime-confirmed | `/hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt`; E-FI-121 |
+| PHASE-B-ARTIFACT | authority | a real HSL-v2/TRAIN-v014 proposal artifact is verified before TRAIN-v015 cold start | runtime-confirmed | `/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt`; direct identity inspection E-FI-136 |
 | V014-DP09-PHASE | S1/S2 | resolver, typed request, formal transaction and telemetry use only `critic_only`, `actor_ramp`, `joint`; old `actor_warmup` rejects | completed offline | warmup/interface/formal transaction contracts; E-FI-118 |
 | V014-DP09-CONTINUITY | S2 | K8->K16 and K16->K32 retain the same Critic identity and learned state while critic-only updates it | completed offline | K16/M3 and K32/M4 formal transaction fixture; E-FI-118 |
 | V014-DP09-FREEZE | S2 | critic-only preserves Actor/std parameters and their existing optimizer state exactly while Critic changes | completed offline | seeded-Adam rollback regression; E-FI-118 |
@@ -61,8 +63,8 @@ historical evidence only; the current route uses HSL-v2/checkpoint-v10.
 | V013-FINAL | code discipline | complete diff has no open P0/P1 or added wrapper/owner/hotspot reason | completed for module closure | E-FI-110; P0=0/P1=0, three explicit existing P2 risks |
 | V013-DOC | governance | Test Atlas/inventory/evidence/checklist match observed module facts and do not claim connectivity | completed for module closure | E-FI-110 |
 | S4-LIFECYCLE | live | one bounded K8/M2 transaction proves real class/strength/no-resample/exact-M | runtime-confirmed | E-FI-128 |
-| S4-PERSIST | live/S3 | one committed checkpoint-v9 and independent fresh reload are exact | partial: committed save runtime-confirmed; independent fresh reload remains separate | E-FI-128; no fallback or second update |
-| S4-QUALITY | live | real Gain/Contact/ZMP/survival/action facts are finite or semantic N/A | evaluator ready offline after dataset/reset and read-only collection-lifecycle closures; real evaluation pending | E-FI-129 closes the coordinate blocker; E-FI-130 supplies strict checkpoint-v9 K16/M3 EVAL-v004 dispatch; E-FI-131 isolates policy-quality from the legacy live-runner boundary; E-FI-132 installs cache-backed dataset/reset support without a sampler; E-FI-133 connects the shared collector through an evaluation-only aggregate lifecycle; E-FI-134 installs that owner before the fresh-runner zero-write baseline and reports exact differing fields; E-FI-128 quality rows remain invalid |
+| S4-PERSIST | live/S3 | one committed checkpoint-v10 and independent fresh reload are exact | v015 live save pending; v9 evidence historical | E-FI-135 offline strict roundtrip; no fallback or second update |
+| S4-QUALITY | live | real Gain/Contact/ZMP/survival/action facts are finite or semantic N/A | evaluator ready offline after dataset/reset and read-only collection-lifecycle closures; real evaluation pending | E-FI-129 closes the coordinate blocker; E-FI-130 through E-FI-134 establish the read-only route; E-FI-136 updates it to HSL-v2/TRAIN-v014 plus strict checkpoint-v10/TRAIN-v015 identity; prior E-FI-128 quality rows remain invalid |
 
 ## Preserved Completed Surface
 

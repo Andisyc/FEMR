@@ -36,6 +36,7 @@ from rsl_rl.runners.frontres_policy_quality_state import (
     resolve_frontres_policy_quality_envs,
     restore_frontres_policy_quality_state,
 )
+from rsl_rl.runners.frontres_checkpoint_quality import FRONTRES_HSL_ARTIFACT_TRAINING_CONTRACT_ID
 from rsl_rl.runners.frontres_evaluation_reporting import write_frontres_atomic_json
 
 
@@ -55,7 +56,7 @@ class FrontRESV015PolicyQualityEvalRequest:
 
 @dataclass(frozen=True)
 class FrontRESV017PolicyQualityEvalRequest:
-    """Strict checkpoint-v9 and K16/M3 manifest identity for EVAL-v004."""
+    """Strict HSL-v2 plus checkpoint-v10 K16/M3 identity for EVAL-v004."""
 
     manifest_path: str
     hsl_checkpoint_path: str
@@ -719,13 +720,13 @@ def build_frontres_v017_policy_quality_eval_request(
         "prefix_dim": manifest.actor_input_dim,
         "gmt_dim": manifest.gmt_suffix_dim,
     }
-    # B2: 对齐 HSL scaffold 与 checkpoint-v9 contract/layout/action, 产出 pre-mutation request.
+    # B2: 分离 HSL artifact 与 Stage-3 policy identity, 产出 pre-mutation request.
     if dict(hsl.future_intent_layout) != expected_layout or dict(policy.future_intent_layout) != expected_layout:
         raise ValueError("v017 policy-quality manifest and checkpoint layouts are mixed")
     if (
         hsl.format != "frontres-v017-hsl-proposal-v2"
         or hsl.method_contract_id != manifest.method_contract_id
-        or hsl.training_contract_id != manifest.training_contract_id
+        or hsl.training_contract_id != FRONTRES_HSL_ARTIFACT_TRAINING_CONTRACT_ID
         or policy.format != manifest.checkpoint_format
         or policy.method_contract_id != manifest.method_contract_id
         or policy.training_contract_id != manifest.training_contract_id
@@ -739,6 +740,7 @@ def build_frontres_v017_policy_quality_eval_request(
         or policy.action_dim != manifest.action_dim
     ):
         raise ValueError("v017 policy-quality manifest and checkpoint contract/action identities are mixed")
+    # B3: 封存双 artifact identity 与 output path, 产出 read-only evaluator request.
     return FrontRESV017PolicyQualityEvalRequest(
         manifest_path=str(paths["manifest_path"]),
         hsl_checkpoint_path=str(paths["hsl_checkpoint_path"]),
@@ -1025,7 +1027,7 @@ def run_frontres_v017_policy_quality_heldout_eval(
         prepare_frontres_v017_policy_quality_batch,
     )
 
-    # B1: 冻结训练状态并安装 tested checkpoint-v9, 产出 inference-only policy owner.
+    # B1: 冻结训练状态并安装 tested checkpoint-v10, 产出 inference-only policy owner.
     if not isinstance(request, FrontRESV017PolicyQualityEvalRequest):
         raise TypeError("EVAL-v004 requires the strict v017 policy-quality request")
 
@@ -1222,9 +1224,9 @@ def run_frontres_policy_quality_eval(
     policy_checkpoint_path: str,
     result_path: str,
 ) -> Any:
-    """Run the active EVAL-v004 checkpoint-v9 held-out evaluator."""
+    """Run the active EVAL-v004 checkpoint-v10 held-out evaluator."""
 
-    # B1: 验证 formal runner 并构造 strict v017 request, 产出 checkpoint-v9 evaluation identity.
+    # B1: 验证 formal runner 并构造 strict v017 request, 产出 checkpoint-v10 evaluation identity.
     if not bool(getattr(getattr(runner, "alg", None), "frontres_formal_transaction_enabled", False)):
         raise RuntimeError(
             "active policy-quality evaluation requires the v017 formal transaction route; "

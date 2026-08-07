@@ -1,6 +1,6 @@
 {
   "title": "FrontRES Module Test Atlas",
-  "subtitle": "TRAIN-v014 direct full-6D 回归：18 passed、0 partial、0 blocked；Phase A 已审查 DP01-DP10，Phase B 测试卡已建立但 probes / live 未授权",
+  "subtitle": "TRAIN-v015/checkpoint-v10：18 passed、0 partial、0 blocked；HSL-v2 保留 TRAIN-v014 proposal identity；一次 bounded official transaction 已授权",
   "humanStatus": "confirmed",
   "layout": "module_test_inspector",
   "defaultZoom": 0.8,
@@ -283,7 +283,7 @@
           [
             "缺少 start_distribution、start d_cap、advance rule 或 advance_updates",
             "配置阶段拒绝，不补默认值",
-            "TRAIN-v014 DRStageSpec 必须显式"
+            "TRAIN-v015 DRStageSpec 必须显式"
               ]
             ]
           }
@@ -535,7 +535,7 @@
           [
             "固定 d_cap，构造大量独立 sample_key",
             "四档支持严格为 [0,.25d_cap)、[.25,.70)、[.70,1.0]、(1.0,min(1.10,2.381/d_cap)]，频率接近 20/30/40/10",
-            "TRAIN-v014 四档分布计算正确"
+            "TRAIN-v015 四档分布计算正确"
           ],
           [
             "改变 Gain、PPO、evaluation 或 diagnostics 数值，但保持 committed iteration 与 sample_key 不变",
@@ -745,7 +745,7 @@
       "designId": "TEST-10",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "固定权重 exact-(1,2) 158D→direct 6D 手算、正负 anti-DR dz 原样进入 HSL target、行置换、GMT suffix 隔离、旧 12D 与 tanh/scale 身份拒绝、157/159D 和 NaN/Inf 拒绝、HSL-v2 actor-only 均通过；E-FI-119。",
+      "executionSummary": "固定权重 exact-(1,2) 158D→direct 6D 手算、正负 anti-DR dz、GMT suffix 隔离与 fail-closed 输入均通过；HSL-v2/TRAIN-v014 只初始化 TRAIN-v015 Actor，伪造 HSL-v2/v015 拒绝；E-FI-119/E-FI-136。",
       "blockId": "MOD-POLICY",
       "title": "FrontRES Policy",
       "color": "#b14f5f",
@@ -796,8 +796,13 @@
               ],
               [
                 "加载 HSL-v2",
-                "Actor、std、158D normalizer 按 payload 恢复；Critic 不变",
-                "proposal-only 初始化"
+                "仅接受 artifact training identity=FRS-TRAIN-v014；Actor、std、158D normalizer 恢复，Critic不变；Stage-3 后续 identity=FRS-TRAIN-v015",
+                "跨阶段 proposal-only 初始化与 Stage-3 persistence 权限分离"
+              ],
+              [
+                "HSL-v2 payload 伪称 FRS-TRAIN-v015",
+                "任何参数或 optimizer 状态修改前直接拒绝",
+                "Stage-3 身份不能倒灌到冻结 HSL artifact"
               ],
               [
                 "输入为157D或159D",

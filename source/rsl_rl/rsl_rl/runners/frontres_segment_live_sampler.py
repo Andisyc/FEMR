@@ -369,7 +369,7 @@ def _build_stage3_index_perturbation_plan(runner: Any, batch: Any, *, update_ste
         )
     # Historical non-formal routes retain the retired adaptive curriculum only
     # behind this explicit branch.  Importing it here keeps the formal
-    # TRAIN-v014 route free of the old episode-length/frontier controller.
+    # TRAIN-v015 route free of the old episode-length/frontier controller.
     from rsl_rl.frontres.frontres_dr_curriculum import sample_per_env_dr_strength, sample_perturbation_mix
 
     cfg = getattr(runner, "cfg", None) or getattr(runner, "alg_cfg", None) or {}

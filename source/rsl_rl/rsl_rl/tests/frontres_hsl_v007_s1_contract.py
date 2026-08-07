@@ -778,7 +778,9 @@ def test_t_hsl_checkpoint_identity_and_pre_mutation() -> None:
         identity = payload["frontres_v015_hsl_checkpoint_identity"]
         assert identity["format"] == "frontres-v017-hsl-proposal-v2"
         assert identity["method_contract_id"] == "FRS-METHOD-v017"
-        assert identity["training_contract_id"] == "FRS-TRAIN-v015"
+        assert identity["training_contract_id"] == "FRS-TRAIN-v014"
+        inspected = checkpointing.inspect_frontres_quality_checkpoint(checkpoint_path, route="hsl")
+        assert inspected.training_contract_id == "FRS-TRAIN-v014"
         assert identity["future_intent_layout"]["actor_dim"] == 928
         assert identity["future_intent_layout"]["prefix_dim"] == 158
         assert identity["future_intent_layout"]["gmt_dim"] == 770
@@ -831,6 +833,9 @@ def test_t_hsl_checkpoint_identity_and_pre_mutation() -> None:
         gmt_tamper = copy.deepcopy(payload)
         gmt_tamper["frontres_v015_hsl_checkpoint_identity"]["gmt"]["checkpoint_sha256"] = "0" * 64
         tamper_cases.append(("gmt-tamper", gmt_tamper, "GMT"))
+        stage3_identity_tamper = copy.deepcopy(payload)
+        stage3_identity_tamper["frontres_v015_hsl_checkpoint_identity"]["training_contract_id"] = "FRS-TRAIN-v015"
+        tamper_cases.append(("stage3-identity", stage3_identity_tamper, "incompatible identity"))
         legacy_payload = {
             "model_state_dict": copy.deepcopy(payload["model_state_dict"]),
             "frontres_warmup_complete": True,

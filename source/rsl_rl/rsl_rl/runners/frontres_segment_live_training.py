@@ -350,7 +350,7 @@ def _save_live_checkpoint(
 
 
 def finalize_frontres_local_sentinel_checkpoint(runner: Any, result: Any) -> str:
-    """Persist and verify the checkpoint-v9 produced by one local sentinel update."""
+    """Persist and verify the checkpoint-v10 produced by one local sentinel update."""
 
     summary = _require_v015_committed_result(runner, result)
     telemetry = summary.get("frontres_transaction_telemetry")
@@ -383,7 +383,7 @@ def finalize_frontres_local_sentinel_checkpoint(runner: Any, result: Any) -> str
         payload = load_frontres_checkpoint_mapping(checkpoint_path, map_location="cpu")
         identity = payload.get("frontres_v015_checkpoint_identity") if isinstance(payload, Mapping) else None
         if not isinstance(identity, Mapping):
-            raise RuntimeError("v015 local sentinel checkpoint has no checkpoint-v9 identity")
+            raise RuntimeError("v015 local sentinel checkpoint has no checkpoint-v10 identity")
         required_identity = {
             "format": "frontres-v017-checkpoint-v10",
             "method_contract_id": "FRS-METHOD-v017",

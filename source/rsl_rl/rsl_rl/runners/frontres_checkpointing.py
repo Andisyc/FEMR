@@ -51,6 +51,7 @@ from rsl_rl.runners.frontres_checkpoint_quality import (
     FRONTRES_HSL_CHECKPOINT_FORMAT as _V015_HSL_CHECKPOINT_FORMAT,
     FRONTRES_HSL_CHECKPOINT_IDENTITY_KEY as _V015_HSL_CHECKPOINT_IDENTITY_KEY,
     FRONTRES_HSL_PREFIX_NORM_KEY as _V015_HSL_PREFIX_NORM_KEY,
+    FRONTRES_HSL_ARTIFACT_TRAINING_CONTRACT_ID as _HSL_ARTIFACT_TRAINING_CONTRACT_ID,
     FRONTRES_HSL_TOP_LEVEL_KEYS as _V015_HSL_TOP_LEVEL_KEYS,
     FrontRESActiveQualityCheckpointIdentity,
     frontres_v015_clone_tensor_state as _v015_clone_tensor_state,
@@ -471,8 +472,9 @@ def _v015_checkpoint_layout_fields(runner: Any) -> dict[str, int | str | tuple[i
 
 
 def _build_v015_hsl_checkpoint_payload(runner: Any) -> dict[str, Any]:
-    """Build the exact proposal-only HSL migration payload."""
+    """Build the frozen v014 HSL-v2 artifact consumed by fresh Stage-3 runs."""
 
+    # B1: 校验 Stage-1 route/layout/action owner, 产出可序列化运行身份.
     if not _uses_v015_hsl_checkpoint_identity(runner):
         raise RuntimeError("proposal-only HSL checkpoint save requires the active Stage-1 route")
     alg = getattr(runner, "alg", None)
@@ -501,6 +503,7 @@ def _build_v015_hsl_checkpoint_payload(runner: Any) -> dict[str, Any]:
     )
     distribution_key, distribution = _v015_hsl_distribution_state(policy)
     prefix_state = _v015_hsl_prefix_normalizer_state(runner)
+    # B2: 封存 Actor/distribution/normalizer fingerprint, 产出 proposal-only payload identity.
     model_keys = {"residual_actor", distribution_key}
     payload_identity = {
         "top_level_keys": tuple(sorted(_V015_HSL_TOP_LEVEL_KEYS)),
@@ -518,7 +521,7 @@ def _build_v015_hsl_checkpoint_payload(runner: Any) -> dict[str, Any]:
     identity = {
         "format": _V015_HSL_CHECKPOINT_FORMAT,
         "method_contract_id": "FRS-METHOD-v017",
-        "training_contract_id": "FRS-TRAIN-v015",
+        "training_contract_id": _HSL_ARTIFACT_TRAINING_CONTRACT_ID,
         "objective": "proposal_only_current_antidr_delta_se3",
         "future_intent_layout": fields,
         "action": {
@@ -529,6 +532,7 @@ def _build_v015_hsl_checkpoint_payload(runner: Any) -> dict[str, Any]:
         "gmt": _v015_frozen_gmt_identity(runner),
         "payload": payload_identity,
     }
+    # B3: 只输出 HSL 允许恢复的三类状态, 不携带 Critic/optimizer/transaction.
     return {
         _V015_HSL_CHECKPOINT_IDENTITY_KEY: identity,
         "model_state_dict": {
@@ -565,8 +569,9 @@ def _validate_v015_hsl_checkpoint_resume(
     *,
     stage3_initializer: bool = False,
 ) -> dict[str, Any] | None:
-    """Validate the complete HSL payload before any runner state mutation."""
+    """Validate the frozen HSL-v2 identity before any runner state mutation."""
 
+    # B1: 判定 Stage-1/Stage-3 initializer route, 产出严格 envelope 与 objective 边界.
     uses_hsl = _uses_v015_hsl_checkpoint_identity(runner) or bool(stage3_initializer)
     has_hsl_identity = isinstance(checkpoint, Mapping) and _V015_HSL_CHECKPOINT_IDENTITY_KEY in checkpoint
     if not uses_hsl:
@@ -598,10 +603,11 @@ def _validate_v015_hsl_checkpoint_resume(
     }
     if not isinstance(identity, Mapping) or set(identity) != required_identity:
         raise RuntimeError("proposal-only HSL checkpoint identity is missing, legacy, or malformed")
+    # B2: 对齐 HSL artifact/layout/action/GMT identity, 产出可信 payload schema.
     if (
         identity["format"] != _V015_HSL_CHECKPOINT_FORMAT
         or identity["method_contract_id"] != "FRS-METHOD-v017"
-        or identity["training_contract_id"] != "FRS-TRAIN-v015"
+        or identity["training_contract_id"] != _HSL_ARTIFACT_TRAINING_CONTRACT_ID
         or identity["objective"] != "proposal_only_current_antidr_delta_se3"
     ):
         raise RuntimeError("proposal-only HSL checkpoint has an incompatible identity")
@@ -632,6 +638,7 @@ def _validate_v015_hsl_checkpoint_resume(
     if tuple(payload_identity["top_level_keys"]) != tuple(sorted(_V015_HSL_TOP_LEVEL_KEYS)):
         raise RuntimeError("proposal-only HSL checkpoint top-level identity mismatch")
 
+    # B3: 校验三类 tensor state 与 fingerprint, 产出 restore 所需 immutable carrier.
     policy = getattr(getattr(runner, "alg", None), "policy", None)
     actor = getattr(policy, "residual_actor", None)
     if not isinstance(actor, torch.nn.Module):
@@ -1436,7 +1443,7 @@ def save_runner(self, path: str, infos=None):
         )
         saved_dict["frontres_v013_rng_state"] = _frontres_v013_rng_state()
 
-    # Legacy adaptive DR is never part of the active TRAIN-v014 payload.
+    # Legacy adaptive DR is never part of the active TRAIN-v015 payload.
     _is_v013_formal = bool(getattr(self.alg, "frontres_formal_transaction_enabled", False))
     if not _is_v013_formal and hasattr(self, '_dr_scale'):
         saved_dict["dr_scale"] = self._dr_scale

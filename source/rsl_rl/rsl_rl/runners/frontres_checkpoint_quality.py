@@ -27,6 +27,7 @@ _V015_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v10"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
 _V015_HSL_CHECKPOINT_IDENTITY_KEY = "frontres_v015_hsl_checkpoint_identity"
 _V015_HSL_CHECKPOINT_FORMAT = "frontres-v017-hsl-proposal-v2"
+_HSL_ARTIFACT_TRAINING_CONTRACT_ID = "FRS-TRAIN-v014"
 _V015_HSL_PREFIX_NORM_KEY = "frontres_prefix_norm_state_dict"
 _V015_HSL_TOP_LEVEL_KEYS = {
     _V015_HSL_CHECKPOINT_IDENTITY_KEY,
@@ -356,6 +357,9 @@ def _inspect_frontres_v015_hsl_quality_payload(
     *,
     file_sha256: str,
 ) -> FrontRESActiveQualityCheckpointIdentity:
+    """Inspect the frozen v014 HSL-v2 artifact independently of Stage-3 identity."""
+
+    # B1: 校验 artifact envelope 与 HSL-v2 identity, 产出可信 identity mapping.
     if set(checkpoint) != _V015_HSL_TOP_LEVEL_KEYS:
         raise RuntimeError("quality HSL requires the exact proposal-only HSL payload")
     identity = checkpoint.get(_V015_HSL_CHECKPOINT_IDENTITY_KEY)
@@ -374,13 +378,13 @@ def _inspect_frontres_v015_hsl_quality_payload(
     if (
         identity["format"] != _V015_HSL_CHECKPOINT_FORMAT
         or identity["method_contract_id"] != "FRS-METHOD-v017"
-        or identity["training_contract_id"] != "FRS-TRAIN-v015"
+        or identity["training_contract_id"] != _HSL_ARTIFACT_TRAINING_CONTRACT_ID
         or identity["objective"] != "proposal_only_current_antidr_delta_se3"
         or identity["future_intent_layout"] != _v015_quality_expected_layout()
         or identity["action"]
         != {"kind": "delta_se3", "dim": 6, "semantics": "direct-world-full6-v1"}
     ):
-        raise RuntimeError("quality HSL has an incompatible v015 layout or action identity")
+        raise RuntimeError("quality HSL has an incompatible HSL-v2 layout or action identity")
     gmt = identity["gmt"]
     if (
         not isinstance(gmt, Mapping)
@@ -390,6 +394,7 @@ def _inspect_frontres_v015_hsl_quality_payload(
         raise RuntimeError("quality HSL GMT identity is malformed")
     _v015_quality_require_sha256(gmt["checkpoint_sha256"], label="quality HSL GMT checkpoint")
     _v015_quality_require_sha256(gmt["normalizer_fingerprint"], label="quality HSL GMT normalizer")
+    # B2: 校验 Actor/distribution/normalizer fingerprint, 产出完整 payload identity.
     actor_fingerprint, distribution_key, distribution_fingerprint = _v015_quality_model_identity(
         checkpoint, label="quality HSL"
     )
@@ -419,12 +424,13 @@ def _inspect_frontres_v015_hsl_quality_payload(
         or payload_identity["prefix_normalizer_fingerprint"] != prefix_fingerprint
     ):
         raise RuntimeError("quality HSL payload fingerprint mismatch")
+    # B3: 投影 immutable quality identity, 不恢复或修改 runner state.
     return FrontRESActiveQualityCheckpointIdentity(
         route="hsl",
         format=_V015_HSL_CHECKPOINT_FORMAT,
         file_sha256=file_sha256,
         method_contract_id="FRS-METHOD-v017",
-        training_contract_id="FRS-TRAIN-v015",
+        training_contract_id=_HSL_ARTIFACT_TRAINING_CONTRACT_ID,
         gain_contract_id=None,
         ppo_contract_id=None,
         future_intent_layout=tuple(_v015_quality_expected_layout().items()),
@@ -575,6 +581,7 @@ FRONTRES_ACTIVE_CHECKPOINT_FORMAT = _V015_CHECKPOINT_FORMAT
 FRONTRES_ACTIVE_CHECKPOINT_IDENTITY_KEY = _V015_CHECKPOINT_IDENTITY_KEY
 FRONTRES_ACTIVE_GROUPED_CANDIDATE_LAYOUT = _V015_GROUPED_CANDIDATE_LAYOUT
 FRONTRES_HSL_CHECKPOINT_FORMAT = _V015_HSL_CHECKPOINT_FORMAT
+FRONTRES_HSL_ARTIFACT_TRAINING_CONTRACT_ID = _HSL_ARTIFACT_TRAINING_CONTRACT_ID
 FRONTRES_HSL_CHECKPOINT_IDENTITY_KEY = _V015_HSL_CHECKPOINT_IDENTITY_KEY
 FRONTRES_HSL_PREFIX_NORM_KEY = _V015_HSL_PREFIX_NORM_KEY
 FRONTRES_HSL_TOP_LEVEL_KEYS = _V015_HSL_TOP_LEVEL_KEYS
@@ -591,6 +598,7 @@ __all__ = (
     "FRONTRES_ACTIVE_CHECKPOINT_IDENTITY_KEY",
     "FRONTRES_ACTIVE_GROUPED_CANDIDATE_LAYOUT",
     "FRONTRES_HSL_CHECKPOINT_FORMAT",
+    "FRONTRES_HSL_ARTIFACT_TRAINING_CONTRACT_ID",
     "FRONTRES_HSL_CHECKPOINT_IDENTITY_KEY",
     "FRONTRES_HSL_PREFIX_NORM_KEY",
     "FRONTRES_HSL_TOP_LEVEL_KEYS",

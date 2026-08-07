@@ -85,6 +85,10 @@ resolve and seal TRAIN-v015 curriculum identity
 enter K8/M2 critic_only with actor_loss_weight=0
 ```
 
+The accepted HSL-v2 file retains its frozen `FRS-TRAIN-v014` artifact identity.
+`FRS-TRAIN-v015` identifies the fresh Stage-3 campaign and checkpoint-v10; it
+must not be written into, required from, or used to migrate the HSL artifact.
+
 HSL initialization and strict Stage-3 resume are mutually exclusive. Old
 HSL-v1 artifacts and Stage-3 checkpoint-v8 artifacts reject before mutation.
 Old Stage-3 Critic, optimizer, transaction or curriculum state cannot initialize

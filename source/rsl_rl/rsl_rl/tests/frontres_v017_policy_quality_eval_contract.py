@@ -164,6 +164,86 @@ def test_policy_quality_collection_lifecycle_preserves_receipt_and_cleans_except
     aggregate.clear_collection_context()
 
 
+def test_active_request_keeps_hsl_and_stage3_training_identities_separate(tmp_path: Path) -> None:
+    """HSL-v2 remains a v014 artifact while the evaluated policy is v015."""
+
+    # B1: 构造同 layout 的 HSL-v2 与 checkpoint-v10 identity, 产出双 artifact fixture.
+    hsl_path = tmp_path / "hsl.pt"
+    policy_path = tmp_path / "policy.pt"
+    result_path = tmp_path / "quality.json"
+    hsl_path.write_bytes(b"fixture-hsl")
+    policy_path.write_bytes(b"fixture-policy")
+    manifest = FrontRESV017PolicyQualityManifest.from_json(MANIFEST.read_text(encoding="utf-8"))
+    layout = (
+        ("layout_version", manifest.future_intent_layout_version),
+        ("future_offsets", manifest.future_offsets),
+        ("intent_dim", 29),
+        ("actor_tail_dim", 58),
+        ("environment_obs_dim", manifest.raw_observation_dim),
+        ("current_frontres_prefix_dim", manifest.actor_input_dim - 58),
+        ("actor_dim", manifest.combined_observation_dim),
+        ("prefix_dim", manifest.actor_input_dim),
+        ("gmt_dim", manifest.gmt_suffix_dim),
+    )
+    hsl_training_id = "FRS-TRAIN-v014"
+
+    def inspect(_path, *, route):
+        if route == "hsl":
+            assert Path(_path).resolve() == hsl_path.resolve()
+            return SimpleNamespace(
+                format="frontres-v017-hsl-proposal-v2",
+                file_sha256="h" * 64,
+                method_contract_id="FRS-METHOD-v017",
+                training_contract_id=hsl_training_id,
+                future_intent_layout=layout,
+                action_kind="delta_se3",
+                action_dim=6,
+                action_semantics="direct-world-full6-v1",
+            )
+        if route == "policy":
+            assert Path(_path).resolve() == policy_path.resolve()
+            return SimpleNamespace(
+                format="frontres-v017-checkpoint-v10",
+                file_sha256="p" * 64,
+                method_contract_id="FRS-METHOD-v017",
+                training_contract_id="FRS-TRAIN-v015",
+                gain_contract_id="FRS-GAIN-v007",
+                ppo_contract_id="FRS-PPO-v005",
+                future_intent_layout=layout,
+                action_kind="delta_se3",
+                action_dim=6,
+                action_semantics="direct-world-full6-v1",
+            )
+        raise AssertionError(f"unexpected checkpoint route: {route}")
+
+    # B2: 通过正式 request builder, 产出 v014 HSL + v015 policy 的 accepted request.
+    original = frontres_checkpointing.inspect_frontres_quality_checkpoint
+    frontres_checkpointing.inspect_frontres_quality_checkpoint = inspect
+    try:
+        request = quality.build_frontres_v017_policy_quality_eval_request(
+            manifest_path=str(MANIFEST),
+            hsl_checkpoint_path=str(hsl_path),
+            policy_checkpoint_path=str(policy_path),
+            result_path=str(result_path),
+        )
+        assert request.hsl_checkpoint.training_contract_id == "FRS-TRAIN-v014"
+        # B3: 将 HSL identity 篡改为 Stage-3 v015, 证明 request 在恢复状态前拒绝.
+        hsl_training_id = "FRS-TRAIN-v015"
+        try:
+            quality.build_frontres_v017_policy_quality_eval_request(
+                manifest_path=str(MANIFEST),
+                hsl_checkpoint_path=str(hsl_path),
+                policy_checkpoint_path=str(policy_path),
+                result_path=str(result_path),
+            )
+        except ValueError as exc:
+            assert "contract/action identities are mixed" in str(exc), str(exc)
+        else:
+            raise AssertionError("active quality request must reject a Stage-3 identity on HSL-v2")
+    finally:
+        frontres_checkpointing.inspect_frontres_quality_checkpoint = original
+
+
 @dataclass(frozen=True)
 class _Report:
     gain_total: tuple[float, ...]
@@ -319,6 +399,7 @@ if __name__ == "__main__":
         test_policy_quality_algorithm_constructs_readonly_stage3_identity()
         test_policy_quality_reset_support_is_readonly_and_sampler_free()
         test_policy_quality_collection_lifecycle_preserves_receipt_and_cleans_exceptions()
+        test_active_request_keeps_hsl_and_stage3_training_identities_separate(Path(tmp))
         test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(Path(tmp))
         test_training_state_guard_names_the_mutated_owner()
     print("frontres_v017_policy_quality_eval_contract: ok")
