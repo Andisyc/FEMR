@@ -8251,3 +8251,65 @@ collector or transaction owner; it moves owner installation to the existing
 evaluation composition boundary and improves fail-closed diagnostics. Evidence
 status is `fresh-runner-owner-lifecycle-contract-confirmed`. The final JSON and
 policy efficacy remain live-unconfirmed until one real rerun.
+
+## E-FI-136: TRAIN-v015 Fixed Split-LR Official Transaction Closure
+
+Date: 2026-08-07
+
+Scope:
+
+- one authorized fresh-HSL K8/M2 transaction with 8 environments, one formal
+  optimizer update and checkpoint interval 1;
+- runtime confirmation of the active TRAIN-v015 fixed split-LR route after the
+  HSL-v2/TRAIN-v014 identity repair;
+- no long training, Stage-3 resume, policy-quality evaluation or deployment.
+
+Evidence:
+
+- L0 log: `FRS_TRAIN_V015_SPLIT_LR_SENTINEL.log`, SHA256
+  `ef50144071e23578e82f639b8cc415d65b94fefd6ff72cc019ec85e6015ab5fc`;
+- the log emits `AUDIT-B01` through `AUDIT-B08` exactly once;
+- `AUDIT-SEGMENT-REPLAY-01` and the formal train summary report transaction
+  `frontres-v015-local-training:i0:n1`, two Segments, M=2, four valid policy
+  rows, one update invocation, `optimizer_step_delta=1` and `committed=1`;
+- `AUDIT-PERSIST-01`, `AUDIT-B08` and the final checkpoint block report
+  `frontres-v017-checkpoint-v10` saved at iteration 1 to
+  `/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage3_segment_hrl/2026-08-07_09-40-26_G5_S4_BOUND_V015/model_1.pt`.
+
+Facts:
+
+- B01 confirms METHOD-v017 / GAIN-v007 / PPO-v005 / TRAIN-v015, HSL-v2
+  cold-start, offsets `(1,2)`, K8/M2 and the eight-environment formal route;
+- B02-B06 confirm two sealed Segment identities, exact M2, `928/158/770`
+  observation authority, one finite `[4,6]` action batch, frozen GMT for eight
+  consequence steps, Clean=2 / Noisy=2 / Repair=4 and four finite scalar
+  returns. The observed `G_total` values are
+  `(0.7266711, 0.3937261, -0.0429236, -0.4709194)` with mean `0.1516385`;
+- B07 confirms the single Adam has Actor LR `3e-6` and Critic LR `1e-5` under
+  the fixed schedule. In `critic_only`, Actor/std changed 0/8 parameters while
+  Critic changed 10/10, with Critic delta L2 `0.0141016059`;
+- B08 confirms one committed receipt, absolute iteration 1, the v10
+  checkpoint identity, GMT and normalizer hashes, and the `928/158/770`
+  layout. The final save status is `OK` and the checkpoint is inside the new
+  bounded run directory;
+- GLFW and GPU plugin warnings did not prevent environment setup, CUDA rollout,
+  optimizer commit or checkpoint save in this transaction. They remain
+  startup-health observations rather than a method or policy-quality result.
+
+Decision:
+
+- TRAIN-v015 engineering and official-route connectivity are
+  `runtime-confirmed`; the bounded rerun gate is closed;
+- the bounded `model_1.pt` remains integration evidence and is not a resume
+  source for the fresh campaign;
+- policy convergence, held-out quality and long-horizon physical efficacy
+  remain unconfirmed. This one four-row transaction cannot authorize a quality
+  claim.
+
+Next:
+
+- the next material-cost boundary is a fresh Stage-3 K8/M2 campaign from the
+  frozen HSL-v2 initializer in a new run directory;
+- run 2000 committed K8 updates with 8 environments, then require the existing
+  committed stage-transition checkpoint and process stop before restarting
+  K16/M3 with 12 environments. Long training requires separate user approval.

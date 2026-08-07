@@ -4,7 +4,7 @@ Updated: 2026-08-07
 
 ## TRAIN-v015 HSL Identity Runtime Repair E-FI-136
 
-- the pulled official sentinel stopped before rollout because the Stage-3
+- the first pulled official sentinel stopped before rollout because the Stage-3
   inspector incorrectly required the frozen HSL-v2 artifact to claim
   `FRS-TRAIN-v015`; direct artifact inspection proves its proposal-only
   identity is `FRS-TRAIN-v014`;
@@ -14,6 +14,11 @@ Updated: 2026-08-07
 - focused HSL, active v017 policy-quality, checkpoint and transaction
   regressions cover this split. The active deterministic aggregate contains
   50 targets;
+- the repaired official rerun emits AUDIT-B01 through AUDIT-B08 exactly once,
+  commits one K8/M2 grouped optimizer update with Actor/std frozen and Critic
+  10/10 parameters changed, and saves checkpoint-v10 `model_1.pt`. E-FI-136
+  records the raw-log hash and exact runtime facts; long training and policy
+  quality remain separate gates;
 - `frontres_v015_policy_quality_identity_contract.py`, its dependent held-out
   fixture and `frontres_v015_policy_quality_save_reload_contract.py` are
   historical, excluded scripts. They bind retired evaluator identities or a

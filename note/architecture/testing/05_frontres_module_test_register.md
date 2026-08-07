@@ -6,7 +6,8 @@ Current result: `18 passed / 0 partial / 0 blocked`. The user-confirmed v015
 optimizer/config/persistence questions are integrated into TEST-01, TEST-02,
 TEST-15 and TEST-16 without adding a duplicate module family. E-FI-135 records
 their execution and the 50/50 affected suite. The new campaign's bounded live
-transaction and policy quality remain separate evidence gates.
+transaction is runtime-confirmed by E-FI-136; policy quality remains a separate
+evidence gate.
 
 Interactive page: `../05_frontres_module_test_atlas.html`
 

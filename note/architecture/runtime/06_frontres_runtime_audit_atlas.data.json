@@ -1,6 +1,6 @@
 {
   "title": "FrontRES Formal Runtime Audit Atlas",
-  "subtitle": "TRAIN-v015 bounded rerun：B01-B06 保留 E-FI-128 runtime evidence；split-LR B07 与 checkpoint-v10 B08 待本次唯一 official transaction",
+  "subtitle": "TRAIN-v015 bounded official transaction 已完成：E-FI-136 live-confirm B01-B08、fixed split-LR、exact-one update 与 checkpoint-v10；long training 和 policy quality 仍是独立边界",
   "layout": "repository_reading_atlas",
   "canvasWidth": 4300,
   "defaultZoom": 1.0,
@@ -41,8 +41,8 @@
           ],
           "mainRouteTitles": ["解析唯一运行模式", "创建正式 Runner", "确认 active 身份"],
           "review": ["AUDIT-B01：打印 contract、HSL/checkpoint、offset、K/M/DR fingerprint", "正确结果：train + K8/M2 + offsets(1,2)，且无 legacy route"],
-          "tests": ["Offline instrumentation contract passed; actual composed config remains live-only"],
-          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B01"
+          "tests": ["E-FI-136 official transaction emitted AUDIT-B01 exactly once with active identities, HSL-v2 cold-start, K8/M2, offsets and env width"],
+          "gap": "RUNTIME_CONFIRMED；E-FI-136 / AUDIT-B01"
         },
         {
           "id": "AUDIT-R02",
@@ -63,8 +63,8 @@
           ],
           "mainRouteTitles": ["读取当前 Curriculum", "封存两个情境", "收齐 exact M"],
           "review": ["AUDIT-B02：打印 segment/attempt/role counts 与 scenario/noisy hashes", "正确结果：2 Segment × 2 attempts；同 Segment 的 identity 全相同"],
-          "tests": ["Offline instrumentation contract passed; actual sampler population remains live-only"],
-          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B02"
+          "tests": ["E-FI-136 official transaction emitted AUDIT-B02 exactly once with two Segments, exact M2 and four stable scenario/hash rows"],
+          "gap": "RUNTIME_CONFIRMED；E-FI-136 / AUDIT-B02"
         },
         {
           "id": "AUDIT-R03",
@@ -85,8 +85,8 @@
           ],
           "mainRouteTitles": ["恢复同一动力学起点", "读取 Noisy Future Intent", "切分 Actor 与 GMT 权限"],
           "review": ["AUDIT-B03：打印 role identity、provenance 和全部 shape", "正确结果：8 role rows；Actor provenance 仅 deployment/Noisy"],
-          "tests": ["Active v017 collector connectivity and fail-closed shape/provenance contracts passed; real env observation remains live-only"],
-          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B03"
+          "tests": ["E-FI-136 official transaction emitted AUDIT-B03 exactly once with eight role rows, deployment_noisy_q29 provenance and 928/158/770 layout"],
+          "gap": "RUNTIME_CONFIRMED；E-FI-136 / AUDIT-B03"
         },
         {
           "id": "AUDIT-R04",
@@ -107,8 +107,8 @@
           ],
           "mainRouteTitles": ["采样一次 Repair", "冻结 FEMR", "执行 K-step 后果"],
           "review": ["AUDIT-B04：打印 action shape/finite、per-attempt actor count、K frame count、GMT mode", "正确结果：4 个 attempt 各一次 Actor；GMT 始终 eval/no-grad"],
-          "tests": ["Active v017 collector connectivity, eight-step and fail-closed contracts passed; simulator action count remains live-only"],
-          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B04"
+          "tests": ["E-FI-136 official transaction emitted AUDIT-B04 exactly once with finite [4,6] actions, one Actor sample per attempt, eight GMT steps and frozen GMT"],
+          "gap": "RUNTIME_CONFIRMED；E-FI-136 / AUDIT-B04"
         },
         {
           "id": "AUDIT-R05",
@@ -129,8 +129,8 @@
           ],
           "mainRouteTitles": ["封存 Paired Evidence", "计算 Recovery Pressure", "形成唯一 Scalar Gain"],
           "review": ["AUDIT-B05：打印 baseline/Repair counts、valid mask 和完整 Gain 分解", "正确结果：所有四条 attempt 有同 identity 的 finite G_total；语义 N/A 不伪装成缺失"],
-          "tests": ["Offline instrumentation contract passed; real Contact/ZMP/survival remains live-only"],
-          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B05；quality scale is separately blocked"
+          "tests": ["E-FI-136 official transaction emitted AUDIT-B05 exactly once with Clean=2, Noisy=2, Repair=4 and finite v007 Gain decomposition"],
+          "gap": "RUNTIME_CONFIRMED；E-FI-136 / AUDIT-B05；policy quality remains separate"
         },
         {
           "id": "AUDIT-R06",
@@ -151,8 +151,8 @@
           ],
           "mainRouteTitles": ["写入一条 Policy Row", "计算 Scalar Credit", "交给 Grouped PPO"],
           "review": ["AUDIT-B06：打印 row count、shape、valid count、return==G_total 和 identity hash", "正确结果：4 rows，不是 4×K；所有必需字段存在"],
-          "tests": ["Offline instrumentation contract passed; official storage write remains live-only"],
-          "gap": "RUNTIME_CONFIRMED；E-FI-128 / AUDIT-B06"
+          "tests": ["E-FI-136 official transaction emitted AUDIT-B06 exactly once with four valid policy rows and finite return statistics"],
+          "gap": "RUNTIME_CONFIRMED；E-FI-136 / AUDIT-B06"
         },
         {
           "id": "AUDIT-R07",
@@ -173,8 +173,8 @@
           ],
           "mainRouteTitles": ["公平归约 Transaction", "执行一次 Optimizer", "核验 Phase 参数变化"],
           "review": ["AUDIT-B07：打印 group mass、Actor/Critic LR、before/after steps 与 parameter deltas", "正确结果：LR=3e-6/1e-5，step_delta=1；fresh K8 critic_only 的 Actor/std delta=0"],
-          "tests": ["TRAIN-v015 split groups and critic-only state freeze pass offline; new official transaction remains live-only"],
-          "gap": "STALE_RERUN_REQUIRED for TRAIN-v015；offline E-FI-135，previous E-FI-128 used the v014 optimizer identity"
+          "tests": ["E-FI-136 official transaction emitted AUDIT-B07 exactly once: LR=3e-6/1e-5, equal group mass, step_delta=1, Actor/std delta=0 and Critic 10/10 parameters changed"],
+          "gap": "RUNTIME_CONFIRMED；E-FI-136 / AUDIT-B07；convergence remains unconfirmed"
         },
         {
           "id": "AUDIT-R08",
@@ -195,15 +195,15 @@
           ],
           "mainRouteTitles": ["封存 Transaction Receipt", "推进唯一训练状态", "保存严格 Checkpoint"],
           "review": ["AUDIT-B08：打印 receipt、iteration、两个 LR、schedule fingerprint、GMT hash、save identity", "正确结果：commit=1、iteration=1、checkpoint-v10；无 partial/mixed state"],
-          "tests": ["checkpoint-v10 strict round-trip passes offline; actual committed save remains live-only"],
-          "gap": "STALE_RERUN_REQUIRED for TRAIN-v015；offline E-FI-135，previous E-FI-128 used checkpoint-v9"
+          "tests": ["E-FI-136 official transaction emitted AUDIT-B08 exactly once and saved checkpoint-v10 model_1.pt with committed receipt, iter=1, GMT hashes and 928/158/770 identity"],
+          "gap": "RUNTIME_CONFIRMED；E-FI-136 / AUDIT-B08；round-trip remains contract-confirmed and long training remains user-authorized only"
         }
       ]
     },
     {
       "id": "SYS-RUN",
       "title": "运行合同",
-      "summary": "Phase B 只允许一次 tiny official-route run",
+      "summary": "Phase B tiny official-route run 已完成；正式长训练是新的成本与授权边界",
       "color": "#64748b",
       "modules": [
         {
@@ -225,8 +225,8 @@
           ],
           "mainRouteTitles": ["核验 Artifact", "安装正式边界诊断", "执行一次 Tiny Train"],
           "review": ["HSL_V2=/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt", "成本：一个 K8/M2 transaction、一次 optimizer update、一个 checkpoint"],
-          "tests": ["Artifact identity and offline instrumentation confirmed; TRAIN-v015 bounded rerun pending"],
-          "gap": "AUTHORIZED_PENDING；E-FI-136；one bounded official transaction only"
+          "tests": ["E-FI-136 records the completed authorized 8-env / 1-iteration / 1-update official transaction and checkpoint-v10 save"],
+          "gap": "RUNTIME_CONFIRMED；bounded gate closed；long training and policy quality require separate authority"
         }
       ]
     }

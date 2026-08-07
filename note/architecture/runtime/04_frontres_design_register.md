@@ -9,8 +9,10 @@ E-FI-111 through E-FI-119 confirm DP01 through DP10 for Phase A, including the
 formal `actor_ramp` identity, same-Critic K-transition recalibration, and exact
 future deployment/Noisy offsets `(1,2)` through the offline 928/158/770 route.
 E-FI-135 confirms named Actor/Critic `3e-6/1e-5` groups, fixed scheduling,
-committed telemetry and checkpoint-v10 round-trip offline. The new campaign's
-bounded official transaction remains live-unconfirmed.
+committed telemetry and checkpoint-v10 round-trip offline. E-FI-136
+live-confirms the new campaign's bounded official B01-B08 transaction,
+critic-only role deltas, exact-one update and checkpoint-v10 save. Long
+training and policy quality remain separate evidence gates.
 
 Interactive page: `../02_frontres_design_inspector.html`
 
