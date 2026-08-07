@@ -297,6 +297,29 @@ def main() -> None:
         for name, value in critic_state.items():
             torch.testing.assert_close(fresh.alg.policy.critic.state_dict()[name], value)
 
+        # Quality inference validates the saved training artifact without
+        # requiring the read-only runner to reproduce the resume optimizer.
+        quality_runner = _runner(layout, policy_base, iteration=0, gmt_checkpoint_path=gmt_path)
+        quality_runner._frontres_segment_sampler = None
+        quality_runner.alg.optimizer = torch.optim.Adam(
+            tuple(quality_runner.alg.policy.residual_actor.parameters())
+            + tuple(quality_runner.alg.policy.critic.parameters()),
+            lr=3.0e-6,
+        )
+        quality_optimizer_before = copy.deepcopy(quality_runner.alg.optimizer.state_dict())
+        quality_identity = checkpointing._validate_v015_checkpoint_resume(
+            quality_runner,
+            payload,
+            validation_scope="quality_inference",
+        )
+        assert quality_identity is not None
+        assert len(quality_runner.alg.optimizer.param_groups) == 1
+        assert quality_runner.alg.optimizer.state_dict() == quality_optimizer_before
+        _expect_error(
+            lambda: checkpointing._validate_v015_checkpoint_resume(quality_runner, payload),
+            "exact actor/critic optimizer groups",
+        )
+
         for label, mutate, message in (
             ("v9", lambda item: item.update(format="frontres-v017-checkpoint-v9"), "contract or format"),
             ("v8", lambda item: item.update(format="frontres-v015-checkpoint-v8"), "contract or format"),

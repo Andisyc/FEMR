@@ -129,11 +129,13 @@ def frontres_quality_route_actor(
     route: Literal["hsl", "policy"],
     expected_file_sha256: str,
 ):
-    """Temporarily install one strict quality actor and restore every touched field.
+    """Temporarily install one strict quality policy and restore every touched field.
 
-    This is an inference-only route switch. It restores no critic, optimizer,
-    sampler, transaction, or warmup state and does not reinterpret checkpoint
-    layouts. The caller must still restore the environment scenario per route.
+    This is an inference-only route switch. The Stage-3 route installs the
+    checkpoint Actor and Critic because the local report contains both executed
+    actions and value calibration. It never restores optimizer, sampler,
+    transaction, curriculum, or warmup state. The caller must still restore the
+    environment scenario per route.
     """
 
     identity = inspect_frontres_quality_checkpoint(checkpoint_path, route=route)
@@ -141,19 +143,24 @@ def frontres_quality_route_actor(
         raise RuntimeError("v015 quality route checkpoint changed after request sealing")
     policy = getattr(getattr(runner, "alg", None), "policy", None)
     actor = getattr(policy, "residual_actor", None)
+    critic = getattr(policy, "critic", None)
     prefix_normalizer = getattr(runner, "_frontres_extra_normalizer", None)
     if not isinstance(actor, torch.nn.Module):
         raise RuntimeError("v015 quality route requires the residual actor owner")
+    if route == "policy" and not isinstance(critic, torch.nn.Module):
+        raise RuntimeError("v015 quality policy route requires the Critic owner")
     if prefix_normalizer is not None and not isinstance(prefix_normalizer, torch.nn.Module):
         raise RuntimeError("v015 quality route prefix normalizer owner has an invalid type")
     distribution_key, distribution = _v015_hsl_distribution_state(policy)
     actor_before = copy.deepcopy(actor.state_dict())
+    critic_before = copy.deepcopy(critic.state_dict()) if isinstance(critic, torch.nn.Module) else None
     distribution_before = distribution.detach().clone()
     prefix_before = copy.deepcopy(prefix_normalizer.state_dict()) if prefix_normalizer is not None else None
     mean_before = copy.deepcopy(getattr(runner, "_frontres_extra_mean", None))
     std_before = copy.deepcopy(getattr(runner, "_frontres_extra_std", None))
     layout_before = getattr(runner, "_frontres_extra_stats_layout_version", None)
     actor_training = bool(actor.training)
+    critic_training = bool(critic.training) if isinstance(critic, torch.nn.Module) else False
     prefix_training = bool(prefix_normalizer.training) if prefix_normalizer is not None else False
 
     checkpoint = load_frontres_checkpoint_mapping(checkpoint_path, map_location="cpu")
@@ -180,13 +187,22 @@ def frontres_quality_route_actor(
                 runner._frontres_extra_std = validated["prefix_state"]["_std"].to(runner.device)
                 runner._frontres_extra_stats_layout_version = FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
         else:
-            validated = _validate_v015_checkpoint_resume(runner, checkpoint)
+            validated = _validate_v015_checkpoint_resume(
+                runner,
+                checkpoint,
+                validation_scope="quality_inference",
+            )
             if validated is None:
                 raise RuntimeError("v015 quality policy route requires strict Stage3-v015 identity")
             model_state = checkpoint.get("model_state_dict")
-            if not isinstance(model_state, Mapping) or not isinstance(model_state.get("residual_actor"), Mapping):
-                raise RuntimeError("v015 quality policy checkpoint is missing residual_actor state")
+            if (
+                not isinstance(model_state, Mapping)
+                or not isinstance(model_state.get("residual_actor"), Mapping)
+                or not isinstance(model_state.get("critic"), Mapping)
+            ):
+                raise RuntimeError("v015 quality policy checkpoint is missing Actor/Critic state")
             actor.load_state_dict(model_state["residual_actor"], strict=True)
+            critic.load_state_dict(model_state["critic"], strict=True)
             _copy_policy_noise_state(policy, model_state)
             stats = extract_frontres_extra_norm_stats(
                 checkpoint.get("obs_norm_state_dict"),
@@ -199,15 +215,21 @@ def frontres_quality_route_actor(
             runner._frontres_extra_mean, runner._frontres_extra_std = stats
             runner._frontres_extra_stats_layout_version = FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
         actor.eval()
+        if route == "policy":
+            critic.eval()
         if prefix_normalizer is not None:
             prefix_normalizer.eval()
         yield identity
     finally:
         actor.load_state_dict(actor_before, strict=True)
+        if critic_before is not None:
+            critic.load_state_dict(critic_before, strict=True)
         distribution.data.copy_(distribution_before.to(device=distribution.device, dtype=distribution.dtype))
         if prefix_normalizer is not None:
             prefix_normalizer.load_state_dict(prefix_before, strict=True)
         actor.train(actor_training)
+        if isinstance(critic, torch.nn.Module):
+            critic.train(critic_training)
         if prefix_normalizer is not None:
             prefix_normalizer.train(prefix_training)
         runner._frontres_extra_mean = mean_before
@@ -217,6 +239,10 @@ def frontres_quality_route_actor(
             actor_before, label="quality actor snapshot"
         ):
             raise RuntimeError("v015 quality route failed to restore the source actor")
+        if critic_before is not None and _v015_state_dict_fingerprint(
+            critic.state_dict(), label="restored quality Critic"
+        ) != _v015_state_dict_fingerprint(critic_before, label="quality Critic snapshot"):
+            raise RuntimeError("v015 quality route failed to restore the source Critic")
 
 
 def _uses_v015_hsl_checkpoint_identity(runner: Any) -> bool:
@@ -974,8 +1000,16 @@ def _build_v015_checkpoint_identity(
     }
 
 
-def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any]) -> dict[str, Any] | None:
+def _validate_v015_checkpoint_resume(
+    runner: Any,
+    checkpoint: Mapping[str, Any],
+    *,
+    validation_scope: Literal["resume", "quality_inference"] = "resume",
+) -> dict[str, Any] | None:
     """在 sampler/actor/normalizer/optimizer restore 前校验 v015 identity."""
+
+    if validation_scope not in {"resume", "quality_inference"}:
+        raise ValueError(f"unknown v015 checkpoint validation scope: {validation_scope}")
 
     if not _uses_v015_formal_checkpoint_identity(runner):
         return None
@@ -1042,22 +1076,23 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
     optimizer_state = checkpoint["optimizer_state_dict"]
     saved_groups = optimizer_state.get("param_groups")
     saved_slots = optimizer_state.get("state")
-    runtime_groups = getattr(runner.alg.optimizer, "param_groups", None)
-    if not isinstance(saved_groups, list) or not isinstance(saved_slots, Mapping) or not isinstance(runtime_groups, list):
+    if not isinstance(saved_groups, list) or not isinstance(saved_slots, Mapping):
         raise RuntimeError("v015 checkpoint optimizer state differs from runtime")
     saved_by_role = {
         str(group.get("frontres_role", "")): group for group in saved_groups if isinstance(group, Mapping)
     }
-    runtime_by_role = {
-        str(group.get("frontres_role", "")): group for group in runtime_groups if isinstance(group, Mapping)
-    }
-    if (
-        len(saved_groups) != 2
-        or len(runtime_groups) != 2
-        or set(saved_by_role) != {"actor", "critic"}
-        or set(runtime_by_role) != {"actor", "critic"}
-    ):
+    if len(saved_groups) != 2 or set(saved_by_role) != {"actor", "critic"}:
         raise RuntimeError("v015 checkpoint requires exact actor/critic optimizer groups")
+    runtime_by_role: dict[str, Mapping[str, Any]] = {}
+    if validation_scope == "resume":
+        runtime_groups = getattr(runner.alg.optimizer, "param_groups", None)
+        if not isinstance(runtime_groups, list):
+            raise RuntimeError("v015 checkpoint optimizer state differs from runtime")
+        runtime_by_role = {
+            str(group.get("frontres_role", "")): group for group in runtime_groups if isinstance(group, Mapping)
+        }
+        if len(runtime_groups) != 2 or set(runtime_by_role) != {"actor", "critic"}:
+            raise RuntimeError("v015 checkpoint requires exact actor/critic optimizer groups")
     saved_step_counts = set()
     saved_param_ids: set[int] = set()
     runtime_param_ids: set[int] = set()
@@ -1073,16 +1108,23 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
 
     for role in ("actor", "critic"):
         saved_group = saved_by_role[role]
-        runtime_group = runtime_by_role[role]
         saved_ids = saved_group.get("params") if isinstance(saved_group, Mapping) else None
-        runtime_params = runtime_group.get("params") if isinstance(runtime_group, Mapping) else None
-        if not isinstance(saved_ids, list) or not isinstance(runtime_params, list) or len(saved_ids) != len(runtime_params):
+        policy_params = list((policy.residual_actor if role == "actor" else policy.critic).parameters())
+        if not isinstance(saved_ids, list) or len(saved_ids) != len(policy_params):
             raise RuntimeError("v015 checkpoint optimizer parameter groups differ from runtime")
         saved_lr = require_finite_lr(saved_group.get("lr"), role=role)
-        runtime_lr = require_finite_lr(runtime_group.get("lr"), role=role)
         expected_lr = 3.0e-6 if role == "actor" else 1.0e-5
-        if saved_lr != expected_lr or runtime_lr != expected_lr:
+        if saved_lr != expected_lr:
             raise RuntimeError(f"v015 checkpoint {role} optimizer LR identity differs from runtime")
+        runtime_params = policy_params
+        if validation_scope == "resume":
+            runtime_group = runtime_by_role[role]
+            runtime_params = runtime_group.get("params") if isinstance(runtime_group, Mapping) else None
+            if not isinstance(runtime_params, list) or len(saved_ids) != len(runtime_params):
+                raise RuntimeError("v015 checkpoint optimizer parameter groups differ from runtime")
+            runtime_lr = require_finite_lr(runtime_group.get("lr"), role=role)
+            if runtime_lr != expected_lr:
+                raise RuntimeError(f"v015 checkpoint {role} optimizer LR identity differs from runtime")
         step_count = saved_group.get("frontres_step_count")
         if not isinstance(step_count, int) or isinstance(step_count, bool) or step_count < 0:
             raise RuntimeError("v015 checkpoint optimizer step count is malformed")
@@ -1090,10 +1132,11 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
         if saved_param_ids.intersection(saved_ids):
             raise RuntimeError("v015 checkpoint optimizer parameter membership overlaps across roles")
         saved_param_ids.update(saved_ids)
-        current_runtime_ids = {id(parameter) for parameter in runtime_params}
-        if runtime_param_ids.intersection(current_runtime_ids):
-            raise RuntimeError("v015 runtime optimizer parameter membership overlaps across roles")
-        runtime_param_ids.update(current_runtime_ids)
+        if validation_scope == "resume":
+            current_runtime_ids = {id(parameter) for parameter in runtime_params}
+            if runtime_param_ids.intersection(current_runtime_ids):
+                raise RuntimeError("v015 runtime optimizer parameter membership overlaps across roles")
+            runtime_param_ids.update(current_runtime_ids)
         for saved_id, runtime_parameter in zip(saved_ids, runtime_params, strict=True):
             slot = saved_slots.get(saved_id, {})
             if not isinstance(slot, Mapping):

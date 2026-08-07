@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from contextlib import contextmanager
 from dataclasses import dataclass
 import json
@@ -69,6 +70,73 @@ def test_policy_quality_algorithm_constructs_readonly_stage3_identity() -> None:
         assert "cannot enable Segment Replay/live training modes" in str(exc)
     else:
         raise AssertionError("read-only quality algorithm must reject mixed training modes")
+
+
+def test_policy_quality_route_installs_checkpoint_actor_and_critic_only() -> None:
+    class _Policy(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.residual_actor = torch.nn.Linear(158, 6)
+            self.critic = torch.nn.Linear(289, 1)
+            self.register_buffer("std", torch.full((6,), 0.7))
+            self.num_actor_obs = 928
+
+    policy = _Policy()
+    optimizer = torch.optim.Adam(tuple(policy.residual_actor.parameters()) + tuple(policy.critic.parameters()))
+    runner = SimpleNamespace(
+        alg=SimpleNamespace(policy=policy, optimizer=optimizer),
+        device=torch.device("cpu"),
+        _frontres_gmt_obs_dim=770,
+        _frontres_extra_normalizer=None,
+        _frontres_extra_mean=torch.zeros(158),
+        _frontres_extra_std=torch.ones(158),
+        _frontres_extra_stats_layout_version="before",
+    )
+    actor_before = copy.deepcopy(policy.residual_actor.state_dict())
+    critic_before = copy.deepcopy(policy.critic.state_dict())
+    optimizer_before = copy.deepcopy(optimizer.state_dict())
+    checkpoint_actor = {name: value.detach().clone() + 1.0 for name, value in actor_before.items()}
+    checkpoint_critic = {name: value.detach().clone() + 2.0 for name, value in critic_before.items()}
+    checkpoint = {
+        "model_state_dict": {
+            "residual_actor": checkpoint_actor,
+            "critic": checkpoint_critic,
+            "std": torch.full((6,), 0.5),
+        },
+        "obs_norm_state_dict": {
+            "_mean": torch.zeros(1, 928),
+            "_std": torch.ones(1, 928),
+        },
+    }
+    original_inspect = frontres_checkpointing.inspect_frontres_quality_checkpoint
+    original_load = frontres_checkpointing.load_frontres_checkpoint_mapping
+    original_validate = frontres_checkpointing._validate_v015_checkpoint_resume
+    frontres_checkpointing.inspect_frontres_quality_checkpoint = lambda *_args, **_kwargs: SimpleNamespace(
+        file_sha256="c" * 64
+    )
+    frontres_checkpointing.load_frontres_checkpoint_mapping = lambda *_args, **_kwargs: checkpoint
+    frontres_checkpointing._validate_v015_checkpoint_resume = lambda *_args, **_kwargs: {}
+    try:
+        with frontres_checkpointing.frontres_quality_route_actor(
+            runner,
+            "policy.pt",
+            route="policy",
+            expected_file_sha256="c" * 64,
+        ):
+            assert len(optimizer.param_groups) == 1
+            for name, value in checkpoint_actor.items():
+                torch.testing.assert_close(policy.residual_actor.state_dict()[name], value)
+            for name, value in checkpoint_critic.items():
+                torch.testing.assert_close(policy.critic.state_dict()[name], value)
+    finally:
+        frontres_checkpointing.inspect_frontres_quality_checkpoint = original_inspect
+        frontres_checkpointing.load_frontres_checkpoint_mapping = original_load
+        frontres_checkpointing._validate_v015_checkpoint_resume = original_validate
+    assert optimizer.state_dict() == optimizer_before
+    for name, value in actor_before.items():
+        torch.testing.assert_close(policy.residual_actor.state_dict()[name], value)
+    for name, value in critic_before.items():
+        torch.testing.assert_close(policy.critic.state_dict()[name], value)
 
 
 def test_policy_quality_reset_support_is_readonly_and_sampler_free() -> None:
@@ -397,6 +465,7 @@ if __name__ == "__main__":
 
     with tempfile.TemporaryDirectory() as tmp:
         test_policy_quality_algorithm_constructs_readonly_stage3_identity()
+        test_policy_quality_route_installs_checkpoint_actor_and_critic_only()
         test_policy_quality_reset_support_is_readonly_and_sampler_free()
         test_policy_quality_collection_lifecycle_preserves_receipt_and_cleans_exceptions()
         test_active_request_keeps_hsl_and_stage3_training_identities_separate(Path(tmp))
