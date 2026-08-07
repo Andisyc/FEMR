@@ -70,6 +70,35 @@ def main() -> None:
 
     _load_owners()
     one_action = sys.modules["rsl_rl.runners.frontres_segment_one_action_k"]
+    policy_rows = torch.arange(4, dtype=torch.long)
+    source_index = torch.tensor([0, 0, 1, 1], dtype=torch.long)
+    reset_states = torch.zeros(8, 347)
+    reset_states[1, 0] = 5e-6
+    reset_states[2:4] = 1.0
+    reset_states[3, 0] += 5e-6
+    canonical, observed_max = one_action._canonicalize_frontres_v016_segment_state_rows(
+        reset_states,
+        policy_rows=policy_rows,
+        source_index=source_index,
+        name="Critic observation",
+    )
+    assert observed_max <= 1e-5
+    torch.testing.assert_close(canonical[0], canonical[1], rtol=0.0, atol=0.0)
+    torch.testing.assert_close(canonical[2], canonical[3], rtol=0.0, atol=0.0)
+    bad_states = reset_states.clone()
+    bad_states[1, 0] = 1e-3
+    try:
+        one_action._canonicalize_frontres_v016_segment_state_rows(
+            bad_states,
+            policy_rows=policy_rows,
+            source_index=source_index,
+            name="Critic observation",
+        )
+    except RuntimeError as exc:
+        assert "max_abs_diff" in str(exc) and "source_index=0" in str(exc)
+    else:
+        raise AssertionError("TRAIN-v016 accepted materially different same-Segment state rows")
+
     formal_transaction = sys.modules["rsl_rl.runners.frontres_segment_formal_transaction"]
     trace = {
         "role_row_count": 8,

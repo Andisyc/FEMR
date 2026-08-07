@@ -361,6 +361,8 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
         critic_current_observation_dim=289,
         critic_future_intent_dim=58,
         critic_observation_dim=347,
+        actor_segment_state_max_abs_diff=1e-7,
+        critic_segment_state_max_abs_diff=2e-7,
         post_advance_gmt_read_count=8,
     )
     evidence = SimpleNamespace(

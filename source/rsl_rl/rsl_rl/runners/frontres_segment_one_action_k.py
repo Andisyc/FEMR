@@ -464,6 +464,48 @@ def _require_direct_policy_stats(transition: Any) -> tuple[torch.Tensor, torch.T
     return mean, sigma
 
 
+def _canonicalize_frontres_v016_segment_state_rows(
+    tensor: torch.Tensor,
+    *,
+    policy_rows: torch.Tensor,
+    source_index: torch.Tensor,
+    name: str,
+    max_roundoff: float = 1e-5,
+) -> tuple[torch.Tensor, float]:
+    """Reuse one exact policy-state row after bounding simulator reset roundoff."""
+
+    if (
+        not isinstance(tensor, torch.Tensor)
+        or tensor.ndim != 2
+        or tensor.requires_grad
+        or not bool(torch.isfinite(tensor).all().item())
+        or not isinstance(policy_rows, torch.Tensor)
+        or policy_rows.ndim != 1
+        or not isinstance(source_index, torch.Tensor)
+        or tuple(source_index.shape) != tuple(policy_rows.shape)
+    ):
+        raise ValueError(f"TRAIN-v016 requires detached finite row-aligned {name} state")
+    canonical = tensor.detach().clone()
+    observed_max = 0.0
+    for source in torch.unique(source_index.detach().to(dtype=torch.long), sorted=True):
+        local = torch.nonzero(source_index == source, as_tuple=False).reshape(-1)
+        rows = policy_rows.index_select(0, local).to(device=tensor.device, dtype=torch.long)
+        if int(rows.numel()) < 2:
+            raise ValueError("TRAIN-v016 requires exact-M policy rows for every Segment state")
+        states = tensor.index_select(0, rows)
+        reference = states[:1]
+        max_abs_diff = float((states - reference).abs().max().detach().cpu().item())
+        observed_max = max(observed_max, max_abs_diff)
+        if max_abs_diff > float(max_roundoff):
+            raise RuntimeError(
+                f"TRAIN-v016 {name} rows are not one Segment state: "
+                f"source_index={int(source.item())} max_abs_diff={max_abs_diff:.9g} "
+                f"limit={float(max_roundoff):.9g}"
+            )
+        canonical.index_copy_(0, rows, reference.expand(int(rows.numel()), -1))
+    return canonical, observed_max
+
+
 def _record_v017_policy_authority_trace(
     runner: Any,
     *,
@@ -519,6 +561,29 @@ def collect_frontres_v017_repair_attempts(
     metadata = (source_index, segment_ids, trial_index)
     if any(not isinstance(value, torch.Tensor) or tuple(value.shape) != (n_repair,) for value in metadata):
         raise ValueError("v017 Repair collection requires one source/segment/trial identity per policy row")
+    canonical_obs, actor_state_max_abs_diff = _canonicalize_frontres_v016_segment_state_rows(
+        observations.obs,
+        policy_rows=repair_rows,
+        source_index=source_index,
+        name="Actor observation",
+    )
+    canonical_privileged, critic_state_max_abs_diff = _canonicalize_frontres_v016_segment_state_rows(
+        observations.privileged_obs,
+        policy_rows=repair_rows,
+        source_index=source_index,
+        name="Critic observation",
+    )
+    update_frontres_observation_trace(
+        runner,
+        actor_segment_state_max_abs_diff=actor_state_max_abs_diff,
+        critic_segment_state_max_abs_diff=critic_state_max_abs_diff,
+    )
+    observations = FrontRESSegmentLiveObservations(
+        obs=canonical_obs,
+        privileged_obs=canonical_privileged,
+        teacher_obs=observations.teacher_obs,
+        ref_vel_estimator_obs=observations.ref_vel_estimator_obs,
+    )
     frontres_dim = int(getattr(getattr(runner.alg, "policy", None), "num_frontres_obs", 0) or 0)
     frozen_prefix = observations.obs[:, :frontres_dim].detach().clone()
     execution_started = False
