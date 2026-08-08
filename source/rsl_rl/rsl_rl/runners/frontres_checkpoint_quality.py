@@ -265,6 +265,9 @@ def _validate_v015_normalizer_state(
     dim: int,
     label: str,
 ) -> Mapping[str, torch.Tensor]:
+    """校验 EmpiricalNormalization 可恢复统计量, 允许常量维度的零方差."""
+
+    # B1: 校验持久化 schema, 产出完整且 finite 的统计量集合.
     if not isinstance(state, Mapping) or set(state) != _EMPIRICAL_NORMALIZER_STATE_KEYS:
         raise RuntimeError(f"{label} has an unexpected state schema")
     for name in ("_mean", "_var", "_std"):
@@ -276,8 +279,17 @@ def _validate_v015_normalizer_state(
             or not bool(torch.isfinite(value).all().item())
         ):
             raise RuntimeError(f"{label} {name} must be finite [1,{int(dim)}]")
-    if bool((state["_var"] < 0).any().item()) or bool((state["_std"] <= 0).any().item()):
+
+    # B2: 校验 moment 关系, 产出与 EmpiricalNormalization.forward 一致的可恢复状态.
+    # 常量维度合法地产生 var=std=0; forward 通过 eps 保持除法稳定.
+    if (
+        bool((state["_var"] < 0).any().item())
+        or bool((state["_std"] < 0).any().item())
+        or not torch.allclose(state["_std"].square(), state["_var"], rtol=1.0e-5, atol=1.0e-7)
+    ):
         raise RuntimeError(f"{label} variance/std state is invalid")
+
+    # B3: 校验累计样本数, 产出完整 checkpoint normalizer identity.
     count = state["count"]
     if not isinstance(count, torch.Tensor) or count.numel() != 1 or int(count.item()) < 0:
         raise RuntimeError(f"{label} count must be a nonnegative scalar")

@@ -12,6 +12,7 @@ from pathlib import Path
 import torch
 
 from frontres_v015_checkpoint_resume_contract import (
+    _FrozenNormalizer,
     _load_owners,
     _receipt as _legacy_receipt,
     _runner as _legacy_runner,
@@ -49,6 +50,13 @@ def _runner(layout, policy_base, *, iteration: int, gmt_checkpoint_path: Path):
     runner.alg.max_grad_norm = 0.5
     runner._frontres_critic_observation_dim = 347
     runner.alg.frontres_formal_runtime_audit = True
+    runner.empirical_normalization = True
+    runner.obs_normalizer = policy.gmt_normalizer
+    runner.privileged_obs_normalizer = _FrozenNormalizer(347)
+    runner._frontres_extra_mean = torch.zeros(1, 158)
+    runner._frontres_extra_std = torch.ones(1, 158)
+    runner._frontres_extra_normalizer = None
+    runner._frontres_extra_stats_layout_version = runner._frontres_future_intent_layout.version
     return runner
 
 
@@ -79,6 +87,8 @@ def main() -> None:
         path = root / "model_3.pt"
         source = _runner(layout, policy_base, iteration=3, gmt_checkpoint_path=gmt_path)
         source._frontres_checkpoint_transaction_state = _receipt(checkpointing, training_iteration=2)
+        source.privileged_obs_normalizer._var[..., 0] = 0.0
+        source.privileged_obs_normalizer._std[..., 0] = 0.0
         actor_state = copy.deepcopy(source.alg.policy.residual_actor.state_dict())
         critic_state = copy.deepcopy(source.alg.policy.critic.state_dict())
         had_loaded_path = hasattr(source, "_frontres_last_loaded_checkpoint_path")
@@ -105,6 +115,8 @@ def main() -> None:
             "identity": "separate-actor-critic-v1",
             "max_norm": 0.5,
         }
+        assert payload["privileged_obs_norm_state_dict"]["_var"][0, 0].item() == 0.0
+        assert payload["privileged_obs_norm_state_dict"]["_std"][0, 0].item() == 0.0
 
         fresh = _runner(layout, policy_base, iteration=0, gmt_checkpoint_path=gmt_path)
         checkpointing.load_runner(fresh, str(path), load_optimizer=True)
@@ -166,6 +178,27 @@ def main() -> None:
             _expect_error(lambda: checkpointing.load_runner(target, str(tampered_path)), message)
             for name, value in before.items():
                 torch.testing.assert_close(target.alg.policy.residual_actor.state_dict()[name], value)
+            assert not hasattr(target, "_frontres_last_loaded_checkpoint_path")
+
+        for label, mutate in (
+            (
+                "negative-critic-variance",
+                lambda state: state["_var"].__setitem__((0, 0), -1.0),
+            ),
+            (
+                "inconsistent-critic-std",
+                lambda state: state["_std"].__setitem__((0, 0), 1.0),
+            ),
+        ):
+            tampered = copy.deepcopy(payload)
+            mutate(tampered["privileged_obs_norm_state_dict"])
+            tampered_path = root / f"{label}.pt"
+            torch.save(tampered, tampered_path)
+            target = _runner(layout, policy_base, iteration=0, gmt_checkpoint_path=gmt_path)
+            _expect_error(
+                lambda: checkpointing.load_runner(target, str(tampered_path)),
+                "variance/std state is invalid",
+            )
             assert not hasattr(target, "_frontres_last_loaded_checkpoint_path")
 
         atomic_path = root / "atomic.pt"
