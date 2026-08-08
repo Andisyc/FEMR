@@ -1,13 +1,32 @@
 # Formal Runtime Audit
 
-Active status (2026-08-08): TRAIN-v016 offline module closure is complete and
-Formal Runtime Audit Phase A was human-confirmed. The active Runtime Audit Atlas
-now carries the confirmed v016 `AUDIT-B01..B08` Phase B reading plan. The
-audit-only probes are inserted and pass offline regression; the bounded official
-transaction is pending. No TRAIN-v016 live PASS is claimed below.
+Active status (2026-08-08): TRAIN-v016 Formal Runtime Audit Phase B is
+runtime-confirmed. Server commit `b74efd7` completed one bounded official
+K8/M2 transaction; `AUDIT-B01..B08` each occurred exactly once, no traceback
+occurred, and checkpoint-v11 atomic readback succeeded. Long training remains
+closed pending the human evidence/cost decision.
 
 Status of remaining content: historical v002/v014 runtime evidence; not an
 active TRAIN-v016 acceptance gate.
+
+## TRAIN-v016 Phase B Live Closure
+
+- Log: `/hdd0/yuxuancheng/FEMR/log/FRS_TRAIN_V016_STATE_VALUE_PHASE_B_SENTINEL.log`.
+- B03: Actor/Critic/GMT `158/347/770`, state-value Critic, no action
+  conditioning, exact shared source-state rows.
+- B05/B06: Clean=2, Noisy=2, Repair=4, finite Gain-v007 evidence, two exact-M
+  Segment targets and four per-attempt Actor advantages.
+- B07: one optimizer step, LR `3e-6/1e-5`, separate clip max 0.5, zero
+  Actor/std delta in `critic_only`, nonzero Critic delta.
+- B08: strict readback of
+  `2026-08-08_08-29-51_G5_S4_BOUND_V015/model_1.pt`, format
+  `frontres-v017-checkpoint-v11`, `runner_mutated=0`, final save status `OK`.
+- Artifact readback: iteration 1, Critic normalizer `[1,347]`, finite
+  nonnegative moments, 16 legitimate zero-variance dimensions, and consistent
+  `std.square() == var`.
+
+Evidence class: `runtime-confirmed` for bounded route and persistence. This is
+not policy-quality or long-training evidence.
 
 Historical boundary 2026-07-17: the then-active reward contract was
 `FRS-GAIN-v002`. The formal audit was updated to expose raw survival steps,

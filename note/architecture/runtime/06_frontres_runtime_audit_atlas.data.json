@@ -1,6 +1,6 @@
 {
   "title": "FrontRES Formal Runtime Audit Atlas",
-  "subtitle": "TRAIN-v016 Phase B 探针已插入并离线验证；AUDIT-B01..B08 等待一次 bounded official transaction",
+  "subtitle": "TRAIN-v016 Phase B 已在 commit b74efd7 完成 bounded official transaction；AUDIT-B01..B08 runtime-confirmed",
   "layout": "repository_reading_atlas",
   "canvasWidth": 4300,
   "defaultZoom": 1.0,
@@ -19,13 +19,13 @@
     {
       "id": "SYS-PHASE-B",
       "title": "Official Stage3 Phase B",
-      "summary": "TRAIN-v016 proposed Phase B：一个 K8/M2 official transaction 贯穿 158/347/770、exact-M target、separate clip 与 checkpoint-v11 原子回读",
+      "summary": "TRAIN-v016 Phase B：一个 K8/M2 official transaction 已贯穿 158/347/770、exact-M target、separate clip 与 checkpoint-v11 原子回读",
       "color": "#8b5e34",
       "modules": [
         {
           "id": "AUDIT-R01",
           "title": "01 启动身份",
-          "status": "inserted",
+          "status": "runtime-confirmed",
           "summary": "确认运行进入 METHOD-v018 / PPO-v006 / TRAIN-v016 正式 Stage3，而不是 legacy、evaluation 或 resume 分支",
           "owns": "运行模式、active contract identity、HSL-v2/TRAIN-v014 cold start、K/M/DR、split LR",
           "mustNot": "不得使用 checkpoint-v10 resume、legacy updater、旁路 evaluator 或隐藏默认值",
@@ -42,13 +42,13 @@
           ],
           "mainRouteTitles": ["解析唯一运行模式", "创建正式 Runner", "确认 active 身份"],
           "review": ["AUDIT-B01：打印 v018/v007/v006/v016、HSL/checkpoint、K/M/DR 与两个 LR", "正确结果：HSL-v2/TRAIN-v014 cold start + K8/M2 + LR 3e-6/1e-5，且无 legacy/resume route"],
-          "tests": ["E-FI-136 is historical TRAIN-v015 evidence only; v016 source owner and call site are inspected offline"],
-          "gap": "inserted：v016 AUDIT-B01 离线通过，等待 official runtime observation"
+          "tests": ["AUDIT-B01 live occurrence=1 at server commit b74efd7; METHOD-v018/GAIN-v007/PPO-v006/TRAIN-v016 and cold-start identity matched"],
+          "gap": "runtime-confirmed：正式身份与 K8/M2、split LR 均已观察；长训练质量仍未证明"
         },
         {
           "id": "AUDIT-R02",
           "title": "02 情境与 Transaction",
-          "status": "inserted",
+          "status": "runtime-confirmed",
           "summary": "确认正式 sampler 选择两个 Segment，每个 Segment 恰好 M=2 次 Repair，并在 transaction 内保持情境不变",
           "owns": "K8/M2、两个 Segment、四条 policy attempt rows、sealed scenario identity",
           "mustNot": "reset 不得重采样；不同 attempt 不得混合 noisy hash、x_t 或 reference",
@@ -65,13 +65,13 @@
           ],
           "mainRouteTitles": ["读取当前 Curriculum", "封存两个情境", "收齐 exact M"],
           "review": ["AUDIT-B02：打印 segment/attempt/role counts 与 scenario/noisy hashes", "正确结果：2 Segment × 2 attempts；同 Segment 的 identity 全相同"],
-          "tests": ["v016 offline transaction telemetry validates source/attempt cardinality; simulator identity remains unobserved"],
-          "gap": "inserted：v016 AUDIT-B02 离线通过，等待 official runtime observation"
+          "tests": ["AUDIT-B02 live occurrence=1; source_index=(0,0,1,1), trial_index=(0,1,0,1), two sealed scenarios and four policy rows"],
+          "gap": "runtime-confirmed：K8/M2 transaction cardinality 与 scenario/hash identity 已观察"
         },
         {
           "id": "AUDIT-R03",
           "title": "03 Reset 与 Observation",
-          "status": "inserted",
+          "status": "runtime-confirmed",
           "summary": "确认 Actor=158D、Critic=[289 current privileged | 58 sealed Noisy q29]=347D、GMT=770D，并且 Critic 仍是 V(s)",
           "owns": "Clean x_t reset、sealed future tail、Repair/Noisy role rows、158/347/770 authority",
           "mustNot": "6D action、Clean future/outcome、K、noise label 或 perturbation timing 不得进入 Critic",
@@ -88,13 +88,13 @@
           ],
           "mainRouteTitles": ["恢复同一动力学起点", "读取 Noisy Future Intent", "切分 Actor 与 GMT 权限"],
           "review": ["AUDIT-B03：打印 role identity、tail provenance、158/347/770、state_value/action_conditioned=false", "正确结果：Critic tail 与 Actor tail 同源、detached、finite，且不含 action/Clean/outcome/K"],
-          "tests": ["TEST-05 proves 158/347/770 and same-tail construction offline; live timing remains unobserved"],
-          "gap": "inserted：v016 AUDIT-B03 等待 158/347/770 与同一 sealed tail 的 live identity"
+          "tests": ["AUDIT-B03 live occurrence=1; Actor/Critic/GMT=158/347/770, actor_state_max_abs_diff=0, critic_state_max_abs_diff=0, action_conditioned=0"],
+          "gap": "runtime-confirmed：同一 sealed source state 与 future q29 tail 已进入 347D state-value Critic"
         },
         {
           "id": "AUDIT-R04",
           "title": "04 一次 Repair 动作与 Frozen GMT",
-          "status": "inserted",
+          "status": "runtime-confirmed",
           "summary": "确认每个 attempt 只采样一次 direct full-6D Repair；随后 FEMR 冻结，由 GMT 执行 K=8 后果",
           "owns": "policy action、one-action-K、frozen GMT lifecycle",
           "mustNot": "K 内不得再次调用 FEMR；GMT policy/normalizer/estimator 不得 train 或进入 optimizer",
@@ -111,13 +111,13 @@
           ],
           "mainRouteTitles": ["采样一次 Repair", "冻结 FEMR", "执行 K-step 后果"],
           "review": ["AUDIT-B04：打印 action shape/finite、per-attempt actor count、K frame count、GMT mode", "正确结果：4 个 attempt 各一次 Actor；GMT 始终 eval/no-grad"],
-          "tests": ["E-FI-136 is historical lifecycle evidence; v016 keeps this owner unchanged but requires a fresh official observation"],
-          "gap": "inserted：v016 AUDIT-B04 离线通过，等待 official runtime observation"
+          "tests": ["AUDIT-B04 live occurrence=1; action_shape=(4,6), finite=1, actor_forward_count=1, later_femr_action_count=0, K=8, GMT frozen"],
+          "gap": "runtime-confirmed：one-action-K 与 frozen-GMT execution 已观察"
         },
         {
           "id": "AUDIT-R05",
           "title": "05 Paired Evidence 与 Gain",
-          "status": "inserted",
+          "status": "runtime-confirmed",
           "summary": "确认每个 Segment 的 Clean/Noisy baseline 只执行一次，M 个 Repair 共用它们，并由唯一 v007 owner 产生 Recovery-Aware G_total",
           "owns": "Clean/Noisy/Repair cardinality、Intent/Physics evidence、G_I/G_P/lambda/cost/G_total",
           "mustNot": "不得使用 v006、Clean-global fallback、缺失证据补零或 diagnostics 重算 Gain",
@@ -134,13 +134,13 @@
           ],
           "mainRouteTitles": ["封存 Paired Evidence", "计算 Recovery Pressure", "形成唯一 Scalar Gain"],
           "review": ["AUDIT-B05：打印 baseline/Repair counts、valid mask 和完整 Gain 分解", "正确结果：所有四条 attempt 有同 identity 的 finite G_total；语义 N/A 不伪装成缺失"],
-          "tests": ["Gain-v007 owner is unchanged and offline-covered; a fresh v016 transaction must still observe finite real evidence"],
-          "gap": "inserted：v016 AUDIT-B05 等待 official runtime observation；policy quality remains separate"
+          "tests": ["AUDIT-B05 live occurrence=1; Clean=2, Noisy=2, Repair=4 and all Gain-v007 components finite"],
+          "gap": "runtime-confirmed：真实 Gain evidence 已观察；policy quality remains separate"
         },
         {
           "id": "AUDIT-R06",
           "title": "06 Exact-M Critic Target 与 Actor Advantage",
-          "status": "inserted",
+          "status": "runtime-confirmed",
           "summary": "确认相同 sealed Segment state 的 Critic target 是 exact-M G_total 均值，而 Actor 保留每条 attempt 自己的 advantage",
           "owns": "source_index group、shared old V(s)、exact-M mean target、per-attempt Actor advantage",
           "mustNot": "不得用 per-attempt return 拟合 Critic，不得跨 source 分组或改变 Actor 排序",
@@ -157,13 +157,13 @@
           ],
           "mainRouteTitles": ["按 Transaction Source 分组", "构造 State-Value Target", "保留 Actor 排序"],
           "review": ["AUDIT-B06：打印 source_index、G_total、shared V(s)、Segment means、row targets 与 Actor advantages", "正确结果：每个 source 的 target 等于 exact-M arithmetic mean；Actor advantage 逐 attempt 保持不同"],
-          "tests": ["TEST-15/TEST-18 prove target and projection offline; no v016 simulator transaction has emitted AUDIT-B06"],
-          "gap": "inserted：v016 exact-M target / per-attempt advantage 等待 live observation"
+          "tests": ["AUDIT-B06 live occurrence=1; policy_rows=4, source_index=(0,0,1,1), segment_targets=2 and four per-attempt Actor advantages"],
+          "gap": "runtime-confirmed：exact-M Segment target 与 per-attempt advantage 已观察"
         },
         {
           "id": "AUDIT-R07",
           "title": "07 Grouped PPO 与 Exact-One Update",
-          "status": "inserted",
+          "status": "runtime-confirmed",
           "summary": "确认 Actor/std 与 Critic 梯度各自裁剪，四条 attempt 公平归约且 sealed transaction 只发生一次 optimizer update",
           "owns": "group mass、Actor/Critic pre/post norm 与 coefficient、parameter delta、两个 LR group、step count",
           "mustNot": "不得共享 clip coefficient；收集期间不得更新；critic_only 不得改变 Actor/std",
@@ -180,13 +180,13 @@
           ],
           "mainRouteTitles": ["公平归约 Transaction", "执行一次 Optimizer", "核验 Phase 参数变化"],
           "review": ["AUDIT-B07：打印 group mass、两个 LR、两组 pre/post/coefficient/nonzero、step 与 parameter deltas", "正确结果：两组 post<=0.5，LR=3e-6/1e-5，step_delta=1；critic_only Actor/std delta=0、Critic>0"],
-          "tests": ["TEST-15/TEST-18 prove separate clipping and exact-one update offline; E-FI-136 predates this v016 boundary"],
-          "gap": "inserted：v016 separate-clip / exact-one / role-delta 等待 live observation"
+          "tests": ["AUDIT-B07 live occurrence=1; update_count=1, optimizer_step_delta=1, LR=3e-6/1e-5, Actor/std delta=0, Critic delta>0"],
+          "gap": "runtime-confirmed：separate clip、exact-one update 与 critic-only role delta 已观察"
         },
         {
           "id": "AUDIT-R08",
           "title": "08 Commit、Telemetry 与 Checkpoint",
-          "status": "inserted",
+          "status": "runtime-confirmed",
           "summary": "确认完整 transaction 才保存 checkpoint-v11，并在原子替换后通过同一严格 Gateway 只读回载核验",
           "owns": "committed receipt、iteration/curriculum、checkpoint-v11、158/347/770、split Adam、normalizers、GMT hash、atomic readback",
           "mustNot": "partial transaction 不得保存；v10 不得 resume；回读不得修改 runner 或静默补字段",
@@ -203,21 +203,21 @@
           ],
           "mainRouteTitles": ["封存 Transaction Receipt", "推进唯一训练状态", "保存严格 Checkpoint"],
           "review": ["AUDIT-B08：在 os.replace 后打印 v11 receipt/layout/optimizer/normalizer/curriculum/GMT 与 readback identity", "正确结果：commit=1、iteration=1、checkpoint-v11 严格回载；无 partial/mixed state 或 runner mutation"],
-          "tests": ["TEST-16 proves v11 round-trip offline; server filesystem atomic save/readback remains unobserved"],
-          "gap": "inserted：v016 checkpoint-v11 atomic save/readback 等待 live observation"
+          "tests": ["AUDIT-B08 live occurrence=1; checkpoint-v11 readback=1, runner_mutated=0, save.status=OK; artifact Critic normalizer=[1,347] with 16 valid zero-variance dims"],
+          "gap": "runtime-confirmed：checkpoint-v11 atomic save/readback 已观察；resume training 尚未执行"
         }
       ]
     },
     {
       "id": "SYS-RUN",
       "title": "运行合同",
-      "summary": "Phase B probes 已确认、插入并离线验证；下一步同步后执行一次 bounded official transaction",
+      "summary": "Phase B probes 已在 server commit b74efd7 完成一次 bounded official transaction；下一步是长训练的人类成本/证据决策",
       "color": "#64748b",
       "modules": [
         {
           "id": "AUDIT-RUN",
           "title": "运行前必须确认",
-          "status": "inserted",
+          "status": "runtime-confirmed",
           "summary": "真实 HSL-v2/TRAIN-v014 proposal checkpoint 路径沿用；它只初始化 active TRAIN-v016 Actor",
           "owns": "正式命令、artifact path、GPU、log path 与成本边界",
           "mustNot": "没有 HSL-v2 identity 时不得启动；不得改用 sentinel/probe 旁路",
@@ -234,8 +234,8 @@
           ],
           "mainRouteTitles": ["核验 Artifact", "安装正式边界诊断", "执行一次 Tiny Train"],
           "review": ["HSL_V2=/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt", "成本：一个 K8/M2 transaction、一次 optimizer update、一个 checkpoint"],
-          "tests": ["Historical E-FI-136 fixes the cost envelope only; it is not v016 runtime evidence"],
-          "gap": "inserted：Git sync 与 bounded official transaction pending"
+          "tests": ["Server HEAD=b74efd7; bounded log contains B01-B08 once each, zero traceback, one model_1.pt checkpoint-v11"],
+          "gap": "runtime-confirmed：bounded transaction complete；long training requires the next human decision"
         }
       ]
     }

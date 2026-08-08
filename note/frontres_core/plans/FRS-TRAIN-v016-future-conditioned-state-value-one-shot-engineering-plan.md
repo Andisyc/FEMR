@@ -1,6 +1,6 @@
 # FRS-TRAIN-v016 Future-Conditioned State-Value One-Shot Engineering Plan
 
-Status: PHASE B PROBES INSERTED AND OFFLINE-VERIFIED; bounded official transaction pending
+Status: PHASE B LIVE-CONFIRMED; long-training decision pending
 Date: 2026-08-08
 
 ## Terminal Outcome
@@ -226,9 +226,10 @@ Annotation scope for changed important functions:
 Phase A Method-Code Alignment was human-confirmed on 2026-08-08. The current
 checklist is `18 passed / 0 partial / 0 blocked`; production implementation,
 offline telemetry and checkpoint-v11 round-trip are complete. The user
-confirmed this probe plan on 2026-08-08. Probe status is now `inserted`: the
-audit-only source changes and offline regression are complete, but no official
-v016 transaction has run.
+confirmed this probe plan on 2026-08-08. Probe status is now
+`runtime-confirmed`: commit `b74efd7` completed one bounded official v016
+transaction and emitted every `AUDIT-B01..B08` marker exactly once without a
+traceback.
 
 The Phase B change is audit-only. It updates the existing formal-audit
 projection and adds one read-only post-save verification at the checkpoint
@@ -256,7 +257,7 @@ review, Git synchronization and server identity verification:
 ```bash
 cd /hdd0/yuxuancheng/FEMR
 
-CUDA_VISIBLE_DEVICES=7 \
+CUDA_VISIBLE_DEVICES=0 \
 FEMR_ROOT=/hdd0/yuxuancheng/FEMR \
 FEMR_DATA_ROOT=/hdd0/yuxuancheng \
 CACHE_DIR=/hdd0/yuxuancheng/AMASS_G1Segment \
@@ -273,11 +274,32 @@ bash run_stage3.sh \
   8 1 1 train
 ```
 
-Bounded cost: GPU7, eight environments, one K8/M2 transaction, four policy
+Bounded cost: GPU0, eight environments, one K8/M2 transaction, four policy
 attempts, one optimizer step and one checkpoint-v11 save/reload. Wall-clock
 duration is not claimed in advance because it depends on server startup and
 cache state. Any `AUDIT-B01..B08`, finite, identity, exact-one or atomic-readback
 failure stops the run; it never falls through to long training.
+
+### Phase B Observed Evidence
+
+- Server source identity: `b74efd7`.
+- Raw log: `/hdd0/yuxuancheng/FEMR/log/FRS_TRAIN_V016_STATE_VALUE_PHASE_B_SENTINEL.log`.
+- Every `AUDIT-B01..B08` marker occurs exactly once; `Traceback` occurs zero
+  times and the final save status is `OK`.
+- B03 observed Actor/Critic/GMT `158/347/770` and exact shared source-state
+  rows; B04 observed one finite `[4,6]` action sample and K=8 frozen-GMT
+  execution.
+- B07 observed one optimizer step, split LR `3e-6/1e-5`, zero Actor/std
+  parameter delta in `critic_only`, and nonzero Critic parameter delta.
+- B08 atomically reloaded
+  `/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage3_segment_hrl/2026-08-08_08-29-51_G5_S4_BOUND_V015/model_1.pt`
+  as `frontres-v017-checkpoint-v11` with `runner_mutated=0`.
+- Independent artifact inspection observed iteration 1, Critic normalizer shape
+  `[1,347]`, 16 legitimate zero-variance dimensions, and
+  `std.square() == var` within the strict validator tolerance.
+
+This closes Phase B engineering/runtime connectivity only. It does not claim
+Critic calibration, policy quality, or authorize an automatic long run.
 
 ## One-Shot Execution Step
 
@@ -314,7 +336,7 @@ Stop conditions:
 
 ## Engineering Plan Review
 
-Verdict: PHASE B PROBES OFFLINE-APPROVED; BOUNDED OFFICIAL TRANSACTION PENDING.
+Verdict: PHASE B LIVE-APPROVED; LONG-TRAINING DECISION PENDING.
 
 - Scope and non-scope exactly match the confirmed Design Inspector and active
   contracts; no MOSAIC host or method expansion is admitted.
@@ -326,5 +348,5 @@ Verdict: PHASE B PROBES OFFLINE-APPROVED; BOUNDED OFFICIAL TRANSACTION PENDING.
   projection responsibilities with independent oracles.
 - The proof route separates module correctness, formal connectivity and later
   policy quality. The four confirmed cards pass, Phase A and the Phase B plan
-  are human-confirmed, and the probes pass offline review. The next gate is the
-  single bounded official transaction above.
+  are human-confirmed, and the bounded official transaction passed B01-B08.
+  The next true gate is the human cost/evidence decision for a fresh long run.

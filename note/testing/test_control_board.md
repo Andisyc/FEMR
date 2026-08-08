@@ -27,7 +27,7 @@ formal-runtime audit.
 18 cards retained; TEST-05/15/16/18 changed under active TRAIN-v016
 18 passed / 0 partial / 0 blocked; changed cards human-confirmed before execution
 formal-runtime-audit Phase A: TRAIN-v016 CONFIRMED on 2026-08-08
-formal-runtime-audit Phase B: probes inserted/offline-verified; one bounded official transaction authorized
+formal-runtime-audit Phase B: B01-B08 runtime-confirmed on server commit b74efd7
 long training: NOT AUTHORIZED
 ```
 
@@ -41,6 +41,7 @@ only.
 
 | Surface | Current evidence | Status | Limitation |
 | --- | --- | --- | --- |
+| TRAIN-v016 bounded formal route | `AUDIT-B01..B08` each once, zero traceback, one exact optimizer step, checkpoint-v11 strict readback, 2026-08-08 | runtime-confirmed S4 for K8/M2 connectivity and persistence | Does not prove Critic calibration, actor-ramp/joint behavior, K16/K32 transitions or policy quality. |
 | Historical v013 Segment aggregate suite | 59/59 contract markers, 2026-07-19 | historical offline evidence for fixed-65D-tape lifecycle, command/reset/H connectivity, and Atlas anchors | Does not prove v015 local scenario, q29 intent, or frozen-FEMR Clean-continuation semantics. |
 | Historical Survival Gain v002 suite | Gain owner, connectivity, live probe/training/sequence/diagnostic/sampler contracts, 2026-07-17 | historical | Does not prove v015 q29 intent, two-role, or frozen-FEMR Clean-continuation semantics. |
 | Architecture viewer | JSON valid; viewer imports; 62 owner paths exist; Runtime Audit Atlas has 22 cards and Quality Audit Atlas has 8 source-linked cards | covered S0 | Does not prove runtime routing or policy quality. |
@@ -98,7 +99,7 @@ acceptance surface and supersedes it for all new implementation work.
 active semantics: METHOD-v018 / GAIN-v007 / PPO-v006 / TRAIN-v016 / EVAL-v004
 HSL-v2 artifact identity: FRS-TRAIN-v014 proposal-only initialization
 module test gate: 18 passed / 0 partial / 0 blocked; changed v016 cards confirmed
-formal Phase A: confirmed; Phase B probes inserted/offline-verified; bounded transaction pending
+formal Phase A: confirmed; Phase B B01-B08 runtime-confirmed at b74efd7
 long training remains closed
 ```
 

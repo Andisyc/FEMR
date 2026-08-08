@@ -2,7 +2,7 @@
 
 Date: 2026-08-08
 Review mode: construction review, removal review, security review, research-ML review, final gate review
-Verdict: `APPROVE OFFLINE + PHASE B PROBES`; bounded official transaction pending
+Verdict: `APPROVE PHASE B LIVE`; long-training decision pending
 
 ## Reviewed Boundary
 
@@ -90,3 +90,20 @@ state-dict restore or checkpoint write. The shared loader retains
 feed the optimizer or diagnostics. Focused contracts, 13/13 pseudo contracts,
 52/52 aggregate contracts, Python compilation, Atlas checks and diff checks
 pass. No P0, P1 or P2 finding remains in the Phase B boundary.
+
+## Phase B Live Final Gate Review
+
+Commit `b74efd7` fixes the only final-gateway contradiction: the strict
+normalizer validator had rejected legitimate constant dimensions even though
+`EmpiricalNormalization.forward()` stabilizes zero standard deviation with
+`eps`. The owner now admits `var=std=0` while still rejecting negative,
+non-finite or inconsistent `std.square() != var` states. The production
+serializer contract covers positive zero-variance round-trip and negative
+tampering cases; the full 52-contract suite passes.
+
+The bounded official transaction emitted B01-B08 exactly once with no
+traceback. B07 reports one optimizer step and the expected critic-only role
+deltas. B08 reports strict v11 readback with `runner_mutated=0`; independent
+artifact inspection confirms a `[1,347]` Critic normalizer, 16 zero-variance
+dimensions and consistent moments. No P0/P1/P2 remains. This review approves
+the engineering/runtime boundary, not long-run policy quality.
