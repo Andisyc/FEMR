@@ -1,6 +1,6 @@
 {
   "title": "FrontRES Formal Runtime Audit Atlas",
-  "subtitle": "TRAIN-v016 Phase B 已在 commit b74efd7 完成 bounded official transaction；AUDIT-B01..B08 runtime-confirmed",
+  "subtitle": "TRAIN-v017 Phase A offline-confirmed，新的 bounded official transaction 待执行；下列 TRAIN-v016 Phase B 为历史 runtime evidence",
   "layout": "repository_reading_atlas",
   "canvasWidth": 4300,
   "defaultZoom": 1.0,
@@ -18,8 +18,8 @@
   "systems": [
     {
       "id": "SYS-PHASE-B",
-      "title": "Official Stage3 Phase B",
-      "summary": "TRAIN-v016 Phase B：一个 K8/M2 official transaction 已贯穿 158/347/770、exact-M target、separate clip 与 checkpoint-v11 原子回读",
+      "title": "Historical TRAIN-v016 Stage3 Phase B",
+      "summary": "历史证据：TRAIN-v016 一个 K8/M2 official transaction 已贯穿 158/347/770、exact-M target、separate clip 与 checkpoint-v11 原子回读；不能替代 TRAIN-v017 value-scale/checkpoint-v12 gate",
       "color": "#8b5e34",
       "modules": [
         {

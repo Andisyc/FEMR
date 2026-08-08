@@ -1,6 +1,28 @@
 # Formal Runtime Audit
 
-Active status (2026-08-08): TRAIN-v016 Formal Runtime Audit Phase B is
+Active status (2026-08-08): TRAIN-v017 Formal Runtime Audit Phase A passes
+offline. The official route now proves fixed value-normalizer config at B01,
+raw/scaled Critic loss plus committed count transition at B07, and exact
+checkpoint-v12 identity/state/count at B08. The 13-contract Stage-3 pseudo
+suite passes. One fresh bounded official K8/M2 transaction is still required;
+long training remains closed until that gate passes.
+
+The TRAIN-v016 Phase B closure below is retained as historical runtime evidence.
+It cannot prove TRAIN-v017 value-scale connectivity or checkpoint-v12.
+
+## TRAIN-v017 Phase A Closure
+
+- Contracts: `FRS-METHOD-v018 / FRS-GAIN-v007 / FRS-PPO-v007 / FRS-TRAIN-v017`.
+- Scale identity: `ema-target-std-nonamplifying-v1`, decay `0.9`, floor `1.0`.
+- Verified route: explicit config -> exact-M Segment targets -> immutable scale
+  preview -> Critic-only scaled loss -> separate clip -> exact-one optimizer ->
+  committed normalizer state -> telemetry -> checkpoint-v12/read-only inspect.
+- Stop conditions are executable for non-finite/below-one scale, iteration
+  mismatch, failed/partial state advance, old checkpoint and malformed state.
+- Evidence ledger:
+  `frontres_v017_value_scale_module_test_execution_2026-08-08.md`.
+
+Historical status (2026-08-08): TRAIN-v016 Formal Runtime Audit Phase B is
 runtime-confirmed. Server commit `b74efd7` completed one bounded official
 K8/M2 transaction; `AUDIT-B01..B08` each occurred exactly once, no traceback
 occurred, and checkpoint-v11 atomic readback succeeded. Long training remains

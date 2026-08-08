@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic TEST-05 contracts for the TRAIN-v016 Critic observation."""
+"""Deterministic TEST-05 contracts for the TRAIN-v017 Critic observation."""
 
 from __future__ import annotations
 
@@ -97,7 +97,7 @@ def main() -> None:
     except ValueError as exc:
         assert "detached finite" in str(exc)
     else:
-        raise AssertionError("TRAIN-v016 accepted a non-finite policy observation")
+        raise AssertionError("TRAIN-v017 accepted a non-finite policy observation")
 
     formal_transaction = sys.modules["rsl_rl.runners.frontres_segment_formal_transaction"]
     trace = {
@@ -134,7 +134,7 @@ def main() -> None:
     except RuntimeError as exc:
         assert "critic_observation_dim" in str(exc) and "347" in str(exc)
     else:
-        raise AssertionError("TRAIN-v016 accepted the stale 289D Critic trace")
+        raise AssertionError("TRAIN-v017 accepted the stale 289D Critic trace")
 
     raw = torch.arange(2 * 870, dtype=torch.float32).reshape(2, 870)
 

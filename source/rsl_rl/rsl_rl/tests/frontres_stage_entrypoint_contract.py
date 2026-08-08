@@ -279,7 +279,7 @@ def main() -> None:
     assert "runner will execute exactly one PPO optimizer step and exit" in algorithm_impl
     assert "PPO optimizer steps and exit" in algorithm_impl
     assert "PPO optimizer steps per iteration" in algorithm_impl
-    assert "FRS-PPO-v006 rejects retired Stage-3 single_update/update_loop modes" in train
+    assert "FRS-PPO-v007 rejects retired Stage-3 single_update/update_loop modes" in train
     assert 'getattr(args_cli, "frontres_local_sentinel_only", False)' in train
     assert "runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)" not in train
     assert "sentinel_result = runner.run_frontres_local_identity_sentinel(init_at_random_ep_len=True)" in train
@@ -429,7 +429,7 @@ def main() -> None:
     assert '--frontres_v015_future_offsets "${FRONTRES_V015_FUTURE_OFFSETS}"' in stage3
     assert '--resume_student_checkpoint "${HSL_CHECKPOINT}"' not in stage3
     assert 'STAGE3_IS_FULL_RESUME' not in stage3
-    assert 'v016 Stage 3 forbids legacy resume arguments' in stage3
+    assert 'v017 Stage 3 forbids legacy resume arguments' in stage3
     assert 'G5-S4 bounded Stage 3 requires train mode, 8 envs, 1 iteration, and 1 update' in stage3
     assert 'CHECKPOINT_INTERVAL="${FRONTRES_CHECKPOINT_INTERVAL:-1}"' in stage3
     assert 'TRAIN_CMD+=(--frontres_checkpoint_interval "${CHECKPOINT_INTERVAL}")' in stage3
@@ -438,14 +438,14 @@ def main() -> None:
     assert 'SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"' in stage3
     assert 'EXTRA_TRAIN_ARGS=("${@:7}")' in stage3
     assert 'SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size.' in stage3
-    assert 'FRS-TRAIN-v016 uses fixed Actor LR=3e-6 and Critic LR=1e-5' in stage3
+    assert 'FRS-TRAIN-v017 uses fixed Actor LR=3e-6 and Critic LR=1e-5' in stage3
     assert '--frontres_segment_cache_dir "${CACHE_DIR}"' in stage3
     assert '--frontres_segment_shard_cache_size "${SHARD_CACHE_SIZE}"' in stage3
     assert '--frontres_segment_live_update_steps "${UPDATE_STEPS}"' in stage3
     assert 'TRAIN_CMD+=("${EXTRA_TRAIN_ARGS[@]}")' in stage3
     assert '" --frontres_segment_cache_dir ${CACHE_DIR} "' in stage3
     assert '" --frontres_segment_shard_cache_size ${SHARD_CACHE_SIZE} "' in stage3
-    assert 'FRS-PPO-v006 rejects retired optimizer-writing Stage 3 mode' in stage3
+    assert 'FRS-PPO-v007 rejects retired optimizer-writing Stage 3 mode' in stage3
     assert 'MODE_ARGS=(--frontres_segment_live_update_loop_only)' not in stage3
     assert 'MODE_ARGS=(--frontres_segment_live_single_update_only)' not in stage3
     assert '--frontres_segment_sequence_offline_eval_only' not in stage3

@@ -28,7 +28,11 @@ modules_package.__path__ = [str(RSL_ROOT / "modules")]
 modules_package.FrontRESActorCritic = object
 sys.modules.setdefault("rsl_rl.modules", modules_package)
 
-from rsl_rl.algorithms.frontres_segment_ppo import FrontRESSegmentPPOBatch
+from rsl_rl.algorithms.frontres_segment_ppo import (
+    FRONTRES_VALUE_NORMALIZATION_ID,
+    FrontRESSegmentPPOBatch,
+    FrontRESValueNormalizerState,
+)
 from rsl_rl.frontres.frontres_local_evaluation import FrontRESV017LocalEvaluationReport
 from rsl_rl.frontres.frontres_segment_storage_records import FrontRESV015GroupedCandidateMetadata
 from rsl_rl.frontres.frontres_segment_warmup import resolve_frontres_k_stage_identity
@@ -103,6 +107,10 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
         lambda_supervised_min=0.0,
         frontres_formal_transaction_enabled=True,
         frontres_segment_advantage_normalization="grouped_scale_only",
+        frontres_critic_value_normalization=FRONTRES_VALUE_NORMALIZATION_ID,
+        frontres_critic_value_normalizer_decay=0.9,
+        frontres_critic_value_normalizer_scale_floor=1.0,
+        frontres_critic_value_normalizer_state=FrontRESValueNormalizerState(),
         frontres_hsl_init_enabled=False,
         frontres_hsl_rollout_label_enabled=False,
         frontres_segment_k_curriculum=SCHEDULE,
@@ -115,8 +123,8 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
         frontres_segment_live_single_update_only=False,
         frontres_method_contract_id="FRS-METHOD-v018",
         frontres_gain_contract_id="FRS-GAIN-v007",
-        frontres_optimization_contract_id="FRS-PPO-v006",
-        frontres_training_contract_id="FRS-TRAIN-v016",
+        frontres_optimization_contract_id="FRS-PPO-v007",
+        frontres_training_contract_id="FRS-TRAIN-v017",
         frontres_scalar_target_id="clean-anchored-recovery-aware-gain-v1",
         frontres_physics_schema_id="clean-anchored-contact-zmp-survival-v1",
         frontres_grouped_schema_id="grouped-all-attempt-scalar-v1",
@@ -224,6 +232,10 @@ def _request(
     else:
         policy = runner.alg.policy
         runner.current_learning_iteration = iteration
+    runner.alg.frontres_critic_value_normalizer_state = replace(
+        runner.alg.frontres_critic_value_normalizer_state,
+        update_count=iteration,
+    )
     identity = resolve_frontres_k_stage_identity(
         schedule=SCHEDULE,
         committed_update_iteration=iteration,
@@ -361,11 +373,12 @@ def test_exact_one_scalar_commit_and_critic_only() -> None:
     critic_before = {name: value.detach().clone() for name, value in policy.critic.state_dict().items()}
     result = run_frontres_formal_transaction_update(runner, request)
     assert result.optimizer_step_delta == 1 and result.update_invocation_count == 1
+    assert runner.alg.frontres_critic_value_normalizer_state.update_count == 1
     assert result.valid_row_count == 4 and result.policy_attempt_count == 4
     assert all(torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
     assert any(not torch.equal(value, critic_before[name]) for name, value in policy.critic.state_dict().items())
     assert result.diagnostics["gain_contract_id"] == "FRS-GAIN-v007"
-    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v006"
+    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v007"
     assert "constraint_kkt_max_violation" not in result.diagnostics
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
     assert telemetry["clean_execution_count"] == (1, 1)
@@ -457,6 +470,8 @@ def test_actor_ramp_identity_reaches_transaction_and_telemetry() -> None:
 
 def test_partial_transaction_rejects_before_update() -> None:
     runner, request, _policy = _request()
+    normalizer_before = runner.alg.frontres_critic_value_normalizer_state
+    open_frontres_checkpoint_transaction_barrier(runner)
     batch = request.candidate_batches[0]
     partial = replace(batch, valid_mask=torch.tensor([True, True, True, False]))
     rejected = replace(request, candidate_batches=(partial,))
@@ -464,8 +479,25 @@ def test_partial_transaction_rejects_before_update() -> None:
         run_frontres_formal_transaction_update(runner, rejected)
     except (ValueError, RuntimeError):
         assert runner.alg.optimizer.frontres_step_count == 0
+        assert runner.alg.frontres_critic_value_normalizer_state == normalizer_before
     else:
         raise AssertionError("partial exact-M transaction must fail before optimizer update")
+
+
+def test_value_normalizer_iteration_mismatch_rejects_before_update() -> None:
+    runner, request, _policy = _request()
+    runner.alg.frontres_critic_value_normalizer_state = replace(
+        runner.alg.frontres_critic_value_normalizer_state,
+        update_count=1,
+    )
+    open_frontres_checkpoint_transaction_barrier(runner)
+    try:
+        run_frontres_formal_transaction_update(runner, request)
+    except RuntimeError as exc:
+        assert "normalizer count" in str(exc)
+        assert runner.alg.optimizer.frontres_step_count == 0
+    else:
+        raise AssertionError("mismatched value-normalizer iteration must fail before optimizer update")
 
 
 def test_phase_reset_routes_mode_through_sealed_reset_owner() -> None:
@@ -503,6 +535,7 @@ def main() -> None:
     test_k_transitions_keep_one_critic_and_preserve_frozen_actor_optimizer_state()
     test_actor_ramp_identity_reaches_transaction_and_telemetry()
     test_partial_transaction_rejects_before_update()
+    test_value_normalizer_iteration_mismatch_rejects_before_update()
     test_phase_reset_routes_mode_through_sealed_reset_owner()
     print("frontres_v015_transaction_route_contract: v018 state-value exact-one ok", flush=True)
 

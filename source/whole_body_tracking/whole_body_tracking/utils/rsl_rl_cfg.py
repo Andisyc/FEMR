@@ -318,6 +318,12 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Stage 3 iterations that update only the Segment critic while holding actor/std fixed."""
     frontres_segment_actor_warmup_iterations: int = 0
     """Stage 3 iterations that linearly ramp the Segment PPO actor/entropy loss to full weight."""
+    frontres_critic_value_normalization: str = "ema-target-std-nonamplifying-v1"
+    """Output-preserving adaptive scale applied only to the Stage-3 Critic residual."""
+    frontres_critic_value_normalizer_decay: float = 0.9
+    """Fixed exponential decay for the committed Critic target moments."""
+    frontres_critic_value_normalizer_scale_floor: float = 1.0
+    """Non-amplifying lower bound for the Critic target scale."""
     frontres_segment_k_curriculum: tuple[tuple[int, int, int, int, int], ...] = ()
     """Explicit FRS-TRAIN-v011 rows `(K, M, critic-only, actor-ramp, joint)`."""
     frontres_formal_runtime_audit: bool = False

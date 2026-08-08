@@ -1,15 +1,14 @@
 # FrontRES Design Inspector
 
-Status: DP07, DP09 and DP10 were human-confirmed on 2026-08-08 and activated as
-METHOD-v018 / PPO-v006 / TRAIN-v016. The offline implementation and all four
-changed Module Test Cards are complete; Formal Runtime Audit Phase A was
-human-confirmed on 2026-08-08. The confirmed Phase B probes are inserted and
-offline-verified; one bounded official transaction remains. The Actor remains 158D and GMT remains 770D. The
-state-value Critic now reads 289D current privileged state plus the same sealed
-58D future q29 Intent, uses one exact-M Segment mean target, and has its
-gradient clipped independently from the Actor before one Adam step. Prior
-TRAIN-v015/checkpoint-v10 evidence is historical characterization only. The
-checkpoint-v11 live sentinel and policy quality remain separate evidence gates.
+Status: DP09 output-preserving Critic conditioning was human-confirmed on
+2026-08-08 and activated as METHOD-v018 / PPO-v007 / TRAIN-v017. Offline module
+and Formal Runtime Audit Phase A evidence pass; one new bounded official
+transaction remains. Actor stays 158D and GMT stays 770D. The 347D state-value
+Critic keeps the exact-M Segment mean target, but its raw loss is divided by a
+committed non-amplifying EMA target scale before the existing separate clip.
+Raw `G_total`, raw `V(s)`, Actor credit, networks and split LR are unchanged.
+TRAIN-v016/checkpoint-v11 is historical evidence only; checkpoint-v12 and new
+policy quality remain separate evidence gates.
 
 Interactive page: `../02_frontres_design_inspector.html`
 
@@ -63,9 +62,9 @@ pre-Transaction initialization
 one active scalar Recovery-Aware Gain per attempt
 -> seal 2 x M PPO policy rows
 -> form one shared 347D state value and exact-M mean target per Segment
--> use every attempt's scalar advantage, clip Actor/Critic separately, and
-execute exactly one grouped optimizer update
--> commit checkpoint and curriculum state
+-> use every attempt's scalar advantage, scale only the Critic loss, clip
+Actor/Critic separately, and execute exactly one grouped optimizer update
+-> atomically commit checkpoint, curriculum and Critic target moments
 ```
 
 The main page renders these as short Chinese action statements rather than the
@@ -83,7 +82,7 @@ English outline above.
 | Paired Rollouts | execute one Clean anchor and one fixed Noisy zero point once per sealed Segment, then read-only reuse both while evaluating M Repair rollouts |
 | Repair Gain | keep one scalar `G_total` per attempt; subtract one shared state value so Actor ordering remains action-specific while the Critic target is the exact-M mean |
 | HSL Warmup | initialize the proposal Actor before the first Stage-3 Transaction and never use HSL as its target |
-| Actor & Critic Warmup | first calibrate the 347D state-value Critic, then release the Actor; clip their gradients independently and recalibrate the same Critic whenever K increases |
+| Actor & Critic Warmup | first calibrate the 347D state-value Critic, then release the Actor; condition only its loss with a committed non-amplifying target scale, clip gradients independently and recalibrate the same Critic whenever K increases |
 | Future Motion Context | seal q29 at `t+1,t+2` from one fixed deployment Noisy reference, then reuse it in the 158D Actor input and 347D Critic state while keeping GMT at 770D |
 
 ## Atomic Decisions Kept In The Primary View

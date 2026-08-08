@@ -54,7 +54,7 @@ def _load_algorithm_module():
     return module
 
 
-def _build_algorithm(module, *, formal: bool):
+def _build_algorithm(module, *, formal: bool, overrides=None):
     kwargs = {}
     policy = module.FrontRESActorCritic()
     policy.residual_actor = torch.nn.Linear(2, 2)
@@ -79,6 +79,7 @@ def _build_algorithm(module, *, formal: bool):
                 (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-joint-v1", 625, 2.381),
             ),
         )
+    kwargs.update(dict(overrides or {}))
     return module.FrontRESUnified(policy, **kwargs)
 
 
@@ -121,6 +122,22 @@ def test_t_non_v015_optimizer_remains_plain_adam() -> None:
     print("[T-isolation] non-v015 FrontRES keeps the plain Adam owner", flush=True)
 
 
+def test_t_v017_value_normalizer_config_fails_closed() -> None:
+    module = _load_algorithm_module()
+    invalid = (
+        {"frontres_critic_value_normalization": "none"},
+        {"frontres_critic_value_normalizer_decay": 0.8},
+        {"frontres_critic_value_normalizer_scale_floor": 0.5},
+    )
+    for overrides in invalid:
+        try:
+            _build_algorithm(module, formal=True, overrides=overrides)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"TRAIN-v017 accepted invalid value-normalizer config: {overrides}")
+
+
 def test_t_critic_only_preserves_actor_parameters_and_adam_state() -> None:
     module = _load_algorithm_module()
     algorithm = _build_algorithm(module, formal=True)
@@ -157,6 +174,7 @@ def test_t_split_groups_reject_unowned_trainable_parameter() -> None:
 def main() -> None:
     test_t_real_adam_counter_is_exact_and_persistent()
     test_t_non_v015_optimizer_remains_plain_adam()
+    test_t_v017_value_normalizer_config_fails_closed()
     test_t_critic_only_preserves_actor_parameters_and_adam_state()
     test_t_split_groups_reject_unowned_trainable_parameter()
     print("frontres_v015_real_optimizer_counter_contract: ok", flush=True)

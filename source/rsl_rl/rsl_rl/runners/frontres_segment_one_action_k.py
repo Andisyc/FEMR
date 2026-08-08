@@ -128,14 +128,14 @@ def _read_live_observations(runner: Any) -> FrontRESSegmentLiveObservations:
     ):
         tail_dim = int(getattr(runner, "_frontres_future_intent_actor_context_dim", 0) or 0)
         if tail_dim != 58:
-            raise RuntimeError("TRAIN-v016 Critic route requires the exact sealed 58D future tail")
+            raise RuntimeError("TRAIN-v017 Critic route requires the exact sealed 58D future tail")
         if not isinstance(sealed_future_tail, torch.Tensor):
-            raise RuntimeError("TRAIN-v016 Critic route lost the sealed pre-normalization future tail")
+            raise RuntimeError("TRAIN-v017 Critic route lost the sealed pre-normalization future tail")
         privileged_obs = compose_frontres_v016_critic_observation(privileged_obs, sealed_future_tail)
         expected_critic_dim = int(getattr(runner, "_frontres_critic_observation_dim", 0) or 0)
         if expected_critic_dim != int(privileged_obs.shape[-1]):
             raise RuntimeError(
-                "TRAIN-v016 runner/Critic observation dimensions disagree: "
+                "TRAIN-v017 runner/Critic observation dimensions disagree: "
                 f"runner={expected_critic_dim} observed={int(privileged_obs.shape[-1])}"
             )
         update_frontres_observation_trace(
@@ -483,7 +483,7 @@ def _canonicalize_frontres_v016_segment_state_rows(
         or not isinstance(source_index, torch.Tensor)
         or tuple(source_index.shape) != tuple(policy_rows.shape)
     ):
-        raise ValueError(f"TRAIN-v016 requires detached finite row-aligned {name} state")
+        raise ValueError(f"TRAIN-v017 requires detached finite row-aligned {name} state")
     canonical = tensor.detach().clone()
     observed_max = 0.0
     grouped_sources = source_index.detach().to(device=policy_rows.device, dtype=torch.long)
@@ -491,7 +491,7 @@ def _canonicalize_frontres_v016_segment_state_rows(
         local = torch.nonzero(grouped_sources == source, as_tuple=False).reshape(-1)
         rows = policy_rows.index_select(0, local).to(device=tensor.device, dtype=torch.long)
         if int(rows.numel()) < 2:
-            raise ValueError("TRAIN-v016 requires exact-M policy rows for every Segment state")
+            raise ValueError("TRAIN-v017 requires exact-M policy rows for every Segment state")
         states = tensor.index_select(0, rows)
         reference = states[:1]
         max_abs_diff = float((states - reference).abs().max().detach().cpu().item())

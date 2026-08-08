@@ -93,7 +93,7 @@ def test_lazy_public_facade() -> None:
     before = set(sys.modules)
     interface_module = importlib.import_module("rsl_rl.frontres.frontres_interfaces")
     imported = set(sys.modules).difference(before)
-    assert interface_module.FRONTRES_CHECKPOINT_FORMAT == "frontres-v017-checkpoint-v11"
+    assert interface_module.FRONTRES_CHECKPOINT_FORMAT == "frontres-v017-checkpoint-v12"
     assert not any(name.startswith("isaaclab") for name in imported)
     facade = importlib.import_module("rsl_rl.frontres")
     assert "FrontRESActionCone" not in facade.__all__
@@ -275,12 +275,12 @@ def test_schema_and_identity(interfaces) -> None:
     telemetry = {
         "method_contract_id": "FRS-METHOD-v018",
         "gain_contract_id": "FRS-GAIN-v007",
-        "optimization_contract_id": "FRS-PPO-v006",
-        "training_contract_id": "FRS-TRAIN-v016",
+        "optimization_contract_id": "FRS-PPO-v007",
+        "training_contract_id": "FRS-TRAIN-v017",
         "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",
-        "checkpoint_format": "frontres-v017-checkpoint-v11",
+        "checkpoint_format": "frontres-v017-checkpoint-v12",
         "critic_value_kind": "state_value",
         "critic_input_dim": 347,
         "critic_action_conditioned": False,
@@ -301,6 +301,12 @@ def test_schema_and_identity(interfaces) -> None:
         "gradient_clip_max_norm": 0.5,
         "actor_gradient_post_clip_norm": 0.25,
         "critic_gradient_post_clip_norm": 0.4,
+        "critic_value_normalization_id": "ema-target-std-nonamplifying-v1",
+        "critic_value_scale": 2.0,
+        "critic_value_normalizer_decay": 0.9,
+        "critic_value_normalizer_scale_floor": 1.0,
+        "critic_value_normalizer_update_count_before": 0,
+        "critic_value_normalizer_update_count_after": 1,
     }
     interfaces.FrontRESActiveTelemetryView.from_mapping(telemetry)
     missing_checkpoint = dict(telemetry)

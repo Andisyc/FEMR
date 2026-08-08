@@ -236,7 +236,7 @@ def require_frontres_v013_campaign_schedule(
 
     normalized = normalize_frontres_k_stage_schedule(schedule, max_horizon_k=32)
     if tuple((s.horizon_k, s.attempts_m, s.critic_only_iterations, s.actor_warmup_iterations, s.joint_iterations) for s in normalized) != FRONTRES_V011_K_M_SCHEDULE:
-        raise ValueError("FRS-TRAIN-v016 requires the frozen K8/M2 -> K16/M3 -> K32/M4 schedule")
+        raise ValueError("FRS-TRAIN-v017 requires the frozen K8/M2 -> K16/M3 -> K32/M4 schedule")
     for row, spec in enumerate(normalized):
         if not isinstance(spec.dr_start_distribution_id, str) or not spec.dr_start_distribution_id.strip():
             raise ValueError(f"TRAIN-v013 stage {row} requires an explicit start_distribution_id")

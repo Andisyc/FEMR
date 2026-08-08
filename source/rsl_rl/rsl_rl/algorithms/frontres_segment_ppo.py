@@ -9,6 +9,14 @@ from typing import Any
 import torch
 
 from rsl_rl.frontres.frontres_formal_runtime_probe import emit_formal_runtime_probe
+from rsl_rl.frontres.frontres_value_normalization import (
+    FRONTRES_VALUE_NORMALIZATION_ID,
+    FRONTRES_VALUE_NORMALIZER_DECAY,
+    FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR,
+    FrontRESValueNormalizerState,
+    FrontRESValueNormalizerUpdate,
+    preview_frontres_v007_value_normalization,
+)
 
 
 @dataclass(frozen=True)
@@ -24,6 +32,10 @@ class FrontRESSegmentPPOConfig:
     max_log_ratio: float = 20.0
     actor_loss_weight: float = 1.0
     critic_target_id: str = "per-attempt-return-v005"
+    critic_value_normalization: str = "none"
+    critic_value_normalizer_state: FrontRESValueNormalizerState | None = None
+    critic_value_normalizer_decay: float = FRONTRES_VALUE_NORMALIZER_DECAY
+    critic_value_normalizer_scale_floor: float = FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR
 
 
 @dataclass(frozen=True)
@@ -154,6 +166,13 @@ class FrontRESSegmentPPOResult:
     critic_value_targets: tuple[float, ...] = ()
     critic_segment_target_means: tuple[float, ...] = ()
     critic_segment_keys: tuple[int, ...] = ()
+    critic_raw_value_loss: torch.Tensor | None = None
+    critic_value_normalization_id: str = "none"
+    critic_value_scale: float = 1.0
+    critic_value_normalizer_previous_state: FrontRESValueNormalizerState | None = None
+    critic_value_normalizer_candidate_state: FrontRESValueNormalizerState | None = None
+    critic_value_normalizer_batch_mean: float = 0.0
+    critic_value_normalizer_batch_second_moment: float = 0.0
 
     @property
     def should_step(self) -> bool:
@@ -189,6 +208,11 @@ class FrontRESSegmentPPOResult:
             "segment/ppo_advantage_abs_top1_frac": self.advantage_abs_top1_frac,
             "segment/ppo_advantage_scale": self.advantage_scale,
             "segment/ppo_advantage_sign_flip_count": float(self.advantage_sign_flip_count),
+            "segment/ppo_critic_value_scale": self.critic_value_scale,
+            "segment/ppo_critic_value_normalizer_batch_mean": self.critic_value_normalizer_batch_mean,
+            "segment/ppo_critic_value_normalizer_batch_second_moment": (
+                self.critic_value_normalizer_batch_second_moment
+            ),
             "segment/ppo_grouped_reduction_active": float(self.grouped_reduction_active),
             "segment/ppo_grouped_motion_count": float(self.grouped_motion_count),
             "segment/ppo_grouped_segment_count": float(self.grouped_segment_count),
@@ -302,11 +326,11 @@ def install_frontres_v006_scalar_gradients(
     actor_parameters, critic_parameters = _frontres_scalar_parameter_partition(
         policy,
         optimizer_parameters,
-        contract_id="FRS-PPO-v006",
+        contract_id="FRS-PPO-v007",
     )
     max_norm = float(max_grad_norm)
     if not math.isfinite(max_norm) or max_norm <= 0.0:
-        raise ValueError("FRS-PPO-v006 max_grad_norm must be positive and finite")
+        raise ValueError("FRS-PPO-v007 max_grad_norm must be positive and finite")
 
     # B2: 分别安装 Actor 与 Critic loss gradients, critic-only 保持 Actor grad 为空.
     actor_frozen = float(cfg.actor_loss_weight) == 0.0
@@ -337,7 +361,7 @@ def install_frontres_v006_scalar_gradients(
     critic_coefficient = 1.0 if critic_pre <= max_norm else max_norm / (critic_pre + 1.0e-6)
     facts = (actor_pre, actor_post, actor_coefficient, critic_pre, critic_post, critic_coefficient)
     if not all(math.isfinite(value) for value in facts):
-        raise FloatingPointError(f"FRS-PPO-v006 produced non-finite gradient facts: {facts!r}")
+        raise FloatingPointError(f"FRS-PPO-v007 produced non-finite gradient facts: {facts!r}")
     return FrontRESScalarGradientInstallResult(
         actor_parameters=actor_parameters,
         critic_parameters=critic_parameters,
@@ -491,11 +515,11 @@ def _build_frontres_v006_segment_value_targets(
         or privileged.requires_grad
         or not bool(torch.isfinite(privileged).all().item())
     ):
-        raise ValueError("FRS-PPO-v006 requires detached finite Critic observations with shape [B,347]")
+        raise ValueError("FRS-PPO-v007 requires detached finite Critic observations with shape [B,347]")
     selected_sources = rows.source_index[valid]
     segment_keys_tensor = torch.unique(selected_sources, sorted=True)
     if int(segment_keys_tensor.numel()) != 2:
-        raise ValueError("FRS-PPO-v006 requires exactly two Segment state groups")
+        raise ValueError("FRS-PPO-v007 requires exactly two Segment state groups")
     selected_returns = batch.returns[valid].detach()
     selected_old_values = batch.old_values[valid].detach()
     selected_privileged = privileged[valid].detach()
@@ -515,27 +539,27 @@ def _build_frontres_v006_segment_value_targets(
         if expected_m is None:
             expected_m = count
         if count < 2 or count != expected_m:
-            raise ValueError("FRS-PPO-v006 requires the same exact-M count for both Segments")
+            raise ValueError("FRS-PPO-v007 requires the same exact-M count for both Segments")
         expected_trials = torch.arange(count, device=selected_trials.device, dtype=torch.long)
         if not torch.equal(torch.sort(selected_trials[local_rows]).values, expected_trials):
-            raise ValueError("FRS-PPO-v006 requires unique trial_index=0..M-1 within each Segment")
+            raise ValueError("FRS-PPO-v007 requires unique trial_index=0..M-1 within each Segment")
         if int(torch.unique(selected_segment_ids[local_rows]).numel()) != 1:
-            raise ValueError("FRS-PPO-v006 source rows cannot mix Segment identity")
+            raise ValueError("FRS-PPO-v007 source rows cannot mix Segment identity")
         scenario_values = {selected_scenarios[int(index)] for index in local_rows.detach().cpu().tolist()}
         hash_values = {selected_hashes[int(index)] for index in local_rows.detach().cpu().tolist()}
         if len(scenario_values) != 1 or len(hash_values) != 1:
-            raise ValueError("FRS-PPO-v006 Segment rows cannot mix scenario or Noisy hash identity")
+            raise ValueError("FRS-PPO-v007 Segment rows cannot mix scenario or Noisy hash identity")
         states = selected_privileged[local_rows]
         if not torch.equal(states, states[:1].expand_as(states)):
-            raise ValueError("FRS-PPO-v006 requires identical Critic state rows within each Segment")
+            raise ValueError("FRS-PPO-v007 requires identical Critic state rows within each Segment")
         old_values = selected_old_values[local_rows]
         if not torch.equal(old_values, old_values[:1].expand_as(old_values)):
-            raise ValueError("FRS-PPO-v006 requires one shared old value within each Segment")
+            raise ValueError("FRS-PPO-v007 requires one shared old value within each Segment")
 
         # B2: 仅对该 Segment 的 exact-M realized returns 求均值, 产出一个 state-value target.
         target = selected_returns[local_rows].mean()
         if not bool(torch.isfinite(target).item()):
-            raise FloatingPointError("FRS-PPO-v006 produced a non-finite Segment value target")
+            raise FloatingPointError("FRS-PPO-v007 produced a non-finite Segment value target")
         row_targets[local_rows] = target
         segment_means.append(float(target.detach().cpu().item()))
 
@@ -610,7 +634,7 @@ def compute_frontres_segment_ppo_loss(
     if critic_target_id not in {"per-attempt-return-v005", "segment-exact-m-mean-v1"}:
         raise ValueError(f"unsupported FrontRES Critic target identity: {critic_target_id!r}")
     if critic_target_id == "segment-exact-m-mean-v1" and normalization_mode != "grouped_scale_only":
-        raise ValueError("FRS-PPO-v006 Segment mean target requires grouped_scale_only transaction rows")
+        raise ValueError("FRS-PPO-v007 Segment mean target requires grouped_scale_only transaction rows")
     transaction_rows: _FrontRESSegmentPPOTransactionRows | None = None
     if normalization_mode == "grouped_scale_only":
         transaction_rows = _transaction_metadata_rows(batch)
@@ -657,6 +681,23 @@ def compute_frontres_segment_ppo_loss(
         value_targets = target_facts.row_targets
         segment_target_means = target_facts.segment_means
         segment_target_keys = target_facts.segment_keys
+    value_normalization_id = str(cfg.critic_value_normalization).lower()
+    if value_normalization_id not in {"none", FRONTRES_VALUE_NORMALIZATION_ID}:
+        raise ValueError(f"unsupported FrontRES Critic value normalization: {value_normalization_id!r}")
+    value_normalizer_update: FrontRESValueNormalizerUpdate | None = None
+    value_scale = 1.0
+    if value_normalization_id == FRONTRES_VALUE_NORMALIZATION_ID:
+        if critic_target_id != "segment-exact-m-mean-v1":
+            raise ValueError("FRS-PPO-v007 value normalization requires the exact-M Segment mean target")
+        if cfg.critic_value_normalizer_state is None:
+            raise ValueError("FRS-PPO-v007 value normalization requires prior normalizer state")
+        value_normalizer_update = preview_frontres_v007_value_normalization(
+            value_targets.new_tensor(segment_target_means),
+            cfg.critic_value_normalizer_state,
+            decay=cfg.critic_value_normalizer_decay,
+            scale_floor=cfg.critic_value_normalizer_scale_floor,
+        )
+        value_scale = value_normalizer_update.scale
     grouped_reduction: _FrontRESSegmentPPOGroupedReduction | None = None
     if normalization_mode == "grouped_scale_only":
         assert transaction_rows is not None
@@ -678,12 +719,13 @@ def compute_frontres_segment_ppo_loss(
 
     if cfg.use_clipped_value_loss:
         value_clipped = old_value + (value - old_value).clamp(-cfg.value_clip_param, cfg.value_clip_param)
-        value_row_loss = 0.5 * torch.max(
+        raw_value_row_loss = 0.5 * torch.max(
             (value - value_targets).square(),
             (value_clipped - value_targets).square(),
         )
     else:
-        value_row_loss = 0.5 * (value - value_targets).square()
+        raw_value_row_loss = 0.5 * (value - value_targets).square()
+    value_row_loss = raw_value_row_loss / (value_scale**2)
 
     if policy_eval.entropy is None:
         entropy_rows = log_prob.new_zeros(log_prob.shape)
@@ -691,10 +733,12 @@ def compute_frontres_segment_ppo_loss(
         entropy_rows = policy_eval.entropy[valid]
     if grouped_reduction is None:
         actor_loss = actor_row_loss.mean()
+        raw_value_loss = raw_value_row_loss.mean()
         value_loss = value_row_loss.mean()
         entropy = entropy_rows.mean()
     else:
         actor_loss = _reduce_frontres_grouped_rows(actor_row_loss, grouped_reduction.hierarchy)
+        raw_value_loss = _reduce_frontres_grouped_rows(raw_value_row_loss, grouped_reduction.hierarchy)
         value_loss = _reduce_frontres_grouped_rows(value_row_loss, grouped_reduction.hierarchy)
         entropy = _reduce_frontres_grouped_rows(entropy_rows, grouped_reduction.hierarchy)
     actor_loss_weight = max(0.0, min(1.0, float(cfg.actor_loss_weight)))
@@ -821,6 +865,21 @@ def compute_frontres_segment_ppo_loss(
         critic_value_targets=tuple(float(value) for value in value_targets.detach().cpu().tolist()),
         critic_segment_target_means=segment_target_means,
         critic_segment_keys=segment_target_keys,
+        critic_raw_value_loss=raw_value_loss,
+        critic_value_normalization_id=value_normalization_id,
+        critic_value_scale=float(value_scale),
+        critic_value_normalizer_previous_state=(
+            None if value_normalizer_update is None else value_normalizer_update.previous
+        ),
+        critic_value_normalizer_candidate_state=(
+            None if value_normalizer_update is None else value_normalizer_update.candidate
+        ),
+        critic_value_normalizer_batch_mean=(
+            0.0 if value_normalizer_update is None else value_normalizer_update.batch_mean
+        ),
+        critic_value_normalizer_batch_second_moment=(
+            0.0 if value_normalizer_update is None else value_normalizer_update.batch_second_moment
+        ),
         grouped_reduction_active=grouped_reduction is not None,
         grouped_motion_count=0 if grouped_reduction is None else len(grouped_reduction.motion_keys),
         grouped_segment_count=0 if grouped_reduction is None else len(grouped_reduction.segment_keys),

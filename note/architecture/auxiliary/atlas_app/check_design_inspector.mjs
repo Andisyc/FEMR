@@ -268,8 +268,10 @@ for (const required of [
 "HSL 只初始化 proposal Actor",
 "Critic-only 保持 Actor 与固定 std 不变",
 "Actor-ramp 再逐步增加 Actor loss weight",
+"只缩放 Critic 误差，不改变预测对象",
+"这不是对 Gain 取对数",
 "分别计算并裁剪各自的 gradient norm",
-"旧 checkpoint-v10 不能 resume",
+"checkpoint-v11 不能 resume",
 "每个 K 都拥有一轮独立的 DR Curriculum",
 "降低 DR 后重新进入 critic-only",
 "不再建立独立 Physics projection",
@@ -283,12 +285,13 @@ const expectedWarmupHeadings = [
 "Critic 输入：289D 当前特权状态 + 58D future Intent",
 "Critic target：同一状态的 exact-M 平均结果",
 "Critic-only 与 Actor-ramp：参考线稳定后再释放 Actor",
+"自适应数值尺度：只缩放 Critic 误差，不改变预测对象",
 "独立梯度裁剪：Critic 误差不能压缩 Actor",
-"Recalibrate 与 checkpoint：新 Critic 身份必须冷启动",
+"Recalibrate 与 checkpoint：新数值状态必须冷启动",
 ];
 if (warmupDetails.length !== expectedWarmupHeadings.length
  || warmupDetails.some((detail, index) => detail.heading !== expectedWarmupHeadings[index])) {
- throw new Error("Actor & Critic Warmup must preserve the seven human-readable titled explanations in order");
+ throw new Error("Actor & Critic Warmup must preserve the eight human-readable titled explanations in order");
 }
 const warmupText = JSON.stringify(warmupDetails);
 const warmupSchedule = warmupDetails[1].table;
@@ -311,7 +314,10 @@ for (const required of [
 "Actor LR = 3e-6",
 "Critic LR = 1e-5",
 "同一个 Adam",
-"checkpoint-v11",
+"checkpoint-v12",
+"至少为 1",
+"raw loss 除以 std 的平方",
+"exact-one update 与 receipt 成功后才提交",
 "V(s)",
 "6D Repair action 不进入 Critic",
 "347D state input",

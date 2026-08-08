@@ -20,6 +20,12 @@ from rsl_rl.frontres.frontres_segment_warmup import (
     normalize_frontres_k_stage_schedule,
     require_frontres_v013_campaign_schedule,
 )
+from rsl_rl.frontres.frontres_value_normalization import (
+    FRONTRES_VALUE_NORMALIZATION_ID,
+    FRONTRES_VALUE_NORMALIZER_DECAY,
+    FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR,
+    FrontRESValueNormalizerState,
+)
 
 
 def _frontres_v013_schedule_owners():
@@ -45,7 +51,7 @@ def validate_frontres_v015_stage3_supervision_config(
     resolve_frontres_future_intent_layout(offsets, FRONTRES_FUTURE_INTENT_LAYOUT_VERSION)
     if abs(float(lambda_supervised)) > 1.0e-12 or abs(float(lambda_supervised_min)) > 1.0e-12:
         raise ValueError(
-                "FRS-TRAIN-v016 requires lambda_supervised=0 and lambda_supervised_min=0 "
+                "FRS-TRAIN-v017 requires lambda_supervised=0 and lambda_supervised_min=0 "
             "for the v015 future-intent Stage-3 route; HSL is initialization-only"
         )
 
@@ -162,6 +168,9 @@ class FrontRESUnified:
         frontres_future_intent_layout_version: str = "frontres-v015-future-intent-q29-v1",
         frontres_segment_max_horizon_k: int = 64,
         frontres_segment_advantage_normalization: str = "scale_only",
+        frontres_critic_value_normalization: str = FRONTRES_VALUE_NORMALIZATION_ID,
+        frontres_critic_value_normalizer_decay: float = FRONTRES_VALUE_NORMALIZER_DECAY,
+        frontres_critic_value_normalizer_scale_floor: float = FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR,
         frontres_gain_beta: float = 0.02,
         frontres_segment_cache_dir: str = "",
         frontres_segment_shard_cache_size: int = 8,
@@ -218,7 +227,7 @@ class FrontRESUnified:
         strict_split_lr = bool(frontres_formal_transaction_enabled and not frontres_policy_quality_eval_only)
         if strict_split_lr:
             if str(schedule).lower() != "fixed":
-                raise ValueError("FRS-TRAIN-v016 requires schedule='fixed' for Stage-3 training")
+                raise ValueError("FRS-TRAIN-v017 requires schedule='fixed' for Stage-3 training")
             actor_lr = self._require_positive_finite_lr(learning_rate, name="actor_learning_rate")
             critic_lr = self._require_positive_finite_lr(critic_learning_rate, name="critic_learning_rate")
             trainable_params = self._collect_trainable_param_groups(
@@ -285,8 +294,8 @@ class FrontRESUnified:
         self.frontres_formal_transaction_enabled = bool(frontres_formal_transaction_enabled)
         self.frontres_method_contract_id = "FRS-METHOD-v018"
         self.frontres_gain_contract_id = "FRS-GAIN-v007"
-        self.frontres_optimization_contract_id = "FRS-PPO-v006"
-        self.frontres_training_contract_id = "FRS-TRAIN-v016"
+        self.frontres_optimization_contract_id = "FRS-PPO-v007"
+        self.frontres_training_contract_id = "FRS-TRAIN-v017"
         self.frontres_dr_curriculum_schema_id = "nested-k-dr-four-class-v1"
         self.frontres_scalar_target_id = "clean-anchored-recovery-aware-gain-v1"
         self.frontres_physics_schema_id = "clean-anchored-contact-zmp-survival-v1"
@@ -296,6 +305,19 @@ class FrontRESUnified:
         self.frontres_critic_action_conditioned = False
         self.frontres_critic_target_id = "segment-exact-m-mean-v1"
         self.frontres_gradient_clip_identity = "separate-actor-critic-v1"
+        self.frontres_critic_value_normalization = str(frontres_critic_value_normalization).lower()
+        self.frontres_critic_value_normalizer_decay = float(frontres_critic_value_normalizer_decay)
+        self.frontres_critic_value_normalizer_scale_floor = float(frontres_critic_value_normalizer_scale_floor)
+        if self.frontres_formal_transaction_enabled:
+            if self.frontres_critic_value_normalization != FRONTRES_VALUE_NORMALIZATION_ID:
+                raise ValueError(
+                    f"FRS-TRAIN-v017 requires frontres_critic_value_normalization={FRONTRES_VALUE_NORMALIZATION_ID}"
+                )
+            if self.frontres_critic_value_normalizer_decay != FRONTRES_VALUE_NORMALIZER_DECAY:
+                raise ValueError("FRS-TRAIN-v017 requires value-normalizer decay=0.9")
+            if self.frontres_critic_value_normalizer_scale_floor != FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR:
+                raise ValueError("FRS-TRAIN-v017 requires value-normalizer scale floor=1.0")
+        self.frontres_critic_value_normalizer_state = FrontRESValueNormalizerState()
         self.frontres_segment_live_update_steps = max(1, int(frontres_segment_live_update_steps))
         self.frontres_segment_critic_warmup_iterations = max(0, int(frontres_segment_critic_warmup_iterations))
         self.frontres_segment_actor_warmup_iterations = max(0, int(frontres_segment_actor_warmup_iterations))
@@ -349,7 +371,7 @@ class FrontRESUnified:
             if self.frontres_gain_beta != 0.02:
                 raise ValueError("FRS-GAIN-v007 formal route requires the frozen beta_init=0.02")
             if not self.frontres_segment_k_curriculum:
-                raise ValueError("FRS-TRAIN-v016 formal transaction requires an explicit K x M x DR curriculum")
+                raise ValueError("FRS-TRAIN-v017 formal transaction requires an explicit K x M x DR curriculum")
             if self.frontres_segment_advantage_normalization != "grouped_scale_only":
                 raise ValueError("v015 formal transaction requires grouped_scale_only normalization")
             if (
@@ -361,7 +383,7 @@ class FrontRESUnified:
                 raise ValueError("v015 formal transaction rejects HSL and Stage-3 supervised targets")
         if self.frontres_local_sentinel_only:
             if not self.frontres_formal_transaction_enabled:
-                raise ValueError("v016 local sentinel requires frontres_formal_transaction_enabled=True")
+                raise ValueError("v017 local sentinel requires frontres_formal_transaction_enabled=True")
             if any(
                 (
                     self.frontres_segment_live_sentinel_only,
@@ -524,32 +546,32 @@ class FrontRESUnified:
     @staticmethod
     def _require_positive_finite_lr(value, *, name: str) -> float:
         if value is None:
-            raise ValueError(f"FRS-TRAIN-v016 requires explicit {name}")
+            raise ValueError(f"FRS-TRAIN-v017 requires explicit {name}")
         lr = float(value)
         if not math.isfinite(lr) or lr <= 0.0:
-            raise ValueError(f"FRS-TRAIN-v016 requires positive finite {name}")
+            raise ValueError(f"FRS-TRAIN-v017 requires positive finite {name}")
         return lr
 
     @staticmethod
     def _collect_trainable_param_groups(policy, *, actor_learning_rate: float, critic_learning_rate: float):
         if not isinstance(policy, (ResidualActorCritic, FrontRESActorCritic)):
-            raise TypeError("FRS-TRAIN-v016 Stage-3 optimizer requires a FrontRES Actor/Critic policy")
+            raise TypeError("FRS-TRAIN-v017 Stage-3 optimizer requires a FrontRES Actor/Critic policy")
         actor_params = list(policy.residual_actor.parameters())
         critic_params = list(policy.critic.parameters())
         if not actor_params or not critic_params:
-            raise ValueError("FRS-TRAIN-v016 requires non-empty Actor and Critic parameter groups")
+            raise ValueError("FRS-TRAIN-v017 requires non-empty Actor and Critic parameter groups")
         if hasattr(policy, "std") and getattr(policy.std, "requires_grad", False):
-            raise ValueError("FRS-TRAIN-v016 task-space policy std must remain fixed")
+            raise ValueError("FRS-TRAIN-v017 task-space policy std must remain fixed")
         if hasattr(policy, "log_std") and getattr(policy.log_std, "requires_grad", False):
-            raise ValueError("FRS-TRAIN-v016 task-space policy std must remain fixed")
+            raise ValueError("FRS-TRAIN-v017 task-space policy std must remain fixed")
         actor_ids = {id(parameter) for parameter in actor_params}
         critic_ids = {id(parameter) for parameter in critic_params}
         if actor_ids.intersection(critic_ids):
-            raise ValueError("FRS-TRAIN-v016 Actor and Critic optimizer groups must be disjoint")
+            raise ValueError("FRS-TRAIN-v017 Actor and Critic optimizer groups must be disjoint")
         trainable_ids = {id(parameter) for parameter in policy.parameters() if parameter.requires_grad}
         if trainable_ids != actor_ids.union(critic_ids):
             raise ValueError(
-                "FRS-TRAIN-v016 Actor and Critic optimizer groups must exhaust all trainable policy parameters"
+                "FRS-TRAIN-v017 Actor and Critic optimizer groups must exhaust all trainable policy parameters"
             )
         print(
             "[FrontRESUnified] Optimizer groups "

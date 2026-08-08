@@ -10,6 +10,12 @@ from typing import Any, Literal, Mapping
 
 import torch
 
+from rsl_rl.frontres.frontres_value_normalization import (
+    FRONTRES_VALUE_NORMALIZATION_ID,
+    FRONTRES_VALUE_NORMALIZER_DECAY,
+    FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR,
+    FrontRESValueNormalizerState,
+)
 from rsl_rl.modules.frontres_observation_layout import (
     FRONTRES_FUTURE_INTENT_LAYOUT_VERSION,
 )
@@ -23,7 +29,7 @@ from rsl_rl.frontres.frontres_segment_warmup import (
 )
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-_V015_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v11"
+_V015_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v12"
 _V015_LEGACY_POLICY_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v10"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
 _V015_HSL_CHECKPOINT_IDENTITY_KEY = "frontres_v015_hsl_checkpoint_identity"
@@ -151,8 +157,8 @@ def _v015_committed_transaction_receipt(
         or {
             "method_contract_id": "FRS-METHOD-v018",
             "gain_contract_id": "FRS-GAIN-v007",
-            "optimization_contract_id": "FRS-PPO-v006",
-            "training_contract_id": "FRS-TRAIN-v016",
+            "optimization_contract_id": "FRS-PPO-v007",
+            "training_contract_id": "FRS-TRAIN-v017",
             "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -488,16 +494,18 @@ def _inspect_frontres_v015_policy_quality_payload(
         contract_identity = {
             "method_contract_id": "FRS-METHOD-v018",
             "gain_contract_id": "FRS-GAIN-v007",
-            "optimization_contract_id": "FRS-PPO-v006",
-            "training_contract_id": "FRS-TRAIN-v016",
+            "optimization_contract_id": "FRS-PPO-v007",
+            "training_contract_id": "FRS-TRAIN-v017",
             "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
         }
     elif checkpoint_format == _V015_LEGACY_POLICY_CHECKPOINT_FORMAT:
         # Historical v10 is accepted only by this read-only inspection owner.
-        if "critic" in identity or "gradient_clip" in identity:
-            raise RuntimeError("quality policy v10 cannot claim checkpoint-v11 Critic identity")
+        if "critic" in identity or "gradient_clip" in identity or "critic_value_normalizer" in identity:
+            raise RuntimeError("quality policy v10 cannot claim checkpoint-v12 Critic identity")
+        if "frontres_critic_value_normalizer_state_dict" in checkpoint:
+            raise RuntimeError("quality policy v10 cannot carry checkpoint-v12 Critic normalizer state")
         contract_identity = {
             "method_contract_id": "FRS-METHOD-v017",
             "gain_contract_id": "FRS-GAIN-v007",
@@ -530,8 +538,18 @@ def _inspect_frontres_v015_policy_quality_payload(
         } or identity.get("gradient_clip") != {
             "identity": "separate-actor-critic-v1",
             "max_norm": 0.5,
+        } or identity.get("critic_value_normalizer") != {
+            "identity": FRONTRES_VALUE_NORMALIZATION_ID,
+            "decay": FRONTRES_VALUE_NORMALIZER_DECAY,
+            "scale_floor": FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR,
         }:
             raise RuntimeError("quality policy has an incompatible v016 Critic or gradient identity")
+        try:
+            value_normalizer_state = FrontRESValueNormalizerState.from_state_dict(
+                checkpoint.get("frontres_critic_value_normalizer_state_dict")
+            )
+        except (TypeError, ValueError, FloatingPointError) as exc:
+            raise RuntimeError("quality policy has an invalid checkpoint-v12 Critic normalizer state") from exc
         if not any(
             isinstance(value, torch.Tensor) and value.ndim == 2 and int(value.shape[1]) == 347
             for value in critic_state.values()
@@ -553,6 +571,8 @@ def _inspect_frontres_v015_policy_quality_payload(
     schedule = curriculum.get("schedule")
     require_frontres_v013_campaign_schedule(schedule if isinstance(schedule, (tuple, list)) else ())
     iteration = int(curriculum.get("absolute_iteration", -1))
+    if checkpoint_format == _V015_CHECKPOINT_FORMAT and value_normalizer_state.update_count != iteration:
+        raise RuntimeError("quality policy Critic normalizer count differs from checkpoint iteration")
     expected = resolve_frontres_k_stage_identity(
         schedule=schedule if isinstance(schedule, (tuple, list)) else (),
         committed_update_iteration=iteration,

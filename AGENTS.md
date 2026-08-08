@@ -54,6 +54,9 @@ The intended training flow is:
    - The scalar Critic predicts the single FRS-GAIN-v007 Recovery-Aware
      `G_total`. Intent and Physics are both Clean-anchored; Physics recovery
      pressure controls how strongly Physics improvement enters the same scalar.
+     TRAIN-v017 preserves raw `G_total`, raw `V(s)` and Actor credit while
+     dividing only the Critic value loss by a committed non-amplifying EMA
+     target-variance scale before the existing independent gradient clip.
      There is no active constraint-gradient projection or KKT authority.
 
 ## Perturbation Curriculum
@@ -96,6 +99,8 @@ scalar Physics fallback, or epsilon gate.
 Important diagnostics:
 
 - scalar target, return, value, raw/scaled advantage, and Critic calibration;
+- raw/scaled Critic value loss, non-amplifying target scale, committed moments
+  and exact update-count transition;
 - expected/actual Contact and loaded-support phase-ZMP applicability/violation;
 - survival, sustained lateral lean, and unplanned support changes;
 - Recovery-Aware components `G_I`, `G_P`, `P_N`, `P_R`, `lambda_RA`, cost and

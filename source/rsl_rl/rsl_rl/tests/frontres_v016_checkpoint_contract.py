@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic TEST-16 contracts for strict checkpoint-v11 persistence."""
+"""Deterministic TEST-16 contracts for strict checkpoint-v12 persistence."""
 
 from __future__ import annotations
 
@@ -8,14 +8,23 @@ import contextlib
 import io
 import tempfile
 from pathlib import Path
+import sys
 
 import torch
+
+SOURCE_ROOT = Path(__file__).resolve().parents[2]
+if str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
 
 from frontres_v015_checkpoint_resume_contract import (
     _FrozenNormalizer,
     _load_owners,
     _receipt as _legacy_receipt,
     _runner as _legacy_runner,
+)
+from rsl_rl.algorithms.frontres_segment_ppo import (
+    FRONTRES_VALUE_NORMALIZATION_ID,
+    FrontRESValueNormalizerState,
 )
 
 
@@ -40,13 +49,21 @@ def _runner(layout, policy_base, *, iteration: int, gmt_checkpoint_path: Path):
         ]
     )
     runner.alg.frontres_method_contract_id = "FRS-METHOD-v018"
-    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v006"
-    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v016"
+    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v007"
+    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v017"
     runner.alg.frontres_critic_value_kind = "state_value"
     runner.alg.frontres_critic_input_dim = 347
     runner.alg.frontres_critic_action_conditioned = False
     runner.alg.frontres_critic_target_id = "segment-exact-m-mean-v1"
     runner.alg.frontres_gradient_clip_identity = "separate-actor-critic-v1"
+    runner.alg.frontres_critic_value_normalization = FRONTRES_VALUE_NORMALIZATION_ID
+    runner.alg.frontres_critic_value_normalizer_decay = 0.9
+    runner.alg.frontres_critic_value_normalizer_scale_floor = 1.0
+    runner.alg.frontres_critic_value_normalizer_state = FrontRESValueNormalizerState(
+        mean=0.25 if iteration else 0.0,
+        second_moment=2.0 if iteration else 1.0,
+        update_count=iteration,
+    )
     runner.alg.max_grad_norm = 0.5
     runner._frontres_critic_observation_dim = 347
     runner.alg.frontres_formal_runtime_audit = True
@@ -64,8 +81,8 @@ def _receipt(checkpointing, *, training_iteration: int) -> dict[str, object]:
     value = _legacy_receipt(checkpointing, training_iteration=training_iteration)
     receipt = value["receipt"]
     receipt["method_contract_id"] = "FRS-METHOD-v018"
-    receipt["optimization_contract_id"] = "FRS-PPO-v006"
-    receipt["training_contract_id"] = "FRS-TRAIN-v016"
+    receipt["optimization_contract_id"] = "FRS-PPO-v007"
+    receipt["training_contract_id"] = "FRS-TRAIN-v017"
     return value
 
 
@@ -75,7 +92,7 @@ def _expect_error(call, text: str) -> None:
     except RuntimeError as exc:
         assert text.lower() in str(exc).lower(), str(exc)
         return
-    raise AssertionError("expected checkpoint-v11 rejection")
+    raise AssertionError("expected checkpoint-v12 rejection")
 
 
 def main() -> None:
@@ -101,10 +118,10 @@ def main() -> None:
 
         payload = torch.load(path, weights_only=False)
         identity = payload["frontres_v015_checkpoint_identity"]
-        assert identity["format"] == "frontres-v017-checkpoint-v11"
+        assert identity["format"] == "frontres-v017-checkpoint-v12"
         assert identity["method_contract_id"] == "FRS-METHOD-v018"
-        assert identity["optimization_contract_id"] == "FRS-PPO-v006"
-        assert identity["training_contract_id"] == "FRS-TRAIN-v016"
+        assert identity["optimization_contract_id"] == "FRS-PPO-v007"
+        assert identity["training_contract_id"] == "FRS-TRAIN-v017"
         assert identity["critic"] == {
             "value_kind": "state_value",
             "input_dim": 347,
@@ -115,8 +132,23 @@ def main() -> None:
             "identity": "separate-actor-critic-v1",
             "max_norm": 0.5,
         }
+        assert identity["critic_value_normalizer"] == {
+            "identity": FRONTRES_VALUE_NORMALIZATION_ID,
+            "decay": 0.9,
+            "scale_floor": 1.0,
+        }
+        assert payload["frontres_critic_value_normalizer_state_dict"] == {
+            "normalization_id": FRONTRES_VALUE_NORMALIZATION_ID,
+            "mean": 0.25,
+            "second_moment": 2.0,
+            "update_count": 3,
+        }
         assert payload["privileged_obs_norm_state_dict"]["_var"][0, 0].item() == 0.0
         assert payload["privileged_obs_norm_state_dict"]["_std"][0, 0].item() == 0.0
+        active_quality_identity = checkpointing.inspect_frontres_quality_checkpoint(path, route="policy")
+        assert active_quality_identity.format == "frontres-v017-checkpoint-v12"
+        assert active_quality_identity.ppo_contract_id == "FRS-PPO-v007"
+        assert active_quality_identity.training_contract_id == "FRS-TRAIN-v017"
 
         fresh = _runner(layout, policy_base, iteration=0, gmt_checkpoint_path=gmt_path)
         checkpointing.load_runner(fresh, str(path), load_optimizer=True)
@@ -124,6 +156,24 @@ def main() -> None:
             torch.testing.assert_close(fresh.alg.policy.residual_actor.state_dict()[name], value)
         for name, value in critic_state.items():
             torch.testing.assert_close(fresh.alg.policy.critic.state_dict()[name], value)
+        assert fresh.alg.frontres_critic_value_normalizer_state == source.alg.frontres_critic_value_normalizer_state
+
+        checkpoint_v11 = copy.deepcopy(payload)
+        checkpoint_v11["frontres_v015_checkpoint_identity"].update(
+            format="frontres-v017-checkpoint-v11",
+            optimization_contract_id="FRS-PPO-v006",
+            training_contract_id="FRS-TRAIN-v016",
+        )
+        checkpoint_v11["frontres_v015_checkpoint_identity"].pop("critic_value_normalizer")
+        checkpoint_v11.pop("frontres_critic_value_normalizer_state_dict")
+        checkpoint_v11_path = root / "checkpoint-v11.pt"
+        torch.save(checkpoint_v11, checkpoint_v11_path)
+        checkpoint_v11_target = _runner(layout, policy_base, iteration=0, gmt_checkpoint_path=gmt_path)
+        _expect_error(
+            lambda: checkpointing.load_runner(checkpoint_v11_target, str(checkpoint_v11_path)),
+            "contract or format",
+        )
+        assert checkpoint_v11_target.alg.frontres_critic_value_normalizer_state.update_count == 0
 
         legacy_quality = copy.deepcopy(payload)
         legacy_identity = legacy_quality["frontres_v015_checkpoint_identity"]
@@ -135,6 +185,8 @@ def main() -> None:
         )
         legacy_identity.pop("critic")
         legacy_identity.pop("gradient_clip")
+        legacy_identity.pop("critic_value_normalizer")
+        legacy_quality.pop("frontres_critic_value_normalizer_state_dict")
         legacy_obs_norm = {
             "_mean": torch.zeros(1, 928),
             "_var": torch.ones(1, 928),
@@ -168,6 +220,11 @@ def main() -> None:
 
         for label, mutate, message in (
             ("missing-critic", lambda item: item.pop("critic"), "contract or format"),
+            (
+                "missing-value-normalizer-identity",
+                lambda item: item.pop("critic_value_normalizer"),
+                "contract or format",
+            ),
         ):
             tampered = copy.deepcopy(payload)
             mutate(tampered["frontres_v015_checkpoint_identity"])
@@ -178,6 +235,32 @@ def main() -> None:
             _expect_error(lambda: checkpointing.load_runner(target, str(tampered_path)), message)
             for name, value in before.items():
                 torch.testing.assert_close(target.alg.policy.residual_actor.state_dict()[name], value)
+            assert not hasattr(target, "_frontres_last_loaded_checkpoint_path")
+
+        for label, mutate, message in (
+            (
+                "missing-value-normalizer-state",
+                lambda item: item.pop("frontres_critic_value_normalizer_state_dict"),
+                "value-normalizer state is invalid",
+            ),
+            (
+                "nonfinite-value-normalizer-state",
+                lambda item: item["frontres_critic_value_normalizer_state_dict"].update(mean=float("nan")),
+                "value-normalizer state is invalid",
+            ),
+            (
+                "wrong-value-normalizer-count",
+                lambda item: item["frontres_critic_value_normalizer_state_dict"].update(update_count=2),
+                "count differs",
+            ),
+        ):
+            tampered = copy.deepcopy(payload)
+            mutate(tampered)
+            tampered_path = root / f"{label}.pt"
+            torch.save(tampered, tampered_path)
+            target = _runner(layout, policy_base, iteration=0, gmt_checkpoint_path=gmt_path)
+            _expect_error(lambda: checkpointing.load_runner(target, str(tampered_path)), message)
+            assert target.alg.frontres_critic_value_normalizer_state.update_count == 0
             assert not hasattr(target, "_frontres_last_loaded_checkpoint_path")
 
         for label, mutate in (
@@ -223,7 +306,7 @@ def main() -> None:
         assert not tuple(root.glob("atomic.pt.tmp-*"))
 
     assert checkpointing._V015_HSL_CHECKPOINT_FORMAT == "frontres-v017-hsl-proposal-v2"
-    print("frontres_v016_checkpoint_contract: v11 strict round-trip and v10 reject", flush=True)
+    print("frontres_v016_checkpoint_contract: v12 strict round-trip and v11/v10 reject", flush=True)
 
 
 if __name__ == "__main__":

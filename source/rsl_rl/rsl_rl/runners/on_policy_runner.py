@@ -416,7 +416,7 @@ class OnPolicyRunner:
             if v015_formal_layout_requested:
                 if int(num_privileged_obs) != 289 or int(layout.actor_tail_dim) != 58:
                     raise ValueError(
-                        "TRAIN-v016 requires the exact 289D current Critic state and 58D future tail"
+                        "TRAIN-v017 requires the exact 289D current Critic state and 58D future tail"
                     )
                 num_privileged_obs += layout.actor_tail_dim
                 self._frontres_critic_observation_dim = int(num_privileged_obs)
@@ -725,7 +725,7 @@ class OnPolicyRunner:
         return self._dispatch_frontres_startup_once("local_sentinel", operation)
 
     def finalize_frontres_local_sentinel_checkpoint(self, result: object) -> str:
-        """Save the exact checkpoint-v11 adjacent to one completed local sentinel."""
+        """Save the exact checkpoint-v12 adjacent to one completed local sentinel."""
 
         return finalize_frontres_local_sentinel_checkpoint_helper(self, result)
 
@@ -1205,7 +1205,7 @@ class OnPolicyRunner:
                         and bool(self.cfg.get("frontres_hsl_rollout_label_enabled", False))
                     ):
                         raise RuntimeError(
-                "FRS-TRAIN-v016 forbids frontres_hsl_rollout_label_enabled on every active Stage-3 route"
+                "FRS-TRAIN-v017 forbids frontres_hsl_rollout_label_enabled on every active Stage-3 route"
                         )
                     
                     # ------------------- Policy Rollout -------------------

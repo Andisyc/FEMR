@@ -5,6 +5,13 @@ from typing import Any, Mapping
 
 import torch
 
+from rsl_rl.frontres.frontres_value_normalization import (
+    FRONTRES_VALUE_NORMALIZATION_ID,
+    FRONTRES_VALUE_NORMALIZER_DECAY,
+    FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR,
+    FrontRESValueNormalizerState,
+)
+
 from rsl_rl.frontres.frontres_formal_runtime_probe import configure_formal_runtime_probe, emit_formal_runtime_probe
 
 
@@ -258,8 +265,8 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
     required_identity = {
         "frontres_method_contract_id": "FRS-METHOD-v018",
         "frontres_gain_contract_id": "FRS-GAIN-v007",
-        "frontres_optimization_contract_id": "FRS-PPO-v006",
-        "frontres_training_contract_id": "FRS-TRAIN-v016",
+        "frontres_optimization_contract_id": "FRS-PPO-v007",
+        "frontres_training_contract_id": "FRS-TRAIN-v017",
     }
     for name, expected in required_identity.items():
         assert getattr(alg, name, None) == expected, f"AUDIT-B01 requires {name}={expected}"
@@ -281,6 +288,13 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
     assert actor_lr == 3.0e-6 and critic_lr == 1.0e-5, (
         "AUDIT-B01 requires fixed Actor/Critic LR=3e-6/1e-5"
     )
+    value_normalizer_state = getattr(alg, "frontres_critic_value_normalizer_state", None)
+    assert getattr(alg, "frontres_critic_value_normalization", None) == FRONTRES_VALUE_NORMALIZATION_ID
+    assert float(getattr(alg, "frontres_critic_value_normalizer_decay", float("nan"))) == FRONTRES_VALUE_NORMALIZER_DECAY
+    assert float(getattr(alg, "frontres_critic_value_normalizer_scale_floor", float("nan"))) == FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR
+    assert isinstance(value_normalizer_state, FrontRESValueNormalizerState)
+    value_normalizer_state.validate()
+    assert value_normalizer_state.update_count == int(getattr(runner, "current_learning_iteration", -1))
     assert int(num_learning_iterations) == 1 and int(getattr(runner, "current_learning_iteration", -1)) == 0, (
         "AUDIT-B01 is admitted only for the fresh one-transaction Phase B run"
     )
@@ -290,10 +304,14 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
         "AUDIT-B01",
         limit=1,
         checkpoint=checkpoint_path,
-        contracts="FRS-METHOD-v018/FRS-GAIN-v007/FRS-PPO-v006/FRS-TRAIN-v016",
+        contracts="FRS-METHOD-v018/FRS-GAIN-v007/FRS-PPO-v007/FRS-TRAIN-v017",
         future_offsets=offsets,
         actor_lr=actor_lr,
         critic_lr=critic_lr,
+        critic_value_normalization=FRONTRES_VALUE_NORMALIZATION_ID,
+        critic_value_normalizer_decay=FRONTRES_VALUE_NORMALIZER_DECAY,
+        critic_value_normalizer_scale_floor=FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR,
+        critic_value_normalizer_update_count=value_normalizer_state.update_count,
         active_k=8,
         active_m=2,
         envs=8,
@@ -314,7 +332,7 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
 def print_sampler_audit(runner: Any, *, update_step: int, sample: Any, batch: Any, summary: Mapping[str, Any]) -> None:
     """Emit the retained legacy sampler snapshot.
 
-    TRAIN-v016 K/M identity is owned by ``frontres_segment_warmup.py`` and the
+    TRAIN-v017 K/M identity is owned by ``frontres_segment_warmup.py`` and the
     sealed formal transaction. This compatibility projection cannot prove the
     active K-step Curriculum.
     """
@@ -481,7 +499,7 @@ def print_rollout_storage_audit(
 
 
 def print_segment_replay_transaction_audit(runner: Any, *, result: Any) -> None:
-    """Audit the committed v016 Segment Replay transaction without mutation."""
+    """Audit the committed v017 Segment Replay transaction without mutation."""
 
     if not formal_runtime_audit_enabled(runner):
         return
@@ -491,8 +509,8 @@ def print_segment_replay_transaction_audit(runner: Any, *, result: Any) -> None:
     required_identity = {
         "method_contract_id": "FRS-METHOD-v018",
         "gain_contract_id": "FRS-GAIN-v007",
-        "optimization_contract_id": "FRS-PPO-v006",
-        "training_contract_id": "FRS-TRAIN-v016",
+        "optimization_contract_id": "FRS-PPO-v007",
+        "training_contract_id": "FRS-TRAIN-v017",
     }
     for key, expected in required_identity.items():
         assert diagnostics.get(key) == expected, f"active Segment Replay audit requires {key}={expected}"
@@ -545,7 +563,7 @@ def print_segment_replay_transaction_audit(runner: Any, *, result: Any) -> None:
         attempt_voting_weights=attempt_mass,
         optimizer_step_delta=getattr(result, "optimizer_step_delta", "missing"),
         update_invocations=getattr(result, "update_invocation_count", "missing"),
-        contracts="FRS-METHOD-v018/FRS-GAIN-v007/FRS-PPO-v006/FRS-TRAIN-v016",
+        contracts="FRS-METHOD-v018/FRS-GAIN-v007/FRS-PPO-v007/FRS-TRAIN-v017",
     )
 
 
@@ -851,6 +869,21 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
     assert telemetry.get("critic_action_conditioned") is False
     assert telemetry.get("critic_target_id") == "segment-exact-m-mean-v1"
     assert telemetry.get("gradient_clip_identity") == "separate-actor-critic-v1"
+    assert telemetry.get("critic_value_normalization_id") == FRONTRES_VALUE_NORMALIZATION_ID
+    value_scale = float(telemetry.get("critic_value_scale", float("nan")))
+    value_decay = float(telemetry.get("critic_value_normalizer_decay", float("nan")))
+    value_scale_floor = float(telemetry.get("critic_value_normalizer_scale_floor", float("nan")))
+    value_count_before = int(telemetry.get("critic_value_normalizer_update_count_before", -1))
+    value_count_after = int(telemetry.get("critic_value_normalizer_update_count_after", -1))
+    raw_value_loss = float(telemetry.get("critic_raw_value_loss", float("nan")))
+    scaled_value_loss = float(telemetry.get("critic_scaled_value_loss", float("nan")))
+    assert math.isfinite(value_scale) and value_scale >= 1.0
+    assert value_decay == FRONTRES_VALUE_NORMALIZER_DECAY
+    assert value_scale_floor == FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR
+    assert value_count_before >= 0 and value_count_after == value_count_before + 1
+    assert math.isfinite(raw_value_loss) and raw_value_loss >= 0.0
+    assert math.isfinite(scaled_value_loss) and scaled_value_loss >= 0.0
+    assert math.isclose(scaled_value_loss, raw_value_loss / value_scale**2, rel_tol=1e-5, abs_tol=1e-7)
     max_norm = float(telemetry.get("gradient_clip_max_norm", float("nan")))
     assert max_norm == 0.5
     gradient_facts = {
@@ -899,6 +932,11 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
         phase=telemetry.get("warmup_phase"),
         actor_std_delta=telemetry.get("actor_std_parameter_delta"),
         critic_delta=telemetry.get("critic_parameter_delta"),
+        critic_value_normalization=telemetry["critic_value_normalization_id"],
+        critic_value_scale=value_scale,
+        critic_raw_value_loss=raw_value_loss,
+        critic_scaled_value_loss=scaled_value_loss,
+        critic_value_normalizer_count=(value_count_before, value_count_after),
     )
 
 
@@ -957,13 +995,14 @@ def print_ppo_audit(runner: Any, *, result: Any) -> None:
 def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[str, Any]) -> None:
     if not formal_runtime_audit_enabled(runner):
         return
-    # B1: inspect the complete in-memory checkpoint-v11 envelope before serialization.
+    # B1: inspect the complete in-memory checkpoint-v12 envelope before serialization.
     required = (
         "model_state_dict",
         "optimizer_state_dict",
         "iter",
         "frontres_segment_sampler_state_dict",
         "frontres_segment_k_curriculum",
+        "frontres_critic_value_normalizer_state_dict",
         "frontres_v015_checkpoint_identity",
     )
     missing = [key for key in required if key not in payload]
@@ -972,12 +1011,12 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
     # B2: cross-check v11 identity without treating optional normalizers as unconditional.
     identity = payload["frontres_v015_checkpoint_identity"]
     assert isinstance(identity, Mapping), "formal Stage 3 checkpoint identity must be a mapping"
-    assert identity.get("format") == "frontres-v017-checkpoint-v11", "formal audit requires checkpoint-v11"
+    assert identity.get("format") == "frontres-v017-checkpoint-v12", "formal audit requires checkpoint-v12"
     assert identity.get("method_contract_id") == "FRS-METHOD-v018", "formal audit requires FRS-METHOD-v018"
     assert identity.get("gain_contract_id") == "FRS-GAIN-v007", "formal audit requires FRS-GAIN-v007"
-    assert identity.get("optimization_contract_id") == "FRS-PPO-v006", "formal audit requires FRS-PPO-v006"
-    assert identity.get("training_contract_id") == "FRS-TRAIN-v016", "formal audit requires FRS-TRAIN-v016"
-    assert identity.get("dr_curriculum_schema_id") == "nested-k-dr-four-class-v1", "formal audit requires TRAIN-v016 DR identity"
+    assert identity.get("optimization_contract_id") == "FRS-PPO-v007", "formal audit requires FRS-PPO-v007"
+    assert identity.get("training_contract_id") == "FRS-TRAIN-v017", "formal audit requires FRS-TRAIN-v017"
+    assert identity.get("dr_curriculum_schema_id") == "nested-k-dr-four-class-v1", "formal audit requires TRAIN-v017 DR identity"
     assert identity.get("scalar_target_id") == "clean-anchored-recovery-aware-gain-v1"
     assert identity.get("physics_schema_id") == "clean-anchored-contact-zmp-survival-v1"
     assert identity.get("grouped_schema_id") == "grouped-all-attempt-scalar-v1"
@@ -991,10 +1030,19 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
         "identity": "separate-actor-critic-v1",
         "max_norm": 0.5,
     }
+    assert identity.get("critic_value_normalizer") == {
+        "identity": FRONTRES_VALUE_NORMALIZATION_ID,
+        "decay": FRONTRES_VALUE_NORMALIZER_DECAY,
+        "scale_floor": FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR,
+    }
+    value_normalizer_state = FrontRESValueNormalizerState.from_state_dict(
+        payload["frontres_critic_value_normalizer_state_dict"]
+    )
+    assert value_normalizer_state.update_count == int(payload["iter"])
     assert identity.get("gain") == {"beta": 0.02}, "formal audit requires the frozen v007 beta"
     assert "constraint_solver" not in identity and "projection_schema_id" not in identity
-    assert "frontres_gain_config" not in payload, "active checkpoint-v11 must exclude legacy scalar Gain metadata"
-    assert "dr_scale" not in payload and not any(str(key).startswith("frontres_gmt_frontier_") for key in payload), "active checkpoint-v11 must exclude legacy adaptive DR state"
+    assert "frontres_gain_config" not in payload, "active checkpoint-v12 must exclude legacy scalar Gain metadata"
+    assert "dr_scale" not in payload and not any(str(key).startswith("frontres_gmt_frontier_") for key in payload), "active checkpoint-v12 must exclude legacy adaptive DR state"
     normalizer = identity.get("normalizer")
     if isinstance(normalizer, Mapping) and normalizer.get("mode") == "empirical_prefix_plus_frozen_gmt":
         assert "obs_norm_state_dict" in payload and "privileged_obs_norm_state_dict" in payload
@@ -1063,14 +1111,14 @@ def print_checkpoint_reload_audit(
     validated_identity: Mapping[str, Any],
     file_sha256: str,
 ) -> None:
-    """Project a strictly validated post-``os.replace`` checkpoint-v11 readback."""
+    """Project a strictly validated post-``os.replace`` checkpoint-v12 readback."""
 
     if not formal_runtime_audit_enabled(runner):
         return
     identity = payload.get("frontres_v015_checkpoint_identity")
     assert isinstance(identity, Mapping) and dict(identity) == dict(validated_identity)
     assert len(file_sha256) == 64
-    assert identity.get("format") == "frontres-v017-checkpoint-v11"
+    assert identity.get("format") == "frontres-v017-checkpoint-v12"
     critic = identity.get("critic")
     layout = identity.get("future_intent_layout")
     transaction = identity.get("transaction")
@@ -1085,10 +1133,20 @@ def print_checkpoint_reload_audit(
     gmt = identity.get("gmt")
     curriculum = identity.get("curriculum")
     gradient_clip = identity.get("gradient_clip")
+    value_normalizer_identity = identity.get("critic_value_normalizer")
+    value_normalizer_state = FrontRESValueNormalizerState.from_state_dict(
+        payload.get("frontres_critic_value_normalizer_state_dict")
+    )
     assert isinstance(gmt, Mapping) and len(str(gmt.get("checkpoint_sha256", ""))) == 64
     assert len(str(gmt.get("normalizer_fingerprint", ""))) == 64
     assert isinstance(curriculum, Mapping) and str(curriculum.get("schedule_fingerprint", ""))
     assert gradient_clip == {"identity": "separate-actor-critic-v1", "max_norm": 0.5}
+    assert value_normalizer_identity == {
+        "identity": FRONTRES_VALUE_NORMALIZATION_ID,
+        "decay": FRONTRES_VALUE_NORMALIZER_DECAY,
+        "scale_floor": FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR,
+    }
+    assert value_normalizer_state.update_count == int(payload["iter"])
 
     optimizer_state = payload.get("optimizer_state_dict")
     groups = optimizer_state.get("param_groups") if isinstance(optimizer_state, Mapping) else None
@@ -1125,6 +1183,8 @@ def print_checkpoint_reload_audit(
         optimizer_lrs=lrs,
         layout=(layout["prefix_dim"], critic["input_dim"], layout["gmt_dim"]),
         gradient_clip=gradient_clip,
+        critic_value_normalizer=value_normalizer_identity,
+        critic_value_normalizer_update_count=value_normalizer_state.update_count,
         schedule_fingerprint=curriculum["schedule_fingerprint"],
         normalizer_mode=identity.get("normalizer", {}).get("mode"),
         gmt_sha256=gmt["checkpoint_sha256"],

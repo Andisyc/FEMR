@@ -22,6 +22,12 @@ from typing import Any, Literal, Mapping
 import torch
 import numpy as np
 
+from rsl_rl.frontres.frontres_value_normalization import (
+    FRONTRES_VALUE_NORMALIZATION_ID,
+    FRONTRES_VALUE_NORMALIZER_DECAY,
+    FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR,
+    FrontRESValueNormalizerState,
+)
 from rsl_rl.modules import FrontRESActorCritic, ResidualActorCritic
 from rsl_rl.modules.frontres_observation_layout import (
     FRONTRES_FUTURE_INTENT_DIM,
@@ -198,7 +204,7 @@ def frontres_quality_route_actor(
                     validation_scope="quality_inference",
                 )
                 if validated is None:
-                    raise RuntimeError("v016 quality policy route requires strict checkpoint-v11 identity")
+                    raise RuntimeError("v017 quality policy route requires strict checkpoint-v12 identity")
             elif identity_format != _V015_LEGACY_POLICY_CHECKPOINT_FORMAT:
                 raise RuntimeError("quality policy route received an unsupported checkpoint format")
             model_state = checkpoint.get("model_state_dict")
@@ -505,7 +511,7 @@ def _v015_checkpoint_layout_fields(runner: Any) -> dict[str, int | str | tuple[i
 
 
 def _v016_checkpoint_critic_identity(runner: Any) -> dict[str, Any]:
-    """Validate and publish the sole TRAIN-v016 Critic/clip persistence identity."""
+    """Validate and publish the sole TRAIN-v017 Critic/clip persistence identity."""
 
     # B1: 校验 runtime contract fields 与 347D first layer, 产出可信 Critic identity.
     alg = getattr(runner, "alg", None)
@@ -517,8 +523,8 @@ def _v016_checkpoint_critic_identity(runner: Any) -> dict[str, Any]:
     ) if isinstance(critic, torch.nn.Module) else None
     expected_fields = {
         "frontres_method_contract_id": "FRS-METHOD-v018",
-        "frontres_optimization_contract_id": "FRS-PPO-v006",
-        "frontres_training_contract_id": "FRS-TRAIN-v016",
+        "frontres_optimization_contract_id": "FRS-PPO-v007",
+        "frontres_training_contract_id": "FRS-TRAIN-v017",
         "frontres_critic_value_kind": "state_value",
         "frontres_critic_input_dim": 347,
         "frontres_critic_action_conditioned": False,
@@ -527,15 +533,15 @@ def _v016_checkpoint_critic_identity(runner: Any) -> dict[str, Any]:
     }
     for name, expected in expected_fields.items():
         if getattr(alg, name, None) != expected:
-            raise RuntimeError(f"checkpoint-v11 requires {name}={expected!r}")
+            raise RuntimeError(f"checkpoint-v12 requires {name}={expected!r}")
     if (
         not isinstance(first_linear, torch.nn.Linear)
         or int(first_linear.in_features) != 347
         or int(getattr(runner, "_frontres_critic_observation_dim", 0) or 0) != 347
     ):
-        raise RuntimeError("checkpoint-v11 requires one exact 347D state-value Critic input")
+        raise RuntimeError("checkpoint-v12 requires one exact 347D state-value Critic input")
     if float(getattr(alg, "max_grad_norm", float("nan"))) != 0.5:
-        raise RuntimeError("checkpoint-v11 requires separate Actor/Critic max_grad_norm=0.5")
+        raise RuntimeError("checkpoint-v12 requires separate Actor/Critic max_grad_norm=0.5")
 
     # B2: 发布 Critic semantics, 不从 model shape 猜测 target 或 action authority.
     return {
@@ -543,6 +549,27 @@ def _v016_checkpoint_critic_identity(runner: Any) -> dict[str, Any]:
         "input_dim": 347,
         "action_conditioned": False,
         "target_id": "segment-exact-m-mean-v1",
+    }
+
+
+def _v017_checkpoint_value_normalizer_identity(runner: Any) -> dict[str, Any]:
+    alg = getattr(runner, "alg", None)
+    normalization_id = str(getattr(alg, "frontres_critic_value_normalization", "")).lower()
+    decay = float(getattr(alg, "frontres_critic_value_normalizer_decay", float("nan")))
+    scale_floor = float(getattr(alg, "frontres_critic_value_normalizer_scale_floor", float("nan")))
+    state = getattr(alg, "frontres_critic_value_normalizer_state", None)
+    if (
+        normalization_id != FRONTRES_VALUE_NORMALIZATION_ID
+        or decay != FRONTRES_VALUE_NORMALIZER_DECAY
+        or scale_floor != FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR
+        or not isinstance(state, FrontRESValueNormalizerState)
+    ):
+        raise RuntimeError("checkpoint-v12 requires the fixed Critic value-normalizer identity and state")
+    state.validate()
+    return {
+        "identity": normalization_id,
+        "decay": decay,
+        "scale_floor": scale_floor,
     }
 
 
@@ -853,7 +880,7 @@ def load_frontres_hsl_initializer(runner: Any, path: str) -> dict[str, Any]:
         "restored": ("residual_actor", distribution_key, _V015_HSL_PREFIX_NORM_KEY),
     }
     print(
-        "[FrontRES v016 Stage-3 HSL Init] "
+        "[FrontRES v017 Stage-3 HSL Init] "
         f"checkpoint={checkpoint_path} format={receipt['format']} "
         f"restored={receipt['restored']} critic=False optimizer=False sampler=False transaction=False",
         flush=True,
@@ -910,7 +937,7 @@ def _validate_v013_receipt_curriculum(
     receipt = transaction["receipt"]
     expected_iteration = int(current_iteration) - 1
     if expected_iteration < 0 or int(receipt["training_iteration"]) != expected_iteration:
-        raise RuntimeError("FRS-TRAIN-v016 committed receipt is not adjacent to checkpoint iteration")
+        raise RuntimeError("FRS-TRAIN-v017 committed receipt is not adjacent to checkpoint iteration")
     expected = resolve_frontres_k_stage_identity(
         schedule=schedule,
         committed_update_iteration=expected_iteration,
@@ -929,7 +956,7 @@ def _validate_v013_receipt_curriculum(
         or float(receipt.get("dr_progress", -1.0)) != expected.dr_progress
         or float(receipt.get("d_cap", -1.0)) != expected.d_cap
     ):
-        raise RuntimeError("FRS-TRAIN-v016 committed receipt has a mismatched K x M x DR stage identity")
+        raise RuntimeError("FRS-TRAIN-v017 committed receipt has a mismatched K x M x DR stage identity")
 
 
 def _build_v015_checkpoint_identity(
@@ -976,7 +1003,7 @@ def _build_v015_checkpoint_identity(
         _validate_v015_normalizer_state(
             runner.privileged_obs_normalizer.state_dict(),
             dim=347,
-            label="checkpoint-v11 Critic normalizer",
+            label="checkpoint-v12 Critic normalizer",
         )
     else:
         normalizer = {
@@ -988,7 +1015,7 @@ def _build_v015_checkpoint_identity(
         }
     iteration = int(getattr(runner, "current_learning_iteration", 0))
     if iteration < 0 or iteration > FRONTRES_V011_MAX_ABSOLUTE_ITERATION:
-        raise RuntimeError("FRS-TRAIN-v016 checkpoint iteration must be within [0,8000]")
+        raise RuntimeError("FRS-TRAIN-v017 checkpoint iteration must be within [0,8000]")
     schedule = tuple(getattr(alg, "frontres_segment_k_curriculum", ()) or ())
     require_frontres_v013_campaign_schedule(schedule)
     curriculum = resolve_frontres_k_stage_identity(
@@ -998,7 +1025,7 @@ def _build_v015_checkpoint_identity(
     )
     configured_fingerprint = str(getattr(alg, "frontres_segment_k_curriculum_fingerprint", "") or "")
     if configured_fingerprint and configured_fingerprint != curriculum.schedule_fingerprint:
-        raise RuntimeError("FRS-TRAIN-v016 checkpoint curriculum fingerprint drifted after config resolution")
+        raise RuntimeError("FRS-TRAIN-v017 checkpoint curriculum fingerprint drifted after config resolution")
     schedule_tuple = frontres_k_stage_schedule_tuple(schedule)
     transaction = _v015_transaction_checkpoint_payload(runner)
     _validate_v013_receipt_curriculum(
@@ -1009,15 +1036,16 @@ def _build_v015_checkpoint_identity(
     return {
         "format": _V015_CHECKPOINT_FORMAT,
         "method_contract_id": "FRS-METHOD-v018",
-        "training_contract_id": "FRS-TRAIN-v016",
+        "training_contract_id": "FRS-TRAIN-v017",
         "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
         "gain_contract_id": "FRS-GAIN-v007",
-        "optimization_contract_id": "FRS-PPO-v006",
+        "optimization_contract_id": "FRS-PPO-v007",
         "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "physics_evidence": dict(_V015_PHYSICS_EVIDENCE_IDENTITY),
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",
         "critic": critic_identity,
+        "critic_value_normalizer": _v017_checkpoint_value_normalizer_identity(runner),
         "gradient_clip": {
             "identity": "separate-actor-critic-v1",
             "max_norm": 0.5,
@@ -1082,10 +1110,10 @@ def _validate_v015_checkpoint_resume(
     if (
         identity.get("format") != _V015_CHECKPOINT_FORMAT
         or identity.get("method_contract_id") != "FRS-METHOD-v018"
-        or identity.get("training_contract_id") != "FRS-TRAIN-v016"
+        or identity.get("training_contract_id") != "FRS-TRAIN-v017"
         or identity.get("dr_curriculum_schema_id") != "nested-k-dr-four-class-v1"
         or identity.get("gain_contract_id") != "FRS-GAIN-v007"
-        or identity.get("optimization_contract_id") != "FRS-PPO-v006"
+        or identity.get("optimization_contract_id") != "FRS-PPO-v007"
         or identity.get("scalar_target_id") != "clean-anchored-recovery-aware-gain-v1"
         or identity.get("physics_schema_id") != "clean-anchored-contact-zmp-survival-v1"
         or identity.get("physics_evidence") != _V015_PHYSICS_EVIDENCE_IDENTITY
@@ -1093,6 +1121,7 @@ def _validate_v015_checkpoint_resume(
         or identity.get("action")
         != {"kind": "delta_se3", "dim": 6, "semantics": "direct-world-full6-v1"}
         or identity.get("critic") != _v016_checkpoint_critic_identity(runner)
+        or identity.get("critic_value_normalizer") != _v017_checkpoint_value_normalizer_identity(runner)
         or identity.get("gradient_clip")
         != {"identity": "separate-actor-critic-v1", "max_norm": 0.5}
     ):
@@ -1106,14 +1135,27 @@ def _validate_v015_checkpoint_resume(
         raise RuntimeError("v015 checkpoint is missing exact actor/Critic state")
     if not isinstance(checkpoint.get("optimizer_state_dict"), Mapping):
         raise RuntimeError("v015 checkpoint is missing optimizer state")
+    try:
+        value_normalizer_state = FrontRESValueNormalizerState.from_state_dict(
+            checkpoint.get("frontres_critic_value_normalizer_state_dict")
+        )
+    except (TypeError, ValueError, FloatingPointError) as exc:
+        raise RuntimeError("checkpoint-v12 Critic value-normalizer state is invalid") from exc
+    checkpoint_iteration = checkpoint.get("iter")
+    if (
+        not isinstance(checkpoint_iteration, int)
+        or isinstance(checkpoint_iteration, bool)
+        or value_normalizer_state.update_count != checkpoint_iteration
+    ):
+        raise RuntimeError("checkpoint-v12 Critic value-normalizer count differs from committed iteration")
     rng_state = checkpoint.get("frontres_v013_rng_state")
     if not isinstance(rng_state, Mapping) or set(rng_state) != {"python", "numpy", "torch_cpu", "torch_cuda"}:
-        raise RuntimeError("FRS-TRAIN-v016 checkpoint is missing complete RNG state")
+        raise RuntimeError("FRS-TRAIN-v017 checkpoint is missing complete RNG state")
     numpy_rng = rng_state.get("numpy")
     if not isinstance(numpy_rng, Mapping) or set(numpy_rng) != {
         "bit_generator", "keys", "position", "has_gauss", "cached_gaussian"
     }:
-        raise RuntimeError("FRS-TRAIN-v016 checkpoint NumPy RNG state is malformed")
+        raise RuntimeError("FRS-TRAIN-v017 checkpoint NumPy RNG state is malformed")
     sampler = getattr(runner, "_frontres_segment_sampler", None)
     if sampler is not None and not isinstance(checkpoint.get("frontres_segment_sampler_state_dict"), Mapping):
         raise RuntimeError("v015 checkpoint is missing sampler state")
@@ -1221,19 +1263,19 @@ def _validate_v015_checkpoint_resume(
         raise RuntimeError("v015 checkpoint has an incompatible FRS-GAIN-v007 beta identity")
     curriculum = identity.get("curriculum")
     if not isinstance(curriculum, Mapping):
-        raise RuntimeError("FRS-TRAIN-v016 checkpoint curriculum identity is missing")
+        raise RuntimeError("FRS-TRAIN-v017 checkpoint curriculum identity is missing")
     runtime_schedule = tuple(getattr(runner.alg, "frontres_segment_k_curriculum", ()) or ())
     require_frontres_v013_campaign_schedule(runtime_schedule)
     runtime_schedule_tuple = frontres_k_stage_schedule_tuple(runtime_schedule)
     if curriculum.get("schedule") != runtime_schedule_tuple:
-        raise RuntimeError("FRS-TRAIN-v016 checkpoint schedule differs from the runtime schedule")
+        raise RuntimeError("FRS-TRAIN-v017 checkpoint schedule differs from the runtime schedule")
     saved_iteration = int(curriculum.get("absolute_iteration", -1))
     if (
         saved_iteration < 0
         or saved_iteration > FRONTRES_V011_MAX_ABSOLUTE_ITERATION
         or int(checkpoint.get("iter", -1)) != saved_iteration
     ):
-        raise RuntimeError("FRS-TRAIN-v016 checkpoint iteration identity is inconsistent")
+        raise RuntimeError("FRS-TRAIN-v017 checkpoint iteration identity is inconsistent")
     expected_curriculum = resolve_frontres_k_stage_identity(
         schedule=runtime_schedule,
         committed_update_iteration=saved_iteration,
@@ -1260,7 +1302,7 @@ def _validate_v015_checkpoint_resume(
         "d_cap": expected_curriculum.d_cap,
     }
     if dict(curriculum) != expected_curriculum_payload:
-        raise RuntimeError("FRS-TRAIN-v016 checkpoint curriculum stage/phase/DR identity is inconsistent")
+        raise RuntimeError("FRS-TRAIN-v017 checkpoint curriculum stage/phase/DR identity is inconsistent")
     fields = _v015_checkpoint_layout_fields(runner)
     if identity.get("future_intent_layout") != fields:
         raise RuntimeError(
@@ -1309,7 +1351,7 @@ def _validate_v015_checkpoint_resume(
         _validate_v015_normalizer_state(
             critic_normalizer_state,
             dim=347,
-            label="checkpoint-v11 Critic normalizer",
+            label="checkpoint-v12 Critic normalizer",
         )
     elif normalizer.get("mode") != "disabled" or normalizer.get("prefix_stats_fingerprint") is not None:
         raise RuntimeError("v015 checkpoint normalizer mode changed across resume")
@@ -1633,6 +1675,12 @@ def save_runner(self, path: str, infos=None):
                 ("frontres_gmt_frontier_", "frontres_exec_floor_")
             ):
                 saved_dict.pop(key)
+        value_normalizer_state = getattr(self.alg, "frontres_critic_value_normalizer_state", None)
+        if not isinstance(value_normalizer_state, FrontRESValueNormalizerState):
+            raise RuntimeError("checkpoint-v12 save requires one committed Critic value-normalizer state")
+        if value_normalizer_state.update_count != int(self.current_learning_iteration):
+            raise RuntimeError("checkpoint-v12 save requires value-normalizer count to equal committed iteration")
+        saved_dict["frontres_critic_value_normalizer_state_dict"] = value_normalizer_state.state_dict()
         saved_dict[_V015_CHECKPOINT_IDENTITY_KEY] = _build_v015_checkpoint_identity(
             self,
             obs_norm_state=obs_norm_state,
@@ -1655,7 +1703,7 @@ def save_runner(self, path: str, infos=None):
     # Result: E69 LIVE PASS. model_221 保存 model/optimizer/normalizer/sampler/
     # Gain config/warmup payload, 与恢复后的 absolute iter 221 一致.
     print_checkpoint_payload_audit(self, path=path, payload=saved_dict)
-    # Formal checkpoint-v11 artifacts publish atomically: failed serialization cannot
+    # Formal checkpoint-v12 artifacts publish atomically: failed serialization cannot
     # replace the last committed artifact.
     if _uses_v015_formal_checkpoint_identity(self):
         temp_path = f"{path}.tmp-{os.getpid()}"
@@ -1684,7 +1732,7 @@ def save_runner(self, path: str, infos=None):
             validation_scope="resume",
         )
         if not isinstance(validated_identity, Mapping):
-            raise RuntimeError("AUDIT-B08 strict checkpoint-v11 readback produced no active identity")
+            raise RuntimeError("AUDIT-B08 strict checkpoint-v12 readback produced no active identity")
         after_snapshot = (
             int(self.current_learning_iteration),
             hasattr(self, "_frontres_last_loaded_checkpoint_path"),
@@ -1742,6 +1790,10 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     v015_resume_identity = _validate_v015_checkpoint_resume(self, loaded_dict)
     if v015_resume_identity is None:
         reject_legacy_frontres_hsl_checkpoint(self, loaded_dict)
+    else:
+        self.alg.frontres_critic_value_normalizer_state = FrontRESValueNormalizerState.from_state_dict(
+            loaded_dict["frontres_critic_value_normalizer_state_dict"]
+        )
     # B2: 从同一 payload 恢复 sampler, actor, normalizer, optimizer, Gain 和 warmup identity.
     self._frontres_last_loaded_checkpoint_path = os.path.abspath(path)
     segment_sampler = getattr(self, "_frontres_segment_sampler", None)
@@ -1770,8 +1822,8 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
         validate_frontres_legacy_gain_config_resume(self, loaded_dict, is_full_resume=is_full_resume)
     else:
         print(
-            "[Runner] Verified FRS-GAIN-v007 and FRS-TRAIN-v016 through the checkpoint-v11 identity; "
-            "legacy scalar Gain metadata is excluded from the active v016 owner.",
+            "[Runner] Verified FRS-GAIN-v007 and FRS-TRAIN-v017 through the checkpoint-v12 identity; "
+            "legacy scalar Gain metadata is excluded from the active v017 owner.",
             flush=True,
         )
     # Full-resume diagnostic probe; uncomment when checking checkpoint reloads.
@@ -1981,7 +2033,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
         )
         if saved_schedule != runtime_schedule:
             raise ValueError(
-                "FRS-TRAIN-v016 K x M x DR schedule changed across full resume: "
+                "FRS-TRAIN-v017 K x M x DR schedule changed across full resume: "
                 f"checkpoint={saved_schedule}, runtime={runtime_schedule}."
             )
     if resumed_training:
@@ -2061,7 +2113,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
                 ("_frontres_gmt_frontier_", "_frontres_exec_floor_")
             ):
                 delattr(self, _attr)
-        print("[Runner] TRAIN-v016 restored explicit per-K DR identity; legacy adaptive DR state excluded")
+        print("[Runner] TRAIN-v017 restored explicit per-K DR identity; legacy adaptive DR state excluded")
     elif is_full_resume:
         self._dr_scale      = loaded_dict.get("dr_scale",      0.0)
         self._dr_prev_error = loaded_dict.get("dr_prev_error", 0.0)

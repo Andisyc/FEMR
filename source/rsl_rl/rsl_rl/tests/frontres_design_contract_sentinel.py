@@ -25,59 +25,59 @@ def run_design_contract_sentinel() -> None:
     registry = _read("frontres_core/contracts/README.md")
     design = _read(
         "frontres_core/contracts/active/method/"
-        "FRS-METHOD-v016-physics-constrained-intent-replay.md"
+        "FRS-METHOD-v018-future-conditioned-state-value-segment-replay.md"
     )
     compatibility_entry = _read("frontres_core/contracts/design_contract.md")
     training = _read(
         "frontres_core/contracts/active/training/"
-        "FRS-TRAIN-v011-coordinated-k-m-checkpointed-curriculum.md"
+        "FRS-TRAIN-v017-adaptive-critic-value-scale-curriculum.md"
     )
     optimization = _read(
         "frontres_core/contracts/active/optimization/"
-        "FRS-PPO-v004-grouped-constraint-gradient-projection.md"
+        "FRS-PPO-v007-output-preserving-adaptive-value-scale.md"
     )
     reward = _read(
         "frontres_core/contracts/active/reward/"
-        "FRS-GAIN-v006-loaded-support-zmp-applicability.md"
+        "FRS-GAIN-v007-clean-anchored-recovery-aware-ranking.md"
     )
     evaluation = _read(
         "frontres_core/contracts/active/evaluation/"
-        "FRS-EVAL-v003-local-repair-composition-evaluation.md"
+        "FRS-EVAL-v004-clean-anchored-local-and-composition-evaluation.md"
     )
-    historical_reward = _read(
-        "frontres_core/contracts/history/reward/"
-        "FRS-GAIN-v005-vector-physics-constraints.md"
+    historical_optimization = _read(
+        "frontres_core/contracts/history/optimization/"
+        "FRS-PPO-v006-state-value-segment-mean-update.md"
+    )
+    historical_training = _read(
+        "frontres_core/contracts/history/training/"
+        "FRS-TRAIN-v016-future-conditioned-state-value-curriculum.md"
     )
 
-    _assert_contains(registry, "FRS-METHOD-v016-physics-constrained-intent-replay.md", "registry")
-    _assert_contains(registry, "FRS-TRAIN-v011-coordinated-k-m-checkpointed-curriculum.md", "registry")
-    _assert_contains(
-        registry,
-        "FRS-PPO-v004-grouped-constraint-gradient-projection.md",
-        "registry",
-    )
-    _assert_contains(registry, "FRS-GAIN-v006-loaded-support-zmp-applicability.md", "registry")
-    _assert_contains(registry, "FRS-EVAL-v003-local-repair-composition-evaluation.md", "registry")
+    _assert_contains(registry, "FRS-METHOD-v018-future-conditioned-state-value-segment-replay.md", "registry")
+    _assert_contains(registry, "FRS-TRAIN-v017-adaptive-critic-value-scale-curriculum.md", "registry")
+    _assert_contains(registry, "FRS-PPO-v007-output-preserving-adaptive-value-scale.md", "registry")
+    _assert_contains(registry, "FRS-GAIN-v007-clean-anchored-recovery-aware-ranking.md", "registry")
+    _assert_contains(registry, "FRS-EVAL-v004-clean-anchored-local-and-composition-evaluation.md", "registry")
     _assert_contains(registry, "Do not scan `history/`", "registry")
-    _assert_contains(design, "contract_id: FRS-METHOD-v016", "design")
+    _assert_contains(design, "contract_id: FRS-METHOD-v018", "design")
     _assert_contains(design, "status: active", "design")
-    _assert_contains(design, "one full-6D `Delta SE(3)` action", "design")
-    _assert_contains(design, "paired Intent improvement - full-6D repair cost", "design")
-    _assert_contains(design, "FRS-GAIN-v006", "design")
-    _assert_contains(design, "one grouped constraint projection", "design")
+    _assert_contains(design, "one full-6D current-frame repair", "design")
+    _assert_contains(design, "FRS-GAIN-v007", "design")
+    _assert_contains(design, "FRS-PPO-v007", "design")
     _assert_contains(compatibility_entry, "contracts/README.md", "compatibility entry")
-    _assert_contains(training, "contract_id: FRS-TRAIN-v011", "training")
-    _assert_contains(training, "gain_contract_id = FRS-GAIN-v006", "training")
-    _assert_contains(training, "checkpoint_schema = frontres-v015-checkpoint-v6", "training")
-    _assert_contains(optimization, "contract_id: FRS-PPO-v004", "optimization")
-    _assert_contains(optimization, "FRS-GAIN-v006", "optimization")
-    _assert_contains(reward, "contract_id: FRS-GAIN-v006", "reward")
-    _assert_contains(reward, "actual_loaded_support", "reward")
-    _assert_contains(reward, "expected-supported/actual-unloaded", "reward")
-    _assert_contains(evaluation, "contract_id: FRS-EVAL-v003", "evaluation")
-    _assert_contains(historical_reward, "contract_id: FRS-GAIN-v005", "historical reward")
-    _assert_contains(historical_reward, "status: superseded", "historical reward")
-    _assert_contains(historical_reward, "Superseded by `FRS-GAIN-v006`", "historical reward")
+    _assert_contains(training, "contract_id: FRS-TRAIN-v017", "training")
+    _assert_contains(training, "checkpoint_schema = frontres-v017-checkpoint-v12", "training")
+    _assert_contains(training, "critic_value_normalization_id = ema-target-std-nonamplifying-v1", "training")
+    _assert_contains(optimization, "contract_id: FRS-PPO-v007", "optimization")
+    _assert_contains(optimization, "L_value_scaled = L_value_raw / sigma^2", "optimization")
+    _assert_contains(optimization, "`G_total` is not transformed", "optimization")
+    _assert_contains(reward, "contract_id: FRS-GAIN-v007", "reward")
+    _assert_contains(reward, "G_total", "reward")
+    _assert_contains(evaluation, "contract_id: FRS-EVAL-v004", "evaluation")
+    _assert_contains(historical_optimization, "contract_id: FRS-PPO-v006", "historical optimization")
+    _assert_contains(historical_optimization, "status: superseded", "historical optimization")
+    _assert_contains(historical_training, "contract_id: FRS-TRAIN-v016", "historical training")
+    _assert_contains(historical_training, "status: superseded", "historical training")
 
     retired_segment_notes = NOTE / "frontres_segment_replay"
     if retired_segment_notes.exists():
@@ -96,7 +96,7 @@ def run_design_contract_sentinel() -> None:
         if phrase in active_contracts:
             raise AssertionError(f"active contract contains historical method text: {phrase}")
 
-    print("FrontRES active v016/v011/v006/v004/v003 design contract sentinel: PASS")
+    print("FrontRES active v018/v017/v007/v007/v004 design contract sentinel: PASS")
 
 
 if __name__ == "__main__":

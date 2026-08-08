@@ -182,6 +182,9 @@ def _alg_cfg() -> SimpleNamespace:
         frontres_segment_live_update_steps=4,
         frontres_segment_critic_warmup_iterations=0,
         frontres_segment_actor_warmup_iterations=0,
+        frontres_critic_value_normalization="unset",
+        frontres_critic_value_normalizer_decay=0.0,
+        frontres_critic_value_normalizer_scale_floor=0.0,
         frontres_segment_k_curriculum=(),
         frontres_formal_runtime_audit=False,
         frontres_hsl_init_enabled=False,
@@ -313,6 +316,9 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
     assert alg.lambda_supervised == 0.0
     assert alg.lambda_supervised_min == 0.0
     assert alg.frontres_formal_transaction_enabled is True
+    assert alg.frontres_critic_value_normalization == "ema-target-std-nonamplifying-v1"
+    assert alg.frontres_critic_value_normalizer_decay == 0.9
+    assert alg.frontres_critic_value_normalizer_scale_floor == 1.0
     assert alg.frontres_future_offsets == (1, 2)
     assert alg.frontres_future_intent_layout_version == "frontres-v015-future-intent-q29-v1"
     assert alg.frontres_segment_k == 8
@@ -354,6 +360,9 @@ def test_stage3_policy_quality_config_is_formal_and_read_only() -> None:
     assert alg.frontres_segment_live_runner_enabled is False
     assert alg.frontres_segment_live_train_enabled is False
     assert alg.frontres_formal_transaction_enabled is True
+    assert alg.frontres_critic_value_normalization == "ema-target-std-nonamplifying-v1"
+    assert alg.frontres_critic_value_normalizer_decay == 0.9
+    assert alg.frontres_critic_value_normalizer_scale_floor == 1.0
     assert alg.frontres_segment_live_update_steps == 1
     assert alg.frontres_segment_k_curriculum[1][:2] == (16, 3)
     assert alg.frontres_future_offsets == (1, 2)
@@ -411,7 +420,7 @@ def test_retired_optimizer_flags_reject_before_stage3_config_mutation() -> None:
         try:
             _apply_frontres_stage_preset(agent_cfg, _args(**{field: True}))
         except ValueError as exc:
-            assert "FRS-PPO-v006 rejects retired Stage-3" in str(exc)
+            assert "FRS-PPO-v007 rejects retired Stage-3" in str(exc)
         else:
             raise AssertionError(f"retired Stage-3 flag must reject: {field}")
         assert vars(agent_cfg.algorithm) == before
@@ -445,7 +454,7 @@ def test_stage3_ppo_schedule_rejects_adaptive() -> None:
     except ValueError as exc:
         assert "schedule must be fixed" in str(exc)
     else:
-        raise AssertionError("FRS-TRAIN-v016 must reject adaptive Stage-3 scheduling")
+        raise AssertionError("FRS-TRAIN-v017 must reject adaptive Stage-3 scheduling")
 
 
 def test_stage3_ppo_schedule_override_rejects_non_stage3() -> None:
@@ -498,7 +507,7 @@ def test_stage3_split_lr_override_rejects_shared_and_partial_inputs() -> None:
         _probe_exception("rejects_non_positive_ppo_lr", exc)
         assert "rejects --frontres_segment_ppo_lr" in str(exc)
     else:
-        raise AssertionError("FRS-TRAIN-v016 must reject the shared LR option")
+        raise AssertionError("FRS-TRAIN-v017 must reject the shared LR option")
     try:
         _apply_frontres_segment_split_lr_override(
             agent_cfg,
@@ -507,7 +516,7 @@ def test_stage3_split_lr_override_rejects_shared_and_partial_inputs() -> None:
     except ValueError as exc:
         assert "together" in str(exc)
     else:
-        raise AssertionError("FRS-TRAIN-v016 must reject a partial split-LR override")
+        raise AssertionError("FRS-TRAIN-v017 must reject a partial split-LR override")
 
 
 def test_stage3_rejects_multiple_live_sentinel_modes() -> None:

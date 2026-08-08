@@ -1,34 +1,33 @@
 ---
-contract_id: FRS-TRAIN-v016
+contract_id: FRS-TRAIN-v017
 status: active
 effective_date: 2026-08-08
 updated_date: 2026-08-08
-supersedes: FRS-TRAIN-v015
-scope: Direct full-6D HSL-to-HRL Recovery-Aware training with a 347D future-conditioned state-value Critic, exact-M Segment-mean value targets, independently clipped Actor/Critic gradients, fixed split-LR Adam, unchanged nested curriculum, and strict checkpoint-v11 persistence
+supersedes: FRS-TRAIN-v016
+scope: Direct full-6D HSL-to-HRL Recovery-Aware training with a 347D future-conditioned state-value Critic, exact-M Segment-mean value targets, output-preserving adaptive Critic loss scaling, independently clipped Actor/Critic gradients, fixed split-LR Adam, unchanged nested curriculum, and strict checkpoint-v12 persistence
 ---
 
-# Future-Conditioned State-Value Nested K-DR Training Curriculum
+# Adaptive-Scale Future-Conditioned State-Value Training Curriculum
 
 ## Design Delta
 
-FRS-TRAIN-v015 used a 289D current privileged state for the Critic, repeated
-one Segment's different action returns as value targets for that same state,
-and applied one global gradient-norm clip across Actor and Critic. The K8/M2
-campaign showed weak value calibration while almost every Actor-enabled
-transaction hit that shared clip boundary.
+FRS-TRAIN-v016 established the 347D future-conditioned state-value Critic,
+exact-M Segment-mean target and separate Actor/Critic clipping. Its completed
+K8/M2 run produced 2000 finite committed transactions, but the Critic pre-clip
+gradient was clipped in 77.95% of them. Segment targets had median near zero
+while rare values reached `-414.77` and `1578.23`.
 
-FRS-TRAIN-v016 changes only three coupled training facts: the Critic receives
-the Actor's already-sealed 58D future q29 Intent for a 347D state; one Segment's
-exact-M mean `G_total` is the Critic target; and Actor/Critic gradients are
-clipped independently at the existing 0.5 threshold before one Adam step.
-Actor LR `3e-6`, Critic LR `1e-5`, fixed schedule, warmup counts, K/M/DR,
-Gain, action, GMT and simulator semantics remain unchanged.
+FRS-TRAIN-v017 changes one training fact: the existing raw Critic value loss is
+divided by the square of a committed, non-amplifying EMA target standard
+deviation. Raw `G_total`, raw `V(s)`, Actor loss/advantages, Critic architecture,
+LRs, fixed schedule, warmup counts, K/M/DR, action, GMT and simulator semantics
+remain unchanged.
 
 FRS-TRAIN-v013 named the full-6D world-frame action but retained an older
 implementation identity in which HSL and Stage 3 interpreted Actor outputs
 through `tanh` and separate position/rotation scales. That transform changes
 the meaning of the Actor output and contradicts FRS-METHOD-v018. It is retired.
-FRS-TRAIN-v016 preserves the v015 direct action coordinate throughout:
+FRS-TRAIN-v017 preserves the v015 direct action coordinate throughout:
 
 ```text
 158D actor prefix -> finite raw [B,6] Delta SE(3)
@@ -47,7 +46,7 @@ That requirement is retired. Frozen-GMT survival measures baseline difficulty;
 it cannot determine in advance when a learned Repair needs a longer K to expose
 its consequence.
 
-FRS-TRAIN-v016 preserves the proven K8/M2 -> K16/M3 -> K32/M4 transaction
+FRS-TRAIN-v017 preserves the proven K8/M2 -> K16/M3 -> K32/M4 transaction
 schedule and gives each K an inner, deterministic lower-to-higher DR curriculum.
 At every K transition, DR returns to the configured lower informative
 distribution while the same Critic recalibrates. In the current GMT, robot and
@@ -78,7 +77,7 @@ mastery threshold, graduation test or precomputed per-K frontier.
   optimizer update after complete sealing;
 - H=2 remains actor context and K remains executable-evidence horizon;
 - Clean continuation remains frozen-GMT/evaluator-only evidence;
-- FRS-GAIN-v007, FRS-PPO-v006, HSL-v2 direct-action identity, beta, full-6D cost, single-`local_rp`,
+- FRS-GAIN-v007, FRS-PPO-v007, HSL-v2 direct-action identity, beta, full-6D cost, single-`local_rp`,
   grouped equal mass, and no-feedback deployment remain unchanged.
 
 No rho, second actor/Critic/optimizer, Clean actor future, K actor input, Noisy
@@ -94,18 +93,18 @@ A fresh campaign may initialize only from strict
 ```text
 restore proposal actor parameters, full-6D distribution/std and 158D normalizer
 fresh-initialize the 347D Recovery-Aware scalar Critic, optimizer and sampler
-resolve and seal TRAIN-v016 curriculum identity
+resolve and seal TRAIN-v017 curriculum identity
 enter K8/M2 critic_only with actor_loss_weight=0
 ```
 
 The accepted HSL-v2 file retains its frozen `FRS-TRAIN-v014` artifact identity.
-`FRS-TRAIN-v016` identifies the fresh Stage-3 campaign and checkpoint-v11; it
+`FRS-TRAIN-v017` identifies the fresh Stage-3 campaign and checkpoint-v12; it
 must not be written into, required from, or used to migrate the HSL artifact.
 
 HSL initialization and strict Stage-3 resume are mutually exclusive. Old
 HSL-v1 artifacts and Stage-3 checkpoint-v8 artifacts reject before mutation.
 Old Stage-3 Critic, optimizer, transaction or curriculum state cannot initialize
-a fresh v016 campaign.
+a fresh v017 campaign.
 
 ## Scalar Critic Authority
 
@@ -127,6 +126,23 @@ All M attempts share one old value; the Critic fits their Segment mean while
 the Actor keeps each attempt's realized return. K changes the consequence
 horizon and triggers recalibration; M only changes the number of samples used
 to estimate the same-state expectation.
+
+## Adaptive Critic Value Scale
+
+The fixed training identity is:
+
+```text
+critic_value_normalization_id = ema-target-std-nonamplifying-v1
+ema_decay = 0.9
+scale_floor = 1.0
+```
+
+FRS-PPO-v007 previews the target mean, second moment and derived standard
+deviation from exactly two Segment means. Only `L_value / scale^2` enters the
+Critic gradient. Raw values, targets, value clipping and Actor inputs remain in
+`G_total` units. The candidate normalizer state commits only with the exact-one
+transaction receipt; it is restored exactly by checkpoint-v12 and is absent
+from evaluation feedback or sampling decisions.
 
 ## Coordinated K x M Schedule
 
@@ -237,7 +253,7 @@ fixed Clean/Noisy lifecycle, and frozen `pi_old`.
 
 Collection performs zero optimizer steps. Every Segment produces exact M valid
 Repair rows under one homogeneous K/M/DR identity. Only complete sealing may
-call FRS-PPO-v006 once. Failure or partial collection cannot advance optimizer,
+call FRS-PPO-v007 once. Failure or partial collection cannot advance optimizer,
 sampler, inner DR progress, K/M stage, phase, absolute iteration, receipt or
 checkpoint state. Stage and DR advancement happen only after a committed
 receipt.
@@ -279,7 +295,9 @@ loss weights. Both groups participate in the same exact-one optimizer call and
 carry the same persisted optimizer step count. Before that call, each group's
 gradient norm is measured and clipped independently with `max_grad_norm=0.5`.
 Neither group's loss magnitude may set the other's clip coefficient. The
-optimizer still receives no second step, second scheduler or second owner.
+adaptive value scale is applied before Critic gradient construction and before
+the existing independent clip. The optimizer still receives no second step,
+second scheduler or second owner.
 
 ## Beta Calibration Boundary
 
@@ -287,20 +305,23 @@ The first bounded calibration uses `beta_init=0.02`. Telemetry may support
 human revision between bounded runs, but training cannot mutate beta. Once
 accepted, beta is fixed across Segments, attempts and K stages.
 
-## Checkpoint-v11 Identity
+## Checkpoint-v12 Identity
 
 ```text
-checkpoint_schema = frontres-v017-checkpoint-v11
+checkpoint_schema = frontres-v017-checkpoint-v12
 method_contract_id = FRS-METHOD-v018
 gain_contract_id = FRS-GAIN-v007
-optimization_contract_id = FRS-PPO-v006
-training_contract_id = FRS-TRAIN-v016
+optimization_contract_id = FRS-PPO-v007
+training_contract_id = FRS-TRAIN-v017
 scalar_target_id = clean-anchored-recovery-aware-gain-v1
 critic_value_kind = state_value
 critic_input_dim = 347
 critic_action_conditioned = false
 critic_target_id = segment-exact-m-mean-v1
 gradient_clip_identity = separate-actor-critic-v1
+critic_value_normalization_id = ema-target-std-nonamplifying-v1
+critic_value_normalization_decay = 0.9
+critic_value_normalization_scale_floor = 1.0
 dr_curriculum_schema_id = nested-k-dr-four-class-v1
 ```
 
@@ -308,9 +329,10 @@ The payload binds the 928/158/347/770 layout; actor/std/Critic/normalizers/optim
 complete K x M schedule; every `DRStageSpec`; active stage/K/M/phase/actor
 weight; current committed inner-DR progress and `d_cap`; fixed scales, beta and
 Gain identity; sampler/RNG state; exact row/Segment counts; absolute committed
-update; and adjacent committed transaction receipt.
+update; adjacent committed transaction receipt; and the committed Critic target
+mean, second moment and update count.
 
-Checkpoint-v10 and earlier, HSL-v1, v012 `g_8/g_16/g_32`, unversioned payloads, mismatched DR specs,
+Checkpoint-v11 and earlier, HSL-v1, v012 `g_8/g_16/g_32`, unversioned payloads, mismatched DR specs,
 hidden episode-length-controller state, partial receipts, HSL-as-resume or
 identity drift reject before any mutable restoration.
 
@@ -318,7 +340,7 @@ The optimizer payload must contain exactly the `actor` and `critic` groups,
 their exact configured LRs, disjoint role-correct membership, optimizer moments
 and one shared nonnegative step count. Missing, duplicated, overlapping or
 non-finite group identity rejects before actor, Critic, optimizer, sampler,
-curriculum or receipt mutation. Checkpoint-v10 is retained only as historical
+curriculum or receipt mutation. Checkpoint-v11 is retained only as historical
 evidence and cannot initialize or resume this campaign.
 
 ## Required Telemetry
@@ -329,11 +351,13 @@ evidence and cannot initialize or resume this campaign.
 - `G_I`, `G_P`, `lambda_RA`, repair cost and per-attempt `G_total`;
 - shared Segment value, exact-M mean target, value error, per-attempt raw/scaled
   advantage, Actor/Critic pre/post-clip norms and clip coefficients;
+- raw/scaled value loss, value-normalization identity/scale, committed and
+  candidate target moments, and exact update-count transition;
 - Contact, support drift, phase-ZMP, survival, sustained lean and unplanned
   support changes;
 - action magnitude and actor/std/Critic parameter deltas;
 - direct-full6 action identity, 158D Actor/347D Critic/770D GMT, both group LRs,
-  separate clip identity, checkpoint-v11 and all active contract identities;
+  separate clip identity, checkpoint-v12 and all active contract identities;
 - diagnostic-only cross-horizon ordering, never sampler feedback.
 
 ## Required Evidence And Stop Conditions
@@ -341,7 +365,7 @@ evidence and cannot initialize or resume this campaign.
 Deterministic evidence must cover K/M/phase resolution, all four DR class
 boundaries and weights, stage-local DR restart/advance, exact-M and environment
 widths, critic-only isolation, same-Critic K transition, no-resample, no
-Gain/PPO feedback, committed-only progress, checkpoint-v11 roundtrip and v10/
+Gain/PPO feedback, committed-only progress, checkpoint-v12 roundtrip and v11/
 `g_K` pre-mutation rejection. Formal and live evidence remain separate gates.
 
 Stop if any active HSL, Stage-3, PPO, checkpoint, evaluation or deployment
@@ -353,4 +377,6 @@ Critic is reinitialized at K transition; a transaction mixes K/M/DR identity;
 failure advances curriculum; exact-one update fails; Clean leaks to the actor;
 the Critic receives 6D action or lacks sealed future Intent; per-attempt returns
 are used as repeated identical-state value targets; Actor/Critic share one clip
-factor; or a second sampler/Critic/optimizer/Gain authority is introduced.
+factor; the adaptive scale changes raw values, targets or Actor facts; its state
+advances without a committed receipt; its scale is non-finite or below one; or
+a second sampler/Critic/optimizer/Gain authority is introduced.

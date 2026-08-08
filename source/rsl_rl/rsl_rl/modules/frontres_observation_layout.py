@@ -146,7 +146,7 @@ def compose_frontres_v016_critic_observation(
     current_privileged_observation: torch.Tensor,
     future_intent_tail: torch.Tensor,
 ) -> torch.Tensor:
-    """Compose the detached 347D TRAIN-v016 state-value Critic observation."""
+    """Compose the detached 347D TRAIN-v017 state-value Critic observation."""
 
     # B1: 校验 current privileged state 与 sealed Noisy q29 tail, 产出同批可信输入.
     values = (
@@ -155,13 +155,13 @@ def compose_frontres_v016_critic_observation(
     )
     for name, value, expected_dim in values:
         if not isinstance(value, torch.Tensor) or value.ndim != 2 or int(value.shape[-1]) != expected_dim:
-            raise ValueError(f"FrontRES v016 {name} must have shape [B,{expected_dim}]")
+            raise ValueError(f"FrontRES v017 {name} must have shape [B,{expected_dim}]")
         if value.requires_grad:
-            raise ValueError(f"FrontRES v016 {name} must be detached scenario state")
+            raise ValueError(f"FrontRES v017 {name} must be detached scenario state")
         if not torch.is_floating_point(value) or not bool(torch.isfinite(value).all().item()):
-            raise ValueError(f"FrontRES v016 {name} must contain finite floating-point values")
+            raise ValueError(f"FrontRES v017 {name} must contain finite floating-point values")
     if int(current_privileged_observation.shape[0]) != int(future_intent_tail.shape[0]):
-        raise ValueError("FrontRES v016 Critic state and future tail must share batch identity")
+        raise ValueError("FrontRES v017 Critic state and future tail must share batch identity")
 
     # B2: 按 [current privileged 289D | future intent 58D] 拼接一次, 产出 347D state.
     tail = future_intent_tail.to(
@@ -172,7 +172,7 @@ def compose_frontres_v016_critic_observation(
 
     # B3: 以精确宽度发布 state-value 输入, 禁止 action-conditioned 或 padded fallback.
     if int(critic_observation.shape[-1]) != FRONTRES_V016_CRITIC_DIM:
-        raise RuntimeError("FrontRES v016 Critic observation lost the exact 347D authority")
+        raise RuntimeError("FrontRES v017 Critic observation lost the exact 347D authority")
     return critic_observation
 
 

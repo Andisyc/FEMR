@@ -134,7 +134,7 @@ Reset may not resample, mutate, or mix them. There is no Noisy physical prefix.
 
 The active corruption family is single `local_rp`. Composite corruption is not
 part of this contract. Perturbation strength follows the K-conditioned
-four-class inner DR curriculum owned by FRS-TRAIN-v016; it is not monotonically
+four-class inner DR curriculum owned by FRS-TRAIN-v017; it is not monotonically
 ramped and is not controlled by Gain or PPO.
 
 ## Clean/Noisy/Repair Evidence
@@ -205,23 +205,25 @@ keeps `advantage_m = G_total_m - V_old(s)`. Subtracting one shared baseline
 preserves every strict within-Segment action ordering.
 
 Only after all Segment x M attempts and shared baselines are sealed may
-FRS-PPO-v006 perform exactly one grouped optimizer update. A partial or mixed
+FRS-PPO-v007 perform exactly one grouped optimizer update. A partial or mixed
 transaction cannot update policy, Critic, optimizer, sampler, curriculum, or
 checkpoint receipt.
 
 ## Training And Persistence Authority
 
-FRS-TRAIN-v016 owns HSL-to-HRL initialization, the coordinated K x M schedule,
+FRS-TRAIN-v017 owns HSL-to-HRL initialization, the coordinated K x M schedule,
 per-K inner DR progression, Critic-only recalibration, actor ramp, joint optimization,
 calibration, and strict checkpoint identity. HSL initializes only the proposal
 actor/std and 158D actor-prefix normalizer. The fresh 347D scalar Critic predicts
 the expected complete Recovery-Aware `G_total` under frozen `pi_old` and is
 recalibrated whenever K increases. Actor and Critic gradients are clipped
-independently before the same exact-one Adam step.
+independently before the same exact-one Adam step. FRS-PPO-v007 may condition
+only the Critic loss with its committed non-amplifying target scale; raw value,
+target, advantage and Actor semantics remain unchanged.
 
-Checkpoint-v10 and earlier cannot resume the changed observation, target and
-clipping identity. Strict resume requires checkpoint-v11 and the new versioned
-contract before any mutable state is restored.
+Checkpoint-v11 and earlier cannot resume the changed Critic conditioning and
+persistence identity. Strict resume requires checkpoint-v12 and the new
+versioned contract before any mutable state is restored.
 
 ## Deployment Boundary
 
@@ -255,8 +257,8 @@ config and checkpoint identity
 -> frozen GMT K-step Clean-anchored evidence
 -> FRS-GAIN-v007 G_total for every valid Repair
 -> one shared 347D V(s) and one exact-M mean Critic target per Segment
--> FRS-PPO-v006 grouped exact-one update with separate gradient clipping
--> FRS-TRAIN-v016 committed checkpoint-v11 and diagnostics
+-> FRS-PPO-v007 grouped exact-one update with separate gradient clipping
+-> FRS-TRAIN-v017 committed checkpoint-v12 and diagnostics
 ```
 
 Stop if Clean reaches actor input, a baseline is resampled, a transaction mixes

@@ -118,7 +118,7 @@ def _clear_noncritic_grads(policy: Any, optimizer_params: tuple[tuple[str, torch
 def _set_segment_optimizer_lr(alg: Any, lr: float) -> None:
     optimizer = getattr(alg, "optimizer", None)
     if any(group.get("frontres_role") in {"actor", "critic"} for group in getattr(optimizer, "param_groups", ())):
-        raise RuntimeError("FRS-TRAIN-v016 split-LR optimizer rejects group-wide LR mutation")
+        raise RuntimeError("FRS-TRAIN-v017 split-LR optimizer rejects group-wide LR mutation")
     for group in getattr(optimizer, "param_groups", ()) or ():
         group["lr"] = float(lr)
     object.__setattr__(alg, "learning_rate", float(lr))
@@ -214,7 +214,7 @@ def _apply_segment_adaptive_learning_rate(
             "adaptive_lr_allow_increase": int(bool(allow_increase)),
         }
     if any(group.get("frontres_role") in {"actor", "critic"} for group in param_groups) and schedule != "fixed":
-        raise RuntimeError("FRS-TRAIN-v016 split-LR optimizer rejects adaptive scheduling")
+        raise RuntimeError("FRS-TRAIN-v017 split-LR optimizer rejects adaptive scheduling")
     lr_before = float(getattr(alg, "learning_rate", param_groups[0].get("lr", 0.0)))
     lr_after = lr_before
     if kl_mean is not None:

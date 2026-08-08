@@ -793,6 +793,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # the Critic learn the rollout value landscape while the actor and harder
     # DR curriculum remain held.
     critic_warmup_iterations       = 200
+    frontres_critic_value_normalization = "ema-target-std-nonamplifying-v1"
+    frontres_critic_value_normalizer_decay = 0.9
+    frontres_critic_value_normalizer_scale_floor = 1.0
 
     # ── DR PI controller, velocity form (Phase 3) ────────────────────────────
     # Δu = Kp×(e−e_prev) + Ki×e  →  dr_scale += Δu

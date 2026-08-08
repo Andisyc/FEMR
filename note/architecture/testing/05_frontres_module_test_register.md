@@ -1,13 +1,12 @@
 # FrontRES Module Test Atlas
 
-Status: TRAIN-v016 cards confirmed and executed; Phase A review pending.
+Status: TRAIN-v017 affected cards confirmed and executed; Phase A passed.
 
-Current result: `18 passed / 0 partial / 0 blocked`. TEST-05, TEST-15, TEST-16
-and TEST-18 contain the confirmed v018/v016/v006 observation, optimization,
-persistence and diagnostics changes. Their TRAIN-v015 results remain historical
-characterization, not evidence for checkpoint-v11. The user confirmed all four
-changed cards on 2026-08-08; the tests were then implemented and executed
-without changing their oracles.
+Current result: `18 passed / 0 partial / 0 blocked`. TEST-02, TEST-15, TEST-16
+and TEST-18 contain the confirmed v018/v017/v007 composition, output-preserving
+Critic scale, checkpoint-v12 and diagnostics changes. TRAIN-v016 results remain
+historical characterization, not evidence for checkpoint-v12. The affected
+oracles were confirmed before implementation and remain unchanged.
 
 Interactive page: `../05_frontres_module_test_atlas.html`
 
@@ -65,5 +64,5 @@ surface.
 | blocked | none |
 
 The current detailed claim, test, observed fact, and limitation ledger is
-`../../testing/frontres_v016_state_value_module_test_execution_2026-08-08.md`.
-The 2026-08-03 TRAIN-v015 ledger remains historical evidence only.
+`../../testing/frontres_v017_value_scale_module_test_execution_2026-08-08.md`.
+The v016 ledger remains historical evidence only.

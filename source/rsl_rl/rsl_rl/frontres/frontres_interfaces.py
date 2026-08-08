@@ -13,15 +13,14 @@ from enum import Enum
 import math
 from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
-
 FRONTRES_METHOD_CONTRACT_ID = "FRS-METHOD-v018"
 FRONTRES_GAIN_CONTRACT_ID = "FRS-GAIN-v007"
-FRONTRES_OPTIMIZATION_CONTRACT_ID = "FRS-PPO-v006"
-FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v016"
+FRONTRES_OPTIMIZATION_CONTRACT_ID = "FRS-PPO-v007"
+FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v017"
 FRONTRES_SCALAR_TARGET_ID = "clean-anchored-recovery-aware-gain-v1"
 FRONTRES_PHYSICS_SCHEMA_ID = "clean-anchored-contact-zmp-survival-v1"
 FRONTRES_GROUPED_SCHEMA_ID = "grouped-all-attempt-scalar-v1"
-FRONTRES_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v11"
+FRONTRES_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v12"
 FRONTRES_DR_CURRICULUM_SCHEMA_ID = "nested-k-dr-four-class-v1"
 FRONTRES_CRITIC_VALUE_KIND = "state_value"
 FRONTRES_CRITIC_INPUT_DIM = 347
@@ -29,6 +28,9 @@ FRONTRES_CRITIC_ACTION_CONDITIONED = False
 FRONTRES_CRITIC_TARGET_ID = "segment-exact-m-mean-v1"
 FRONTRES_GRADIENT_CLIP_ID = "separate-actor-critic-v1"
 FRONTRES_GRADIENT_CLIP_MAX_NORM = 0.5
+FRONTRES_VALUE_NORMALIZATION_ID = "ema-target-std-nonamplifying-v1"
+FRONTRES_VALUE_NORMALIZER_DECAY = 0.9
+FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR = 1.0
 
 
 class FrontRESActiveRunMode(str, Enum):
@@ -65,7 +67,7 @@ class FrontRESActiveContractIdentity:
     def validate(self) -> None:
         expected = FrontRESActiveContractIdentity()
         if self != expected:
-            raise ValueError(f"FrontRES v016 contract identity drifted: expected={expected!r} actual={self!r}")
+            raise ValueError(f"FrontRES v017 contract identity drifted: expected={expected!r} actual={self!r}")
 
 
 @dataclass(frozen=True)
@@ -89,7 +91,7 @@ class FrontRESActiveObservationAuthority:
             or self.frontres_prefix_dim + self.gmt_suffix_dim != self.combined_dim
             or self.action_dim != 6
         ):
-            raise ValueError(f"FrontRES v016 observation authority drifted: {self!r}")
+            raise ValueError(f"FrontRES v017 observation authority drifted: {self!r}")
 
 
 @dataclass(frozen=True)
@@ -160,7 +162,7 @@ class FrontRESActiveTransactionRequestView:
             if isinstance(value, bool) or int(value) < 0:
                 raise ValueError(f"FrontRES request {name} must be a nonnegative integer")
         if self.warmup_phase_name not in {"critic_only", "actor_ramp", "joint"}:
-            raise ValueError("FrontRES request has an invalid TRAIN-v016 phase")
+            raise ValueError("FrontRES request has an invalid TRAIN-v017 phase")
         if not math.isfinite(float(self.warmup_actor_loss_weight)) or not 0.0 <= float(
             self.warmup_actor_loss_weight
         ) <= 1.0:
@@ -268,6 +270,12 @@ class FrontRESActiveTelemetryView:
     gradient_clip_max_norm: float
     actor_gradient_post_clip_norm: float
     critic_gradient_post_clip_norm: float
+    critic_value_normalization_id: str
+    critic_value_scale: float
+    critic_value_normalizer_decay: float
+    critic_value_normalizer_scale_floor: float
+    critic_value_normalizer_update_count_before: int
+    critic_value_normalizer_update_count_after: int
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any]) -> "FrontRESActiveTelemetryView":
@@ -290,6 +298,12 @@ class FrontRESActiveTelemetryView:
             "gradient_clip_max_norm",
             "actor_gradient_post_clip_norm",
             "critic_gradient_post_clip_norm",
+            "critic_value_normalization_id",
+            "critic_value_scale",
+            "critic_value_normalizer_decay",
+            "critic_value_normalizer_scale_floor",
+            "critic_value_normalizer_update_count_before",
+            "critic_value_normalizer_update_count_after",
             "transaction_id",
             "active_k",
             "active_m",
@@ -337,6 +351,16 @@ class FrontRESActiveTelemetryView:
             gradient_clip_max_norm=float(values["gradient_clip_max_norm"]),
             actor_gradient_post_clip_norm=float(values["actor_gradient_post_clip_norm"]),
             critic_gradient_post_clip_norm=float(values["critic_gradient_post_clip_norm"]),
+            critic_value_normalization_id=str(values["critic_value_normalization_id"]),
+            critic_value_scale=float(values["critic_value_scale"]),
+            critic_value_normalizer_decay=float(values["critic_value_normalizer_decay"]),
+            critic_value_normalizer_scale_floor=float(values["critic_value_normalizer_scale_floor"]),
+            critic_value_normalizer_update_count_before=int(
+                values["critic_value_normalizer_update_count_before"]
+            ),
+            critic_value_normalizer_update_count_after=int(
+                values["critic_value_normalizer_update_count_after"]
+            ),
         )
         view.validate()
         return view
@@ -349,9 +373,9 @@ class FrontRESActiveTelemetryView:
         if self.optimizer_step_delta != 1 or self.update_count != 1:
             raise ValueError("FrontRES telemetry requires exact-one update identity")
         if self.actor_learning_rate != 3.0e-6 or self.critic_learning_rate != 1.0e-5:
-            raise ValueError("FRS-TRAIN-v016 telemetry requires Actor LR=3e-6 and Critic LR=1e-5")
+            raise ValueError("FRS-TRAIN-v017 telemetry requires Actor LR=3e-6 and Critic LR=1e-5")
         if self.actor_observation_dim != 158 or self.gmt_observation_dim != 770:
-            raise ValueError("FRS-TRAIN-v016 telemetry requires Actor/GMT dimensions 158/770")
+            raise ValueError("FRS-TRAIN-v017 telemetry requires Actor/GMT dimensions 158/770")
         gradient_values = (
             self.gradient_clip_max_norm,
             self.actor_gradient_post_clip_norm,
@@ -363,7 +387,17 @@ class FrontRESActiveTelemetryView:
             or self.actor_gradient_post_clip_norm > self.gradient_clip_max_norm + 1.0e-6
             or self.critic_gradient_post_clip_norm > self.gradient_clip_max_norm + 1.0e-6
         ):
-            raise ValueError("FRS-PPO-v006 telemetry has invalid separate gradient clipping facts")
+            raise ValueError("FRS-PPO-v007 telemetry has invalid separate gradient clipping facts")
+        if (
+            self.critic_value_normalization_id != FRONTRES_VALUE_NORMALIZATION_ID
+            or self.critic_value_normalizer_decay != FRONTRES_VALUE_NORMALIZER_DECAY
+            or self.critic_value_normalizer_scale_floor != FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR
+            or not math.isfinite(self.critic_value_scale)
+            or self.critic_value_scale < 1.0
+            or self.critic_value_normalizer_update_count_after
+            != self.critic_value_normalizer_update_count_before + 1
+        ):
+            raise ValueError("FRS-PPO-v007 telemetry has invalid Critic value-normalizer facts")
 
 
 class FrontRESTransactionLifecyclePort(Protocol):

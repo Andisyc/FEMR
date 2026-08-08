@@ -2,7 +2,7 @@
   "layout": "design_transaction_inspector",
   "defaultZoom": 0.8,
   "title": "FrontRES Design Inspector",
-  "subtitle": "TRAIN-v016 离线实现与模块闭环：保持 V(s)，补齐 future Intent，并分离 Actor/Critic 梯度裁剪；Phase B 探针已插入并离线验证，bounded official transaction 待执行",
+  "subtitle": "TRAIN-v017：保持原始 V(s)、G_total 与 Actor credit，只对 Critic loss 使用不可放大的自适应目标尺度；离线回归与 formal audit 正在闭环",
   "cards": [
     {
       "designId": "FRS-DP-01",
@@ -352,12 +352,16 @@
           "text": "HSL 只初始化 proposal Actor，Stage 3 的 347D Critic 从头初始化。Critic-only 保持 Actor 与固定 std 不变；Actor-ramp 再逐步增加 Actor loss weight。Actor 改变后，Critic 继续更新，因为 frozen pi_old 所代表的 Repair 分布也会随 Transaction 改变。"
         },
         {
-          "heading": "独立梯度裁剪：Critic 误差不能压缩 Actor",
-          "text": "Actor 与 Critic 已经是两个不重叠的 parameter group，因此分别计算并裁剪各自的 gradient norm，阈值都保持 0.5；随后仍由同一个 Adam 执行 exactly one step。Critic gradient 再大也不能改变 Actor 的裁剪比例，Actor gradient 同样不能改变 Critic 的裁剪比例。Actor LR = 3e-6，Critic LR = 1e-5，schedule 仍为 fixed。"
+          "heading": "自适应数值尺度：只缩放 Critic 误差，不改变预测对象",
+          "text": "每个完整 Transaction 用两个 Segment mean target 预览 EMA 均值与二阶矩，得到至少为 1 的 target std；Critic raw loss 除以 std 的平方后再求梯度。G_total、V(s)、value target、value clipping 与 Actor advantage 全部保持原单位。这不是对 Gain 取对数，也不是让 Critic 看 6D Action。候选统计只有在 exact-one update 与 receipt 成功后才提交。"
         },
         {
-          "heading": "Recalibrate 与 checkpoint：新 Critic 身份必须冷启动",
-          "text": "K 增长时仍保留同一 Critic，降低 DR 后重新进入 critic-only。由于 Critic 输入从 289D 变为 347D，新的 Stage-3 campaign 使用 checkpoint-v11；旧 checkpoint-v10 不能 resume。HSL-v2 仍可只初始化 158D Actor，因为它不携带 Stage-3 Critic、optimizer 或 Transaction state。"
+          "heading": "独立梯度裁剪：Critic 误差不能压缩 Actor",
+          "text": "Actor 与 Critic 已经是两个不重叠的 parameter group，因此分别计算并裁剪各自的 gradient norm，阈值都保持 0.5；随后仍由同一个 Adam 执行 exactly one step。自适应尺度先改善 Critic 数值条件，独立裁剪仍作为最后保护。Critic gradient 再大也不能改变 Actor 的裁剪比例。Actor LR = 3e-6，Critic LR = 1e-5，schedule 仍为 fixed。"
+        },
+        {
+          "heading": "Recalibrate 与 checkpoint：新数值状态必须冷启动",
+          "text": "K 增长时仍保留同一 Critic，降低 DR 后重新进入 critic-only。TRAIN-v017 使用 checkpoint-v12，并精确保存 EMA mean、second moment 与 committed update count；checkpoint-v11 不能 resume。HSL-v2 仍可只初始化 158D Actor，因为它不携带 Stage-3 Critic、optimizer、Transaction 或 value-scale state。"
         }
       ],
       "highlightSteps": ["resolve-km", "grouped-update", "commit-state"],

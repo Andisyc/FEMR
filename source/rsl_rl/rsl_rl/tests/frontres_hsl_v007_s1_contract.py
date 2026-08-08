@@ -194,7 +194,7 @@ class _CheckpointNormalizer(torch.nn.Module):
         super().__init__()
         self.register_buffer("_mean", torch.full((1, dim), value))
         self.register_buffer("_var", torch.full((1, dim), value + 1.0))
-        self.register_buffer("_std", torch.full((1, dim), value + 2.0))
+        self.register_buffer("_std", torch.sqrt(torch.full((1, dim), value + 1.0)))
         self.register_buffer("count", torch.tensor(7, dtype=torch.long))
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
@@ -1115,14 +1115,14 @@ def test_t_hsl_loss_reject() -> None:
         lambda: unified.validate_frontres_v015_stage3_supervision_config(
             future_offsets=(1, 2), lambda_supervised=1.0, lambda_supervised_min=0.0
         ),
-        "FRS-TRAIN-v016",
+        "FRS-TRAIN-v017",
     )
     _expect_error(
         ValueError,
         lambda: unified.validate_frontres_v015_stage3_supervision_config(
             future_offsets=(1, 2), lambda_supervised=0.0, lambda_supervised_min=0.2
         ),
-        "FRS-TRAIN-v016",
+        "FRS-TRAIN-v017",
     )
     unified.validate_frontres_v015_stage3_supervision_config(
         future_offsets=(1, 2), lambda_supervised=0.0, lambda_supervised_min=0.0
@@ -1270,7 +1270,7 @@ def test_t_hsl_direct_write_reject() -> None:
             is_task_space_mode=True,
             n_train=1,
         ),
-        "FRS-TRAIN-v016",
+        "FRS-TRAIN-v017",
     )
     runner.alg.lambda_supervised = 0.0
     rollout_step._write_supervised_target_before_step(

@@ -1,26 +1,27 @@
 ---
-contract_id: FRS-PPO-v006
+contract_id: FRS-PPO-v007
 status: active
 effective_date: 2026-08-08
 updated_date: 2026-08-08
-supersedes: FRS-PPO-v005
-scope: equal-motion, equal-Segment, equal-attempt grouped PPO with one shared future-conditioned state value per Segment, exact-M mean Critic targets, independent Actor/Critic gradient clipping, and exactly one optimizer update per sealed transaction
+supersedes: FRS-PPO-v006
+scope: equal-motion, equal-Segment, equal-attempt grouped PPO with one shared future-conditioned state value per Segment, exact-M mean Critic targets, output-preserving adaptive Critic loss scaling, independent Actor/Critic gradient clipping, and exactly one optimizer update per sealed transaction
 ---
 
-# Grouped PPO With A Future-Conditioned State-Value Baseline
+# Grouped PPO With Output-Preserving Adaptive Critic Scale
 
 ## Design Delta
 
-FRS-PPO-v005 used one scalar state-value Critic but optimized that value against
-each action-specific return while all attempts in a Segment shared the same
-state input. It also globally clipped the combined Actor and Critic gradient
-vector, allowing the large value error to reduce Actor learning.
+FRS-PPO-v006 established the future-conditioned scalar state-value Critic,
+one exact-M mean target per Segment and separate Actor/Critic clipping. The
+completed TRAIN-v016 K8/M2 run remained finite but exposed a numerical scale
+problem: Segment targets were concentrated near zero with rare values above
+`10^3`, and the Critic pre-clip gradient hit its clip boundary in most
+transactions.
 
-FRS-PPO-v006 preserves the grouped scalar Actor objective and exact-one Adam
-call. The Critic now fits one exact-M mean target per Segment, all attempts use
-one shared old `V(s)`, and Actor/Critic parameter groups are clipped separately.
+FRS-PPO-v007 preserves every raw prediction, target, advantage and Actor fact
+from v006. It adds one non-amplifying adaptive scale to the Critic loss only.
 This remains PPO with a state-value baseline; the 6D action never enters the
-Critic and no Q-learning authority is introduced.
+Critic, `G_total` is not transformed, and no Q-learning authority is introduced.
 
 ## Concept Figure Mapping
 
@@ -66,6 +67,32 @@ orderings. No Contact/ZMP/survival constraint
 advantage, scalar fallback, projection coefficient, KKT status, replay
 priority, or best-of-M score may independently modify the actor or Critic loss.
 
+## Output-Preserving Adaptive Value Scale
+
+Let `y_s` be the two exact-M Segment-mean targets in one complete transaction.
+Starting from committed state `(mu, nu, n)`, the PPO owner previews:
+
+```text
+mu'    = 0.9 * mu + 0.1 * mean_s(y_s)
+nu'    = 0.9 * nu + 0.1 * mean_s(y_s^2)
+sigma  = max(1.0, sqrt(max(0, nu' - mu'^2)))
+
+L_value_raw    = grouped mean of the existing clipped value MSE
+L_value_scaled = L_value_raw / sigma^2
+```
+
+The initial committed state is `(0, 1, 0)`. The scale is finite, detached,
+permutation-invariant and never below one, so it can reduce an extreme Critic
+gradient but cannot amplify an ordinary one. Raw `V(s)`, raw targets, value
+clipping, Actor advantages and all user-facing diagnostics remain in original
+`G_total` units. This is an output-preserving normalized-SGD/PopArt-style
+conditioning rule, not a logarithm or other transform of Gain.
+
+The preview state is immutable. The formal transaction may commit
+`(mu', nu', n+1)` only after the exact-one optimizer step and committed receipt
+succeed. Failed, partial, read-only and evaluation paths perform no state
+advance. Checkpointing owns exact persistence of the committed state.
+
 ## Grouped Equal-Mass Reduction
 
 Let `G` be represented motions, `S_g` the valid selected Segments for motion
@@ -109,7 +136,7 @@ scale normalization only; it is not a winner rule or a second reward.
 
 ## Warmup Weight Boundary
 
-FRS-TRAIN-v016 provides one actor-loss weight `w`:
+FRS-TRAIN-v017 provides one actor-loss weight `w`:
 
 ```text
 critic_only: w = 0
@@ -170,8 +197,10 @@ diagnostics. Near-zero weights do not count as isolation.
 - actor/std/Critic parameter deltas and optimizer step delta;
 - separate Actor/Critic pre/post-clip norms and clip coefficients;
 - shared Segment value, exact-M mean target and Segment value error;
+- raw and scaled value loss, normalization identity and finite scale;
+- committed/preview target mean, second moment and update count;
 - transaction/scenario/hash/policy snapshot identity and committed receipt;
-- `optimization_contract_id=FRS-PPO-v006`, state-value identity and no active projection schema.
+- `optimization_contract_id=FRS-PPO-v007`, state-value identity and no active projection schema.
 
 FRS-GAIN-v007 raw Intent and Physics diagnostics remain observable but read-only
 to this optimization owner.
@@ -190,4 +219,7 @@ winner-filtered, Gain or priority changes row mass, mean-centering flips credit,
 K creates policy rows, critic-only mutates actor/std or their optimizer state,
 the Critic sees the 6D action, the value target is action-conditioned, one
 gradient family sets the other's clip coefficient, or one sealed transaction
-produces anything other than one optimizer call.
+produces anything other than one optimizer call. Also stop if raw `V(s)`, raw
+targets or Actor facts change; the scale is non-finite or below one; statistics
+advance on a failed/read-only transaction; or checkpoint state does not match
+the committed iteration.

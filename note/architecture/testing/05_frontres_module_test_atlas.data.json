@@ -1,6 +1,6 @@
 {
   "title": "FrontRES Module Test Atlas",
-  "subtitle": "TRAIN-v016/checkpoint-v11：18 passed；TEST-05/15/16/18 已按人工确认的 oracle 执行；TRAIN-v015 结果仅作历史 characterization",
+  "subtitle": "TRAIN-v017/checkpoint-v12：18 passed；受影响的 TEST-02/15/16/18 已按确认 oracle 通过，其余 14 张卡保持回归通过",
   "humanStatus": "confirmed",
   "layout": "module_test_inspector",
   "defaultZoom": 0.8,
@@ -63,7 +63,7 @@
       "cardKind": "stage-reading",
       "humanStatus": "confirmed",
       "executionStatus": "not-run",
-      "executionSummary": "FRS-METHOD-v018 / TRAIN-v016 / PPO-v006 的 18 张 Module Test Card 已通过；当前只进入 Phase A，旧 TRAIN-v015 live evidence 不能替代本轮 Phase B。",
+      "executionSummary": "FRS-METHOD-v018 / TRAIN-v017 / PPO-v007 的 18 张 Module Test Card 已通过；新增数值尺度仍须经过新的 bounded official transaction。",
       "blockId": "FORMAL-RUNTIME",
       "title": "Formal Runtime Audit",
       "color": "#9a6718",
@@ -211,7 +211,7 @@
       "designId": "TEST-02",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "TRAIN-v015 的 K/M/phase、显式 DR、fixed schedule 与 Actor 3e-6/Critic 1e-5 composition 均通过；shared/adaptive/partial LR 输入拒绝。",
+      "executionSummary": "TRAIN-v017 的 K/M/phase、显式 DR、fixed split-LR 与固定 value-normalizer identity/0.9/1.0 composition 均通过；漂移配置拒绝。",
       "blockId": "MOD-CONFIG",
       "title": "Training Config",
       "color": "#3b6f9c",
@@ -269,6 +269,11 @@
             "Actor LR=3e-6、Critic LR=1e-5、schedule=fixed",
             "两值原样进入同一个 optimizer 的命名组",
             "Stage3 split-LR composition 唯一"
+          ],
+          [
+            "value normalizer=id/decay/floor = ema-target-std-nonamplifying-v1/0.9/1.0",
+            "三项显式进入正式算法；任一漂移都在构造期拒绝",
+            "Critic 数值尺度没有隐藏默认或在线调参 owner"
           ],
           [
             "shared LR、adaptive schedule 或只给一个 LR",
@@ -1075,7 +1080,7 @@
       "designId": "TEST-15",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "PASS：两个 source 的 exact-M mean target、逐 attempt Actor advantage、permutation、重复局部 segment_id、共享 state/value rejection 与独立 0.5 clipping 全部符合手算。",
+      "executionSummary": "PASS：raw target/value/Actor credit 不变；EMA moments、不可放大 scale、raw/scale^2 Critic loss、permutation/floor/invalid-state 与独立 0.5 clipping 全部符合手算。",
       "blockId": "MOD-PPO",
       "title": "Segment PPO",
       "color": "#a5548b",
@@ -1087,7 +1092,7 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "同一 sealed Segment 的 exact-M attempts 必须共享一个 old V(s)，Critic 拟合这些 returns 的 Segment mean，Actor 仍使用每个 attempt 自己的 return-V(s)。Actor/std 与 Critic 梯度分别裁剪到0.5，随后同一两组 Adam 只 step 一次。"
+          "text": "同一 sealed Segment 的 exact-M attempts 必须共享一个 old V(s)，Critic 拟合 Segment mean。raw V/target 与 Actor return-V(s) 不变；只把 Critic raw loss 除以不可放大的 EMA target scale 平方，再独立裁剪到0.5并 exact-one step。"
         },
         {
           "heading": "伪样本测试",
@@ -1135,6 +1140,16 @@
                 "独立性双向成立"
               ],
               [
+                "targets=[2,-2]，初始 moments=(0,1)，decay=0.9",
+                "candidate second moment=1.3，scale=sqrt(1.3)，raw target/value/Actor facts 不变",
+                "缩放公式与 output-preserving 边界"
+              ],
+              [
+                "targets=[1578,0.5]、顺序交换、或两个相等 target",
+                "极端值产生有限 scale；交换不变；零方差 scale 最低为1",
+                "异常值被调节但普通梯度不被放大"
+              ],
+              [
                 "critic_only 下 Actor 与 Critic raw loss 都非零",
                 "Actor 参数和 Adam state 不变，Critic 改变且 step count +1",
                 "phase freeze 与 exact-one commit"
@@ -1153,7 +1168,7 @@
       "designId": "TEST-16",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "PASS：checkpoint-v11 完整原子 round-trip；v10 不能 resume 但保留严格只读 quality inspection；缺 Critic identity 在任何 runner mutation 前拒绝；HSL-v2 仍为 Actor-only。",
+      "executionSummary": "PASS：checkpoint-v12 原子 round-trip target moments/count；v11 不能 resume；active v12 与 legacy v10 均可严格只读 quality inspection；malformed state pre-mutation reject。",
       "blockId": "MOD-CHECKPOINT",
       "title": "Checkpointing",
       "color": "#3f826d",
@@ -1165,7 +1180,7 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "checkpoint-v11 必须原子保存并严格恢复 direct 6D Actor、347D state-value Critic、Segment exact-M mean target、separate Actor/Critic clipping、命名 split-LR optimizer 和完整 transaction identity；checkpoint-v10 或 malformed payload 必须在任何内存修改前拒绝。"
+          "text": "checkpoint-v12 必须原子保存并严格恢复 direct 6D Actor、347D state-value Critic、Segment exact-M mean target、value-normalizer moments/count、separate clipping、split-LR optimizer 和完整 transaction identity；v11 或 malformed payload 必须在任何内存修改前拒绝。"
         },
         {
           "heading": "伪样本测试",
@@ -1178,8 +1193,8 @@
             ],
             "rows": [
               [
-                "完整 v11 payload round-trip",
-                "Actor、347D Critic、固定 std、两个 group/LR/moments/count、sampler、normalizers、K/M/DR、RNG、receipt 全相同",
+                "完整 v12 payload round-trip",
+                "Actor、347D Critic、固定 std、两个 group/LR、target moments/count、sampler、normalizers、K/M/DR、RNG、receipt 全相同",
                 "full resume"
               ],
               [
@@ -1203,7 +1218,7 @@
                 "atomic save"
               ],
               [
-                "从 HSL-v2 artifact 冷启动 TRAIN-v016",
+                "从 HSL-v2 artifact 冷启动 TRAIN-v017",
                 "只载入158D proposal Actor；347D Critic、optimizer、normalizer、sampler、receipt 全新",
                 "允许的 Actor-only initialization"
               ],
@@ -1289,7 +1304,7 @@
       "designId": "TEST-18",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "PASS：一次完整离线 formal update 原样序列化 158/347/770、Segment mean target、逐 attempt advantage、separate clip facts、exact-one receipt 与 checkpoint-v11；缺失/非有限/错行全部拒绝。",
+      "executionSummary": "PASS：一次完整离线 formal update 原样序列化 raw/scaled Critic loss、scale/moments/count、158/347/770、逐 attempt advantage、separate clip 与 checkpoint-v12；缺失/非有限/错行拒绝。",
       "blockId": "MOD-DIAGNOSTICS",
       "title": "Runtime Diagnostics",
       "color": "#3f826d",
@@ -1301,7 +1316,7 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "Diagnostics 只能忠实投影已有事实：除既有 v007 Gain 外，还必须报告158/347/770 layout、shared state value、Segment exact-M mean target、逐 attempt return/advantage、Actor/Critic 独立 pre/post clip norm/coefficient 与 checkpoint-v11 receipt；绝不能重算或反馈训练。"
+          "text": "Diagnostics 只能忠实投影已有事实：除既有 v007 Gain 外，还必须报告 raw/scaled Critic loss、normalizer scale/moments/count、158/347/770、逐 attempt return/advantage、独立 clip 与 checkpoint-v12 receipt；绝不能重算或反馈训练。"
         },
         {
           "heading": "伪样本测试",
@@ -1315,7 +1330,7 @@
             "rows": [
               [
                 "layout 各放158、347、770 sentinel",
-                "报告逐字段原样保留且 identity 为v018/v016/v006/v11",
+                "报告逐字段原样保留且 identity 为v018/v017/v007/v12",
                 "观察与合同身份没有错接"
               ],
               [
@@ -1349,7 +1364,7 @@
                 "diagnostics 不成为第二 owner"
               ],
               [
-                "update_count=1、group mass 与 v11 receipt 已给定",
+                "update_count=1、value-scale count 0→1、group mass 与 v12 receipt 已给定",
                 "输出仍为1、原 group mass 与同一 committed receipt",
                 "exact-one 与 persistence 事实不被重新解释"
               ]

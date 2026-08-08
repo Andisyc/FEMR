@@ -9,7 +9,7 @@ if [[ $# -lt 2 ]]; then
   echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
   echo "Evaluation is launched independently through Held-out Policy Quality, Deployment Composition, or DR Sweep."
   echo "FRONTRES_SPECIALIST_MODE selects the perturbation preset for train/eval; default rp."
-  echo "FRS-TRAIN-v016 uses fixed Actor LR=3e-6 and Critic LR=1e-5; shared/adaptive overrides are rejected."
+  echo "FRS-TRAIN-v017 uses fixed Actor LR=3e-6 and Critic LR=1e-5; shared/adaptive overrides are rejected."
   echo "Example:"
   echo "  SHARD_CACHE_SIZE=8 bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 12000 2000 4 train"
   exit 1
@@ -41,7 +41,7 @@ if ! [[ "${CHECKPOINT_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 if [[ ("${MODE}" == "train" || "${MODE}" == "policy_quality_eval") && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
-  echo "FRS-TRAIN-v016 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
+  echo "FRS-TRAIN-v017 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
   exit 4
 fi
 FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"
@@ -49,7 +49,7 @@ CONTRACT_SUITE="${FRONTRES_STAGE3_CONTRACT_SUITE:-source/rsl_rl/rsl_rl/tests/fro
 CONTRACT_PYTHON="${FRONTRES_STAGE3_CONTRACT_PYTHON:-python}"
 
 if [[ -n "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${FRONTRES_V015_RESUME_CHECKPOINT}" ]]; then
-  echo "checkpoint-v11 resume checkpoint not found: ${FRONTRES_V015_RESUME_CHECKPOINT}" >&2
+  echo "checkpoint-v12 resume checkpoint not found: ${FRONTRES_V015_RESUME_CHECKPOINT}" >&2
   exit 2
 fi
 if [[ -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${HSL_CHECKPOINT}" ]]; then
@@ -57,7 +57,7 @@ if [[ -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${HSL_CHECKPOINT}" ]]; th
   exit 2
 fi
 if [[ "${MODE}" == "train" && -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && "${NUM_ENVS}" != "8" ]]; then
-  echo "FRS-TRAIN-v016 fresh K8/M2 campaign requires NUM_ENVS=8" >&2
+  echo "FRS-TRAIN-v017 fresh K8/M2 campaign requires NUM_ENVS=8" >&2
   exit 4
 fi
 
@@ -65,7 +65,7 @@ if [[ ${#EXTRA_TRAIN_ARGS[@]} -gt 0 ]]; then
   for arg in "${EXTRA_TRAIN_ARGS[@]}"; do
     case "${arg}" in
       --resume|--resume=*|--resume_student_checkpoint|--resume_student_checkpoint=*|--is_full_resume|--is_full_resume=*)
-        echo "v016 Stage 3 forbids legacy resume arguments: ${arg}" >&2
+        echo "v017 Stage 3 forbids legacy resume arguments: ${arg}" >&2
         exit 4
         ;;
     esac
@@ -126,7 +126,7 @@ case "${MODE}" in
     )
     ;;
   single_update|update_loop)
-    echo "FRS-PPO-v006 rejects retired optimizer-writing Stage 3 mode: ${MODE}" >&2
+    echo "FRS-PPO-v007 rejects retired optimizer-writing Stage 3 mode: ${MODE}" >&2
     exit 4
     ;;
   offline_eval|sequence_eval|policy_quality_q2d_eval)

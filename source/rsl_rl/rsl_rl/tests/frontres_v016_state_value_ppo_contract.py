@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic TEST-15 contracts for FRS-PPO-v006."""
+"""Deterministic TEST-15 contracts for FRS-PPO-v007."""
 
 from __future__ import annotations
 

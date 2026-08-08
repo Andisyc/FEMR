@@ -522,26 +522,27 @@
         {
           "id": "MOD-PPO",
           "title": "Segment PPO",
-          "summary": "执行 FRS-PPO-v006：逐 attempt Actor credit、per-Segment exact-M state-value target 与独立梯度裁剪",
-          "owns": "clipped scalar Actor objective、Segment-mean value loss、grouped reduction、separate clip 与 exact-one commit",
+          "summary": "执行 FRS-PPO-v007：逐 attempt Actor credit、per-Segment exact-M state-value target、不可放大的 Critic loss scale 与独立梯度裁剪",
+          "owns": "clipped scalar Actor objective、Segment-mean raw/scaled value loss、committed target moments、grouped reduction、separate clip 与 exact-one commit",
           "mustNot": "不恢复 retired Physics projection/KKT、rho/acceptance 或 family action mask",
           "objects": ["ratio", "per-attempt advantage", "Segment mean target", "Actor/Critic clip facts", "optimizer state"],
           "files": [
+            {"id": "MAIN-43N", "path": "source/rsl_rl/rsl_rl/frontres/frontres_value_normalization.py", "role": "pure immutable Critic target-moment and non-amplifying scale owner", "functions": ["preview_frontres_v007_value_normalization()"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_value_normalization.py&line=1"},
             {"id": "MAIN-43", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "Segment PPO formula plus candidate grouped transaction reducer", "functions": ["compute_frontres_segment_ppo_loss()"], "sourceLine": 251, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=251"},
-            {"id": "MAIN-44", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py", "role": "v016 algorithm composition and named split-LR optimizer owner", "functions": ["validate_frontres_v015_stage3_supervision_config()"], "sourceLine": 15, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_unified.py&line=15"},
+            {"id": "MAIN-44", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py", "role": "v017 algorithm composition, value-scale state and named split-LR optimizer owner", "functions": ["validate_frontres_v015_stage3_supervision_config()"], "sourceLine": 15, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_unified.py&line=15"},
             {"id": "MAIN-45", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_policy.py", "role": "legacy single-update connector and compatibility diagnostics; not an active optimizer owner", "functions": ["run_frontres_segment_single_update()"], "sourceLine": 377, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_policy.py&line=377"},
-            {"id": "MAIN-45F", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", "role": "active v018/v006 exact-one transaction and optimizer commit owner", "functions": ["run_frontres_formal_transaction_update()"], "sourceLine": 257, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_formal_transaction.py&line=257"}
+            {"id": "MAIN-45F", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", "role": "active v018/v007 exact-one transaction, value-scale and optimizer commit owner", "functions": ["run_frontres_formal_transaction_update()"], "sourceLine": 257, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_formal_transaction.py&line=257"}
             ,{"id": "MAIN-45A", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "role": "DP-09 phase owner", "functions": ["frontres_segment_warmup_phase()"], "sourceLine": 27, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=27"}
           ],
       "mainRoute": [
-        "B1 compute_frontres_segment_ppo_loss(): sealed rows -> per-attempt Actor loss + per-source exact-M mean value target",
+        "B1 compute_frontres_segment_ppo_loss(): sealed rows -> invariant per-attempt Actor loss + raw/scaled per-source exact-M mean value loss",
         "B2 grouped reducer: policy rows -> equal attempt/Segment influence without replacing individual Actor advantages",
-        "B3 install_frontres_v006_scalar_gradients(): disjoint Actor/Critic losses -> separately clipped parameter families",
+        "B3 immutable value-scale preview + install gradients: Critic loss scale -> disjoint, separately clipped parameter families",
         "B4 step_frontres_v005_scalar_optimizer(): installed gradients -> exactly one committed optimizer update"
       ],
       "mainRouteTitles": ["计算 Scalar PPO Loss", "按层平均各组", "安装 Actor/Critic 梯度", "提交一次更新"],
           "review": ["检查 source/Segment/exact-M row mapping", "检查 Actor advantage 与 Critic target 未混用", "检查两组 0.5 clip 与 critic-only 边界", "检查 exact-one update 与 partial/mixed rejection"],
-          "tests": ["TEST-15 v006 hand-computed target/clip", "TEST-18 offline formal exact-one connector", "v005 grouped regression"],
+          "tests": ["TEST-15 v007 hand-computed target scale/raw invariants", "TEST-18 committed-only normalizer connector", "v006 grouped regression"],
           "gap": "OFFLINE_CONFIRMED；正式 simulator transaction、calibration trajectory 与 policy quality 仍未确认。"
         }
       ]
