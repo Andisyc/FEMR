@@ -1,9 +1,0 @@
-nohup: ignoring input
-[K16-TRAJECTORY] model_dir=/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage3_segment_hrl/2026-08-05_14-18-11_V017_SUPPORT_FRAME_FIX_K16M3
-[K16-TRAJECTORY] START iteration=2300
-[K16-TRAJECTORY] PASS iteration=2300 transactions=4 result=/hdd0/yuxuancheng/FEMR/v017_model2300_policy_quality_k16_gpu0.json
-[K16-TRAJECTORY] START iteration=2600
-[K16-TRAJECTORY] PASS iteration=2600 transactions=4 result=/hdd0/yuxuancheng/FEMR/v017_model2600_policy_quality_k16_gpu0.json
-[K16-TRAJECTORY] START iteration=3000
-[K16-TRAJECTORY] PASS iteration=3000 transactions=4 result=/hdd0/yuxuancheng/FEMR/v017_model3000_policy_quality_k16_gpu0.json
-[K16-TRAJECTORY] COMPLETE
