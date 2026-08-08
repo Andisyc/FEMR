@@ -2,7 +2,7 @@
   "layout": "design_transaction_inspector",
   "defaultZoom": 0.8,
   "title": "FrontRES Design Inspector",
-  "subtitle": "TRAIN-v017：保持原始 V(s)、G_total 与 Actor credit，只对 Critic loss 使用不可放大的自适应目标尺度；离线回归与 formal audit 正在闭环",
+  "subtitle": "TRAIN-v018：Critic 增加动作前支撑条件，所有 K 从 M4 开始；V(s)、G_total、Actor credit 与 GMT 均保持不变",
   "cards": [
     {
       "designId": "FRS-DP-01",
@@ -107,12 +107,12 @@
       "responsibility": "先学习短期修复，再逐渐要求同一个首帧 Repair 在更长时间内保持有效；K 延长后果评价，M 增加同一 Segment 的尝试数。",
       "details": [
         {
-          "heading": "训练顺序：K8/M2 → K16/M3 → K32/M4",
-          "text": "全局 schedule 固定为 K8/M2、K16/M3、K32/M4。K8 先评价一次 Repair 在 8 步内的结果；K16 和 K32 再逐渐检查更长期的后果。对应的 M 从 2 增加到 3、4，表示每个 Segment 分别尝试 2、3、4 种一次性修复。"
+          "heading": "训练顺序：K8/M4 → K16/M4 → K32/M4",
+          "text": "全局 schedule 固定为 K8/M4、K16/M4、K32/M4。K8 先评价一次 Repair 在 8 步内的结果；K16 和 K32 再逐渐检查更长期的后果。每个 Segment 在所有阶段都尝试 4 种一次性修复，避免 K8/M2 的同状态均值标签由过少样本主导。"
         },
         {
           "heading": "K 延长后果，M 增加候选",
-          "text": "K 决定一次 Repair 的后果要观察多久；M 决定同一情境要尝试多少种 Repair。更长 K 会暴露更复杂的动力学后果，因此同步增加 M，让 Segment Replay 看见更多当前可达候选。"
+          "text": "K 决定一次 Repair 的后果要观察多久；M 决定同一情境要尝试多少种 Repair。M 固定为 4，保证每个 K 的 Critic target 都由四个 frozen-pi_old 样本估计；K 的推进仍只改变后果 horizon。"
         },
         {
           "heading": "K64 当前不启用",
@@ -120,7 +120,7 @@
         },
         {
           "heading": "同一 Transaction 使用相同 K/M",
-          "text": "一次 Transaction 中的两个 Segment 必须处在同一 curriculum 阶段，不能一个使用 K8/M2、另一个使用 K16/M3，否则 grouped PPO 会混合不同的后果范围和尝试结构。"
+          "text": "一次 Transaction 中的两个 Segment 必须处在同一 curriculum 阶段，不能混合 K8、K16 或 K32，否则 grouped PPO 会混合不同的后果范围。M 在所有阶段固定为 4。"
         },
         {
           "heading": "K 不是未来输入帧数",
@@ -327,12 +327,12 @@
           "table": {
             "columns": ["K / M", "Phase", "Committed iterations"],
             "rows": [
-              ["K8 / M2", "Critic-only", "200"],
-              ["K8 / M2", "Actor-ramp", "500"],
-              ["K8 / M2", "Joint Optimize", "1300"],
-              ["K16 / M3", "Critic-only", "300"],
-              ["K16 / M3", "Actor-ramp", "300"],
-              ["K16 / M3", "Joint Optimize", "900"],
+              ["K8 / M4", "Critic-only", "200"],
+              ["K8 / M4", "Actor-ramp", "500"],
+              ["K8 / M4", "Joint Optimize", "1300"],
+              ["K16 / M4", "Critic-only", "300"],
+              ["K16 / M4", "Actor-ramp", "300"],
+              ["K16 / M4", "Joint Optimize", "900"],
               ["K32 / M4", "Critic-only", "400"],
               ["K32 / M4", "Actor-ramp", "300"],
               ["K32 / M4", "Joint Optimize", "625"]
@@ -340,8 +340,8 @@
           }
         },
         {
-          "heading": "Critic 输入：289D 当前特权状态 + 58D future Intent",
-          "text": "Critic 读取当前 289D privileged observation，再拼接与 Actor 完全同源的 Noisy q29[t+1]、q29[t+2] 共 58D，形成 347D state input。这样它能区分当前身体状态相同、但未来动作难度不同的情境。future tail 在同一 Segment 内固定复用；Clean future、6D Repair action、K、noise label 和 evaluator evidence 都不进入 Critic。"
+          "heading": "Critic 输入：347D 原状态 + 102D 动作前支撑条件",
+          "text": "Critic 保留 289D privileged observation 与同源 Noisy q29[t+1:t+2] 58D，再增加当前实际 Contact 2D、左右脚载荷比例 2D、当前 ZMP 是否适用及 margin 2D、最多 32 步计划支撑 64D 和显式 valid mask 32D，共 449D。当前量都在 Repair action 前读取；计划支撑来自 sealed Clean-GMT continuation，只供训练期 Critic 判断状态难度。6D Repair action、Repair 后 Contact/ZMP/survival、G_total 与 evaluator 结果禁止进入。"
         },
         {
           "heading": "Critic target：同一状态的 exact-M 平均结果",
@@ -349,7 +349,7 @@
         },
         {
           "heading": "Critic-only 与 Actor-ramp：参考线稳定后再释放 Actor",
-          "text": "HSL 只初始化 proposal Actor，Stage 3 的 347D Critic 从头初始化。Critic-only 保持 Actor 与固定 std 不变；Actor-ramp 再逐步增加 Actor loss weight。Actor 改变后，Critic 继续更新，因为 frozen pi_old 所代表的 Repair 分布也会随 Transaction 改变。"
+          "text": "HSL 只初始化 proposal Actor，Stage 3 的 449D Critic 从头初始化。Critic-only 保持 Actor 与固定 std 不变；Actor-ramp 再逐步增加 Actor loss weight。Actor 改变后，Critic 继续更新，因为 frozen pi_old 所代表的 Repair 分布也会随 Transaction 改变。"
         },
         {
           "heading": "自适应数值尺度：只缩放 Critic 误差，不改变预测对象",
@@ -361,7 +361,7 @@
         },
         {
           "heading": "Recalibrate 与 checkpoint：新数值状态必须冷启动",
-          "text": "K 增长时仍保留同一 Critic，降低 DR 后重新进入 critic-only。TRAIN-v017 使用 checkpoint-v12，并精确保存 EMA mean、second moment 与 committed update count；checkpoint-v11 不能 resume。HSL-v2 仍可只初始化 158D Actor，因为它不携带 Stage-3 Critic、optimizer、Transaction 或 value-scale state。"
+          "text": "K 增长时仍保留同一 Critic，降低 DR 后重新进入 critic-only。TRAIN-v018 使用 checkpoint-v13，并精确保存 449D normalizer、EMA mean、second moment 与 committed update count；checkpoint-v12 不能 resume。HSL-v2 仍可只初始化 158D Actor，因为它不携带 Stage-3 Critic、optimizer、Transaction 或 value-scale state。"
         }
       ],
       "highlightSteps": ["resolve-km", "grouped-update", "commit-state"],
@@ -372,15 +372,15 @@
       "blockId": "M-11",
       "title": "Future Motion Context",
       "color": "#3c7485",
-      "responsibility": "Actor 与 state-value Critic 在 t 时刻共享同一条 sealed Noisy reference 的 t+1、t+2 q29 Intent；未来 root/global 与 6D Repair action 均不进入 Critic。",
+      "responsibility": "Actor 与 state-value Critic 共享 sealed Noisy q29 Intent；Critic 另外读取动作前支撑条件，仍不读取 6D Repair action 或 Repair 后结果。",
       "details": [
         "未来窗口固定为 t+1 与 t+2 两帧。每帧只提取 29D 内部关节 Intent，共 58D。",
         "两帧均来自同一条 sealed Noisy/deployment reference；root-only perturbation 使 q29 数值偶然等于 Clean calibration 时，provenance 仍然是 Noisy。",
         "Actor input 保持当前 100D 加 future Intent 58D，共 158D。",
-        "Critic input 为当前 289D privileged observation 加同一 future Intent 58D，共 347D。环境的原始 privileged observation 仍是 289D。",
-        "future root/global、Clean future、noise label、perturbation timing、K、evaluator evidence 与 6D Repair action 均不进入 Critic。",
+        "Critic input 为当前 289D privileged observation、同一 future Intent 58D 与动作前支撑上下文 102D，共 449D。环境的原始 privileged observation 仍是 289D。",
+        "102D 支撑上下文包含当前实际 Contact/载荷/ZMP 与最多 32 步计划支撑及 valid mask；Repair 后结果、noise label、perturbation timing、evaluator result 与 6D Repair action 均不进入 Critic。",
         "H=2 只为当前 Actor action 与 Critic state value 提供未来运动条件；K=8/16/32 仍只评价 executable consequences。",
-        "同一 Segment 的 M 次尝试只读复用同一个 347D Critic state，不重采样或变异；因此共享一个 old value baseline。",
+        "同一 Segment 的 M4 次尝试只读复用同一个 449D Critic state，不重采样或变异；因此共享一个 old value baseline。",
         "冻结 GMT 仍只接收原有 770D suffix；新增 future Intent 不改变 GMT 或部署 authority。"
       ],
       "highlightSteps": ["seal-scenarios", "frontres-action", "grouped-update"],

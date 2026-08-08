@@ -48,16 +48,16 @@ FRONTRES_V015_K_CURRICULUM="${FRONTRES_V015_K_CURRICULUM:-}"
 FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"
 
 if [[ ("${MODE}" == "train" || "${MODE}" == "policy_quality_eval") && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
-  echo "FRS-TRAIN-v013 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
+  echo "FRS-TRAIN-v018 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
   exit 4
 fi
 
 if [[ "${FRONTRES_G5_S4_BOUNDED}" == "1" ]]; then
-  if [[ "${MODE}" != "train" || "${NUM_ENVS}" != "8" || "${MAX_ITERS}" != "1" || "${UPDATE_STEPS}" != "1" ]]; then
-    echo "G5-S4 bounded Stage 3 requires train mode, 8 envs, 1 iteration, and 1 update" >&2
+  if [[ "${MODE}" != "train" || "${NUM_ENVS}" != "16" || "${MAX_ITERS}" != "1" || "${UPDATE_STEPS}" != "1" ]]; then
+    echo "G5-S4 bounded Stage 3 requires train mode, 16 envs, 1 iteration, and 1 update" >&2
     exit 4
   fi
-  RUN_NAME="G5_S4_BOUND_V015"
+  RUN_NAME="FRS_TRAIN_V018_SUPPORT_M4_SENTINEL"
 fi
 
 cd "${FEMR_ROOT}"

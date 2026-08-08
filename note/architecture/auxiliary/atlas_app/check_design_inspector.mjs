@@ -199,11 +199,11 @@ const expectedSegmentReplayHeadings = [
 ];
 if (segmentReplay.details.length !== expectedSegmentReplayHeadings.length
   || segmentReplay.details.some((detail, index) => detail.heading !== expectedSegmentReplayHeadings[index])) {
-  throw new err("Segment Replay details must preserve the reviewed atomic order");
+  throw new Error("Segment Replay details must preserve the reviewed atomic order");
 }
 const kStepDetails = cardsById.get("FRS-DP-03").details;
 const expectedKStepHeadings = [
-  "训练顺序：K8/M2 → K16/M3 → K32/M4",
+  "训练顺序：K8/M4 → K16/M4 → K32/M4",
   "K 延长后果，M 增加候选",
   "K64 当前不启用",
   "同一 Transaction 使用相同 K/M",
@@ -214,7 +214,7 @@ const expectedKStepHeadings = [
 ];
 if (kStepDetails.length !== expectedKStepHeadings.length
   || kStepDetails.some((detail, index) => detail.heading !== expectedKStepHeadings[index])) {
-  throw new err("K-step Curriculum details must preserve the reviewed atomic order");
+  throw new Error("K-step Curriculum details must preserve the reviewed atomic order");
 }
 const pairedDetails = cardsById.get("FRS-DP-06").details;
 const expectedPairedHeadings = [
@@ -238,7 +238,7 @@ for (const required of [
  "冻结 FrontRES，由 GMT 执行 K 步",
  "收集期间不执行 optimizer update",
  "完整封存后执行一次 grouped update",
- "全局 schedule 固定为 K8/M2、K16/M3、K32/M4",
+ "全局 schedule 固定为 K8/M4、K16/M4、K32/M4",
  "K64 当前未激活",
  "928D", "158D", "770D", "q29[t+1]", "q29[t+2]",
 "Future Motion Context",
@@ -263,7 +263,7 @@ for (const required of [
 "只有‘恢复收益更高，同时动作也更大’的同 Segment trade-off pair",
 "live test 不自动修改 beta",
 "Critic 不判断哪一个动作更好",
-"Critic input 为当前 289D privileged observation 加同一 future Intent 58D，共 347D",
+"Critic input 为当前 289D privileged observation、同一 future Intent 58D 与动作前支撑上下文 102D，共 449D",
 "Critic target 是同一 Segment exact-M 个 G_total 的平均值",
 "HSL 只初始化 proposal Actor",
 "Critic-only 保持 Actor 与固定 std 不变",
@@ -271,7 +271,7 @@ for (const required of [
 "只缩放 Critic 误差，不改变预测对象",
 "这不是对 Gain 取对数",
 "分别计算并裁剪各自的 gradient norm",
-"checkpoint-v11 不能 resume",
+"checkpoint-v12 不能 resume",
 "每个 K 都拥有一轮独立的 DR Curriculum",
 "降低 DR 后重新进入 critic-only",
 "不再建立独立 Physics projection",
@@ -282,7 +282,7 @@ const warmupDetails = cardsById.get("FRS-DP-09").details;
 const expectedWarmupHeadings = [
 "Critic 的职责：预测状态难度，不预测指定动作",
 "阶段轮次：每个 K 先校准 Critic，再逐步释放 Actor",
-"Critic 输入：289D 当前特权状态 + 58D future Intent",
+"Critic 输入：347D 原状态 + 102D 动作前支撑条件",
 "Critic target：同一状态的 exact-M 平均结果",
 "Critic-only 与 Actor-ramp：参考线稳定后再释放 Actor",
 "自适应数值尺度：只缩放 Critic 误差，不改变预测对象",
@@ -296,12 +296,12 @@ if (warmupDetails.length !== expectedWarmupHeadings.length
 const warmupText = JSON.stringify(warmupDetails);
 const warmupSchedule = warmupDetails[1].table;
 const expectedWarmupSchedule = [
- ["K8 / M2", "Critic-only", "200"],
- ["K8 / M2", "Actor-ramp", "500"],
- ["K8 / M2", "Joint Optimize", "1300"],
- ["K16 / M3", "Critic-only", "300"],
- ["K16 / M3", "Actor-ramp", "300"],
- ["K16 / M3", "Joint Optimize", "900"],
+ ["K8 / M4", "Critic-only", "200"],
+ ["K8 / M4", "Actor-ramp", "500"],
+ ["K8 / M4", "Joint Optimize", "1300"],
+ ["K16 / M4", "Critic-only", "300"],
+ ["K16 / M4", "Actor-ramp", "300"],
+ ["K16 / M4", "Joint Optimize", "900"],
  ["K32 / M4", "Critic-only", "400"],
  ["K32 / M4", "Actor-ramp", "300"],
  ["K32 / M4", "Joint Optimize", "625"],
@@ -314,13 +314,13 @@ for (const required of [
 "Actor LR = 3e-6",
 "Critic LR = 1e-5",
 "同一个 Adam",
-"checkpoint-v12",
+"checkpoint-v13",
 "至少为 1",
 "raw loss 除以 std 的平方",
 "exact-one update 与 receipt 成功后才提交",
 "V(s)",
 "6D Repair action 不进入 Critic",
-"347D state input",
+"449D Critic",
 "M 个 G_total 的平均值",
 ]) {
  if (!warmupText.includes(required)) {

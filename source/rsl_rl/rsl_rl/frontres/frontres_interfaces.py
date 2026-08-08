@@ -13,19 +13,20 @@ from enum import Enum
 import math
 from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
-FRONTRES_METHOD_CONTRACT_ID = "FRS-METHOD-v018"
+FRONTRES_METHOD_CONTRACT_ID = "FRS-METHOD-v019"
 FRONTRES_GAIN_CONTRACT_ID = "FRS-GAIN-v007"
 FRONTRES_OPTIMIZATION_CONTRACT_ID = "FRS-PPO-v007"
-FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v017"
+FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v018"
 FRONTRES_SCALAR_TARGET_ID = "clean-anchored-recovery-aware-gain-v1"
 FRONTRES_PHYSICS_SCHEMA_ID = "clean-anchored-contact-zmp-survival-v1"
 FRONTRES_GROUPED_SCHEMA_ID = "grouped-all-attempt-scalar-v1"
-FRONTRES_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v12"
+FRONTRES_CHECKPOINT_FORMAT = "frontres-v018-checkpoint-v13"
 FRONTRES_DR_CURRICULUM_SCHEMA_ID = "nested-k-dr-four-class-v1"
 FRONTRES_CRITIC_VALUE_KIND = "state_value"
-FRONTRES_CRITIC_INPUT_DIM = 347
+FRONTRES_CRITIC_INPUT_DIM = 449
 FRONTRES_CRITIC_ACTION_CONDITIONED = False
 FRONTRES_CRITIC_TARGET_ID = "segment-exact-m-mean-v1"
+FRONTRES_CRITIC_SUPPORT_CONTEXT_ID = "action-pre-support-plan-kmax32-v1"
 FRONTRES_GRADIENT_CLIP_ID = "separate-actor-critic-v1"
 FRONTRES_GRADIENT_CLIP_MAX_NORM = 0.5
 FRONTRES_VALUE_NORMALIZATION_ID = "ema-target-std-nonamplifying-v1"
@@ -62,6 +63,7 @@ class FrontRESActiveContractIdentity:
     critic_input_dim: int = FRONTRES_CRITIC_INPUT_DIM
     critic_action_conditioned: bool = FRONTRES_CRITIC_ACTION_CONDITIONED
     critic_target: str = FRONTRES_CRITIC_TARGET_ID
+    critic_support_context: str = FRONTRES_CRITIC_SUPPORT_CONTEXT_ID
     gradient_clip: str = FRONTRES_GRADIENT_CLIP_ID
 
     def validate(self) -> None:
@@ -105,7 +107,7 @@ class FrontRESActiveTransactionShape:
     role_row_count: int
 
     def validate(self) -> None:
-        expected_m_by_k = {8: 2, 16: 3, 32: 4}
+        expected_m_by_k = {8: 4, 16: 4, 32: 4}
         if isinstance(self.active_k, bool) or int(self.active_k) not in expected_m_by_k:
             raise ValueError(f"FrontRES transaction has an invalid TRAIN-v013 K: {self.active_k}")
         if isinstance(self.active_m, bool) or int(self.active_m) != expected_m_by_k[int(self.active_k)]:
@@ -162,7 +164,7 @@ class FrontRESActiveTransactionRequestView:
             if isinstance(value, bool) or int(value) < 0:
                 raise ValueError(f"FrontRES request {name} must be a nonnegative integer")
         if self.warmup_phase_name not in {"critic_only", "actor_ramp", "joint"}:
-            raise ValueError("FrontRES request has an invalid TRAIN-v017 phase")
+            raise ValueError("FrontRES request has an invalid TRAIN-v018 phase")
         if not math.isfinite(float(self.warmup_actor_loss_weight)) or not 0.0 <= float(
             self.warmup_actor_loss_weight
         ) <= 1.0:
@@ -292,6 +294,7 @@ class FrontRESActiveTelemetryView:
             "critic_input_dim",
             "critic_action_conditioned",
             "critic_target_id",
+            "critic_support_context_id",
             "gradient_clip_identity",
             "actor_observation_dim",
             "gmt_observation_dim",
@@ -332,6 +335,7 @@ class FrontRESActiveTelemetryView:
                 critic_input_dim=int(values["critic_input_dim"]),
                 critic_action_conditioned=bool(values["critic_action_conditioned"]),
                 critic_target=str(values["critic_target_id"]),
+                critic_support_context=str(values["critic_support_context_id"]),
                 gradient_clip=str(values["gradient_clip_identity"]),
             ),
             transaction_id=str(values["transaction_id"]),
@@ -373,9 +377,9 @@ class FrontRESActiveTelemetryView:
         if self.optimizer_step_delta != 1 or self.update_count != 1:
             raise ValueError("FrontRES telemetry requires exact-one update identity")
         if self.actor_learning_rate != 3.0e-6 or self.critic_learning_rate != 1.0e-5:
-            raise ValueError("FRS-TRAIN-v017 telemetry requires Actor LR=3e-6 and Critic LR=1e-5")
+            raise ValueError("FRS-TRAIN-v018 telemetry requires Actor LR=3e-6 and Critic LR=1e-5")
         if self.actor_observation_dim != 158 or self.gmt_observation_dim != 770:
-            raise ValueError("FRS-TRAIN-v017 telemetry requires Actor/GMT dimensions 158/770")
+            raise ValueError("FRS-TRAIN-v018 telemetry requires Actor/GMT dimensions 158/770")
         gradient_values = (
             self.gradient_clip_max_norm,
             self.actor_gradient_post_clip_norm,
@@ -450,6 +454,7 @@ __all__ = [
     "FRONTRES_CRITIC_ACTION_CONDITIONED",
     "FRONTRES_CRITIC_INPUT_DIM",
     "FRONTRES_CRITIC_TARGET_ID",
+    "FRONTRES_CRITIC_SUPPORT_CONTEXT_ID",
     "FRONTRES_CRITIC_VALUE_KIND",
     "FRONTRES_GRADIENT_CLIP_ID",
     "FRONTRES_GRADIENT_CLIP_MAX_NORM",

@@ -15,6 +15,16 @@ FRONTRES_V015_GMT_SUFFIX_DIM = 770
 FRONTRES_V016_CRITIC_CURRENT_DIM = 289
 FRONTRES_V016_CRITIC_FUTURE_INTENT_DIM = 58
 FRONTRES_V016_CRITIC_DIM = FRONTRES_V016_CRITIC_CURRENT_DIM + FRONTRES_V016_CRITIC_FUTURE_INTENT_DIM
+FRONTRES_V018_CRITIC_CURRENT_DIM = 289
+FRONTRES_V018_CRITIC_FUTURE_INTENT_DIM = 58
+FRONTRES_V018_CRITIC_MAX_SUPPORT_HORIZON = 32
+FRONTRES_V018_CRITIC_SUPPORT_CONTEXT_DIM = 102
+FRONTRES_V018_CRITIC_DIM = (
+    FRONTRES_V018_CRITIC_CURRENT_DIM
+    + FRONTRES_V018_CRITIC_FUTURE_INTENT_DIM
+    + FRONTRES_V018_CRITIC_SUPPORT_CONTEXT_DIM
+)
+FRONTRES_V018_CRITIC_SUPPORT_CONTEXT_ID = "action-pre-support-plan-kmax32-v1"
 
 
 @dataclass(frozen=True)
@@ -173,6 +183,122 @@ def compose_frontres_v016_critic_observation(
     # B3: 以精确宽度发布 state-value 输入, 禁止 action-conditioned 或 padded fallback.
     if int(critic_observation.shape[-1]) != FRONTRES_V016_CRITIC_DIM:
         raise RuntimeError("FrontRES v017 Critic observation lost the exact 347D authority")
+    return critic_observation
+
+
+def compose_frontres_v018_critic_support_context(
+    *,
+    current_contact: torch.Tensor,
+    vertical_load_fraction: torch.Tensor,
+    zmp_applicable: torch.Tensor,
+    zmp_margin: torch.Tensor,
+    planned_support: torch.Tensor,
+    planned_horizon: torch.Tensor,
+) -> torch.Tensor:
+    """Compose the exact 102D action-pre support context for `V(s_support)`."""
+
+    batch = int(current_contact.shape[0]) if isinstance(current_contact, torch.Tensor) and current_contact.ndim == 2 else -1
+    shapes = {
+        "current Contact": (current_contact, (batch, 2)),
+        "vertical-load fraction": (vertical_load_fraction, (batch, 2)),
+        "ZMP applicability": (zmp_applicable, (batch,)),
+        "ZMP margin": (zmp_margin, (batch,)),
+    }
+    for name, (value, expected_shape) in shapes.items():
+        if not isinstance(value, torch.Tensor) or tuple(value.shape) != expected_shape:
+            raise ValueError(f"TRAIN-v018 {name} must have shape {expected_shape}")
+        if value.requires_grad:
+            raise ValueError(f"TRAIN-v018 {name} must be detached action-pre state")
+        if not torch.is_floating_point(value) or not bool(torch.isfinite(value).all()):
+            raise ValueError(f"TRAIN-v018 {name} must contain finite floating-point values")
+    if (
+        not isinstance(planned_support, torch.Tensor)
+        or planned_support.ndim != 3
+        or tuple(planned_support.shape[:1]) != (batch,)
+        or tuple(planned_support.shape[2:]) != (2,)
+        or int(planned_support.shape[1]) <= 0
+        or int(planned_support.shape[1]) > FRONTRES_V018_CRITIC_MAX_SUPPORT_HORIZON
+    ):
+        raise ValueError("TRAIN-v018 planned support must have shape [B,K,2] with 1 <= K <= 32")
+    if (
+        planned_support.requires_grad
+        or not torch.is_floating_point(planned_support)
+        or not bool(torch.isfinite(planned_support).all())
+    ):
+        raise ValueError("TRAIN-v018 planned support must be detached finite floating-point state")
+    if (
+        not isinstance(planned_horizon, torch.Tensor)
+        or tuple(planned_horizon.shape) != (batch,)
+        or planned_horizon.requires_grad
+        or torch.is_floating_point(planned_horizon)
+        or planned_horizon.dtype == torch.bool
+    ):
+        raise ValueError("TRAIN-v018 planned horizon must be detached non-boolean integer [B]")
+    horizon = planned_horizon.to(device=current_contact.device, dtype=torch.long)
+    if bool((horizon <= 0).any()) or bool((horizon > int(planned_support.shape[1])).any()):
+        raise ValueError("TRAIN-v018 planned horizon must be within the sealed support sequence")
+
+    contact = current_contact.to(dtype=torch.float32)
+    load = vertical_load_fraction.to(device=contact.device, dtype=contact.dtype)
+    applicable = zmp_applicable.to(device=contact.device, dtype=contact.dtype)
+    margin = zmp_margin.to(device=contact.device, dtype=contact.dtype)
+    plan = planned_support.to(device=contact.device, dtype=contact.dtype)
+    for name, value in (("current Contact", contact), ("ZMP applicability", applicable), ("planned support", plan)):
+        if bool(((value != 0.0) & (value != 1.0)).any()):
+            raise ValueError(f"TRAIN-v018 {name} must be binary")
+    if bool((load < 0.0).any()) or bool((load > 1.0).any()):
+        raise ValueError("TRAIN-v018 vertical-load fractions must be within [0,1]")
+    loaded = contact.bool().any(dim=-1)
+    if bool((load[~contact.bool()] != 0.0).any()):
+        raise ValueError("TRAIN-v018 load fraction may only occupy current Contact feet")
+    if bool((load.sum(dim=-1)[loaded] - 1.0).abs().gt(1.0e-5).any()) or bool(
+        load.sum(dim=-1)[~loaded].abs().gt(1.0e-6).any()
+    ):
+        raise ValueError("TRAIN-v018 load fractions must sum to one exactly on loaded support")
+    if not torch.equal(applicable.bool(), loaded):
+        raise ValueError("TRAIN-v018 ZMP applicability must equal current loaded support")
+    if bool(margin[~applicable.bool()].abs().gt(0.0).any()):
+        raise ValueError("TRAIN-v018 inapplicable ZMP margin must use explicit zero encoding")
+
+    step = torch.arange(FRONTRES_V018_CRITIC_MAX_SUPPORT_HORIZON, device=contact.device)
+    valid = step.unsqueeze(0) < horizon.unsqueeze(1)
+    padded_plan = torch.zeros(batch, FRONTRES_V018_CRITIC_MAX_SUPPORT_HORIZON, 2, device=contact.device)
+    padded_plan[:, : int(plan.shape[1])] = plan
+    padded_plan = torch.where(valid.unsqueeze(-1), padded_plan, torch.zeros_like(padded_plan))
+    context = torch.cat(
+        (contact, load, applicable.unsqueeze(-1), margin.unsqueeze(-1), padded_plan.reshape(batch, -1), valid.float()),
+        dim=-1,
+    ).detach().clone()
+    if tuple(context.shape) != (batch, FRONTRES_V018_CRITIC_SUPPORT_CONTEXT_DIM):
+        raise RuntimeError("TRAIN-v018 Critic support context lost the exact 102D authority")
+    return context
+
+
+def compose_frontres_v018_critic_observation(
+    current_privileged_observation: torch.Tensor,
+    future_intent_tail: torch.Tensor,
+    support_context: torch.Tensor,
+) -> torch.Tensor:
+    """Compose the detached 449D TRAIN-v018 state-value Critic observation."""
+
+    values = (
+        ("current privileged observation", current_privileged_observation, FRONTRES_V018_CRITIC_CURRENT_DIM),
+        ("future intent tail", future_intent_tail, FRONTRES_V018_CRITIC_FUTURE_INTENT_DIM),
+        ("support context", support_context, FRONTRES_V018_CRITIC_SUPPORT_CONTEXT_DIM),
+    )
+    batch = int(current_privileged_observation.shape[0]) if isinstance(current_privileged_observation, torch.Tensor) and current_privileged_observation.ndim == 2 else -1
+    aligned: list[torch.Tensor] = []
+    for name, value, expected_dim in values:
+        if not isinstance(value, torch.Tensor) or tuple(value.shape) != (batch, expected_dim):
+            raise ValueError(f"TRAIN-v018 {name} must have shape [B,{expected_dim}]")
+        if value.requires_grad:
+            raise ValueError(f"TRAIN-v018 {name} must be detached scenario state")
+        if not torch.is_floating_point(value) or not bool(torch.isfinite(value).all()):
+            raise ValueError(f"TRAIN-v018 {name} must contain finite floating-point values")
+        aligned.append(value.to(device=current_privileged_observation.device, dtype=current_privileged_observation.dtype))
+    critic_observation = torch.cat(aligned, dim=-1).detach().clone()
+    if tuple(critic_observation.shape) != (batch, FRONTRES_V018_CRITIC_DIM):
+        raise RuntimeError("TRAIN-v018 Critic observation lost the exact 449D authority")
     return critic_observation
 
 

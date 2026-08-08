@@ -291,9 +291,16 @@ CONTRACTS = (
         requires_torch=True,
     ),
     ContractTarget(
-        name="v016_state_value_observation",
-        path="source/rsl_rl/rsl_rl/tests/frontres_v016_state_value_observation_contract.py",
-        expected_marker="frontres_v016_state_value_observation_contract: 289+58=347 exact",
+        name="v018_support_conditioned_observation",
+        path="source/rsl_rl/rsl_rl/tests/frontres_v018_support_conditioned_observation_contract.py",
+        expected_marker="frontres_v018_support_conditioned_observation_contract: 289+58+102=449 exact",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
+        name="v018_m4_schedule",
+        path="source/rsl_rl/rsl_rl/tests/frontres_v018_m4_schedule_contract.py",
+        expected_marker="frontres_v018_m4_schedule_contract: K8/K16/K32 all M4",
         path_class="core_param_path",
         requires_torch=True,
     ),
@@ -307,7 +314,7 @@ CONTRACTS = (
     ContractTarget(
         name="v016_checkpoint_resume",
         path="source/rsl_rl/rsl_rl/tests/frontres_v016_checkpoint_contract.py",
-        expected_marker="frontres_v016_checkpoint_contract: v11 strict round-trip and v10 reject",
+        expected_marker="frontres_v016_checkpoint_contract: v13 strict round-trip and v12/v10 reject",
         path_class="core_param_path",
         requires_torch=True,
     ),

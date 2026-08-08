@@ -31,8 +31,8 @@ assert spec.loader is not None
 spec.loader.exec_module(audit)
 
 SCHEDULE = (
-    (8, 2, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
-    (16, 3, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
+    (8, 4, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
+    (16, 4, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
     (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-joint-v1", 625, 2.381),
 )
 
@@ -41,7 +41,7 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
     policy = SimpleNamespace(
         gmt_policy=nn.Linear(3, 3),
         residual_actor=nn.Linear(158, 6),
-        critic=nn.Linear(347, 1),
+        critic=nn.Linear(449, 1),
         num_frontres_obs=158,
         num_actor_obs=928,
     )
@@ -70,12 +70,13 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
         frontres_training_objective="segment_replay_hrl",
         frontres_segment_max_horizon_k=64,
         frontres_future_offsets=(1, 2),
-        frontres_method_contract_id="FRS-METHOD-v018",
+        frontres_method_contract_id="FRS-METHOD-v019",
         frontres_gain_contract_id="FRS-GAIN-v007",
         frontres_optimization_contract_id="FRS-PPO-v007",
-        frontres_training_contract_id="FRS-TRAIN-v017",
+        frontres_training_contract_id="FRS-TRAIN-v018",
         frontres_critic_value_kind="state_value",
-        frontres_critic_input_dim=347,
+        frontres_critic_input_dim=449,
+        frontres_critic_support_context_id="action-pre-support-plan-kmax32-v1",
         frontres_critic_action_conditioned=False,
         frontres_critic_target_id="segment-exact-m-mean-v1",
         frontres_gradient_clip_identity="separate-actor-critic-v1",
@@ -105,7 +106,7 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
         _dr_scale=1.25,
         _frontres_segment_replay_boundary=boundary,
         current_learning_iteration=0,
-        _frontres_critic_observation_dim=347,
+        _frontres_critic_observation_dim=449,
         _frontres_last_loaded_checkpoint_path="/tmp/frontres-v017-hsl-proposal-v2.pt",
     )
 
@@ -113,16 +114,16 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
 def _committed_receipt(*, transaction_id: str = "tx-v016") -> dict[str, object]:
     return {
         "transaction_id": transaction_id,
-        "method_contract_id": "FRS-METHOD-v018",
+        "method_contract_id": "FRS-METHOD-v019",
         "gain_contract_id": "FRS-GAIN-v007",
         "optimization_contract_id": "FRS-PPO-v007",
-        "training_contract_id": "FRS-TRAIN-v017",
+        "training_contract_id": "FRS-TRAIN-v018",
         "optimizer_step_delta": 1,
         "selected_segment_count": 2,
-        "policy_row_count": 4,
-        "role_row_count": 8,
+        "policy_row_count": 8,
+        "role_row_count": 16,
         "active_k": 8,
-        "active_m": 2,
+        "active_m": 4,
     }
 
 
@@ -145,22 +146,23 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
         policy_snapshot_id="pi-old-v016",
         segment_count=2,
         source_count=2,
-        policy_attempt_count=4,
-        valid_row_count=4,
+        policy_attempt_count=8,
+        valid_row_count=8,
         optimizer_step_delta=1,
         update_invocation_count=1,
         diagnostics={
-            "method_contract_id": "FRS-METHOD-v018",
+            "method_contract_id": "FRS-METHOD-v019",
             "gain_contract_id": "FRS-GAIN-v007",
             "optimization_contract_id": "FRS-PPO-v007",
-            "training_contract_id": "FRS-TRAIN-v017",
+            "training_contract_id": "FRS-TRAIN-v018",
+            "critic_support_context_id": "action-pre-support-plan-kmax32-v1",
             "selected_segment_count": 2,
-            "active_m": 2,
-            "policy_row_count": 4,
-            "role_row_count": 8,
+            "active_m": 4,
+            "policy_row_count": 8,
+            "role_row_count": 16,
             "grouped_motion_mass_shares": (0.5, 0.5),
             "grouped_segment_mass_shares": (0.5, 0.5),
-            "grouped_attempt_mass_shares": (0.25, 0.25, 0.25, 0.25),
+            "grouped_attempt_mass_shares": (0.125,) * 8,
         },
     )
     checkpoint_payload = {
@@ -184,18 +186,19 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                     "update_count": 4,
                 },
                 "frontres_v015_checkpoint_identity": {
-                    "format": "frontres-v017-checkpoint-v12",
-                    "method_contract_id": "FRS-METHOD-v018",
+                    "format": "frontres-v018-checkpoint-v13",
+                    "method_contract_id": "FRS-METHOD-v019",
                     "gain_contract_id": "FRS-GAIN-v007",
                     "optimization_contract_id": "FRS-PPO-v007",
-                    "training_contract_id": "FRS-TRAIN-v017",
+                    "training_contract_id": "FRS-TRAIN-v018",
                     "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
                     "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
                     "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
                     "grouped_schema_id": "grouped-all-attempt-scalar-v1",
                     "critic": {
                         "value_kind": "state_value",
-                        "input_dim": 347,
+                        "input_dim": 449,
+                        "support_context_id": "action-pre-support-plan-kmax32-v1",
                         "action_conditioned": False,
                         "target_id": "segment-exact-m-mean-v1",
                     },
@@ -262,12 +265,12 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     assert "max_horizon_k=64" in output
     transaction_line = next(line for line in output.splitlines() if line.startswith("[AUDIT-SEGMENT-REPLAY-01]"))
     assert "segments=2" in transaction_line
-    assert "attempts_per_segment=2" in transaction_line
-    assert "policy_rows=4" in transaction_line and "valid_rows=4" in transaction_line
+    assert "attempts_per_segment=4" in transaction_line
+    assert "policy_rows=8" in transaction_line and "valid_rows=8" in transaction_line
     assert "segment_voting_weights=count=2,head=(0.5, 0.5)" in transaction_line
-    assert "attempt_voting_weights=count=4,head=(0.25, 0.25, 0.25, 0.25)" in transaction_line
+    assert "attempt_voting_weights=count=8,head=(0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125)" in transaction_line
     assert "optimizer_step_delta=1" in transaction_line and "update_invocations=1" in transaction_line
-    assert "FRS-METHOD-v018/FRS-GAIN-v007/FRS-PPO-v007/FRS-TRAIN-v017" in transaction_line
+    assert "FRS-METHOD-v019/FRS-GAIN-v007/FRS-PPO-v007/FRS-TRAIN-v018" in transaction_line
     assert "FRS-GAIN-v002" not in output and "shape=(2, 870)" not in output
     assert "lower-k8" in output and "active_k=8" in output
 
@@ -304,18 +307,19 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v013_curriculum() -> None:
             "update_count": 4,
         },
         "frontres_v015_checkpoint_identity": {
-            "format": "frontres-v017-checkpoint-v12",
-            "method_contract_id": "FRS-METHOD-v018",
+            "format": "frontres-v018-checkpoint-v13",
+            "method_contract_id": "FRS-METHOD-v019",
             "gain_contract_id": "FRS-GAIN-v007",
             "optimization_contract_id": "FRS-PPO-v007",
-            "training_contract_id": "FRS-TRAIN-v017",
+            "training_contract_id": "FRS-TRAIN-v018",
             "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
             "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
             "critic": {
                 "value_kind": "state_value",
-                "input_dim": 347,
+                "input_dim": 449,
+                "support_context_id": "action-pre-support-plan-kmax32-v1",
                 "action_conditioned": False,
                 "target_id": "segment-exact-m-mean-v1",
             },
@@ -375,7 +379,7 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
     bind_frontres_collection_context(runner, route="training", sample=object(), batch=object())
     update_frontres_observation_trace(
         runner,
-        role_row_count=8,
+        role_row_count=16,
         current_command_dim=58,
         raw_observation_dim=870,
         q29_tail_dim=58,
@@ -386,65 +390,67 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
         gmt_input_dim=770,
         critic_current_observation_dim=289,
         critic_future_intent_dim=58,
-        critic_observation_dim=347,
+        critic_support_context_dim=102,
+        critic_observation_dim=449,
         actor_segment_state_max_abs_diff=0.0,
         critic_segment_state_max_abs_diff=0.0,
         actor_raw_observation_max_abs_diff=0.0,
         critic_raw_observation_max_abs_diff=0.0,
-        post_advance_gmt_read_count=8,
+        post_advance_gmt_read_count=16,
     )
     evidence = SimpleNamespace(
-        roles=("repair",) * 4 + ("noisy",) * 4,
-        intent_q29_provenance=("deployment_noisy_q29",) * 8,
-        intent_q29_source=("sealed_noisy_q29",) * 8,
-        policy_actions=torch.zeros(4, 6),
-        horizon_k=torch.full((8,), 8, dtype=torch.long),
-        continuation=torch.zeros(8, 8, 65),
-        frozen_gmt_env_actions=torch.zeros(8, 8, 29),
+        roles=("repair",) * 8 + ("noisy",) * 8,
+        intent_q29_provenance=("deployment_noisy_q29",) * 16,
+        intent_q29_source=("sealed_noisy_q29",) * 16,
+        policy_actions=torch.zeros(8, 6),
+        horizon_k=torch.full((16,), 8, dtype=torch.long),
+        continuation=torch.zeros(16, 8, 65),
+        frozen_gmt_env_actions=torch.zeros(16, 8, 29),
         actor_forward_count=1,
         later_femr_action_count=0,
     )
     telemetry = {
         "transaction_id": "tx-v016",
-        "source_index": (0, 0, 1, 1),
-        "trial_index": (0, 1, 0, 1),
-        "scenario_ids": ("s0", "s0", "s1", "s1"),
-        "noisy_segment_hashes": ("h0", "h0", "h1", "h1"),
-        "policy_row_count": 4,
+        "source_index": (0, 0, 0, 0, 1, 1, 1, 1),
+        "trial_index": (0, 1, 2, 3, 0, 1, 2, 3),
+        "scenario_ids": ("s0",) * 4 + ("s1",) * 4,
+        "noisy_segment_hashes": ("h0",) * 4 + ("h1",) * 4,
+        "policy_row_count": 8,
         "active_k": 8,
-        "active_m": 2,
+        "active_m": 4,
         "selected_segment_count": 2,
-        "role_row_count": 8,
-        "valid_policy_row_mask": (True,) * 4,
+        "role_row_count": 16,
+        "valid_policy_row_mask": (True,) * 8,
         "clean_execution_count": (1, 1),
         "noisy_execution_count": (1, 1),
-        "intent_remaining_noisy": (0.4,) * 4,
-        "intent_remaining_repaired": (0.2, 0.3, 0.5, 0.6),
-        "physics_remaining_noisy": (0.5,) * 4,
-        "physics_remaining_repaired": (0.4, 0.3, 0.2, 0.1),
-        "intent_gain": (0.2, 0.1, -0.1, -0.2),
-        "physics_gain": (0.1, 0.2, 0.3, 0.4),
-        "recovery_pressure": (1.0,) * 4,
-        "weighted_physics_gain": (0.1, 0.2, 0.3, 0.4),
-        "repair_cost": (0.01,) * 4,
-        "repair_penalty": (0.01,) * 4,
-        "cost_free_score": (0.3, 0.3, 0.2, 0.2),
-        "gain_total": (0.29, 0.29, 0.19, 0.19),
-        "policy_values": (0.1, 0.1, 0.05, 0.05),
-        "raw_advantages": (0.19, 0.19, 0.14, 0.14),
-        "critic_value_targets": (0.29, 0.29, 0.19, 0.19),
+        "intent_remaining_noisy": (0.4,) * 8,
+        "intent_remaining_repaired": (0.2, 0.25, 0.3, 0.35, 0.5, 0.55, 0.6, 0.65),
+        "physics_remaining_noisy": (0.5,) * 8,
+        "physics_remaining_repaired": (0.4, 0.35, 0.3, 0.25, 0.2, 0.15, 0.1, 0.05),
+        "intent_gain": (0.2, 0.15, 0.1, 0.05, -0.1, -0.15, -0.2, -0.25),
+        "physics_gain": (0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45),
+        "recovery_pressure": (1.0,) * 8,
+        "weighted_physics_gain": (0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45),
+        "repair_cost": (0.01,) * 8,
+        "repair_penalty": (0.01,) * 8,
+        "cost_free_score": (0.3,) * 4 + (0.2,) * 4,
+        "gain_total": (0.29,) * 4 + (0.19,) * 4,
+        "policy_values": (0.1,) * 4 + (0.05,) * 4,
+        "raw_advantages": (0.19,) * 4 + (0.14,) * 4,
+        "critic_value_targets": (0.29,) * 4 + (0.19,) * 4,
         "critic_segment_target_means": (0.29, 0.19),
-        "actor_advantages": (0.19, 0.19, 0.14, 0.14),
+        "actor_advantages": (0.19,) * 4 + (0.14,) * 4,
         "return_mean": 0.24,
         "return_min": 0.19,
         "return_max": 0.29,
         "grouped_reduction_active": True,
         "grouped_segment_mass_shares": (0.5, 0.5),
-        "grouped_attempt_mass_shares": (0.25,) * 4,
+        "grouped_attempt_mass_shares": (0.125,) * 8,
         "actor_observation_dim": 158,
-        "critic_observation_dim": 347,
+        "critic_observation_dim": 449,
         "gmt_observation_dim": 770,
         "critic_value_kind": "state_value",
+        "critic_support_context_id": "action-pre-support-plan-kmax32-v1",
         "critic_action_conditioned": False,
         "critic_target_id": "segment-exact-m-mean-v1",
         "gradient_clip_identity": "separate-actor-critic-v1",
@@ -497,7 +503,7 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
         "sources": evidence.intent_q29_source,
         "policy_actions": evidence.policy_actions,
         "horizon_k": evidence.horizon_k,
-        "gmt_action_shapes": ((8, 29),) * 8,
+        "gmt_action_shapes": ((16, 29),) * 8,
         "gmt_actions_finite": True,
     }
     with contextlib.redirect_stdout(active_stream):
@@ -507,14 +513,14 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
     try:
         audit.print_v017_repair_attempts_audit(
             runner,
-            **{**active_kwargs, "gmt_action_shapes": ((8, 29),) * 7},
+            **{**active_kwargs, "gmt_action_shapes": ((16, 29),) * 7},
         )
     except AssertionError:
         pass
     else:
         raise AssertionError("AUDIT-B04 accepted seven frozen-GMT steps for K8")
 
-    invalid_telemetry = {**telemetry, "scenario_ids": ("s0", "mixed", "s1", "s1")}
+    invalid_telemetry = {**telemetry, "scenario_ids": ("s0", "mixed", "s0", "s0") + ("s1",) * 4}
     try:
         audit.print_phase_b_telemetry_audit(runner, telemetry=invalid_telemetry)
     except AssertionError:
@@ -523,7 +529,7 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
         raise AssertionError("AUDIT-B02 accepted mixed scenario identity")
 
     for changed, label in (
-        ({"critic_value_targets": (0.29, 0.28, 0.19, 0.19)}, "AUDIT-B06 accepted per-attempt Critic targets"),
+        ({"critic_value_targets": (0.29, 0.28, 0.29, 0.29) + (0.19,) * 4}, "AUDIT-B06 accepted per-attempt Critic targets"),
         ({"critic_gradient_post_clip_norm": 0.6}, "AUDIT-B07 accepted an over-limit Critic gradient"),
         ({"actor_gradient_clip_coefficient": 0.5}, "AUDIT-B07 accepted a coupled critic-only Actor clip"),
     ):
@@ -578,44 +584,51 @@ def test_b03_b04_are_connected_to_the_active_v017_repair_collector() -> None:
 
 def test_phase_b_return_audit_reproduces_float32_reduction() -> None:
     runner = _runner()
-    gains = (0.7266710996627808, -1314020.0, -0.04292364418506622, -2306889.25)
+    gains = (
+        0.7266710996627808,
+        -1314020.0,
+        2.5,
+        -3.25,
+        -0.04292364418506622,
+        -2306889.25,
+        4.0,
+        -5.5,
+    )
     segment_targets = tuple(
         float(torch.tensor(values, dtype=torch.float32).mean().item())
-        for values in (gains[:2], gains[2:])
+        for values in (gains[:4], gains[4:])
     )
     telemetry = {
         "transaction_id": "tx-v017-float32",
-        "source_index": (0, 0, 1, 1),
-        "trial_index": (0, 1, 0, 1),
-        "scenario_ids": ("s0", "s0", "s1", "s1"),
-        "noisy_segment_hashes": ("h0", "h0", "h1", "h1"),
-        "policy_row_count": 4,
+        "source_index": (0, 0, 0, 0, 1, 1, 1, 1),
+        "trial_index": (0, 1, 2, 3, 0, 1, 2, 3),
+        "scenario_ids": ("s0",) * 4 + ("s1",) * 4,
+        "noisy_segment_hashes": ("h0",) * 4 + ("h1",) * 4,
+        "policy_row_count": 8,
         "active_k": 8,
-        "active_m": 2,
+        "active_m": 4,
         "selected_segment_count": 2,
-        "role_row_count": 8,
-        "valid_policy_row_mask": (True,) * 4,
+        "role_row_count": 16,
+        "valid_policy_row_mask": (True,) * 8,
         "clean_execution_count": (1, 1),
         "noisy_execution_count": (1, 1),
-        "intent_remaining_noisy": (0.4,) * 4,
-        "intent_remaining_repaired": (0.2,) * 4,
-        "physics_remaining_noisy": (0.5,) * 4,
-        "physics_remaining_repaired": (0.4,) * 4,
+        "intent_remaining_noisy": (0.4,) * 8,
+        "intent_remaining_repaired": (0.2,) * 8,
+        "physics_remaining_noisy": (0.5,) * 8,
+        "physics_remaining_repaired": (0.4,) * 8,
         "intent_gain": gains,
         "physics_gain": gains,
-        "recovery_pressure": (1.0,) * 4,
+        "recovery_pressure": (1.0,) * 8,
         "weighted_physics_gain": gains,
-        "repair_cost": (0.01,) * 4,
-        "repair_penalty": (0.01,) * 4,
+        "repair_cost": (0.01,) * 8,
+        "repair_penalty": (0.01,) * 8,
         "cost_free_score": gains,
         "gain_total": gains,
-        "policy_values": (0.0,) * 4,
+        "policy_values": (0.0,) * 8,
         "raw_advantages": gains,
         "critic_value_targets": (
-            segment_targets[0],
-            segment_targets[0],
-            segment_targets[1],
-            segment_targets[1],
+            *(segment_targets[0],) * 4,
+            *(segment_targets[1],) * 4,
         ),
         "critic_segment_target_means": segment_targets,
         "actor_advantages": gains,
@@ -624,11 +637,12 @@ def test_phase_b_return_audit_reproduces_float32_reduction() -> None:
         "return_max": max(gains),
         "grouped_reduction_active": True,
         "grouped_segment_mass_shares": (0.5, 0.5),
-        "grouped_attempt_mass_shares": (0.25,) * 4,
+        "grouped_attempt_mass_shares": (0.125,) * 8,
         "actor_observation_dim": 158,
-        "critic_observation_dim": 347,
+        "critic_observation_dim": 449,
         "gmt_observation_dim": 770,
         "critic_value_kind": "state_value",
+        "critic_support_context_id": "action-pre-support-plan-kmax32-v1",
         "critic_action_conditioned": False,
         "critic_target_id": "segment-exact-m-mean-v1",
         "gradient_clip_identity": "separate-actor-critic-v1",

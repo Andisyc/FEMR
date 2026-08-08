@@ -511,11 +511,11 @@ def _build_frontres_v006_segment_value_targets(
     if (
         not isinstance(privileged, torch.Tensor)
         or privileged.ndim != 2
-        or tuple(privileged.shape) != (int(batch.actions.shape[0]), 347)
+        or tuple(privileged.shape) != (int(batch.actions.shape[0]), 449)
         or privileged.requires_grad
         or not bool(torch.isfinite(privileged).all().item())
     ):
-        raise ValueError("FRS-PPO-v007 requires detached finite Critic observations with shape [B,347]")
+        raise ValueError("FRS-PPO-v007 requires detached finite Critic observations with shape [B,449]")
     selected_sources = rows.source_index[valid]
     segment_keys_tensor = torch.unique(selected_sources, sorted=True)
     if int(segment_keys_tensor.numel()) != 2:

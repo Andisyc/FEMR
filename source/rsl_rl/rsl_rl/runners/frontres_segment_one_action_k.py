@@ -13,7 +13,7 @@ from rsl_rl.frontres.frontres_segment_evidence import (
     FrontRESRepairAttemptEvidence,
 )
 from rsl_rl.frontres.frontres_segment_grouped_adapter import build_frontres_v015_grouped_candidate_storage
-from rsl_rl.modules.frontres_observation_layout import compose_frontres_v016_critic_observation
+from rsl_rl.modules.frontres_observation_layout import compose_frontres_v018_critic_observation
 
 from rsl_rl.runners.frontres_rollout_step import append_frontres_future_intent_actor_context, frontres_motion_command, prepare_frontres_v015_frozen_gmt_step, prepare_frontres_v015_one_action_at_t
 from rsl_rl.runners.frontres_formal_runtime_audit import (
@@ -38,6 +38,7 @@ from rsl_rl.runners.frontres_segment_physics import (
     capture_frontres_physics_frame,
     capture_frontres_quality_lateral_lean_frame,
     capture_frontres_v017_execution_frame,
+    capture_frontres_v018_critic_support_context,
 )
 
 def _resolve_probe_modes(runner: Any) -> tuple[bool, bool]:
@@ -121,27 +122,33 @@ def _read_live_observations(runner: Any) -> FrontRESSegmentLiveObservations:
             gmt_input_dim=0,
             post_advance_gmt_read_count=0,
         )
-    # B2: Critic 复用同一个 sealed 58D tail, 产出 [current 289D | future 58D].
+    # B2: Critic 复用 sealed tail 并在 action 前读取当前/计划支撑条件.
     privileged_obs = privileged_obs.to(runner.device)
     if uses_v015_future_intent and bool(
         getattr(getattr(runner, "alg", None), "frontres_formal_transaction_enabled", False)
     ):
         tail_dim = int(getattr(runner, "_frontres_future_intent_actor_context_dim", 0) or 0)
         if tail_dim != 58:
-            raise RuntimeError("TRAIN-v017 Critic route requires the exact sealed 58D future tail")
+            raise RuntimeError("TRAIN-v018 Critic route requires the exact sealed 58D future tail")
         if not isinstance(sealed_future_tail, torch.Tensor):
-            raise RuntimeError("TRAIN-v017 Critic route lost the sealed pre-normalization future tail")
-        privileged_obs = compose_frontres_v016_critic_observation(privileged_obs, sealed_future_tail)
+            raise RuntimeError("TRAIN-v018 Critic route lost the sealed pre-normalization future tail")
+        support_context = capture_frontres_v018_critic_support_context(runner)
+        privileged_obs = compose_frontres_v018_critic_observation(
+            privileged_obs,
+            sealed_future_tail,
+            support_context,
+        )
         expected_critic_dim = int(getattr(runner, "_frontres_critic_observation_dim", 0) or 0)
         if expected_critic_dim != int(privileged_obs.shape[-1]):
             raise RuntimeError(
-                "TRAIN-v017 runner/Critic observation dimensions disagree: "
+                "TRAIN-v018 runner/Critic observation dimensions disagree: "
                 f"runner={expected_critic_dim} observed={int(privileged_obs.shape[-1])}"
             )
         update_frontres_observation_trace(
             runner,
             critic_current_observation_dim=289,
             critic_future_intent_dim=tail_dim,
+            critic_support_context_dim=int(support_context.shape[-1]),
             critic_observation_dim=int(privileged_obs.shape[-1]),
         )
 
@@ -483,7 +490,7 @@ def _canonicalize_frontres_v016_segment_state_rows(
         or not isinstance(source_index, torch.Tensor)
         or tuple(source_index.shape) != tuple(policy_rows.shape)
     ):
-        raise ValueError(f"TRAIN-v017 requires detached finite row-aligned {name} state")
+        raise ValueError(f"TRAIN-v018 requires detached finite row-aligned {name} state")
     canonical = tensor.detach().clone()
     observed_max = 0.0
     grouped_sources = source_index.detach().to(device=policy_rows.device, dtype=torch.long)
@@ -491,7 +498,7 @@ def _canonicalize_frontres_v016_segment_state_rows(
         local = torch.nonzero(grouped_sources == source, as_tuple=False).reshape(-1)
         rows = policy_rows.index_select(0, local).to(device=tensor.device, dtype=torch.long)
         if int(rows.numel()) < 2:
-            raise ValueError("TRAIN-v017 requires exact-M policy rows for every Segment state")
+            raise ValueError("TRAIN-v018 requires exact-M policy rows for every Segment state")
         states = tensor.index_select(0, rows)
         reference = states[:1]
         max_abs_diff = float((states - reference).abs().max().detach().cpu().item())

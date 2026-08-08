@@ -6,8 +6,8 @@ This registry is the only default entrypoint for FrontRES contracts.
 
 | Category | Active contract | Status |
 | --- | --- | --- |
-| Method | `active/method/FRS-METHOD-v018-future-conditioned-state-value-segment-replay.md` | active |
-| Training | `active/training/FRS-TRAIN-v017-adaptive-critic-value-scale-curriculum.md` | active |
+| Method | `active/method/FRS-METHOD-v019-support-conditioned-state-value-segment-replay.md` | active |
+| Training | `active/training/FRS-TRAIN-v018-support-conditioned-m4-curriculum.md` | active |
 | Reward | `active/reward/FRS-GAIN-v007-clean-anchored-recovery-aware-ranking.md` | active |
 | Optimization | `active/optimization/FRS-PPO-v007-output-preserving-adaptive-value-scale.md` | active |
 | Evaluation | `active/evaluation/FRS-EVAL-v004-clean-anchored-local-and-composition-evaluation.md` | active |
@@ -21,34 +21,33 @@ Concept Figure. Canonical names and block IDs come from
 
 | Design ID | Canonical human name | Active contract section | Figure block ID | Current code/evidence gap |
 | --- | --- | --- | --- | --- |
-| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v018` / `Sealed Local Scenario`; `FRS-TRAIN-v017` / `Per-K Inner DR Curriculum` | `M-02` | K/DR semantics are unchanged; prior evidence is characterization only until the v017 formal route is re-confirmed. |
-| `FRS-DP-01P` | Perturbation Probing | `FRS-TRAIN-v017` / `Optional GMT Boundary Acquisition` | `M-12` | The current campaign directly configures the measured 2.381 boundary; optional re-probing for a changed setup remains outside this change. |
-| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v018` / `Frozen-Policy Transaction`; `FRS-PPO-v007` / `Grouped Equal-Mass Reduction`; `FRS-TRAIN-v017` / `Exact-M Frozen-Policy Transaction` | `SR-01` | Existing exact-M/exact-one behavior is retained; the shared-value/Segment-mean route requires fresh S1/S2 evidence. |
-| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v018` / `One-Action K Evidence`; `FRS-TRAIN-v017` / `Nested K x M x DR Schedule` | `M-06` | K/M/DR semantics are unchanged; checkpoint-v12 must bind the same schedule. |
-| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v018` / `Actor And Information Boundary`; `FRS-TRAIN-v017` / `Design Delta` | `M-04` | Direct finite `[B,6]` action semantics are unchanged; action-conditioned Critic remains forbidden. |
-| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v018` / `One-Action K Evidence And Frozen GMT` | `M-10` | Frozen 770D GMT authority is unchanged; new future context must remain isolated from it. |
-| `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v018` / `Clean/Noisy/Repair Evidence`; `FRS-GAIN-v007` / `Evidence Authority And Lifecycle`; `FRS-EVAL-v004` / `Local Clean/Noisy/Repair Evaluation` | `Q-PAIR` | Rollout evidence is unchanged; exact-M returns now also form one Segment value target. |
+| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v019` / `Sealed Local Scenario`; `FRS-TRAIN-v018` / `Per-K Inner DR Curriculum` | `M-02` | K/DR semantics are unchanged; prior runtime evidence is stale for the v018 formal route. |
+| `FRS-DP-01P` | Perturbation Probing | `FRS-TRAIN-v018` / `Optional GMT Boundary Acquisition` | `M-12` | The campaign still configures the measured 2.381 boundary directly. |
+| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v019` / `Frozen-Policy Transaction`; `FRS-PPO-v007` / `Grouped Equal-Mass Reduction`; `FRS-TRAIN-v018` / `Exact-M Frozen-Policy Transaction` | `SR-01` | Exact-one behavior is retained; M=4 is now fixed at all K stages. |
+| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v019` / `One-Action K Evidence`; `FRS-TRAIN-v018` / `Nested K x M x DR Schedule` | `M-06` | K/DR timing is unchanged; checkpoint-v13 binds K8/M4 -> K16/M4 -> K32/M4. |
+| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v019` / `Actor And Information Boundary`; `FRS-TRAIN-v018` / `Design Delta` | `M-04` | Direct finite `[B,6]` action semantics are unchanged; action-conditioned Critic remains forbidden. |
+| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v019` / `One-Action K Evidence And Frozen GMT` | `M-10` | Frozen 770D GMT authority is unchanged; Critic-only support context stays isolated. |
+| `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v019` / `Clean/Noisy/Repair Evidence`; `FRS-GAIN-v007` / `Evidence Authority And Lifecycle`; `FRS-EVAL-v004` / `Local Clean/Noisy/Repair Evaluation` | `Q-PAIR` | Rollout evidence and exact-M arithmetic target are unchanged. |
 | `FRS-DP-07` | Repair Gain | `FRS-GAIN-v007` / `Recovery-Aware Total Gain`; `FRS-PPO-v007` / `Scalar Actor And Critic Signal`; `FRS-EVAL-v004` / `Local Report` | `Q-01` | Gain remains per-attempt; new tests must prove the Critic mean target does not change Actor ordering. |
-| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v017` / `First Entry From HSL` | `M-03` | HSL-v2 remains Actor-only initialization; the 347D Critic and optimizer start fresh. |
-| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v017` / `Critic Recalibration And Actor Ramp`; `Adaptive Critic Value Scale`; `Fixed Split-LR Optimizer Identity`; `FRS-PPO-v007` / `Warmup Weight Boundary` | `M-05` | Phase counts/LRs remain; output-preserving value scaling and checkpoint-v12 persistence require fresh evidence. |
-| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v018` / `Actor And Information Boundary`; `FRS-TRAIN-v017` / `Scalar Critic Authority` | `M-11` | Actor remains 158D; the Critic must receive the same sealed 58D tail as 347D state while GMT remains 770D. |
+| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v018` / `First Entry From HSL` | `M-03` | HSL-v2 remains Actor-only initialization; the 449D Critic and optimizer start fresh. |
+| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v018` / `Critic Recalibration And Actor Ramp`; `Adaptive Critic Value Scale`; `Fixed Split-LR Optimizer Identity`; `FRS-PPO-v007` / `Warmup Weight Boundary` | `M-05` | Phase counts/LRs remain; 449D support context, M4 and checkpoint-v13 require fresh evidence. |
+| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v019` / `Actor And Information Boundary`; `FRS-TRAIN-v018` / `Scalar Critic Authority` | `M-11` | Actor remains 158D; Critic adds action-pre support context for 449D total while GMT remains 770D. |
 
 ## Active Recovery-Aware Contract Migration
 
-Human review confirmed the output-preserving DP09 Critic conditioning change on
-2026-08-08 after the completed TRAIN-v016 K8/M2 run exposed rare extreme value
-targets and persistent Critic clipping. The Critic remains `V(s)` over the same
-347D state and still predicts one exact-M Segment mean. Only its raw value loss
-is divided by a committed non-amplifying EMA target variance before the existing
-independent clip. The Actor, raw Gain/value/advantages, GMT, K/M/DR, network,
-LR and simulator semantics are unchanged.
+Human review confirmed the DP09 support-conditioning and M4 change on
+2026-08-09 after TRAIN-v017 K8/M2 remained near a constant Critic despite finite
+training. The Critic remains `V(s)`, now over 449D action-pre state, and still
+predicts one arithmetic exact-M Segment mean. M=4 is fixed across K8/K16/K32.
+The Actor, raw Gain/value/advantages, GMT, K/DR, loss scaling, LR and simulator
+semantics are unchanged.
 The coordinated active semantic authority is now:
 
 ```text
-FRS-METHOD-v018
+FRS-METHOD-v019
 FRS-GAIN-v007
 FRS-PPO-v007
-FRS-TRAIN-v017
+FRS-TRAIN-v018
 FRS-EVAL-v004
 ```
 
@@ -57,7 +56,7 @@ scores every valid Repair with
 `G_total = G_I + lambda_RA G_P - beta C_repair`, and sends all attempts through
 one grouped scalar PPO update. All attempts in one Segment share the same old
 state value; their mean `G_total` supervises the Critic while their individual
-returns supervise Actor credit. Checkpoint-v12 is the only compatible Stage-3
+returns supervise Actor credit. Checkpoint-v13 is the only compatible Stage-3
 persistence identity and carries the committed target moments/count. The current
 Engineering Plan and Module Test Cards are the executable-work and oracle
 control surfaces; implementation, formal route and live evidence close only at

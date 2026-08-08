@@ -20,7 +20,7 @@ def _run_preflight(
     mode: str,
     env_overrides: dict[str, str] | None = None,
     extra_args: list[str] | None = None,
-    bounds: tuple[str, str, str] = ("8", "2", "3"),
+    bounds: tuple[str, str, str] = ("16", "2", "3"),
 ) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -35,7 +35,7 @@ def _run_preflight(
         env["FRONTRES_STAGE_PREFLIGHT_ONLY"] = "1"
         env["FRONTRES_STAGE3_RUN_CONTRACTS"] = "0"
         env["FRONTRES_SPECIALIST_MODE"] = "rp"
-        env["FRONTRES_V015_K_CURRICULUM"] = "8:2:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381,16:3:300:300:900:lower-k16:0.6:linear-joint-v1:900:2.381,32:4:400:300:625:lower-k32:0.7:linear-joint-v1:625:2.381"
+        env["FRONTRES_V015_K_CURRICULUM"] = "8:4:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381,16:4:300:300:900:lower-k16:0.6:linear-joint-v1:900:2.381,32:4:400:300:625:lower-k32:0.7:linear-joint-v1:625:2.381"
         if env_overrides:
             env.update(env_overrides)
         cmd = [
@@ -92,7 +92,7 @@ def test_stage3_train_launch_preflight_builds_femr_command() -> None:
     assert "--frontres_stage stage3_segment_hrl" in command
     assert "--frontres_v015_hsl_initializer_checkpoint" in command
     assert "--frontres_v015_future_offsets 1\\,2" in command
-    assert "--frontres_segment_k_curriculum 8:2:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381" in command
+    assert "--frontres_segment_k_curriculum 8:4:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381" in command
     assert "--resume_student_checkpoint" not in command
     assert "--is_full_resume" not in command
     assert "--resume " not in command
@@ -103,15 +103,15 @@ def test_stage3_train_launch_preflight_builds_femr_command() -> None:
     assert "/MOSAIC/" not in command
 
 
-def test_g5_s4_bounded_launch_freezes_8_1_1_and_audit() -> None:
+def test_g5_s4_bounded_launch_freezes_16_1_1_and_audit() -> None:
     result = _run_preflight(
         "train",
         {"FRONTRES_G5_S4_BOUNDED": "1"},
-        bounds=("8", "1", "1"),
+        bounds=("16", "1", "1"),
     )
     assert result.returncode == 0, result.stderr
     command = _command_line(result)
-    assert "--num_envs=8" in command
+    assert "--num_envs=16" in command
     assert "--max_iterations 1" in command
     assert "--frontres_segment_live_update_steps 1" in command
     assert "--frontres_checkpoint_interval 1" in command
@@ -147,16 +147,16 @@ def test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds() -> None:
     wrong = _run_preflight(
         "train",
         {"FRONTRES_G5_S4_BOUNDED": "1"},
-        bounds=("4", "1", "1"),
+        bounds=("8", "1", "1"),
     )
     assert wrong.returncode != 0
-    assert "fresh K8/M2 campaign requires NUM_ENVS=8" in wrong.stderr
+    assert "fresh K8/M4 campaign requires NUM_ENVS=16" in wrong.stderr
 
 
 def test_strict_v11_resume_replaces_hsl_initializer() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         resume_path = Path(tmp) / "model_1.pt"
-        resume_path.write_text("semantic checkpoint-v12 fixture\n")
+        resume_path.write_text("semantic checkpoint-v13 fixture\n")
         result = _run_preflight(
             "train",
             {"FRONTRES_V015_RESUME_CHECKPOINT": str(resume_path)},
@@ -179,7 +179,7 @@ def test_strict_v11_resume_rejects_missing_checkpoint() -> None:
         bounds=("8", "199", "1"),
     )
     assert result.returncode != 0
-    assert "checkpoint-v12 resume checkpoint not found" in result.stderr
+    assert "checkpoint-v13 resume checkpoint not found" in result.stderr
 
 
 def test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel() -> None:
@@ -273,7 +273,7 @@ def test_stage3_launch_rejects_retired_optimizer_modes() -> None:
 
 if __name__ == "__main__":
     test_stage3_train_launch_preflight_builds_femr_command()
-    test_g5_s4_bounded_launch_freezes_8_1_1_and_audit()
+    test_g5_s4_bounded_launch_freezes_16_1_1_and_audit()
     test_stage3_train_launch_accepts_explicit_checkpoint_interval()
     test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds()
     test_strict_v11_resume_replaces_hsl_initializer()

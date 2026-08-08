@@ -93,7 +93,7 @@ def test_lazy_public_facade() -> None:
     before = set(sys.modules)
     interface_module = importlib.import_module("rsl_rl.frontres.frontres_interfaces")
     imported = set(sys.modules).difference(before)
-    assert interface_module.FRONTRES_CHECKPOINT_FORMAT == "frontres-v017-checkpoint-v12"
+    assert interface_module.FRONTRES_CHECKPOINT_FORMAT == "frontres-v018-checkpoint-v13"
     assert not any(name.startswith("isaaclab") for name in imported)
     facade = importlib.import_module("rsl_rl.frontres")
     assert "FrontRESActionCone" not in facade.__all__
@@ -142,7 +142,7 @@ class _Rejected(RuntimeError):
 
 
 class _FakeRequest:
-    def __init__(self, interfaces, *, active_k: int = 8, active_m: int = 2) -> None:
+    def __init__(self, interfaces, *, active_k: int = 8, active_m: int = 4) -> None:
         self._view = interfaces.FrontRESActiveTransactionRequestView(
             identity=interfaces.FrontRESActiveContractIdentity(),
             transaction_id="tx-interface",
@@ -240,7 +240,7 @@ class _FakeBackend:
 def test_schema_and_identity(interfaces) -> None:
     interfaces.FrontRESActiveContractIdentity().validate()
     interfaces.FrontRESActiveObservationAuthority().validate()
-    for active_k, active_m in ((8, 2), (16, 3), (32, 4)):
+    for active_k, active_m in ((8, 4), (16, 4), (32, 4)):
         shape = interfaces.FrontRESActiveTransactionShape(
             active_k=active_k,
             active_m=active_m,
@@ -273,25 +273,26 @@ def test_schema_and_identity(interfaces) -> None:
     )
 
     telemetry = {
-        "method_contract_id": "FRS-METHOD-v018",
+        "method_contract_id": "FRS-METHOD-v019",
         "gain_contract_id": "FRS-GAIN-v007",
         "optimization_contract_id": "FRS-PPO-v007",
-        "training_contract_id": "FRS-TRAIN-v017",
+        "training_contract_id": "FRS-TRAIN-v018",
         "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",
-        "checkpoint_format": "frontres-v017-checkpoint-v12",
+        "checkpoint_format": "frontres-v018-checkpoint-v13",
         "critic_value_kind": "state_value",
-        "critic_input_dim": 347,
+        "critic_input_dim": 449,
+        "critic_support_context_id": "action-pre-support-plan-kmax32-v1",
         "critic_action_conditioned": False,
         "critic_target_id": "segment-exact-m-mean-v1",
         "gradient_clip_identity": "separate-actor-critic-v1",
         "transaction_id": "tx-interface",
         "active_k": 8,
-        "active_m": 2,
+        "active_m": 4,
         "selected_segment_count": 2,
-        "policy_row_count": 4,
-        "role_row_count": 8,
+        "policy_row_count": 8,
+        "role_row_count": 16,
         "optimizer_step_delta": 1,
         "update_count": 1,
         "actor_learning_rate": 3.0e-6,

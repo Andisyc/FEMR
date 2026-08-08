@@ -209,15 +209,15 @@ def test_v011_schedule_is_deterministic_and_fail_closed() -> None:
 
 def test_v011_campaign_schedule_is_exact_and_checkpoint_bounded() -> None:
     schedule = parse_frontres_k_stage_schedule(
-        "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625"
+        "8:4:200:500:1300,16:4:300:300:900,32:4:400:300:625"
     )
     assert require_frontres_v011_campaign_schedule(schedule) == schedule
     assert WARMUP_MODULE.FRONTRES_V011_SELECTED_SEGMENT_COUNT == 2
     assert WARMUP_MODULE.FRONTRES_V011_MAX_ABSOLUTE_ITERATION == 8000
     assert WARMUP_MODULE.FRONTRES_V011_REVIEW_BOUNDARIES == (2000, 3500, 4825, 6500, 8000)
     for bad in (
-        "8:2:200:500:1300,16:2:300:300:900,32:4:400:300:625",
-        "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:624",
+        "8:4:200:500:1300,16:2:300:300:900,32:4:400:300:625",
+        "8:4:200:500:1300,16:4:300:300:900,32:4:400:300:624",
     ):
         try:
             require_frontres_v011_campaign_schedule(parse_frontres_k_stage_schedule(bad))
@@ -229,12 +229,12 @@ def test_v011_campaign_schedule_is_exact_and_checkpoint_bounded() -> None:
 
 def test_v011_stage_transition_is_committed_boundary_only() -> None:
     schedule = parse_frontres_k_stage_schedule(
-        "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625"
+        "8:4:200:500:1300,16:4:300:300:900,32:4:400:300:625"
     )
     assert resolve_frontres_k_stage_transition(schedule=schedule, committed_update_iteration=1999) is None
     at_k16 = resolve_frontres_k_stage_transition(schedule=schedule, committed_update_iteration=2000)
     assert at_k16 is not None
-    assert (at_k16.stage_index, at_k16.active_k, at_k16.active_m, at_k16.stage_iteration) == (1, 16, 3, 0)
+    assert (at_k16.stage_index, at_k16.active_k, at_k16.active_m, at_k16.stage_iteration) == (1, 16, 4, 0)
     assert resolve_frontres_k_stage_transition(schedule=schedule, committed_update_iteration=2001) is None
     at_k32 = resolve_frontres_k_stage_transition(schedule=schedule, committed_update_iteration=3500)
     assert at_k32 is not None
@@ -244,8 +244,8 @@ def test_v011_stage_transition_is_committed_boundary_only() -> None:
 
 def _v013_schedule_text() -> str:
     return (
-        "8:2:200:500:1300:lower-k8:0.50:linear-joint-v1:1300:2.381,"
-        "16:3:300:300:900:lower-k16:0.60:linear-joint-v1:900:2.381,"
+        "8:4:200:500:1300:lower-k8:0.50:linear-joint-v1:1300:2.381,"
+        "16:4:300:300:900:lower-k16:0.60:linear-joint-v1:900:2.381,"
         "32:4:400:300:625:lower-k32:0.70:linear-joint-v1:625:2.381"
     )
 
@@ -263,7 +263,7 @@ def test_v013_nested_dr_restart_and_committed_progress() -> None:
     expected_half = 0.5 + 0.5 * (2.381 / 1.10 - 0.5)
     assert abs(later_k8.d_cap - expected_half) < 1.0e-12
     at_k16 = resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=2000)
-    assert at_k16.active_k == 16 and at_k16.active_m == 3
+    assert at_k16.active_k == 16 and at_k16.active_m == 4
     assert at_k16.phase.name == "critic_only"
     assert at_k16.dr_progress == 0.0 and at_k16.d_cap == 0.60
     assert at_k16.dr_stage_fingerprint != at_k8_joint.dr_stage_fingerprint
@@ -291,8 +291,8 @@ def test_v013_four_class_sampling_and_no_hidden_defaults() -> None:
     assert abs(fractions["hard"] - 0.40) < 0.02
     assert abs(fractions["broken"] - 0.10) < 0.02
     for old_or_incomplete in (
-        "8:2:200:500:1300,16:3:300:300:900,32:4:400:300:625",
-        "8:2:200:500:1300:lower-k8:0.5::1300:2.381",
+        "8:4:200:500:1300,16:4:300:300:900,32:4:400:300:625",
+        "8:4:200:500:1300:lower-k8:0.5::1300:2.381",
     ):
         try:
             require_frontres_v013_campaign_schedule(parse_frontres_k_stage_schedule(old_or_incomplete))

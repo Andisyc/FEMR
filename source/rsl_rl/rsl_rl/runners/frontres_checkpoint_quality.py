@@ -29,7 +29,7 @@ from rsl_rl.frontres.frontres_segment_warmup import (
 )
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-_V015_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v12"
+_V015_CHECKPOINT_FORMAT = "frontres-v018-checkpoint-v13"
 _V015_LEGACY_POLICY_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v10"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
 _V015_HSL_CHECKPOINT_IDENTITY_KEY = "frontres_v015_hsl_checkpoint_identity"
@@ -155,10 +155,10 @@ def _v015_committed_transaction_receipt(
     expected_identity = dict(
         expected_contract_identity
         or {
-            "method_contract_id": "FRS-METHOD-v018",
+            "method_contract_id": "FRS-METHOD-v019",
             "gain_contract_id": "FRS-GAIN-v007",
             "optimization_contract_id": "FRS-PPO-v007",
-            "training_contract_id": "FRS-TRAIN-v017",
+            "training_contract_id": "FRS-TRAIN-v018",
             "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -492,10 +492,10 @@ def _inspect_frontres_v015_policy_quality_payload(
     checkpoint_format = identity.get("format")
     if checkpoint_format == _V015_CHECKPOINT_FORMAT:
         contract_identity = {
-            "method_contract_id": "FRS-METHOD-v018",
+            "method_contract_id": "FRS-METHOD-v019",
             "gain_contract_id": "FRS-GAIN-v007",
             "optimization_contract_id": "FRS-PPO-v007",
-            "training_contract_id": "FRS-TRAIN-v017",
+            "training_contract_id": "FRS-TRAIN-v018",
             "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -503,9 +503,9 @@ def _inspect_frontres_v015_policy_quality_payload(
     elif checkpoint_format == _V015_LEGACY_POLICY_CHECKPOINT_FORMAT:
         # Historical v10 is accepted only by this read-only inspection owner.
         if "critic" in identity or "gradient_clip" in identity or "critic_value_normalizer" in identity:
-            raise RuntimeError("quality policy v10 cannot claim checkpoint-v12 Critic identity")
+            raise RuntimeError("quality policy v10 cannot claim checkpoint-v13 Critic identity")
         if "frontres_critic_value_normalizer_state_dict" in checkpoint:
-            raise RuntimeError("quality policy v10 cannot carry checkpoint-v12 Critic normalizer state")
+            raise RuntimeError("quality policy v10 cannot carry checkpoint-v13 Critic normalizer state")
         contract_identity = {
             "method_contract_id": "FRS-METHOD-v017",
             "gain_contract_id": "FRS-GAIN-v007",
@@ -532,9 +532,10 @@ def _inspect_frontres_v015_policy_quality_payload(
     if checkpoint_format == _V015_CHECKPOINT_FORMAT:
         if identity.get("critic") != {
             "value_kind": "state_value",
-            "input_dim": 347,
+            "input_dim": 449,
             "action_conditioned": False,
             "target_id": "segment-exact-m-mean-v1",
+            "support_context_id": "action-pre-support-plan-kmax32-v1",
         } or identity.get("gradient_clip") != {
             "identity": "separate-actor-critic-v1",
             "max_norm": 0.5,
@@ -549,12 +550,12 @@ def _inspect_frontres_v015_policy_quality_payload(
                 checkpoint.get("frontres_critic_value_normalizer_state_dict")
             )
         except (TypeError, ValueError, FloatingPointError) as exc:
-            raise RuntimeError("quality policy has an invalid checkpoint-v12 Critic normalizer state") from exc
+            raise RuntimeError("quality policy has an invalid checkpoint-v13 Critic normalizer state") from exc
         if not any(
-            isinstance(value, torch.Tensor) and value.ndim == 2 and int(value.shape[1]) == 347
+            isinstance(value, torch.Tensor) and value.ndim == 2 and int(value.shape[1]) == 449
             for value in critic_state.values()
         ):
-            raise RuntimeError("quality policy requires an exact 347D state-value Critic payload")
+            raise RuntimeError("quality policy requires an exact 449D state-value Critic payload")
     if identity.get("grouped_loss") != {
         "advantage_normalization": "grouped_scale_only",
         "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,

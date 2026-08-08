@@ -163,10 +163,10 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         raise RuntimeError("v017 telemetry requires one Clean and one Noisy execution per Segment")
 
     expected_ids = {
-        "method_contract_id": "FRS-METHOD-v018",
+        "method_contract_id": "FRS-METHOD-v019",
         "gain_contract_id": "FRS-GAIN-v007",
         "optimization_contract_id": "FRS-PPO-v007",
-        "training_contract_id": "FRS-TRAIN-v017",
+        "training_contract_id": "FRS-TRAIN-v018",
         "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -199,7 +199,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         or critic_targets != tuple(float(value) for value in getattr(ppo, "critic_value_targets", ()))
         or actor_advantages != tuple(float(value) for value in getattr(ppo, "actor_advantages", ()))
     ):
-        raise RuntimeError("TRAIN-v017 telemetry has malformed Critic value target or Actor advantage rows")
+        raise RuntimeError("TRAIN-v018 telemetry has malformed Critic value target or Actor advantage rows")
     required_v016_fields = {
         "actor_observation_dim",
         "critic_observation_dim",
@@ -207,6 +207,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         "critic_value_kind",
         "critic_action_conditioned",
         "critic_target_id",
+        "critic_support_context_id",
         "gradient_clip_identity",
         "gradient_clip_max_norm",
         "critic_raw_value_loss",
@@ -223,18 +224,19 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
     }
     missing_v016_fields = tuple(sorted(required_v016_fields.difference(diagnostics)))
     if missing_v016_fields:
-        raise RuntimeError(f"TRAIN-v017 telemetry is missing required fields: {missing_v016_fields}")
+        raise RuntimeError(f"TRAIN-v018 telemetry is missing required fields: {missing_v016_fields}")
     if (
         int(diagnostics.get("actor_observation_dim", -1)) != 158
-        or int(diagnostics.get("critic_observation_dim", -1)) != 347
+        or int(diagnostics.get("critic_observation_dim", -1)) != 449
         or int(diagnostics.get("gmt_observation_dim", -1)) != 770
         or str(diagnostics.get("critic_value_kind", "")) != "state_value"
         or diagnostics.get("critic_action_conditioned") is not False
         or str(diagnostics.get("critic_target_id", "")) != "segment-exact-m-mean-v1"
+        or str(diagnostics.get("critic_support_context_id", "")) != "action-pre-support-plan-kmax32-v1"
         or str(diagnostics.get("gradient_clip_identity", "")) != "separate-actor-critic-v1"
         or _finite(diagnostics, "gradient_clip_max_norm") != 0.5
     ):
-        raise RuntimeError("TRAIN-v017 telemetry lost state-value observation or gradient identity")
+        raise RuntimeError("TRAIN-v018 telemetry lost state-value observation or gradient identity")
     value_normalization_id = str(diagnostics["critic_value_normalization_id"])
     value_scale = _finite(diagnostics, "critic_value_scale")
     value_decay = _finite(diagnostics, "critic_value_normalizer_decay")
@@ -265,7 +267,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
             abs_tol=1.0e-7,
         )
     ):
-        raise RuntimeError("TRAIN-v017 telemetry has invalid Critic value-normalizer transition")
+        raise RuntimeError("TRAIN-v018 telemetry has invalid Critic value-normalizer transition")
 
     telemetry = {
         "transaction_id": transaction_id,
@@ -309,6 +311,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         "critic_value_kind": str(diagnostics["critic_value_kind"]),
         "critic_action_conditioned": bool(diagnostics["critic_action_conditioned"]),
         "critic_target_id": str(diagnostics["critic_target_id"]),
+        "critic_support_context_id": str(diagnostics["critic_support_context_id"]),
         "critic_value_targets": critic_targets,
         "critic_segment_target_means": segment_targets,
         "actor_advantages": actor_advantages,
@@ -370,7 +373,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         **expected_ids,
     }
     if len(telemetry["dr_class_by_segment"]) != 2 or len(telemetry["dr_strength_by_segment"]) != 2:
-        raise RuntimeError("FRS-TRAIN-v017 telemetry requires two sealed Segment DR class/strength values")
+        raise RuntimeError("FRS-TRAIN-v018 telemetry requires two sealed Segment DR class/strength values")
     FrontRESActiveTelemetryView.from_mapping(telemetry)
     return telemetry
 
@@ -413,7 +416,7 @@ def require_frontres_committed_result(runner: Any, result: Any) -> dict[str, Any
             float(actor_delta.get("param_delta_max_abs", float("nan"))) != 0.0
             or not float(critic_delta.get("param_delta_max_abs", 0.0)) > 0.0
         ):
-            raise RuntimeError("FRS-TRAIN-v017 critic-only commit requires frozen actor/std and updated Critic")
+            raise RuntimeError("FRS-TRAIN-v018 critic-only commit requires frozen actor/std and updated Critic")
     # AUDIT-B02/B05/B06/B07: 最终 serializer 只读审计, 不反馈训练状态.
     from rsl_rl.runners.frontres_formal_runtime_audit import print_phase_b_telemetry_audit
 

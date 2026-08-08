@@ -80,7 +80,7 @@ def _batch(
 ) -> FrontRESSegmentPPOBatch:
     order = torch.arange(6) if order is None else order
     observations = torch.tensor([[1.0, 0.0]] * 3 + [[0.0, 1.0]] * 3)
-    privileged = torch.zeros(6, 347)
+    privileged = torch.zeros(6, 449)
     privileged[:3, 0] = 1.0
     privileged[3:, 1] = 1.0
     returns = torch.tensor([1.0, 2.0, 3.0, -1.0, -2.0, -3.0])

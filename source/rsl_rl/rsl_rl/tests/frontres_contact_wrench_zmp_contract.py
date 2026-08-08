@@ -479,10 +479,14 @@ def test_raw_views_are_installed_before_reset_and_never_lazily_on_read() -> None
         source.index("def _build_frontres_v015_local_transaction_request") :
         source.index("def _build_frontres_v015_local_identity_sentinel_request")
     ]
+    collector = source[
+        source.index("def collect_frontres_v017_recovery_aware_evaluation") :
+        source.index("def _build_frontres_v015_local_transaction_request")
+    ]
     assert builder.index("prepare_frontres_raw_contact_views(runner)") < builder.index(
         "prepare_frontres_v015_local_sentinel_batch(runner)"
     )
-    assert builder.index("prepare_frontres_raw_contact_views(runner)") < builder.index(
+    assert collector.index("prepare_frontres_raw_contact_views(runner)") < collector.index(
         'reset_phase("clean_baseline")'
     )
     raw_reader = balance[

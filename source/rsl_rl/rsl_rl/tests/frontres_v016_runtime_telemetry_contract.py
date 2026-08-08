@@ -24,14 +24,14 @@ def _expect_error(call, text: str) -> None:
 
 def main() -> None:
     runner, request, _policy = _request()
-    runner.alg.frontres_method_contract_id = "FRS-METHOD-v018"
+    runner.alg.frontres_method_contract_id = "FRS-METHOD-v019"
     runner.alg.frontres_optimization_contract_id = "FRS-PPO-v007"
-    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v017"
+    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v018"
     runner.alg.max_grad_norm = 0.5
 
     active_m = request.active_m
     shared_actor = torch.tensor([[1.0, 0.0]] * active_m + [[0.0, 1.0]] * active_m)
-    shared_critic = torch.zeros(2 * active_m, 347)
+    shared_critic = torch.zeros(2 * active_m, 449)
     shared_critic[:active_m, 0] = 1.0
     shared_critic[active_m:, 1] = 1.0
     batch = request.candidate_batches[0]
@@ -45,12 +45,12 @@ def main() -> None:
     open_frontres_checkpoint_transaction_barrier(runner)
     result = run_frontres_formal_transaction_update(runner, request)
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
-    assert telemetry["method_contract_id"] == "FRS-METHOD-v018"
+    assert telemetry["method_contract_id"] == "FRS-METHOD-v019"
     assert telemetry["optimization_contract_id"] == "FRS-PPO-v007"
-    assert telemetry["training_contract_id"] == "FRS-TRAIN-v017"
-    assert telemetry["checkpoint_format"] == "frontres-v017-checkpoint-v12"
+    assert telemetry["training_contract_id"] == "FRS-TRAIN-v018"
+    assert telemetry["checkpoint_format"] == "frontres-v018-checkpoint-v13"
     assert telemetry["actor_observation_dim"] == 158
-    assert telemetry["critic_observation_dim"] == 347
+    assert telemetry["critic_observation_dim"] == 449
     assert telemetry["gmt_observation_dim"] == 770
     assert telemetry["critic_value_kind"] == "state_value"
     assert telemetry["critic_action_conditioned"] is False

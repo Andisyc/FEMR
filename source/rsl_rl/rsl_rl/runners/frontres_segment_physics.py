@@ -21,7 +21,16 @@ from typing import Any
 import torch
 
 
-from rsl_rl.frontres.frontres_balance import ensure_frontres_raw_contact_view, pad_frontres_raw_contact_slots, prepare_frontres_raw_contact_views, read_frontres_raw_filtered_contact_rows
+from rsl_rl.frontres.frontres_balance import (
+    contact_wrench_zmp_xy,
+    ensure_frontres_raw_contact_view,
+    expected_support_envelope_margin,
+    pad_frontres_raw_contact_slots,
+    prepare_frontres_raw_contact_views,
+    read_frontres_raw_filtered_contact_rows,
+    support_envelope_from_foot_pose_and_mask,
+)
+from rsl_rl.modules.frontres_observation_layout import compose_frontres_v018_critic_support_context
 
 
 from rsl_rl.runners.frontres_formal_runtime_audit import emit_formal_runtime_probe
@@ -580,6 +589,121 @@ def _capture_v017_execution_frame(
     return frame
 
 
+def _capture_v018_critic_support_context(runner: Any) -> torch.Tensor:
+    """Capture current support and sealed support plan before the Repair action."""
+
+    command = _motion_command_for_runner(runner)
+    if command is None:
+        raise RuntimeError("TRAIN-v018 Critic support requires the formal motion command")
+    timing_guard = getattr(command, "frontres_local_scenario_intent_snapshot", None)
+    if not callable(timing_guard):
+        raise RuntimeError("TRAIN-v018 Critic support requires the action-pre scenario timing gate")
+    timing_guard()
+    rows = int(getattr(command, "num_envs", 0))
+    ids = torch.arange(rows, device=runner.device, dtype=torch.long)
+    snapshot_owner = getattr(command, "frontres_local_scenario_snapshot", None)
+    if rows <= 0 or not callable(snapshot_owner):
+        raise RuntimeError("TRAIN-v018 Critic support requires active sealed scenario rows")
+    sealed = snapshot_owner(ids)
+    planned_support = sealed.get("expected_support") if isinstance(sealed, Mapping) else None
+    horizon = sealed.get("horizon_k") if isinstance(sealed, Mapping) else None
+    if (
+        not isinstance(planned_support, torch.Tensor)
+        or planned_support.ndim != 3
+        or tuple(planned_support.shape[:1]) != (rows,)
+        or tuple(planned_support.shape[2:]) != (2,)
+        or not isinstance(horizon, torch.Tensor)
+        or tuple(horizon.shape) != (rows,)
+    ):
+        raise RuntimeError("TRAIN-v018 Critic support requires sealed planned support [N,K,2] and horizon [N]")
+
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    scene = getattr(env, "scene", None)
+    if scene is None:
+        raise RuntimeError("TRAIN-v018 Critic support requires the formal IsaacLab scene")
+    vertical_loads: list[torch.Tensor] = []
+    contact_bits: list[torch.Tensor] = []
+    raw_rows: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = []
+    for name in ("frontres_left_foot_contacts", "frontres_right_foot_contacts"):
+        try:
+            sensor = scene[name]
+        except (KeyError, TypeError, AssertionError) as exc:
+            raise RuntimeError(f"TRAIN-v018 Critic support is missing {name}") from exc
+        force_matrix = getattr(getattr(sensor, "data", None), "force_matrix_w", None)
+        threshold = getattr(getattr(sensor, "cfg", None), "force_threshold", None)
+        if (
+            not isinstance(force_matrix, torch.Tensor)
+            or force_matrix.ndim != 4
+            or tuple(force_matrix.shape[:2]) != (rows, 1)
+            or int(force_matrix.shape[-1]) != 3
+            or not isinstance(threshold, (int, float))
+            or isinstance(threshold, bool)
+            or float(threshold) <= 0.0
+        ):
+            raise RuntimeError(f"TRAIN-v018 Critic support received malformed {name} payload")
+        force_matrix = force_matrix.to(device=runner.device, dtype=torch.float32)
+        if not bool(torch.isfinite(force_matrix).all()):
+            raise RuntimeError(f"TRAIN-v018 Critic support requires finite {name} forces")
+        vertical = force_matrix[..., 2].sum(dim=(1, 2)).abs()
+        contact = vertical >= float(threshold)
+        vertical_loads.append(torch.where(contact, vertical, torch.zeros_like(vertical)))
+        contact_bits.append(contact)
+        raw_rows.append(read_frontres_raw_filtered_contact_rows(sensor, num_envs=rows, device=runner.device))
+
+    contact = torch.stack(contact_bits, dim=-1)
+    loads = torch.stack(vertical_loads, dim=-1)
+    total_load = loads.sum(dim=-1, keepdim=True)
+    load_fraction = torch.where(total_load > 0.0, loads / total_load.clamp_min(1.0e-8), torch.zeros_like(loads))
+    contact_slots = max(int(raw_rows[0][0].shape[2]), int(raw_rows[1][0].shape[2]))
+    left = pad_frontres_raw_contact_slots(raw_rows[0], contact_slots=contact_slots)
+    right = pad_frontres_raw_contact_slots(raw_rows[1], contact_slots=contact_slots)
+    zmp_xy, zmp_valid = contact_wrench_zmp_xy(
+        torch.cat((left[0], right[0]), dim=1),
+        torch.cat((left[1], right[1]), dim=1),
+        torch.cat((left[2], right[2]), dim=1),
+        torch.cat((left[3], right[3]), dim=1),
+    )
+    applicable = contact.any(dim=-1)
+    if bool((applicable & ~zmp_valid).any()):
+        raise RuntimeError("TRAIN-v018 loaded support is missing a finite action-pre contact-wrench ZMP")
+
+    body_pos = getattr(command, "robot_body_pos_w", None)
+    body_quat = getattr(command, "robot_body_quat_w", None)
+    left_index = int(getattr(command, "left_foot_idx", -1))
+    right_index = int(getattr(command, "right_foot_idx", -1))
+    if (
+        not isinstance(body_pos, torch.Tensor)
+        or not isinstance(body_quat, torch.Tensor)
+        or body_pos.ndim != 3
+        or body_quat.ndim != 3
+        or min(left_index, right_index) < 0
+        or max(left_index, right_index) >= int(body_pos.shape[1])
+        or tuple(body_quat.shape[:2]) != tuple(body_pos.shape[:2])
+    ):
+        raise RuntimeError("TRAIN-v018 Critic support cannot resolve current two-foot pose")
+    cfg = getattr(runner, "cfg", {})
+    cfg_get = cfg.get if isinstance(cfg, Mapping) else lambda name, default: getattr(cfg, name, default)
+    envelope = support_envelope_from_foot_pose_and_mask(
+        body_pos[:, (left_index, right_index)].to(device=runner.device, dtype=torch.float32),
+        body_quat[:, (left_index, right_index)].to(device=runner.device, dtype=torch.float32),
+        contact,
+        foot_half_length=float(cfg_get("frontres_expected_foot_half_length", 0.10)),
+        foot_half_width=float(cfg_get("frontres_expected_foot_half_width", 0.05)),
+    )
+    margin = expected_support_envelope_margin(zmp_xy, envelope, contact.float())
+    margin = torch.where(applicable, margin, torch.zeros_like(margin))
+    if not bool(torch.isfinite(margin).all()):
+        raise RuntimeError("TRAIN-v018 Critic support requires finite applicable ZMP margins")
+    return compose_frontres_v018_critic_support_context(
+        current_contact=contact.float(),
+        vertical_load_fraction=load_fraction,
+        zmp_applicable=applicable.float(),
+        zmp_margin=margin,
+        planned_support=planned_support.to(device=runner.device, dtype=torch.float32),
+        planned_horizon=horizon.to(device=runner.device, dtype=torch.long),
+    )
+
+
 def _root_relative_body_pos(body_pos: torch.Tensor) -> torch.Tensor:
     if body_pos.ndim < 3 or int(body_pos.shape[-2]) <= 0:
         return body_pos.detach().clone()
@@ -598,4 +722,5 @@ capture_frontres_root_orientation_frame = _capture_root_orientation_frame
 capture_frontres_physics_frame = _capture_physics_frame
 capture_frontres_quality_lateral_lean_frame = _capture_v015_quality_lateral_lean_frame
 capture_frontres_v017_execution_frame = _capture_v017_execution_frame
+capture_frontres_v018_critic_support_context = _capture_v018_critic_support_context
 stack_frontres_motion_quality_frames = _stack_motion_quality_frames

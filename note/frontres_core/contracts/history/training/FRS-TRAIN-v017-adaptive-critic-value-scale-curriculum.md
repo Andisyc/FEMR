@@ -1,8 +1,8 @@
 ---
 contract_id: FRS-TRAIN-v017
-status: active
+status: superseded
 effective_date: 2026-08-08
-updated_date: 2026-08-08
+updated_date: 2026-08-09
 supersedes: FRS-TRAIN-v016
 scope: Direct full-6D HSL-to-HRL Recovery-Aware training with a 347D future-conditioned state-value Critic, exact-M Segment-mean value targets, output-preserving adaptive Critic loss scaling, independently clipped Actor/Critic gradients, fixed split-LR Adam, unchanged nested curriculum, and strict checkpoint-v12 persistence
 ---

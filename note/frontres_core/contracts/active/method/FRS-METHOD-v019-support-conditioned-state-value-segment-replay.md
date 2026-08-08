@@ -1,27 +1,29 @@
 ---
-contract_id: FRS-METHOD-v018
+contract_id: FRS-METHOD-v019
 status: active
-effective_date: 2026-08-08
-updated_date: 2026-08-08
-supersedes: FRS-METHOD-v017
-scope: Clean-anchored Recovery-Aware local root-artifact repair with one full-6D Actor action, a future-conditioned state-value Critic, one-action-K frozen-GMT evidence, exact-M Segment Replay, and grouped scalar PPO
+effective_date: 2026-08-09
+updated_date: 2026-08-09
+supersedes: FRS-METHOD-v018
+scope: Clean-anchored Recovery-Aware local root-artifact repair with one full-6D Actor action, a support-conditioned state-value Critic, one-action-K frozen-GMT evidence, exact-M Segment Replay, and grouped scalar PPO
 ---
 
-# Future-Conditioned State-Value Segment Replay
+# Support-Conditioned State-Value Segment Replay
 
 ## Design Delta
 
-FRS-METHOD-v017 defined one state-value Critic over the current 289D privileged
-observation while the Actor already used the sealed 58D future q29 Intent.
-That omits a variable required to distinguish states with the same current
-physical condition but different upcoming motion difficulty. It also presented
-each action-specific return as a separate desired value for one identical
-state input.
+FRS-METHOD-v018 established a 347D state-value Critic using the current 289D
+privileged observation plus the sealed 58D future q29 Intent. The completed
+TRAIN-v017 K8/M2 campaign showed that this input still omits the action-pre
+support condition that determines how difficult a Repair is: actual loaded
+feet, relative load, current ZMP applicability/margin, and the planned support
+phase through the active consequence horizon. M=2 also gives a high-variance
+estimate of the same-state policy expectation.
 
-FRS-METHOD-v018 keeps the scalar Critic as `V(s)`, not `Q(s,a)`. It adds the
-same deployable 58D future Intent to the current 289D privileged state, and
-defines the exact-M Segment mean return as the Critic target. Each Repair still
-keeps its own realized `G_total` and advantage, so action ordering remains:
+FRS-METHOD-v019 keeps the scalar Critic as `V(s_support)`, not `Q(s,a)`. It adds
+only action-independent support context and keeps the arithmetic exact-M Segment
+mean as the target. Every K stage now uses M=4 to reduce target sampling noise.
+Each Repair still keeps its own realized `G_total` and advantage, so action
+ordering remains:
 
 ```text
 Clean Rollout            -> desired motion and support semantics
@@ -32,9 +34,11 @@ shared V(s)              -> expected exact-M Segment return
 each G_total_m - V(s)    -> grouped equal-mass Actor credit
 ```
 
-The 6D Repair action, Clean future, evaluator evidence, K, perturbation label
-and timing do not enter the Critic. The previous 289D Critic identity and all
-checkpoint-v10 state are incompatible with this method version.
+The 6D Repair action, Repair-after Contact/ZMP/survival, `G_total`, perturbation
+label and timing do not enter the Critic. Planned support is a sealed,
+action-independent training-only projection of the Clean-GMT continuation; it
+never enters the Actor or frozen GMT. The previous 347D Critic identity and all
+checkpoint-v12 state are incompatible with this method version.
 
 ## Concept Figure Mapping
 
@@ -85,21 +89,29 @@ leaves its numbers equal to Clean calibration. Clean continuation, expected
 Contact, phase-ZMP, survival, noise labels, perturbation timing, and future
 root/global quantities never enter the actor input.
 
-The state-value Critic reads one 347D training-only state:
+The state-value Critic reads one 449D training-only state:
 
 ```text
 current privileged observation                              289D
 same sealed Noisy q29[t+1] and q29[t+2]                     58D
-                                      ----
-                                      347D
+current actual Contact bits                                  2D
+current per-foot vertical-load fractions                     2D
+current contact-wrench ZMP applicable + signed margin         2D
+planned support bits through K_max=32                        64D
+explicit valid-step mask through K_max=32                    32D
+                                                            ----
+                                                            449D
 ```
 
 The 58D tail has the same detached `deployment_noisy_q29` provenance, ordering,
-row identity and Segment lifetime as the Actor tail. It is sealed once and
-reused by all M attempts. The environment's original privileged observation
-remains 289D before this FrontRES-specific concatenation. The Critic receives
-neither the 6D Repair action nor Clean continuation, expected Contact,
-phase-ZMP, survival, K, noise label, perturbation timing or evaluator outputs.
+row identity and Segment lifetime as the Actor tail. The 102D support context is
+captured before the Repair action: actual Contact/load/ZMP comes from the
+current robot and filtered foot-ground sensors, while planned support and its
+mask come from the already sealed Clean-GMT continuation. All fields are sealed
+once and reused by all M attempts. The environment's original privileged
+observation remains 289D before this FrontRES-specific concatenation. The
+Critic receives neither the 6D Repair action nor any Repair-after outcome,
+`G_total`, noise label, perturbation timing or evaluator result.
 
 The actor emits exactly one world-frame full-6D residual at `t`:
 
@@ -134,7 +146,7 @@ Reset may not resample, mutate, or mix them. There is no Noisy physical prefix.
 
 The active corruption family is single `local_rp`. Composite corruption is not
 part of this contract. Perturbation strength follows the K-conditioned
-four-class inner DR curriculum owned by FRS-TRAIN-v017; it is not monotonically
+four-class inner DR curriculum owned by FRS-TRAIN-v018; it is not monotonically
 ramped and is not controlled by Gain or PPO.
 
 ## Clean/Noisy/Repair Evidence
@@ -211,18 +223,18 @@ checkpoint receipt.
 
 ## Training And Persistence Authority
 
-FRS-TRAIN-v017 owns HSL-to-HRL initialization, the coordinated K x M schedule,
+FRS-TRAIN-v018 owns HSL-to-HRL initialization, the coordinated K x M schedule,
 per-K inner DR progression, Critic-only recalibration, actor ramp, joint optimization,
 calibration, and strict checkpoint identity. HSL initializes only the proposal
-actor/std and 158D actor-prefix normalizer. The fresh 347D scalar Critic predicts
+actor/std and 158D actor-prefix normalizer. The fresh 449D scalar Critic predicts
 the expected complete Recovery-Aware `G_total` under frozen `pi_old` and is
 recalibrated whenever K increases. Actor and Critic gradients are clipped
 independently before the same exact-one Adam step. FRS-PPO-v007 may condition
 only the Critic loss with its committed non-amplifying target scale; raw value,
 target, advantage and Actor semantics remain unchanged.
 
-Checkpoint-v11 and earlier cannot resume the changed Critic conditioning and
-persistence identity. Strict resume requires checkpoint-v12 and the new
+Checkpoint-v12 and earlier cannot resume the changed Critic conditioning and
+persistence identity. Strict resume requires checkpoint-v13 and the new
 versioned contract before any mutable state is restored.
 
 ## Deployment Boundary
@@ -239,6 +251,7 @@ evidence never become deployment inputs.
 - scalar Intent-minus-cost with independent Physics projection;
 - Physics constraint gradients, projection/KKT gate, or recovery fallback;
 - Clean future, expected support, or evaluator labels in actor observations;
+- Repair-after Contact/ZMP/survival, `G_total`, or 6D action in Critic observations;
 - Clean or Noisy as PPO rows;
 - repeated Clean/Noisy rollout per attempt;
 - one Repair action per K step;
@@ -256,14 +269,15 @@ config and checkpoint identity
 -> deployable 158D actor input and one full-6D action
 -> frozen GMT K-step Clean-anchored evidence
 -> FRS-GAIN-v007 G_total for every valid Repair
--> one shared 347D V(s) and one exact-M mean Critic target per Segment
+-> one shared 449D V(s_support) and one exact-M mean Critic target per Segment
 -> FRS-PPO-v007 grouped exact-one update with separate gradient clipping
--> FRS-TRAIN-v017 committed checkpoint-v12 and diagnostics
+-> FRS-TRAIN-v018 committed checkpoint-v13 and diagnostics
 ```
 
 Stop if Clean reaches actor input, a baseline is resampled, a transaction mixes
 scenario/K/M/policy identity, evidence is silently zero-filled, an old
 projection path remains active, valid attempts are winner-filtered, more than
-one optimizer step occurs, the Critic receives the 6D action or lacks the sealed
-future Intent, Actor/Critic share one clip factor, or runtime ordering
+one optimizer step occurs, the Critic receives action-dependent outcomes or
+lacks its sealed future Intent/support context, Actor/Critic share one clip
+factor, or runtime ordering
 contradicts the raw paired evidence.

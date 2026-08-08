@@ -1,6 +1,30 @@
 # Formal Runtime Audit
 
-Active status (2026-08-08): TRAIN-v017 Formal Runtime Audit Phase A passes
+Active status (2026-08-09): TRAIN-v018 Formal Runtime Audit Phase A passes
+offline. The official route now proves the action-pre support Gateway,
+`289+58+102=449` Critic layout, all-stage M4 identity, 16-row lifecycle,
+exact-one grouped update, checkpoint-v13 persistence, and matching telemetry.
+One fresh bounded official K8/M4 transaction is still required; long training
+remains closed until that transaction and its atomic checkpoint readback pass.
+
+## TRAIN-v018 Phase A Closure
+
+- Contracts: `FRS-METHOD-v019 / FRS-GAIN-v007 / FRS-PPO-v007 / FRS-TRAIN-v018`.
+- Observation identity: Actor/GMT remain `158/770`; Critic is
+  `[current privileged 289 | Noisy q29 future 58 | action-pre support 102] = 449`.
+- Support owner: current Contact/load/contact-wrench ZMP and sealed
+  Clean-GMT planned support are captured before Repair; action, post-Repair
+  outcomes, Gain and evaluator fields are rejected dependencies.
+- Transaction identity: `K8/M4 -> K16/M4 -> K32/M4`, two Segments, eight policy
+  rows, sixteen Repair/Noisy role rows and one optimizer commit.
+- Offline evidence: focused support/ZMP/schedule/PPO/checkpoint/telemetry tests,
+  Python compile, Design Inspector check, and the 53-contract aggregate suite
+  pass. Construction review has no open P0/P1.
+- Phase B gate: one 16-env, one-iteration, one-update official transaction must
+  prove finite 449D input, Actor/std isolation, nonzero Critic delta, exact-one
+  receipt and checkpoint-v13 readback before cold-start training.
+
+Historical status (2026-08-08): TRAIN-v017 Formal Runtime Audit Phase A passes
 offline. The official route now proves fixed value-normalizer config at B01,
 raw/scaled Critic loss plus committed count transition at B07, and exact
 checkpoint-v12 identity/state/count at B08. The 13-contract Stage-3 pseudo

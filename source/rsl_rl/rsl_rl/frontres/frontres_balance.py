@@ -187,11 +187,50 @@ def expected_support_and_envelope_from_foot_pose(
     ):
         raise ValueError("expected support thresholds/extents must be nonnegative/positive")
     support = foot_pos_w[..., 2] <= float(contact_height)
+    envelope = support_envelope_from_foot_pose_and_mask(
+        foot_pos_w,
+        foot_quat_w,
+        support,
+        foot_half_length=foot_half_length,
+        foot_half_width=foot_half_width,
+    )
+    return support.detach().clone(), envelope
+
+
+def support_envelope_from_foot_pose_and_mask(
+    foot_pos_w: torch.Tensor,
+    foot_quat_w: torch.Tensor,
+    support_mask: torch.Tensor,
+    *,
+    foot_half_length: float,
+    foot_half_width: float,
+) -> torch.Tensor:
+    """Build one oriented support box from an explicit two-foot support mask."""
+
+    if (
+        foot_pos_w.ndim != 3
+        or tuple(foot_pos_w.shape[1:]) != (2, 3)
+        or tuple(foot_quat_w.shape) != (int(foot_pos_w.shape[0]), 2, 4)
+        or tuple(support_mask.shape) != (int(foot_pos_w.shape[0]), 2)
+        or not bool(torch.isfinite(foot_pos_w).all())
+        or not bool(torch.isfinite(foot_quat_w).all())
+    ):
+        raise ValueError("support envelope requires finite foot pose [B,2,3]/[B,2,4] and mask [B,2]")
+    if (
+        not math.isfinite(float(foot_half_length))
+        or not math.isfinite(float(foot_half_width))
+        or float(foot_half_length) <= 0.0
+        or float(foot_half_width) <= 0.0
+    ):
+        raise ValueError("support-envelope half extents must be positive")
+    support_mask = support_mask.bool()
     w, x, y, z = foot_quat_w.unbind(dim=-1)
     yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y.square() + z.square()))
     rows: list[torch.Tensor] = []
     for frame_index in range(int(foot_pos_w.shape[0])):
-        active = support[frame_index]
+        active = support_mask[frame_index]
+        # The caller's explicit applicability mask owns no-support semantics.
+        # Both feet only provide a finite geometric carrier for that masked row.
         if not bool(active.any()):
             active = torch.ones_like(active)
         mean_cos = torch.cos(yaw[frame_index, active]).mean()
@@ -221,7 +260,7 @@ def expected_support_and_envelope_from_foot_pose(
                 )
             )
         )
-    return support.detach().clone(), torch.stack(rows, dim=0).detach().clone()
+    return torch.stack(rows, dim=0).detach().clone()
 
 
 # B2: Convert row-aligned raw foot-ground contacts into physical ZMP evidence.

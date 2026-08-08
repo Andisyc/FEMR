@@ -56,6 +56,7 @@ from rsl_rl.runners.frontres_runtime import (
 )
 from rsl_rl.modules.frontres_observation_layout import (
     FRONTRES_V015_GMT_SUFFIX_DIM,
+    FRONTRES_V018_CRITIC_SUPPORT_CONTEXT_DIM,
     resolve_frontres_future_intent_layout,
     resolve_frontres_v015_observation_authority,
 )
@@ -416,9 +417,9 @@ class OnPolicyRunner:
             if v015_formal_layout_requested:
                 if int(num_privileged_obs) != 289 or int(layout.actor_tail_dim) != 58:
                     raise ValueError(
-                        "TRAIN-v017 requires the exact 289D current Critic state and 58D future tail"
+                        "TRAIN-v018 requires the exact 289D current Critic state and 58D future tail"
                     )
-                num_privileged_obs += layout.actor_tail_dim
+                num_privileged_obs += layout.actor_tail_dim + FRONTRES_V018_CRITIC_SUPPORT_CONTEXT_DIM
                 self._frontres_critic_observation_dim = int(num_privileged_obs)
             print(
                 "[Runner] FrontRES v015 future-intent actor layout: "
@@ -725,7 +726,7 @@ class OnPolicyRunner:
         return self._dispatch_frontres_startup_once("local_sentinel", operation)
 
     def finalize_frontres_local_sentinel_checkpoint(self, result: object) -> str:
-        """Save the exact checkpoint-v12 adjacent to one completed local sentinel."""
+        """Save the exact checkpoint-v13 adjacent to one completed local sentinel."""
 
         return finalize_frontres_local_sentinel_checkpoint_helper(self, result)
 
@@ -1205,9 +1206,9 @@ class OnPolicyRunner:
                         and bool(self.cfg.get("frontres_hsl_rollout_label_enabled", False))
                     ):
                         raise RuntimeError(
-                "FRS-TRAIN-v017 forbids frontres_hsl_rollout_label_enabled on every active Stage-3 route"
+                            "FRS-TRAIN-v018 forbids frontres_hsl_rollout_label_enabled on every active Stage-3 route"
                         )
-                    
+
                     # ------------------- Policy Rollout -------------------
 
                     # ------------------- Reward Compute -------------------

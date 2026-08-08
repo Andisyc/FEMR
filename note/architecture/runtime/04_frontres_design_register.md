@@ -1,14 +1,13 @@
 # FrontRES Design Inspector
 
-Status: DP09 output-preserving Critic conditioning was human-confirmed on
-2026-08-08 and activated as METHOD-v018 / PPO-v007 / TRAIN-v017. Offline module
-and Formal Runtime Audit Phase A evidence pass; one new bounded official
-transaction remains. Actor stays 158D and GMT stays 770D. The 347D state-value
-Critic keeps the exact-M Segment mean target, but its raw loss is divided by a
-committed non-amplifying EMA target scale before the existing separate clip.
-Raw `G_total`, raw `V(s)`, Actor credit, networks and split LR are unchanged.
-TRAIN-v016/checkpoint-v11 is historical evidence only; checkpoint-v12 and new
-policy quality remain separate evidence gates.
+Status: DP09 support-conditioned Critic and all-stage M4 were human-confirmed on
+2026-08-09 and activated as METHOD-v019 / PPO-v007 / TRAIN-v018. Actor stays
+158D and GMT stays 770D. The 449D state-value Critic keeps the arithmetic
+exact-M Segment mean target and output-preserving adaptive value scale; its new
+102D context contains only action-pre current support evidence and sealed
+planned support. Raw `G_total`, Actor credit, networks and split LR are
+unchanged. TRAIN-v017/checkpoint-v12 is historical evidence only;
+checkpoint-v13 requires fresh runtime evidence.
 
 Interactive page: `../02_frontres_design_inspector.html`
 
@@ -61,7 +60,7 @@ pre-Transaction initialization
 -> use Clean direction, Noisy zero point, and every Repair consequence to form
 one active scalar Recovery-Aware Gain per attempt
 -> seal 2 x M PPO policy rows
--> form one shared 347D state value and exact-M mean target per Segment
+-> form one shared 449D support-conditioned state value and exact-M mean target per Segment
 -> use every attempt's scalar advantage, scale only the Critic loss, clip
 Actor/Critic separately, and execute exactly one grouped optimizer update
 -> atomically commit checkpoint, curriculum and Critic target moments
@@ -82,8 +81,8 @@ English outline above.
 | Paired Rollouts | execute one Clean anchor and one fixed Noisy zero point once per sealed Segment, then read-only reuse both while evaluating M Repair rollouts |
 | Repair Gain | keep one scalar `G_total` per attempt; subtract one shared state value so Actor ordering remains action-specific while the Critic target is the exact-M mean |
 | HSL Warmup | initialize the proposal Actor before the first Stage-3 Transaction and never use HSL as its target |
-| Actor & Critic Warmup | first calibrate the 347D state-value Critic, then release the Actor; condition only its loss with a committed non-amplifying target scale, clip gradients independently and recalibrate the same Critic whenever K increases |
-| Future Motion Context | seal q29 at `t+1,t+2` from one fixed deployment Noisy reference, then reuse it in the 158D Actor input and 347D Critic state while keeping GMT at 770D |
+| Actor & Critic Warmup | first calibrate the 449D state-value Critic with M4 targets, then release the Actor; condition only its loss with a committed non-amplifying target scale, clip gradients independently and recalibrate the same Critic whenever K increases |
+| Future Motion Context | seal q29 at `t+1,t+2` plus action-pre current/planned support context for the 449D Critic while keeping Actor at 158D and GMT at 770D |
 
 ## Atomic Decisions Kept In The Primary View
 
@@ -112,7 +111,7 @@ decision itself. They are not rendered as separate metadata chips:
  `d_cap` comes from explicit committed stage progress and approaches the frozen
   boundary, not online survival or Gain feedback; 2.381 is neither a mastery
   condition nor a per-K `g_K`;
-- the provisional first campaign uses `K8/M2 -> K16/M3 -> K32/M4` as the outer
+- the active campaign uses `K8/M4 -> K16/M4 -> K32/M4` as the outer
   curriculum. Each K owns an inner lower-to-higher DR curriculum;
 - at each K transition, the committed state is preserved, DR returns to a
   lower but still informative distribution, Actor/std freeze, and the same
@@ -122,7 +121,7 @@ decision itself. They are not rendered as separate metadata chips:
 - one sealed Segment samples strength once. Its Noisy and M Repair rollouts
   share that strength and artifact; Clean remains uncorrupted, and Gain/PPO do
   not control the curriculum;
-- active schedule `K8/M2 -> K16/M3 -> K32/M4`;
+- active schedule `K8/M4 -> K16/M4 -> K32/M4`;
 - `K64` is not active under `FRS-TRAIN-v013`;
 - each sealed Segment owns one Clean rollout, one zero-action Noisy rollout,
   and M Repair rollouts; only the M Repair rows enter PPO. Runtime env packing
@@ -153,12 +152,13 @@ decision itself. They are not rendered as separate metadata chips:
   comes from its own `G_total` and advantage, not winner-only selection,
   argmax, best-of-M weighting, or replay priority;
 - full observation `928D`, FrontRES Actor prefix `158D`, FrontRES Critic state
- `347D`, frozen GMT suffix `770D`;
+ `449D`, frozen GMT suffix `770D`;
 - the actor reads two future 29D internal-Intent frames, `q29[t+1]` and
   `q29[t+2]`, from the same sealed Noisy/deployment reference;
 - those two frames contribute `58D` to the `158D` Actor input and to the
- `289D + 58D = 347D` state-value Critic input, while future root/global,
- Clean future, evaluator evidence, K and the 6D Repair action remain excluded;
+ `289D + 58D + 102D = 449D` state-value Critic input. The 102D block contains
+ current actual Contact/load/ZMP plus 32 planned-support pairs and their valid
+ mask; Repair-after evidence, `G_total` and the 6D Repair action remain excluded;
 - H supplies the two-frame Actor/Critic context; K remains the executable-evidence
 horizon.
 - Clean Rollout is evaluator-only phase and demo-quality evidence; it does not
@@ -321,7 +321,7 @@ does not delete or supersede them.
   during collection, and exact-one grouped update. Its human-facing explanation
   says that motions, Segments and attempts receive equal voting weight, so a
   group cannot dominate merely because it contains more rows;
-- K-step Curriculum visibly shows K8/M2, K16/M3, K32/M4 and concise K64 inactive
+- K-step Curriculum visibly shows K8/M4, K16/M4, K32/M4 and concise K64 inactive
   status;
 - K-step Curriculum shows one Clean, one Noisy, and M Repair evaluations per
   Segment without turning runtime env packing into a method identity;
@@ -332,7 +332,7 @@ does not delete or supersede them.
   per-frame deployment composition, and the soft upward `dz` treatment without
   hiding a hard clip, mask, or scale;
 - HSL is visibly pre-Transaction rather than a per-Transaction operation;
-- Actor & Critic Warmup states the direct `HSL -> HRL` transition, the 347D
+- Actor & Critic Warmup states the direct `HSL -> HRL` transition, the 449D
  state-value input, exact-M mean target, separate gradient clipping and
  checkpoint-v11 cold-start boundary;
 - the `Future Motion Context` detail card explicitly states `t+1,t+2`,

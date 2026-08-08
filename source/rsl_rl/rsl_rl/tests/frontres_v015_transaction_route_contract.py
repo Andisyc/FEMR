@@ -52,7 +52,7 @@ class _Policy(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.actor = torch.nn.Linear(2, 1, bias=False)
-        self.critic = torch.nn.Linear(347, 1, bias=False)
+        self.critic = torch.nn.Linear(449, 1, bias=False)
         self.log_std = torch.nn.Parameter(torch.tensor(-0.4))
 
 
@@ -80,8 +80,8 @@ class _TrackingAdam(torch.optim.Adam):
 
 
 SCHEDULE = (
-    (8, 2, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
-    (16, 3, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
+    (8, 4, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
+    (16, 4, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
     (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-joint-v1", 625, 2.381),
 )
 
@@ -121,18 +121,19 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
         frontres_segment_live_train_enabled=False,
         frontres_segment_live_update_loop_only=False,
         frontres_segment_live_single_update_only=False,
-        frontres_method_contract_id="FRS-METHOD-v018",
+        frontres_method_contract_id="FRS-METHOD-v019",
         frontres_gain_contract_id="FRS-GAIN-v007",
         frontres_optimization_contract_id="FRS-PPO-v007",
-        frontres_training_contract_id="FRS-TRAIN-v017",
+        frontres_training_contract_id="FRS-TRAIN-v018",
         frontres_scalar_target_id="clean-anchored-recovery-aware-gain-v1",
         frontres_physics_schema_id="clean-anchored-contact-zmp-survival-v1",
         frontres_grouped_schema_id="grouped-all-attempt-scalar-v1",
+        frontres_critic_support_context_id="action-pre-support-plan-kmax32-v1",
         frontres_gain_beta=0.02,
     )
 
 
-def _report(transaction_id: str, *, count: int = 4, horizon_k: int = 8) -> FrontRESV017LocalEvaluationReport:
+def _report(transaction_id: str, *, count: int = 8, horizon_k: int = 8) -> FrontRESV017LocalEvaluationReport:
     split = count // 2
     scalar = tuple(round(0.2 - 0.1 * row, 10) for row in range(split)) + tuple(
         round(-0.1 - 0.1 * row, 10) for row in range(split)
@@ -287,7 +288,7 @@ def _request(
         [[float(row + 1), 0.0] for row in range(identity.active_m)]
         + [[0.0, float(row + 1)] for row in range(identity.active_m)]
     )
-    critic_obs = torch.zeros(count, 347)
+    critic_obs = torch.zeros(count, 449)
     critic_obs[: identity.active_m, 0] = 1.0
     critic_obs[identity.active_m :, 0] = 2.0
     returns = torch.tensor(_report(transaction_id, count=count, horizon_k=identity.active_k).gain_total)
@@ -374,7 +375,7 @@ def test_exact_one_scalar_commit_and_critic_only() -> None:
     result = run_frontres_formal_transaction_update(runner, request)
     assert result.optimizer_step_delta == 1 and result.update_invocation_count == 1
     assert runner.alg.frontres_critic_value_normalizer_state.update_count == 1
-    assert result.valid_row_count == 4 and result.policy_attempt_count == 4
+    assert result.valid_row_count == 8 and result.policy_attempt_count == 8
     assert all(torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
     assert any(not torch.equal(value, critic_before[name]) for name, value in policy.critic.state_dict().items())
     assert result.diagnostics["gain_contract_id"] == "FRS-GAIN-v007"
@@ -383,37 +384,38 @@ def test_exact_one_scalar_commit_and_critic_only() -> None:
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
     assert telemetry["clean_execution_count"] == (1, 1)
     assert telemetry["noisy_execution_count"] == (1, 1)
-    assert telemetry["policy_row_count"] == 4
+    assert telemetry["policy_row_count"] == 8
     assert telemetry["optimizer_step_delta"] == 1
     assert telemetry["update_count"] == 1
     assert telemetry["gain_contract_id"] == "FRS-GAIN-v007"
-    assert telemetry["intent_gain"] == (0.2, 0.1, -0.1, -0.2)
-    assert telemetry["intent_remaining_noisy"] == (1.1, 1.2, 1.3, 1.4)
-    assert telemetry["physics_remaining_repaired"] == (1.9, 2.1, 2.4, 2.6)
+    assert telemetry["intent_gain"] == (0.2, 0.1, 0.0, -0.1, -0.1, -0.2, -0.3, -0.4)
+    assert telemetry["intent_remaining_noisy"] == (1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8)
+    assert telemetry["physics_remaining_repaired"] == (1.9, 2.1, 2.3, 2.5, 2.6, 2.8, 3.0, 3.2)
     assert telemetry["intent_channel_noisy"][2] == (20.0, 21.0, 22.0, 23.0, 24.0, 25.0)
     assert telemetry["physics_channel_repaired"][3] == (120.0, 121.0, 122.0, 123.0)
-    assert telemetry["recovery_pressure"] == (1.0, 1.0, 1.0, 1.0)
-    assert telemetry["support_foot_drift_noisy"] == (0.03, 0.06, 0.09, 0.12)
-    assert telemetry["cost_free_score"] == (0.202, 0.102, -0.098, -0.198)
+    assert telemetry["recovery_pressure"] == (1.0,) * 8
+    assert telemetry["support_foot_drift_noisy"] == (0.03, 0.06, 0.09, 0.12, 0.15, 0.18, 0.21, 0.24)
+    assert telemetry["cost_free_score"] == (0.202, 0.102, 0.002, -0.098, -0.098, -0.198, -0.298, -0.398)
     assert telemetry["intent_scales"] == (0.087, 0.087, 0.10, 0.75, 2.0, 0.05)
     assert telemetry["physics_scales"] == (0.10, 0.03, 0.02, 0.10)
     assert telemetry["beta"] == 0.02
-    assert telemetry["contact_violation_repair_steps"] == tuple((False,) * 8 for _ in range(4))
-    assert telemetry["zmp_applicable_repair_steps"] == tuple((True,) * 8 for _ in range(4))
-    assert telemetry["zmp_violation_repair_steps"] == tuple((0.0,) * 8 for _ in range(4))
-    assert telemetry["sustained_lean_repair"] == (False,) * 4
-    assert telemetry["grouped_attempt_mass_shares"] == (0.25, 0.25, 0.25, 0.25)
+    assert telemetry["contact_violation_repair_steps"] == tuple((False,) * 8 for _ in range(8))
+    assert telemetry["zmp_applicable_repair_steps"] == tuple((True,) * 8 for _ in range(8))
+    assert telemetry["zmp_violation_repair_steps"] == tuple((0.0,) * 8 for _ in range(8))
+    assert telemetry["sustained_lean_repair"] == (False,) * 8
+    assert telemetry["grouped_attempt_mass_shares"] == (0.125,) * 8
     assert "constraint_projection_status" not in telemetry
 
     before = repr(result.diagnostics)
     permuted_diagnostics = dict(result.diagnostics)
-    permuted_diagnostics["v007_diagnostic_report_row_order"] = (3, 1, 0, 2)
+    permutation = (7, 5, 3, 1, 0, 2, 4, 6)
+    permuted_diagnostics["v007_diagnostic_report_row_order"] = permutation
     permuted = build_frontres_transaction_telemetry(
         replace(result, diagnostics=permuted_diagnostics),
         ppo=result.ppo_result,
     )
-    assert permuted["scenario_ids"] == ("sb", "sa", "sa", "sb")
-    assert permuted["gain_total"] == (-0.2, 0.1, 0.2, -0.1)
+    assert permuted["scenario_ids"] == tuple(telemetry["scenario_ids"][row] for row in permutation)
+    assert permuted["gain_total"] == tuple(telemetry["gain_total"][row] for row in permutation)
     assert repr(result.diagnostics) == before
 
 
@@ -424,7 +426,7 @@ def test_k_transitions_keep_one_critic_and_preserve_frozen_actor_optimizer_state
     actor_optimizer_state = _clone_optimizer_state(runner.alg.optimizer, actor_parameters)
     critic_identity = id(policy.critic)
 
-    for iteration, expected_k, expected_m in ((2000, 16, 3), (3500, 32, 4)):
+    for iteration, expected_k, expected_m in ((2000, 16, 4), (3500, 32, 4)):
         runner, request, current_policy = _request(iteration=iteration, runner=runner)
         assert id(current_policy.critic) == critic_identity
         assert request.warmup_phase_name == "critic_only"
@@ -473,7 +475,7 @@ def test_partial_transaction_rejects_before_update() -> None:
     normalizer_before = runner.alg.frontres_critic_value_normalizer_state
     open_frontres_checkpoint_transaction_barrier(runner)
     batch = request.candidate_batches[0]
-    partial = replace(batch, valid_mask=torch.tensor([True, True, True, False]))
+    partial = replace(batch, valid_mask=torch.tensor([True, True, True, True, True, True, True, False]))
     rejected = replace(request, candidate_batches=(partial,))
     try:
         run_frontres_formal_transaction_update(runner, rejected)
@@ -506,7 +508,7 @@ def test_phase_reset_routes_mode_through_sealed_reset_owner() -> None:
 
     def reset(_runner, *, pair_layout, local_scenario_execution_mode):
         calls.append((pair_layout, local_scenario_execution_mode))
-        return SimpleNamespace(success_mask=torch.ones(4, dtype=torch.bool))
+        return SimpleNamespace(success_mask=torch.ones(8, dtype=torch.bool))
 
     formal_transaction._apply_current_segment_reset = reset
     layout = object()
@@ -516,7 +518,7 @@ def test_phase_reset_routes_mode_through_sealed_reset_owner() -> None:
                 object(),
                 pair_layout=layout,
                 mode=mode,
-                policy_row_count=4,
+                policy_row_count=8,
                 label="contract",
             )
     finally:
