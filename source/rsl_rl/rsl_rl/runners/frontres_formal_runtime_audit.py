@@ -621,7 +621,9 @@ def _print_one_action_k_audit_facts(
     assert gmt_actions_finite
     assert actor_forward_count == 1
     assert later_femr_action_count == 0
-    assert int(trace.get("post_advance_gmt_read_count", -1)) == 16
+    # This counts one fresh frozen-GMT observation read per horizon step, not
+    # the number of parallel role rows. M therefore must not scale it.
+    assert int(trace.get("post_advance_gmt_read_count", -1)) == 8
 
     policy = getattr(getattr(runner, "alg", None), "policy", None)
     alg = getattr(runner, "alg", None)

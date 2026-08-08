@@ -396,7 +396,7 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
         critic_segment_state_max_abs_diff=0.0,
         actor_raw_observation_max_abs_diff=0.0,
         critic_raw_observation_max_abs_diff=0.0,
-        post_advance_gmt_read_count=16,
+        post_advance_gmt_read_count=8,
     )
     evidence = SimpleNamespace(
         roles=("repair",) * 8 + ("noisy",) * 8,
@@ -486,6 +486,15 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
     output = stream.getvalue()
     for label in ("AUDIT-B02", "AUDIT-B03", "AUDIT-B04", "AUDIT-B05", "AUDIT-B06", "AUDIT-B07"):
         assert output.count(f"[{label}]") == 1
+
+    update_frontres_observation_trace(runner, post_advance_gmt_read_count=16)
+    try:
+        audit.print_one_action_k_audit(runner, evidence=evidence)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("AUDIT-B04 scaled frozen-GMT read count with M/role rows")
+    update_frontres_observation_trace(runner, post_advance_gmt_read_count=8)
 
     invalid_evidence = SimpleNamespace(**{**vars(evidence), "later_femr_action_count": 1})
     try:
