@@ -2,7 +2,7 @@
 
 ```yaml
 plan_id: FRS-TRAIN-v018-support-conditioned-m4-one-shot
-status: active
+status: executed-through-k8-m4-training-start
 date: 2026-08-09
 owners: [workflow-governance, frontres-observation, frontres-stage3]
 human_authority: user-confirmed support-conditioned Critic and all-stage M4 through training start
@@ -104,3 +104,13 @@ transaction mutation, shared gradient clipping, more than one optimizer step,
 zero Critic delta in critic-only, failed checkpoint-v13 fresh reload, or missing
 formal runtime receipt. A bounded sentinel is lifecycle evidence only and does
 not establish policy quality.
+
+## Execution Receipt
+
+Offline compile, Design Inspector validation, focused contracts, construction
+review and the 53-contract aggregate suite passed. Server commit `0d8e412`
+then completed one bounded official transaction with exactly one each of
+`AUDIT-B01..B08`, zero runtime error matches, nonzero Critic delta, frozen
+Actor/std, exact-one optimizer step and checkpoint-v13 readback. Fresh HSL-v2
+K8/M4 training subsequently started on GPU 0 as PID `3372457`; its log is
+`/hdd0/yuxuancheng/FEMR/log/FRS_TRAIN_V018_K8_M4_FULL_COLDSTART_20260809.log`.

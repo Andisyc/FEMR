@@ -1,11 +1,33 @@
 # Formal Runtime Audit
 
-Active status (2026-08-09): TRAIN-v018 Formal Runtime Audit Phase A passes
-offline. The official route now proves the action-pre support Gateway,
-`289+58+102=449` Critic layout, all-stage M4 identity, 16-row lifecycle,
-exact-one grouped update, checkpoint-v13 persistence, and matching telemetry.
-One fresh bounded official K8/M4 transaction is still required; long training
-remains closed until that transaction and its atomic checkpoint readback pass.
+Active status (2026-08-09): TRAIN-v018 Formal Runtime Audit Phase B is
+runtime-confirmed at server commit `0d8e412`. The bounded official route proves
+the action-pre support Gateway, `289+58+102=449` Critic layout, all-stage M4
+identity, 16-row lifecycle, exact-one grouped update, checkpoint-v13
+persistence, and matching telemetry. The fresh K8/M4 cold-start long training
+is now running; this receipt is lifecycle/connectivity evidence, not policy
+quality evidence.
+
+## TRAIN-v018 Phase B Live Closure
+
+- Successful log:
+  `/hdd0/yuxuancheng/FEMR/log/FRS_TRAIN_V018_SUPPORT_M4_SENTINEL_R2.log`.
+- `AUDIT-B01..B08` each occur exactly once; traceback, `RuntimeError`, OOM and
+  `AssertionError` match count is zero.
+- B03/B04: Actor/Critic/GMT are `158/449/770`; eight K8 frozen-GMT reads are
+  independent of M/parallel role-row count; no later FEMR action occurs.
+- B06/B07: two Segment targets, eight per-attempt Actor advantages, eight
+  attempt masses of `0.125`, one optimizer step, LR `3e-6/1e-5`, zero
+  Actor/std delta in `critic_only`, and nonzero Critic delta.
+- B08: checkpoint-v13 `model_1.pt` was atomically written and freshly read back
+  with `runner_mutated=0`.
+- The first GPU 7 attempt stopped before a transaction because only about
+  20 MiB was free. The first GPU 0 attempt exposed a fail-closed audit-only
+  M-scaling error in the frozen-GMT read counter; regression `0d8e412` fixed
+  the audit owner and the 53-contract suite passed before the successful rerun.
+- Fresh long-run receipt: PID `3372457`, GPU 0, 16 envs, K8/M4, 2000
+  iterations, one update per iteration, checkpoint interval 50, log
+  `/hdd0/yuxuancheng/FEMR/log/FRS_TRAIN_V018_K8_M4_FULL_COLDSTART_20260809.log`.
 
 ## TRAIN-v018 Phase A Closure
 
@@ -22,7 +44,8 @@ remains closed until that transaction and its atomic checkpoint readback pass.
   pass. Construction review has no open P0/P1.
 - Phase B gate: one 16-env, one-iteration, one-update official transaction must
   prove finite 449D input, Actor/std isolation, nonzero Critic delta, exact-one
-  receipt and checkpoint-v13 readback before cold-start training.
+  receipt and checkpoint-v13 readback before cold-start training. This gate is
+  now satisfied by the live closure above.
 
 Historical status (2026-08-08): TRAIN-v017 Formal Runtime Audit Phase A passes
 offline. The official route now proves fixed value-normalizer config at B01,

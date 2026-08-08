@@ -1,6 +1,6 @@
 # FRS-TRAIN-v018 Support-Conditioned M4 Checklist
 
-Status: offline gates passed; bounded live gate pending
+Status: bounded live gate passed; K8/M4 cold-start training running
 Date: 2026-08-09
 Plan: `../plans/FRS-TRAIN-v018-support-conditioned-m4-one-shot-engineering-plan.md`
 
@@ -29,10 +29,17 @@ Plan: `../plans/FRS-TRAIN-v018-support-conditioned-m4-one-shot-engineering-plan.
 - [x] Construction review has no open P0/P1 and records any scoped P2.
 - [x] Formal Runtime Audit Phase A proves config -> observation -> PPO ->
   checkpoint -> telemetry connectivity.
-- [ ] Git push/pull identities match.
-- [ ] One bounded official transaction proves 16 rows, 449D finite input,
+- [x] Git push/pull identities match at server commit `0d8e412`.
+- [x] One bounded official transaction proves 16 rows, 449D finite input,
   critic-only isolation, nonzero Critic delta, exact-one step and checkpoint-v13.
-- [ ] Fresh HSL-v2 cold-start long training is started only after the bounded gate.
+- [x] Fresh HSL-v2 cold-start long training started only after the bounded gate.
+
+Live receipt: GPU 0 bounded log
+`/hdd0/yuxuancheng/FEMR/log/FRS_TRAIN_V018_SUPPORT_M4_SENTINEL_R2.log`
+contains exactly one each of `AUDIT-B01..B08`, zero traceback/runtime/OOM/assertion
+matches, and a successful checkpoint-v13 readback of `model_1.pt`. The fresh
+K8/M4 run is PID `3372457`, log
+`/hdd0/yuxuancheng/FEMR/log/FRS_TRAIN_V018_K8_M4_FULL_COLDSTART_20260809.log`.
 
 ## Stop Conditions
 
