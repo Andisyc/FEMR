@@ -163,6 +163,11 @@ decision itself. They are not rendered as separate metadata chips:
 horizon.
 - Clean Rollout is evaluator-only phase and demo-quality evidence; it does not
   become an actor input or PPO row.
+- Held-out Policy Quality loads the tested checkpoint-v13 Actor, 449D Critic
+  and 449D privileged-observation normalizer inside one reversible inference
+  scope. It reports the shared raw Segment value against the exact-M4 arithmetic
+  mean target; the value-loss normalizer remains output-preserving and is not
+  applied to `V(s)`.
 - each sealed Segment executes one Clean Rollout and one fixed zero-action Noisy
   Rollout exactly once; both observed K-step outcomes are then sealed and
   read-only reused across all M Repair comparisons;

@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 import copy
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -18,7 +19,7 @@ from rsl_rl.frontres.frontres_policy_quality_manifest import (
     FrontRESPolicyQualityRouteIdentity,
     FrontRESPolicyQualityStateIdentity,
     FrontRESV015PolicyQualityManifest,
-    FrontRESV017PolicyQualityManifest,
+    FrontRESV018PolicyQualityManifest,
 )
 from rsl_rl.runners.frontres_policy_quality_interfaces import (
     FrontRESPolicyQualityEvalRequest,
@@ -55,14 +56,14 @@ class FrontRESV015PolicyQualityEvalRequest:
 
 
 @dataclass(frozen=True)
-class FrontRESV017PolicyQualityEvalRequest:
-    """Strict HSL-v2 plus checkpoint-v10 K16/M3 identity for EVAL-v004."""
+class FrontRESV018PolicyQualityEvalRequest:
+    """Strict HSL-v2 plus checkpoint-v13 K16/M4 identity for EVAL-v004."""
 
     manifest_path: str
     hsl_checkpoint_path: str
     policy_checkpoint_path: str
     result_path: str
-    manifest: FrontRESV017PolicyQualityManifest
+    manifest: FrontRESV018PolicyQualityManifest
     manifest_file_sha256: str
     hsl_checkpoint: Any
     policy_checkpoint: Any
@@ -77,7 +78,7 @@ _V015_QUALITY_OWNER_IDENTITY = (
 _V015_QUALITY_ROUTES = ("zero", "hsl", "policy")
 _V015_QUALITY_REPORT_SCHEMA = "frontres-v015-heldout-quality-report-v2"
 _V015_GAIN_SOURCE = "FRS-GAIN-v006-loaded-support-zmp-applicability"
-_V017_QUALITY_REPORT_SCHEMA = "frontres-v017-policy-quality-report-v1"
+_V018_QUALITY_REPORT_SCHEMA = "frontres-v018-policy-quality-report-v1"
 _V015_DYNAMIC_STATE_FIELDS = (
     "root_state_w",
     "joint_pos",
@@ -308,6 +309,10 @@ def _v015_quality_training_state_field_hashes(runner: Any) -> dict[str, str]:
         ("actor", getattr(getattr(policy, "residual_actor", None), "state_dict", lambda: {})()),
         ("critic", getattr(getattr(policy, "critic", None), "state_dict", lambda: {})()),
         ("optimizer", getattr(getattr(alg, "optimizer", None), "state_dict", lambda: {})()),
+        (
+            "critic_value_normalizer",
+            getattr(getattr(alg, "frontres_critic_value_normalizer_state", None), "state_dict", lambda: {})(),
+        ),
         (
             "prefix_normalizer",
             getattr(getattr(runner, "_frontres_extra_normalizer", None), "state_dict", lambda: {})(),
@@ -680,16 +685,16 @@ def build_frontres_v015_policy_quality_eval_request(
     )
 
 
-def build_frontres_v017_policy_quality_eval_request(
+def build_frontres_v018_policy_quality_eval_request(
     *,
     manifest_path: str,
     hsl_checkpoint_path: str,
     policy_checkpoint_path: str,
     result_path: str,
-) -> FrontRESV017PolicyQualityEvalRequest:
+) -> FrontRESV018PolicyQualityEvalRequest:
     """Validate EVAL-v004 artifacts before any runner state can change."""
 
-    # B1: 解析路径和 manifest, 产出 immutable K16/M3 evaluation identity.
+    # B1: 解析路径和 manifest, 产出 immutable K16/M4 evaluation identity.
     paths = {
         "manifest_path": Path(manifest_path).expanduser().resolve(),
         "hsl_checkpoint_path": Path(hsl_checkpoint_path).expanduser().resolve(),
@@ -698,13 +703,13 @@ def build_frontres_v017_policy_quality_eval_request(
     }
     for name in ("manifest_path", "hsl_checkpoint_path", "policy_checkpoint_path"):
         if not paths[name].is_file():
-            raise FileNotFoundError(f"v017 policy-quality {name} does not exist: {paths[name]}")
+            raise FileNotFoundError(f"v018 policy-quality {name} does not exist: {paths[name]}")
     if paths["hsl_checkpoint_path"] == paths["policy_checkpoint_path"]:
-        raise ValueError("v017 policy-quality HSL scaffold and tested policy must be distinct files")
+        raise ValueError("v018 policy-quality HSL scaffold and tested policy must be distinct files")
     if not paths["result_path"].parent.is_dir():
-        raise FileNotFoundError(f"v017 policy-quality result directory does not exist: {paths['result_path'].parent}")
+        raise FileNotFoundError(f"v018 policy-quality result directory does not exist: {paths['result_path'].parent}")
     manifest_bytes = paths["manifest_path"].read_bytes()
-    manifest = FrontRESV017PolicyQualityManifest.from_json(manifest_bytes.decode("utf-8"))
+    manifest = FrontRESV018PolicyQualityManifest.from_json(manifest_bytes.decode("utf-8"))
     from rsl_rl.runners.frontres_checkpointing import inspect_frontres_quality_checkpoint
 
     hsl = inspect_frontres_quality_checkpoint(paths["hsl_checkpoint_path"], route="hsl")
@@ -722,10 +727,11 @@ def build_frontres_v017_policy_quality_eval_request(
     }
     # B2: 分离 HSL artifact 与 Stage-3 policy identity, 产出 pre-mutation request.
     if dict(hsl.future_intent_layout) != expected_layout or dict(policy.future_intent_layout) != expected_layout:
-        raise ValueError("v017 policy-quality manifest and checkpoint layouts are mixed")
+        raise ValueError("v018 policy-quality manifest and checkpoint layouts are mixed")
     if (
-        hsl.format != "frontres-v017-hsl-proposal-v2"
-        or hsl.method_contract_id != manifest.method_contract_id
+        hsl.format != manifest.hsl_checkpoint_format
+        or hsl.method_contract_id != manifest.hsl_method_contract_id
+        or hsl.training_contract_id != manifest.hsl_training_contract_id
         or hsl.training_contract_id != FRONTRES_HSL_ARTIFACT_TRAINING_CONTRACT_ID
         or policy.format != manifest.checkpoint_format
         or policy.method_contract_id != manifest.method_contract_id
@@ -739,9 +745,18 @@ def build_frontres_v017_policy_quality_eval_request(
         or hsl.action_dim != manifest.action_dim
         or policy.action_dim != manifest.action_dim
     ):
-        raise ValueError("v017 policy-quality manifest and checkpoint contract/action identities are mixed")
+        raise ValueError("v018 policy-quality manifest and checkpoint contract/action identities are mixed")
+    if (
+        getattr(policy, "critic_input_dim", None) != manifest.critic_input_dim
+        or getattr(policy, "critic_value_kind", None) != manifest.critic_value_kind
+        or getattr(policy, "critic_action_conditioned", None) is not manifest.critic_action_conditioned
+        or getattr(policy, "critic_target_id", None) != manifest.critic_target_id
+        or getattr(policy, "critic_support_context_id", None) != manifest.critic_support_context_id
+        or getattr(policy, "critic_value_normalization_id", None) != manifest.critic_value_normalization_id
+    ):
+        raise ValueError("v018 policy-quality manifest and checkpoint Critic identities are mixed")
     # B3: 封存双 artifact identity 与 output path, 产出 read-only evaluator request.
-    return FrontRESV017PolicyQualityEvalRequest(
+    return FrontRESV018PolicyQualityEvalRequest(
         manifest_path=str(paths["manifest_path"]),
         hsl_checkpoint_path=str(paths["hsl_checkpoint_path"]),
         policy_checkpoint_path=str(paths["policy_checkpoint_path"]),
@@ -1009,12 +1024,68 @@ def run_frontres_v015_policy_quality_heldout_eval(
         )
 
 
-def run_frontres_v017_policy_quality_heldout_eval(
+def build_frontres_v018_critic_calibration_rows(report: Any, plan: Any) -> tuple[dict[str, Any], ...]:
+    """Project raw state values against exact-M Segment means without changing units."""
+
+    active_m = int(getattr(plan, "active_m", 0))
+    source_index = getattr(plan, "source_index", None)
+    segment_ids = getattr(plan, "segment_ids", None)
+    if active_m != 4 or not isinstance(source_index, torch.Tensor) or not isinstance(segment_ids, torch.Tensor):
+        raise RuntimeError("EVAL-v004 v018 Critic calibration requires exact M4 source and Segment identity")
+    source_index = source_index.detach().to(device="cpu", dtype=torch.long).reshape(-1)
+    segment_ids = segment_ids.detach().to(device="cpu", dtype=torch.long).reshape(-1)
+    policy_values = tuple(float(value) for value in getattr(report, "policy_values", ()))
+    gain_total = tuple(float(value) for value in getattr(report, "gain_total", ()))
+    valid_mask = tuple(bool(value) for value in getattr(report, "valid_policy_row_mask", ()))
+    scenario_ids = tuple(str(value) for value in getattr(report, "scenario_ids", ()))
+    noisy_hashes = tuple(str(value) for value in getattr(report, "noisy_segment_hashes", ()))
+    row_count = int(source_index.numel())
+    if (
+        int(segment_ids.numel()) != row_count
+        or any(len(values) != row_count for values in (policy_values, gain_total, valid_mask, scenario_ids, noisy_hashes))
+    ):
+        raise RuntimeError("EVAL-v004 v018 Critic calibration rows are not aligned")
+    if not all(valid_mask) or not all(math.isfinite(value) for value in (*policy_values, *gain_total)):
+        raise RuntimeError("EVAL-v004 v018 Critic calibration requires finite valid M4 rows")
+
+    rows: list[dict[str, Any]] = []
+    for source in sorted(set(int(value) for value in source_index.tolist())):
+        indices = torch.nonzero(source_index == source, as_tuple=False).reshape(-1).tolist()
+        if len(indices) != active_m:
+            raise RuntimeError("EVAL-v004 v018 Critic calibration requires exact M4 rows per Segment")
+        values = tuple(policy_values[index] for index in indices)
+        if any(not math.isclose(value, values[0], rel_tol=0.0, abs_tol=1e-6) for value in values[1:]):
+            raise RuntimeError("EVAL-v004 v018 same-Segment rows lost their shared Critic value")
+        scenarios = {scenario_ids[index] for index in indices}
+        hashes = {noisy_hashes[index] for index in indices}
+        segments = {int(segment_ids[index].item()) for index in indices}
+        if len(scenarios) != 1 or len(hashes) != 1 or len(segments) != 1:
+            raise RuntimeError("EVAL-v004 v018 Critic calibration mixed Segment identity")
+        target = sum(gain_total[index] for index in indices) / float(active_m)
+        value = values[0]
+        rows.append(
+            {
+                "source_index": source,
+                "segment_id": next(iter(segments)),
+                "scenario_id": next(iter(scenarios)),
+                "noisy_segment_hash": next(iter(hashes)),
+                "attempt_count": active_m,
+                "policy_value": value,
+                "target_mean": target,
+                "value_error": value - target,
+            }
+        )
+    if len(rows) != 2:
+        raise RuntimeError("EVAL-v004 v018 requires exactly two Segment calibration rows per transaction")
+    return tuple(rows)
+
+
+def run_frontres_v018_policy_quality_heldout_eval(
     runner: Any,
     *,
-    request: FrontRESV017PolicyQualityEvalRequest,
+    request: FrontRESV018PolicyQualityEvalRequest,
 ) -> dict[str, Any]:
-    """Run the tested checkpoint through fixed EVAL-v004 K16/M3 transactions."""
+    """Run the tested checkpoint through fixed EVAL-v004 K16/M4 transactions."""
 
     from rsl_rl.runners.frontres_checkpointing import frontres_quality_route_actor
     from rsl_rl.runners.frontres_segment_formal_transaction import (
@@ -1027,9 +1098,9 @@ def run_frontres_v017_policy_quality_heldout_eval(
         prepare_frontres_v017_policy_quality_batch,
     )
 
-    # B1: 冻结训练状态并安装 tested checkpoint-v10, 产出 inference-only policy owner.
-    if not isinstance(request, FrontRESV017PolicyQualityEvalRequest):
-        raise TypeError("EVAL-v004 requires the strict v017 policy-quality request")
+    # B1: 冻结训练状态并安装 tested checkpoint-v13, 产出 inference-only policy owner.
+    if not isinstance(request, FrontRESV018PolicyQualityEvalRequest):
+        raise TypeError("EVAL-v004 requires the strict v018 policy-quality request")
 
     # B1a: 安装只读 Stage-1 dataset/reset support, 产出 held-out manifest 的解析边界.
     # Eval 不启用 Segment Replay, 因此必须显式安装该只读依赖且不得创建 sampler.
@@ -1057,7 +1128,7 @@ def run_frontres_v017_policy_quality_heldout_eval(
             for item_offset in range(0, len(items), request.manifest.segments_per_transaction):
                 item_pair = tuple(items[item_offset : item_offset + request.manifest.segments_per_transaction])
                 with frontres_v017_readonly_collection_scope(runner):
-                    # B2: 每两个 held-out Segment 执行 Clean/Noisy 一次与 M3 Repairs, 产出完整 GAIN-v007 report.
+                    # B2: 每两个 held-out Segment 执行 Clean/Noisy 一次与 M4 Repairs, 产出完整 GAIN-v007 report.
                     prepared = prepare_frontres_v017_policy_quality_batch(
                         runner,
                         item_pair,
@@ -1071,6 +1142,7 @@ def run_frontres_v017_policy_quality_heldout_eval(
                         beta=float(gain_beta),
                     )
                 plan = prepared.plan
+                critic_calibration = build_frontres_v018_critic_calibration_rows(collection.report, plan)
                 transactions.append(
                     {
                         "item_ids": [str(item.item_id) for item in item_pair],
@@ -1083,6 +1155,7 @@ def run_frontres_v017_policy_quality_heldout_eval(
                         "policy_row_count": int(plan.batch_size),
                         "role_row_count": 2 * int(plan.batch_size),
                         "observation_trace": dict(collection.observation_trace),
+                        "critic_calibration": list(critic_calibration),
                         "report": asdict(collection.report),
                     }
                 )
@@ -1099,7 +1172,7 @@ def run_frontres_v017_policy_quality_heldout_eval(
 
     # B3: 原子写入 manifest/checkpoint/transaction identities 和完整 report, 产出唯一评估 artifact.
     payload = {
-        "schema_version": _V017_QUALITY_REPORT_SCHEMA,
+        "schema_version": _V018_QUALITY_REPORT_SCHEMA,
         "evaluation_contract_id": request.manifest.evaluation_contract_id,
         "method_contract_id": request.manifest.method_contract_id,
         "training_contract_id": request.manifest.training_contract_id,
@@ -1107,6 +1180,19 @@ def run_frontres_v017_policy_quality_heldout_eval(
         "ppo_contract_id": request.manifest.ppo_contract_id,
         "checkpoint_format": request.policy_checkpoint.format,
         "checkpoint_file_sha256": request.policy_checkpoint.file_sha256,
+        "critic_identity": {
+            "input_dim": request.policy_checkpoint.critic_input_dim,
+            "value_kind": request.policy_checkpoint.critic_value_kind,
+            "action_conditioned": request.policy_checkpoint.critic_action_conditioned,
+            "target_id": request.policy_checkpoint.critic_target_id,
+            "support_context_id": request.policy_checkpoint.critic_support_context_id,
+            "value_normalization_id": request.policy_checkpoint.critic_value_normalization_id,
+            "model_fingerprint": request.policy_checkpoint.critic_fingerprint,
+            "observation_normalizer_fingerprint": (
+                request.policy_checkpoint.critic_observation_normalizer_fingerprint
+            ),
+            "value_normalizer_fingerprint": request.policy_checkpoint.critic_value_normalizer_fingerprint,
+        },
         "manifest_file_sha256": request.manifest_file_sha256,
         "comparison_signature": request.manifest.comparison_signature,
         "horizon_k": request.manifest.horizon_k,
@@ -1224,22 +1310,22 @@ def run_frontres_policy_quality_eval(
     policy_checkpoint_path: str,
     result_path: str,
 ) -> Any:
-    """Run the active EVAL-v004 checkpoint-v10 held-out evaluator."""
+    """Run the active EVAL-v004 checkpoint-v13 held-out evaluator."""
 
-    # B1: 验证 formal runner 并构造 strict v017 request, 产出 checkpoint-v10 evaluation identity.
+    # B1: 验证 formal runner 并构造 strict v018 request, 产出 checkpoint-v13 evaluation identity.
     if not bool(getattr(getattr(runner, "alg", None), "frontres_formal_transaction_enabled", False)):
         raise RuntimeError(
             "active policy-quality evaluation requires the v017 formal transaction route; "
             "legacy evaluation must use run_frontres_legacy_policy_quality_eval explicitly"
         )
-    request = build_frontres_v017_policy_quality_eval_request(
+    request = build_frontres_v018_policy_quality_eval_request(
         manifest_path=manifest_path,
         hsl_checkpoint_path=hsl_checkpoint_path,
         policy_checkpoint_path=policy_checkpoint_path,
         result_path=result_path,
     )
-    # B2: 直接调用现有 v017 collector/Gain/report owners, 产出 atomic EVAL-v004 report.
-    return run_frontres_v017_policy_quality_heldout_eval(runner, request=request)
+    # B2: 直接调用现有 collector/Gain/report owners, 产出 atomic EVAL-v004 report.
+    return run_frontres_v018_policy_quality_heldout_eval(runner, request=request)
 
 
 def run_frontres_legacy_policy_quality_eval(

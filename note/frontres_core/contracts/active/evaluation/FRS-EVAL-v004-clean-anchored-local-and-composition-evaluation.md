@@ -2,7 +2,7 @@
 contract_id: FRS-EVAL-v004
 status: active
 effective_date: 2026-08-01
-updated_date: 2026-08-03
+updated_date: 2026-08-10
 supersedes: FRS-EVAL-v003
 scope: Clean-anchored one-action-K local evaluation and isolated full-sequence deployment-composition evaluation
 ---
@@ -15,8 +15,17 @@ FRS-EVAL-v003 treated Clean as continuation data rather than an executed local
 baseline and reported the v006 scalar-Intent/Physics-projection decomposition.
 The active method now requires one observed Clean anchor, one observed fixed
 zero-action Noisy baseline, and M observed Repair outcomes per sealed Segment.
-This contract aligns evaluation with METHOD-v017 and GAIN-v007 without changing
-the separate full-sequence deployment-composition question.
+This contract aligns evaluation with METHOD-v019, TRAIN-v018, PPO-v007 and
+GAIN-v007 without changing the separate full-sequence
+deployment-composition question.
+
+The 2026-08-10 compatibility revision does not change the held-out scientific
+question. It migrates the active local evaluator from checkpoint-v10 K16/M3 to
+strict checkpoint-v13 K16/M4. The tested policy route temporarily installs the
+checkpoint's 158D Actor, 449D state-value Critic, Actor-prefix statistics and
+449D privileged-observation normalizer, then restores every prior state. The
+Critic value-loss normalizer remains output-preserving and is reported only as
+checkpoint identity; it is never applied to raw `V(s)` at evaluation time.
 
 ## Concept Figure Mapping
 
@@ -81,6 +90,11 @@ The atomic local report must retain:
   support changes;
 - fixed `S_j`, within-family aggregates `I_X` and `P_X`, signed `G_I` and
   `G_P`, `lambda_RA`, full-6D `C_repair`, `beta`, and `G_total`;
+- METHOD-v019 / TRAIN-v018 / PPO-v007 / checkpoint-v13 identity, the 449D
+  state-value/support-context contract and Critic normalizer fingerprints;
+- one shared raw `V(s)` per Segment, the arithmetic exact-M mean `G_total`
+  target and raw `V(s) - target` error, without action conditioning or value
+  rescaling;
 - valid policy-row mask and same-Segment attempt ordering.
 
 Missing required evidence, identity drift, non-finite applicable values, or a
@@ -111,10 +125,13 @@ survival, sustained lean, unplanned support changes, and atomic completion.
 
 ## Isolation
 
-Evaluation is inference-only. It must not mutate Actor, Critic, normalizers,
-optimizer, sampler, transaction, curriculum, warmup, checkpoint, return,
-priority, or PPO state. Success and exception paths restore inference/training
-mode and close their carrier/scenario lifecycle.
+Evaluation is inference-only. It may temporarily install the tested Actor,
+Critic, Actor-prefix statistics and Critic observation normalizer only inside
+one reversible checkpoint context. It must not mutate their source states,
+the Critic value-loss normalizer, optimizer, sampler, transaction, curriculum,
+warmup, checkpoint, return, priority, or PPO state. Success and exception paths
+restore all module/normalizer state and inference/training mode and close their
+carrier/scenario lifecycle.
 
 Legacy quartet/Clean-global Style reports, v002/v006 Gain fallbacks, direct
 runner-private access, hidden padding, and mixed Baseline/Repair state are
@@ -125,12 +142,14 @@ configuration are removed rather than retained as a fourth evaluation system.
 
 ## Required Evidence And Stop Conditions
 
-Deterministic evidence must cover baseline single-execution/reuse, M Repair
-identity, row-role isolation, v007 field completeness, missing-evidence
-fail-closed behavior, route permutation, atomic report production, and zero
-training-state mutation. Bounded physical evaluation must later establish the
-real Contact/phase-ZMP/survival and demo-quality facts; deterministic
-connectivity alone is not efficacy evidence.
+Deterministic evidence must cover baseline single-execution/reuse, exact M4
+Repair identity, row-role isolation, v007 field completeness, checkpoint-v13
+and 449D Critic/normalizer installation and restoration, Segment-mean
+calibration arithmetic, missing-evidence fail-closed behavior, route
+permutation, atomic report production, and zero training-state mutation.
+Bounded physical evaluation must later establish the real
+Contact/phase-ZMP/survival and demo-quality facts; deterministic connectivity
+alone is not efficacy evidence.
 
 Stop if Clean reaches actor-visible data, Clean or Noisy becomes a policy row,
 baselines are re-executed per attempt, local and composition identities mix,

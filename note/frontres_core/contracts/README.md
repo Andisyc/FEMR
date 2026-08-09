@@ -27,8 +27,8 @@ Concept Figure. Canonical names and block IDs come from
 | `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v019` / `One-Action K Evidence`; `FRS-TRAIN-v018` / `Nested K x M x DR Schedule` | `M-06` | K/DR timing is unchanged; checkpoint-v13 binds K8/M4 -> K16/M4 -> K32/M4. |
 | `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v019` / `Actor And Information Boundary`; `FRS-TRAIN-v018` / `Design Delta` | `M-04` | Direct finite `[B,6]` action semantics are unchanged; action-conditioned Critic remains forbidden. |
 | `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v019` / `One-Action K Evidence And Frozen GMT` | `M-10` | Frozen 770D GMT authority is unchanged; Critic-only support context stays isolated. |
-| `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v019` / `Clean/Noisy/Repair Evidence`; `FRS-GAIN-v007` / `Evidence Authority And Lifecycle`; `FRS-EVAL-v004` / `Local Clean/Noisy/Repair Evaluation` | `Q-PAIR` | Rollout evidence and exact-M arithmetic target are unchanged. |
-| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v007` / `Recovery-Aware Total Gain`; `FRS-PPO-v007` / `Scalar Actor And Critic Signal`; `FRS-EVAL-v004` / `Local Report` | `Q-01` | Gain remains per-attempt; new tests must prove the Critic mean target does not change Actor ordering. |
+| `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v019` / `Clean/Noisy/Repair Evidence`; `FRS-GAIN-v007` / `Evidence Authority And Lifecycle`; `FRS-EVAL-v004` / `Local Clean/Noisy/Repair Evaluation` | `Q-PAIR` | Held-out Evaluation preserves the same K16 Segment bank and now executes exact M4 from checkpoint-v13. |
+| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v007` / `Recovery-Aware Total Gain`; `FRS-PPO-v007` / `Scalar Actor And Critic Signal`; `FRS-EVAL-v004` / `Local Report` | `Q-01` | Gain remains per-attempt; Evaluation reports raw shared value against the exact-M Segment mean without changing Actor ordering. |
 | `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v018` / `First Entry From HSL` | `M-03` | HSL-v2 remains Actor-only initialization; the 449D Critic and optimizer start fresh. |
 | `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v018` / `Critic Recalibration And Actor Ramp`; `Adaptive Critic Value Scale`; `Fixed Split-LR Optimizer Identity`; `FRS-PPO-v007` / `Warmup Weight Boundary` | `M-05` | Phase counts/LRs remain; 449D support context, M4 and checkpoint-v13 require fresh evidence. |
 | `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v019` / `Actor And Information Boundary`; `FRS-TRAIN-v018` / `Scalar Critic Authority` | `M-11` | Actor remains 158D; Critic adds action-pre support context for 449D total while GMT remains 770D. |
@@ -63,6 +63,10 @@ control surfaces; implementation, formal route and live evidence close only at
 their own gates.
 
 The local/composition evaluation boundary is aligned by `FRS-EVAL-v004`.
+Its 2026-08-10 compatibility revision binds the active Held-out Policy Quality
+route to checkpoint-v13, K16/M4, the 449D support-conditioned state-value
+Critic and the checkpoint's privileged-observation normalizer. The held-out
+Segment bank, Gain and deployment-composition question are unchanged.
 The confirmed proposal at
 `../plans/FRS-METHOD-v018-state-value-future-context-proposal.md` is retained as
 design rationale. The five coordinated method, Gain, optimization, training,

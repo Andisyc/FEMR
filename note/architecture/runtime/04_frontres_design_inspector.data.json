@@ -361,7 +361,7 @@
         },
         {
           "heading": "Recalibrate 与 checkpoint：新数值状态必须冷启动",
-          "text": "K 增长时仍保留同一 Critic，降低 DR 后重新进入 critic-only。TRAIN-v018 使用 checkpoint-v13，并精确保存 449D normalizer、EMA mean、second moment 与 committed update count；checkpoint-v12 不能 resume。HSL-v2 仍可只初始化 158D Actor，因为它不携带 Stage-3 Critic、optimizer、Transaction 或 value-scale state。"
+          "text": "K 增长时仍保留同一 Critic，降低 DR 后重新进入 critic-only。TRAIN-v018 使用 checkpoint-v13，并精确保存 449D normalizer、EMA mean、second moment 与 committed update count；checkpoint-v12 不能 resume。HSL-v2 仍可只初始化 158D Actor。EVAL-v004 临时恢复 checkpoint-v13 的 158D Actor、449D Critic 与 449D privileged-observation normalizer，对固定 K16 held-out Segment 执行 exact M4 Repair；每个 Segment 报告共享 raw V(s)、四次 G_total 的算术均值 target 与 raw error。value-loss normalizer 只保留 checkpoint 身份，不缩放 Evaluation 输出；成功或异常时均恢复所有模型与 normalizer 状态，并且不写 optimizer、sampler、curriculum 或训练 receipt。"
         }
       ],
       "highlightSteps": ["resolve-km", "grouped-update", "commit-state"],

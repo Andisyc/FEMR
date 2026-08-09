@@ -154,10 +154,16 @@ def frontres_quality_route_actor(
     actor = getattr(policy, "residual_actor", None)
     critic = getattr(policy, "critic", None)
     prefix_normalizer = getattr(runner, "_frontres_extra_normalizer", None)
+    critic_observation_normalizer = getattr(runner, "privileged_obs_normalizer", None)
+    uses_v018_critic_coordinates = (
+        route == "policy" and getattr(identity, "format", None) == _V015_CHECKPOINT_FORMAT
+    )
     if not isinstance(actor, torch.nn.Module):
         raise RuntimeError("v015 quality route requires the residual actor owner")
     if route == "policy" and not isinstance(critic, torch.nn.Module):
         raise RuntimeError("v015 quality policy route requires the Critic owner")
+    if uses_v018_critic_coordinates and not isinstance(critic_observation_normalizer, torch.nn.Module):
+        raise RuntimeError("v018 quality policy route requires the Critic observation normalizer owner")
     if prefix_normalizer is not None and not isinstance(prefix_normalizer, torch.nn.Module):
         raise RuntimeError("v015 quality route prefix normalizer owner has an invalid type")
     distribution_key, distribution = _v015_hsl_distribution_state(policy)
@@ -165,12 +171,22 @@ def frontres_quality_route_actor(
     critic_before = copy.deepcopy(critic.state_dict()) if isinstance(critic, torch.nn.Module) else None
     distribution_before = distribution.detach().clone()
     prefix_before = copy.deepcopy(prefix_normalizer.state_dict()) if prefix_normalizer is not None else None
+    critic_observation_normalizer_before = (
+        copy.deepcopy(critic_observation_normalizer.state_dict())
+        if isinstance(critic_observation_normalizer, torch.nn.Module)
+        else None
+    )
     mean_before = copy.deepcopy(getattr(runner, "_frontres_extra_mean", None))
     std_before = copy.deepcopy(getattr(runner, "_frontres_extra_std", None))
     layout_before = getattr(runner, "_frontres_extra_stats_layout_version", None)
     actor_training = bool(actor.training)
     critic_training = bool(critic.training) if isinstance(critic, torch.nn.Module) else False
     prefix_training = bool(prefix_normalizer.training) if prefix_normalizer is not None else False
+    critic_observation_normalizer_training = (
+        bool(critic_observation_normalizer.training)
+        if isinstance(critic_observation_normalizer, torch.nn.Module)
+        else False
+    )
 
     checkpoint = load_frontres_checkpoint_mapping(checkpoint_path, map_location="cpu")
     try:
@@ -205,6 +221,10 @@ def frontres_quality_route_actor(
                 )
                 if validated is None:
                     raise RuntimeError("v017 quality policy route requires strict checkpoint-v13 identity")
+                critic_observation_normalizer.load_state_dict(
+                    checkpoint["privileged_obs_norm_state_dict"],
+                    strict=True,
+                )
             elif identity_format != _V015_LEGACY_POLICY_CHECKPOINT_FORMAT:
                 raise RuntimeError("quality policy route received an unsupported checkpoint format")
             model_state = checkpoint.get("model_state_dict")
@@ -230,6 +250,8 @@ def frontres_quality_route_actor(
         actor.eval()
         if route == "policy":
             critic.eval()
+            if uses_v018_critic_coordinates:
+                critic_observation_normalizer.eval()
         if prefix_normalizer is not None:
             prefix_normalizer.eval()
         yield identity
@@ -240,11 +262,15 @@ def frontres_quality_route_actor(
         distribution.data.copy_(distribution_before.to(device=distribution.device, dtype=distribution.dtype))
         if prefix_normalizer is not None:
             prefix_normalizer.load_state_dict(prefix_before, strict=True)
+        if critic_observation_normalizer_before is not None:
+            critic_observation_normalizer.load_state_dict(critic_observation_normalizer_before, strict=True)
         actor.train(actor_training)
         if isinstance(critic, torch.nn.Module):
             critic.train(critic_training)
         if prefix_normalizer is not None:
             prefix_normalizer.train(prefix_training)
+        if isinstance(critic_observation_normalizer, torch.nn.Module):
+            critic_observation_normalizer.train(critic_observation_normalizer_training)
         runner._frontres_extra_mean = mean_before
         runner._frontres_extra_std = std_before
         runner._frontres_extra_stats_layout_version = layout_before
@@ -256,6 +282,13 @@ def frontres_quality_route_actor(
             critic.state_dict(), label="restored quality Critic"
         ) != _v015_state_dict_fingerprint(critic_before, label="quality Critic snapshot"):
             raise RuntimeError("v015 quality route failed to restore the source Critic")
+        if critic_observation_normalizer_before is not None and _v015_state_dict_fingerprint(
+            critic_observation_normalizer.state_dict(), label="restored quality Critic observation normalizer"
+        ) != _v015_state_dict_fingerprint(
+            critic_observation_normalizer_before,
+            label="quality Critic observation normalizer snapshot",
+        ):
+            raise RuntimeError("v018 quality route failed to restore the source Critic observation normalizer")
 
 
 def _uses_v015_hsl_checkpoint_identity(runner: Any) -> bool:

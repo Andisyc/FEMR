@@ -102,8 +102,8 @@ case "${MODE}" in
     MODE_ARGS=(--frontres_segment_live_storage_write_only)
     ;;
   policy_quality_eval)
-    if [[ "${NUM_ENVS}" != "12" ]]; then
-      echo "EVAL-v004 K16/M3 policy quality requires NUM_ENVS=12" >&2
+    if [[ "${NUM_ENVS}" != "16" ]]; then
+      echo "EVAL-v004 v018 K16/M4 policy quality requires NUM_ENVS=16" >&2
       exit 4
     fi
     required_quality_vars=(

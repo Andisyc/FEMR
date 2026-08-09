@@ -686,7 +686,7 @@ def test_t_fixed_heldout_manifest_item() -> None:
     )
 
 
-def test_t_v017_heldout_k16_m3_transaction() -> None:
+def test_t_v018_heldout_k16_m4_transaction() -> None:
     commands, live_sampler, _hooks = _load_modules()
     command = _command(commands)
     _sampler, _payload, materialization, _request, _scenario = _scenario_parts(
@@ -744,7 +744,7 @@ def test_t_v017_heldout_k16_m3_transaction() -> None:
         current_learning_iteration=3500,
         alg=SimpleNamespace(frontres_future_offsets=(1, 2), policy=torch.nn.Linear(2, 2)),
         env=SimpleNamespace(
-            num_envs=12,
+            num_envs=16,
             _frontres_segment_index_reset_adapter=SimpleNamespace(
                 materialize_frontres_local_scenario=materialize_frontres_local_scenario
             ),
@@ -765,31 +765,31 @@ def test_t_v017_heldout_k16_m3_transaction() -> None:
     )
     rng_before = torch.random.get_rng_state().clone()
     prepared = live_sampler.prepare_frontres_v017_policy_quality_batch(
-        runner, items, attempts_per_segment=3
+        runner, items, attempts_per_segment=4
     )
     assert torch.equal(torch.random.get_rng_state(), rng_before)
     assert len(calls) == 2
-    assert tuple(prepared.sample.source_index.tolist()) == (0, 0, 0, 1, 1, 1)
-    assert tuple(prepared.sample.trial_index.tolist()) == (0, 1, 2, 0, 1, 2)
-    assert tuple(prepared.sample.horizon_k.tolist()) == (16,) * 6
-    assert prepared.plan.active_m == 3 and prepared.plan.selected_segment_count == 2
-    assert len(set(prepared.plan.scenario_ids[:3])) == 1
-    assert len(set(prepared.plan.scenario_ids[3:])) == 1
-    assert prepared.plan.scenario_ids[0] != prepared.plan.scenario_ids[3]
-    assert tuple(prepared.batch.frontres_local_scenario_clean_continuation.shape) == (6, 16, 65)
+    assert tuple(prepared.sample.source_index.tolist()) == (0, 0, 0, 0, 1, 1, 1, 1)
+    assert tuple(prepared.sample.trial_index.tolist()) == (0, 1, 2, 3, 0, 1, 2, 3)
+    assert tuple(prepared.sample.horizon_k.tolist()) == (16,) * 8
+    assert prepared.plan.active_m == 4 and prepared.plan.selected_segment_count == 2
+    assert len(set(prepared.plan.scenario_ids[:4])) == 1
+    assert len(set(prepared.plan.scenario_ids[4:])) == 1
+    assert prepared.plan.scenario_ids[0] != prepared.plan.scenario_ids[4]
+    assert tuple(prepared.batch.frontres_local_scenario_clean_continuation.shape) == (8, 16, 65)
     torch.testing.assert_close(
         prepared.batch.stage3_index_perturbation_strength,
-        torch.tensor([1.0, 1.0, 1.0, 1.5, 1.5, 1.5]),
+        torch.tensor([1.0, 1.0, 1.0, 1.0, 1.5, 1.5, 1.5, 1.5]),
     )
     _expect_error(
         RuntimeError,
         lambda: live_sampler.prepare_frontres_v017_policy_quality_batch(
-            SimpleNamespace(**{**runner.__dict__, "env": SimpleNamespace(num_envs=8)}),
+            SimpleNamespace(**{**runner.__dict__, "env": SimpleNamespace(num_envs=12)}),
             items,
-            attempts_per_segment=3,
+            attempts_per_segment=4,
         ),
     )
-    print("[T-v017-heldout] two Segment x M3, K16 and source-shared scenario identities are sealed")
+    print("[T-v018-heldout] two Segment x M4, K16 and source-shared scenario identities are sealed")
 
 
 def main() -> None:
@@ -804,7 +804,7 @@ def main() -> None:
     test_t_frame_budget_rejects_only_current_k_ineligible_segments()
     test_t_metamorphic()
     test_t_fixed_heldout_manifest_item()
-    test_t_v017_heldout_k16_m3_transaction()
+    test_t_v018_heldout_k16_m4_transaction()
     test_t_legacy_reject()
     print("frontres_local_scenario_kernel_contract: ok", flush=True)
 

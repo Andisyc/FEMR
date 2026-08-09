@@ -13,17 +13,18 @@ from frontres_contract_imports import install_frontres_contract_packages
 
 install_frontres_contract_packages()
 
-from rsl_rl.frontres.frontres_policy_quality_manifest import FrontRESV017PolicyQualityManifest
+from rsl_rl.frontres.frontres_policy_quality_manifest import FrontRESV018PolicyQualityManifest
 import rsl_rl.runners.frontres_checkpointing as frontres_checkpointing
 import rsl_rl.runners.frontres_policy_quality_eval as quality
 import rsl_rl.runners.frontres_segment_formal_transaction as formal
 import rsl_rl.runners.frontres_segment_live_sampler as sampler
 import rsl_rl.runners.frontres_segment_runtime_types as runtime_types
 from rsl_rl.algorithms.frontres_unified import FrontRESUnified
+from rsl_rl.modules import EmpiricalNormalization
 
 
 ROOT = Path(__file__).resolve().parents[4]
-MANIFEST = ROOT / "note" / "testing" / "manifests" / "frontres_v017_policy_quality_k16_v1.json"
+MANIFEST = ROOT / "note" / "testing" / "manifests" / "frontres_v018_policy_quality_k16_m4_v1.json"
 
 
 def test_policy_quality_algorithm_constructs_readonly_stage3_identity() -> None:
@@ -77,14 +78,16 @@ def test_policy_quality_route_installs_checkpoint_actor_and_critic_only() -> Non
         def __init__(self) -> None:
             super().__init__()
             self.residual_actor = torch.nn.Linear(158, 6)
-            self.critic = torch.nn.Linear(289, 1)
+            self.critic = torch.nn.Linear(449, 1)
             self.register_buffer("std", torch.full((6,), 0.7))
             self.num_actor_obs = 928
 
     policy = _Policy()
     optimizer = torch.optim.Adam(tuple(policy.residual_actor.parameters()) + tuple(policy.critic.parameters()))
+    privileged_obs_normalizer = EmpiricalNormalization(449)
     runner = SimpleNamespace(
         alg=SimpleNamespace(policy=policy, optimizer=optimizer),
+        privileged_obs_normalizer=privileged_obs_normalizer,
         device=torch.device("cpu"),
         _frontres_gmt_obs_dim=770,
         _frontres_extra_normalizer=None,
@@ -94,9 +97,13 @@ def test_policy_quality_route_installs_checkpoint_actor_and_critic_only() -> Non
     )
     actor_before = copy.deepcopy(policy.residual_actor.state_dict())
     critic_before = copy.deepcopy(policy.critic.state_dict())
+    privileged_obs_normalizer_before = copy.deepcopy(privileged_obs_normalizer.state_dict())
     optimizer_before = copy.deepcopy(optimizer.state_dict())
     checkpoint_actor = {name: value.detach().clone() + 1.0 for name, value in actor_before.items()}
     checkpoint_critic = {name: value.detach().clone() + 2.0 for name, value in critic_before.items()}
+    checkpoint_privileged_obs_normalizer = copy.deepcopy(privileged_obs_normalizer_before)
+    checkpoint_privileged_obs_normalizer["_mean"] = torch.full((1, 449), 3.0)
+    checkpoint_privileged_obs_normalizer["count"] = torch.tensor(32, dtype=torch.long)
     checkpoint = {
         "model_state_dict": {
             "residual_actor": checkpoint_actor,
@@ -107,12 +114,14 @@ def test_policy_quality_route_installs_checkpoint_actor_and_critic_only() -> Non
             "_mean": torch.zeros(1, 928),
             "_std": torch.ones(1, 928),
         },
+        "privileged_obs_norm_state_dict": checkpoint_privileged_obs_normalizer,
     }
     original_inspect = frontres_checkpointing.inspect_frontres_quality_checkpoint
     original_load = frontres_checkpointing.load_frontres_checkpoint_mapping
     original_validate = frontres_checkpointing._validate_v015_checkpoint_resume
     frontres_checkpointing.inspect_frontres_quality_checkpoint = lambda *_args, **_kwargs: SimpleNamespace(
-        file_sha256="c" * 64
+        file_sha256="c" * 64,
+        format="frontres-v018-checkpoint-v13",
     )
     frontres_checkpointing.load_frontres_checkpoint_mapping = lambda *_args, **_kwargs: checkpoint
     frontres_checkpointing._validate_v015_checkpoint_resume = lambda *_args, **_kwargs: {}
@@ -128,6 +137,8 @@ def test_policy_quality_route_installs_checkpoint_actor_and_critic_only() -> Non
                 torch.testing.assert_close(policy.residual_actor.state_dict()[name], value)
             for name, value in checkpoint_critic.items():
                 torch.testing.assert_close(policy.critic.state_dict()[name], value)
+            for name, value in checkpoint_privileged_obs_normalizer.items():
+                torch.testing.assert_close(privileged_obs_normalizer.state_dict()[name], value)
     finally:
         frontres_checkpointing.inspect_frontres_quality_checkpoint = original_inspect
         frontres_checkpointing.load_frontres_checkpoint_mapping = original_load
@@ -137,6 +148,8 @@ def test_policy_quality_route_installs_checkpoint_actor_and_critic_only() -> Non
         torch.testing.assert_close(policy.residual_actor.state_dict()[name], value)
     for name, value in critic_before.items():
         torch.testing.assert_close(policy.critic.state_dict()[name], value)
+    for name, value in privileged_obs_normalizer_before.items():
+        torch.testing.assert_close(privileged_obs_normalizer.state_dict()[name], value)
 
 
 def test_policy_quality_reset_support_is_readonly_and_sampler_free() -> None:
@@ -233,15 +246,15 @@ def test_policy_quality_collection_lifecycle_preserves_receipt_and_cleans_except
 
 
 def test_active_request_keeps_hsl_and_stage3_training_identities_separate(tmp_path: Path) -> None:
-    """HSL-v2 remains a v014 artifact while the evaluated policy is v015."""
+    """HSL-v2 remains a v014 artifact while the evaluated policy is v018."""
 
-    # B1: 构造同 layout 的 HSL-v2 与 checkpoint-v10 identity, 产出双 artifact fixture.
+    # B1: 构造同 layout 的 HSL-v2 与 checkpoint-v13 identity, 产出双 artifact fixture.
     hsl_path = tmp_path / "hsl.pt"
     policy_path = tmp_path / "policy.pt"
     result_path = tmp_path / "quality.json"
     hsl_path.write_bytes(b"fixture-hsl")
     policy_path.write_bytes(b"fixture-policy")
-    manifest = FrontRESV017PolicyQualityManifest.from_json(MANIFEST.read_text(encoding="utf-8"))
+    manifest = FrontRESV018PolicyQualityManifest.from_json(MANIFEST.read_text(encoding="utf-8"))
     layout = (
         ("layout_version", manifest.future_intent_layout_version),
         ("future_offsets", manifest.future_offsets),
@@ -271,34 +284,40 @@ def test_active_request_keeps_hsl_and_stage3_training_identities_separate(tmp_pa
         if route == "policy":
             assert Path(_path).resolve() == policy_path.resolve()
             return SimpleNamespace(
-                format="frontres-v017-checkpoint-v10",
+                format="frontres-v018-checkpoint-v13",
                 file_sha256="p" * 64,
-                method_contract_id="FRS-METHOD-v017",
-                training_contract_id="FRS-TRAIN-v015",
+                method_contract_id="FRS-METHOD-v019",
+                training_contract_id="FRS-TRAIN-v018",
                 gain_contract_id="FRS-GAIN-v007",
-                ppo_contract_id="FRS-PPO-v005",
+                ppo_contract_id="FRS-PPO-v007",
                 future_intent_layout=layout,
                 action_kind="delta_se3",
                 action_dim=6,
                 action_semantics="direct-world-full6-v1",
+                critic_input_dim=449,
+                critic_value_kind="state_value",
+                critic_action_conditioned=False,
+                critic_target_id="segment-exact-m-mean-v1",
+                critic_support_context_id="action-pre-support-plan-kmax32-v1",
+                critic_value_normalization_id="ema-target-std-nonamplifying-v1",
             )
         raise AssertionError(f"unexpected checkpoint route: {route}")
 
-    # B2: 通过正式 request builder, 产出 v014 HSL + v015 policy 的 accepted request.
+    # B2: 通过正式 request builder, 产出 v014 HSL + v018 policy 的 accepted request.
     original = frontres_checkpointing.inspect_frontres_quality_checkpoint
     frontres_checkpointing.inspect_frontres_quality_checkpoint = inspect
     try:
-        request = quality.build_frontres_v017_policy_quality_eval_request(
+        request = quality.build_frontres_v018_policy_quality_eval_request(
             manifest_path=str(MANIFEST),
             hsl_checkpoint_path=str(hsl_path),
             policy_checkpoint_path=str(policy_path),
             result_path=str(result_path),
         )
         assert request.hsl_checkpoint.training_contract_id == "FRS-TRAIN-v014"
-        # B3: 将 HSL identity 篡改为 Stage-3 v015, 证明 request 在恢复状态前拒绝.
-        hsl_training_id = "FRS-TRAIN-v015"
+        # B3: 将 HSL identity 篡改为 Stage-3 v018, 证明 request 在恢复状态前拒绝.
+        hsl_training_id = "FRS-TRAIN-v018"
         try:
-            quality.build_frontres_v017_policy_quality_eval_request(
+            quality.build_frontres_v018_policy_quality_eval_request(
                 manifest_path=str(MANIFEST),
                 hsl_checkpoint_path=str(hsl_path),
                 policy_checkpoint_path=str(policy_path),
@@ -314,23 +333,36 @@ def test_active_request_keeps_hsl_and_stage3_training_identities_separate(tmp_pa
 
 @dataclass(frozen=True)
 class _Report:
+    scenario_ids: tuple[str, ...]
+    noisy_segment_hashes: tuple[str, ...]
+    valid_policy_row_mask: tuple[bool, ...]
+    policy_values: tuple[float, ...]
     gain_total: tuple[float, ...]
     policy_actions: tuple[tuple[float, ...], ...]
     clean_execution_count: tuple[int, ...]
     noisy_execution_count: tuple[int, ...]
 
 
-def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_path: Path) -> None:
+def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_path: Path) -> None:
     manifest_bytes = MANIFEST.read_bytes()
-    manifest = FrontRESV017PolicyQualityManifest.from_json(manifest_bytes.decode("utf-8"))
+    manifest = FrontRESV018PolicyQualityManifest.from_json(manifest_bytes.decode("utf-8"))
     checkpoint = SimpleNamespace(
-        format="frontres-v017-checkpoint-v10",
+        format="frontres-v018-checkpoint-v13",
         file_sha256="c" * 64,
+        critic_input_dim=449,
+        critic_value_kind="state_value",
+        critic_action_conditioned=False,
+        critic_target_id="segment-exact-m-mean-v1",
+        critic_support_context_id="action-pre-support-plan-kmax32-v1",
+        critic_value_normalization_id="ema-target-std-nonamplifying-v1",
+        critic_fingerprint="f" * 64,
+        critic_observation_normalizer_fingerprint="n" * 64,
+        critic_value_normalizer_fingerprint="v" * 64,
     )
-    request = quality.FrontRESV017PolicyQualityEvalRequest(
+    request = quality.FrontRESV018PolicyQualityEvalRequest(
         manifest_path=str(MANIFEST),
         hsl_checkpoint_path=str(tmp_path / "hsl.pt"),
-        policy_checkpoint_path=str(tmp_path / "model_3500.pt"),
+        policy_checkpoint_path=str(tmp_path / "model_2000.pt"),
         result_path=str(tmp_path / "quality.json"),
         manifest=manifest,
         manifest_file_sha256="m" * 64,
@@ -362,7 +394,7 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
         assert getattr(_runner, "_frontres_segment_dataset", None) == "quality-readonly-dataset"
         assert getattr(_runner, "_frontres_segment_sampler", None) is None
         calls.append(tuple(item.item_id for item in items))
-        assert attempts_per_segment == 3
+        assert attempts_per_segment == 4
         index = len(calls)
         return SimpleNamespace(
             sample=object(),
@@ -371,7 +403,10 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
                 transaction_id=f"tx-{index}",
                 policy_snapshot_id=f"pi-{index}",
                 selected_segment_count=2,
-                batch_size=6,
+                batch_size=8,
+                active_m=4,
+                source_index=torch.tensor((0, 0, 0, 0, 1, 1, 1, 1), dtype=torch.long),
+                segment_ids=torch.tensor((10, 10, 10, 10, 20, 20, 20, 20), dtype=torch.long),
             )
         )
 
@@ -389,8 +424,12 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
         return SimpleNamespace(
             observation_trace={"combined_observation_dim": 928, "femr_visible_dim": 158, "gmt_suffix_dim": 770},
             report=_Report(
-                gain_total=(0.1,) * 6,
-                policy_actions=((0.01,) * 6,) * 6,
+                scenario_ids=("scenario-0",) * 4 + ("scenario-1",) * 4,
+                noisy_segment_hashes=("hash-0",) * 4 + ("hash-1",) * 4,
+                valid_policy_row_mask=(True,) * 8,
+                policy_values=(0.25,) * 4 + (-0.1,) * 4,
+                gain_total=(0.1, 0.2, 0.3, 0.4, -0.4, -0.2, 0.0, 0.2),
+                policy_actions=((0.01,) * 6,) * 8,
                 clean_execution_count=(1, 1),
                 noisy_execution_count=(1, 1),
             ),
@@ -413,10 +452,10 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
     formal.collect_frontres_v017_recovery_aware_evaluation = collect
     formal.close_frontres_formal_training_request = lambda _runner: closes.append("closed")
     try:
-        payload = quality.run_frontres_v017_policy_quality_heldout_eval(runner, request=request)
+        payload = quality.run_frontres_v018_policy_quality_heldout_eval(runner, request=request)
         del runner.alg.frontres_gain_beta
         try:
-            quality.run_frontres_v017_policy_quality_heldout_eval(runner, request=request)
+            quality.run_frontres_v018_policy_quality_heldout_eval(runner, request=request)
         except RuntimeError as exc:
             assert "repair-cost beta" in str(exc)
         else:
@@ -434,10 +473,12 @@ def test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(tmp_
     assert aggregate.execution_phase == "idle"
     assert aggregate.persistence_phase == "idle"
     assert aggregate.collection_sample is None and aggregate.collection_batch is None
-    assert payload["schema_version"] == "frontres-v017-policy-quality-report-v1"
-    assert payload["checkpoint_format"] == "frontres-v017-checkpoint-v10"
-    assert (payload["horizon_k"], payload["attempts_per_segment"]) == (16, 3)
-    assert all(row["policy_row_count"] == 6 and row["role_row_count"] == 12 for row in payload["transactions"])
+    assert payload["schema_version"] == "frontres-v018-policy-quality-report-v1"
+    assert payload["checkpoint_format"] == "frontres-v018-checkpoint-v13"
+    assert (payload["horizon_k"], payload["attempts_per_segment"]) == (16, 4)
+    assert payload["critic_identity"]["input_dim"] == 449
+    assert all(row["policy_row_count"] == 8 and row["role_row_count"] == 16 for row in payload["transactions"])
+    assert all(len(row["critic_calibration"]) == 2 for row in payload["transactions"])
     stored = json.loads(Path(request.result_path).read_text(encoding="utf-8"))
     assert stored == json.loads(json.dumps(payload))
 
@@ -469,6 +510,6 @@ if __name__ == "__main__":
         test_policy_quality_reset_support_is_readonly_and_sampler_free()
         test_policy_quality_collection_lifecycle_preserves_receipt_and_cleans_exceptions()
         test_active_request_keeps_hsl_and_stage3_training_identities_separate(Path(tmp))
-        test_active_v017_evaluator_serializes_four_readonly_k16_m3_transactions(Path(tmp))
+        test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(Path(tmp))
         test_training_state_guard_names_the_mutated_owner()
-    print("frontres_v017_policy_quality_eval_contract: ok")
+    print("frontres_v018_policy_quality_eval_contract: ok")

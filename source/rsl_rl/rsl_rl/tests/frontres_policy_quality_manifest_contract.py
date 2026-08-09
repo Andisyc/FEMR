@@ -17,7 +17,7 @@ FrontRESPolicyQualityManifest = manifest_module.FrontRESPolicyQualityManifest
 FrontRESPolicyQualityManifestItem = manifest_module.FrontRESPolicyQualityManifestItem
 FrontRESPolicyQualityRouteIdentity = manifest_module.FrontRESPolicyQualityRouteIdentity
 FrontRESPolicyQualityStateIdentity = manifest_module.FrontRESPolicyQualityStateIdentity
-FrontRESV017PolicyQualityManifest = manifest_module.FrontRESV017PolicyQualityManifest
+FrontRESV018PolicyQualityManifest = manifest_module.FrontRESV018PolicyQualityManifest
 
 
 def _item(*, item_id: str = "motion-a-k8", **changes: object) -> FrontRESPolicyQualityManifestItem:
@@ -148,38 +148,39 @@ def test_checkpoint_is_route_metadata_not_comparison_identity() -> None:
     assert model_200.route_signature != model_700.route_signature
 
 
-def test_v017_k16_m3_manifest_has_strict_active_identity() -> None:
-    path = ROOT / "note" / "testing" / "manifests" / "frontres_v017_policy_quality_k16_v1.json"
-    manifest = FrontRESV017PolicyQualityManifest.from_json(path.read_text(encoding="utf-8"))
-    assert manifest.method_contract_id == "FRS-METHOD-v017"
-    assert manifest.training_contract_id == "FRS-TRAIN-v015"
+def test_v018_k16_m4_manifest_has_strict_active_identity() -> None:
+    path = ROOT / "note" / "testing" / "manifests" / "frontres_v018_policy_quality_k16_m4_v1.json"
+    manifest = FrontRESV018PolicyQualityManifest.from_json(path.read_text(encoding="utf-8"))
+    assert manifest.method_contract_id == "FRS-METHOD-v019"
+    assert manifest.training_contract_id == "FRS-TRAIN-v018"
     assert manifest.gain_contract_id == "FRS-GAIN-v007"
-    assert manifest.ppo_contract_id == "FRS-PPO-v005"
+    assert manifest.ppo_contract_id == "FRS-PPO-v007"
     assert manifest.evaluation_contract_id == "FRS-EVAL-v004"
-    assert manifest.checkpoint_format == "frontres-v017-checkpoint-v10"
-    assert (manifest.horizon_k, manifest.attempts_per_segment, manifest.segments_per_transaction) == (16, 3, 2)
+    assert manifest.checkpoint_format == "frontres-v018-checkpoint-v13"
+    assert manifest.critic_input_dim == 449
+    assert (manifest.horizon_k, manifest.attempts_per_segment, manifest.segments_per_transaction) == (16, 4, 2)
     assert len(manifest.items) == 8
     assert len({(item.motion_id, item.start_frame) for item in manifest.items}) == 8
     assert all(item.effective_horizon_k == 16 for item in manifest.items)
-    assert FrontRESV017PolicyQualityManifest.from_json(manifest.to_json()) == manifest
+    assert FrontRESV018PolicyQualityManifest.from_json(manifest.to_json()) == manifest
 
     payload = manifest.to_dict()
     payload["gain_contract_id"] = "FRS-GAIN-v006"
     try:
-        FrontRESV017PolicyQualityManifest.from_dict(payload)
+        FrontRESV018PolicyQualityManifest.from_dict(payload)
     except ValueError as exc:
         assert "incompatible" in str(exc)
     else:
-        raise AssertionError("v017 manifest must reject legacy Gain identity")
+        raise AssertionError("v018 manifest must reject legacy Gain identity")
 
     payload = manifest.to_dict()
     payload["items"][0]["effective_horizon_k"] = 8
     try:
-        FrontRESV017PolicyQualityManifest.from_dict(payload)
+        FrontRESV018PolicyQualityManifest.from_dict(payload)
     except ValueError as exc:
         assert "K16" in str(exc)
     else:
-        raise AssertionError("v017 manifest must reject mixed-K items")
+        raise AssertionError("v018 manifest must reject mixed-K items")
 
 
 if __name__ == "__main__":
@@ -187,5 +188,5 @@ if __name__ == "__main__":
     test_semantic_identity_is_order_independent_but_control_sensitive()
     test_manifest_is_immutable_and_rejects_missing_duplicate_or_extra_fields()
     test_checkpoint_is_route_metadata_not_comparison_identity()
-    test_v017_k16_m3_manifest_has_strict_active_identity()
+    test_v018_k16_m4_manifest_has_strict_active_identity()
     print("PASS: immutable policy-quality manifest and comparison signatures are closed.")

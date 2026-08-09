@@ -1363,11 +1363,11 @@ def prepare_frontres_v017_policy_quality_batch(
     *,
     attempts_per_segment: int,
 ) -> SimpleNamespace:
-    """Materialize two fixed held-out Segments as one immutable K16/M3 evaluation batch."""
+    """Materialize two fixed held-out Segments as one immutable v018 K16/M4 batch."""
 
     # B1: 解析两个 manifest Segment, 产出 distinct source identities 和 exact-M row plan.
-    if not isinstance(items, tuple) or len(items) != 2 or attempts_per_segment != 3:
-        raise ValueError("EVAL-v004 requires exactly two held-out Segments and M=3")
+    if not isinstance(items, tuple) or len(items) != 2 or attempts_per_segment != 4:
+        raise ValueError("EVAL-v004 v018 requires exactly two held-out Segments and M=4")
     dataset = getattr(runner, "_frontres_segment_dataset", None)
     resolve_spec = getattr(dataset, "resolve_segment_spec", None)
     if dataset is None or not callable(getattr(dataset, "get_segments", None)) or not callable(resolve_spec):
@@ -1408,7 +1408,7 @@ def prepare_frontres_v017_policy_quality_batch(
     repair_rows = 2 * attempts_per_segment
     if env_count != 2 * repair_rows:
         raise RuntimeError(
-            "EVAL-v004 K16/M3 requires 12 env rows (6 Repair + 6 Noisy): "
+            "EVAL-v004 v018 K16/M4 requires 16 env rows (8 Repair + 8 Noisy): "
             f"observed={env_count}"
         )
     device = torch.device(getattr(runner, "device", "cpu"))
@@ -1461,7 +1461,7 @@ def prepare_frontres_v017_policy_quality_batch(
     transaction_signature = hashlib.sha256(
         "|".join(str(getattr(item, "comparison_signature", "")) for item in items).encode("ascii")
     ).hexdigest()
-    transaction_id = f"frontres-v017-quality:{transaction_signature}"
+    transaction_id = f"frontres-v018-quality:{transaction_signature}"
     cpu_rng = torch.random.get_rng_state()
     cuda_rng = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else []
     try:

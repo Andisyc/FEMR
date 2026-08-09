@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import json
 import os
 from pathlib import Path
 from typing import Any, Literal, Mapping
@@ -260,6 +261,14 @@ def _v015_state_dict_fingerprint(state: Mapping[str, torch.Tensor], *, label: st
     return digest.hexdigest()
 
 
+def _v018_value_normalizer_fingerprint(state: FrontRESValueNormalizerState) -> str:
+    """Fingerprint the validated scalar value-normalizer schema without tensor coercion."""
+
+    payload = state.validate().state_dict()
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _v015_clone_tensor_state(state: Mapping[str, torch.Tensor], *, label: str) -> dict[str, torch.Tensor]:
     _v015_state_dict_fingerprint(state, label=label)
     return {name: value.detach().clone() for name, value in state.items()}
@@ -335,6 +344,15 @@ class FrontRESActiveQualityCheckpointIdentity:
     distribution_key: str
     distribution_fingerprint: str
     normalizer_fingerprint: str
+    critic_fingerprint: str | None = None
+    critic_input_dim: int | None = None
+    critic_value_kind: str | None = None
+    critic_action_conditioned: bool | None = None
+    critic_target_id: str | None = None
+    critic_support_context_id: str | None = None
+    critic_value_normalization_id: str | None = None
+    critic_observation_normalizer_fingerprint: str | None = None
+    critic_value_normalizer_fingerprint: str | None = None
 
 
 def _v015_quality_expected_layout() -> dict[str, object]:
@@ -528,7 +546,15 @@ def _inspect_frontres_v015_policy_quality_payload(
     critic_state = model_state.get("critic") if isinstance(model_state, Mapping) else None
     if not isinstance(critic_state, Mapping):
         raise RuntimeError("quality policy requires a Critic payload for calibration")
-    _v015_state_dict_fingerprint(critic_state, label="quality policy Critic")
+    critic_fingerprint = _v015_state_dict_fingerprint(critic_state, label="quality policy Critic")
+    critic_input_dim: int | None = None
+    critic_value_kind: str | None = None
+    critic_action_conditioned: bool | None = None
+    critic_target_id: str | None = None
+    critic_support_context_id: str | None = None
+    critic_value_normalization_id: str | None = None
+    critic_observation_normalizer_fingerprint: str | None = None
+    critic_value_normalizer_fingerprint: str | None = None
     if checkpoint_format == _V015_CHECKPOINT_FORMAT:
         if identity.get("critic") != {
             "value_kind": "state_value",
@@ -546,11 +572,27 @@ def _inspect_frontres_v015_policy_quality_payload(
         }:
             raise RuntimeError("quality policy has an incompatible v016 Critic or gradient identity")
         try:
-            value_normalizer_state = FrontRESValueNormalizerState.from_state_dict(
-                checkpoint.get("frontres_critic_value_normalizer_state_dict")
-            )
+            value_normalizer_payload = checkpoint.get("frontres_critic_value_normalizer_state_dict")
+            value_normalizer_state = FrontRESValueNormalizerState.from_state_dict(value_normalizer_payload)
         except (TypeError, ValueError, FloatingPointError) as exc:
             raise RuntimeError("quality policy has an invalid checkpoint-v13 Critic normalizer state") from exc
+        critic_observation_normalizer = checkpoint.get("privileged_obs_norm_state_dict")
+        _validate_v015_normalizer_state(
+            critic_observation_normalizer,
+            dim=449,
+            label="quality policy checkpoint-v13 Critic observation normalizer",
+        )
+        critic_input_dim = 449
+        critic_value_kind = "state_value"
+        critic_action_conditioned = False
+        critic_target_id = "segment-exact-m-mean-v1"
+        critic_support_context_id = "action-pre-support-plan-kmax32-v1"
+        critic_value_normalization_id = FRONTRES_VALUE_NORMALIZATION_ID
+        critic_observation_normalizer_fingerprint = _v015_state_dict_fingerprint(
+            critic_observation_normalizer,
+            label="quality policy Critic observation normalizer",
+        )
+        critic_value_normalizer_fingerprint = _v018_value_normalizer_fingerprint(value_normalizer_state)
         if not any(
             isinstance(value, torch.Tensor) and value.ndim == 2 and int(value.shape[1]) == 449
             for value in critic_state.values()
@@ -649,6 +691,15 @@ def _inspect_frontres_v015_policy_quality_payload(
         distribution_key=distribution_key,
         distribution_fingerprint=distribution_fingerprint,
         normalizer_fingerprint=prefix_fingerprint,
+        critic_fingerprint=critic_fingerprint,
+        critic_input_dim=critic_input_dim,
+        critic_value_kind=critic_value_kind,
+        critic_action_conditioned=critic_action_conditioned,
+        critic_target_id=critic_target_id,
+        critic_support_context_id=critic_support_context_id,
+        critic_value_normalization_id=critic_value_normalization_id,
+        critic_observation_normalizer_fingerprint=critic_observation_normalizer_fingerprint,
+        critic_value_normalizer_fingerprint=critic_value_normalizer_fingerprint,
     )
 
 

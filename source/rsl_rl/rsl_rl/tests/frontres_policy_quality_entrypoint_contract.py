@@ -134,7 +134,7 @@ def test_cli_and_runner_are_dedicated_and_lazy() -> None:
     assert "policy_quality_eval)" in shell
     assert "offline_eval|sequence_eval|policy_quality_q2d_eval)" in shell
     assert "FRS-EVAL-v004 rejects legacy v002/v006/quartet local evaluation mode" in shell
-    assert "EVAL-v004 K16/M3 policy quality requires NUM_ENVS=12" in shell
+    assert "EVAL-v004 v018 K16/M4 policy quality requires NUM_ENVS=16" in shell
     assert "Evaluation is launched independently" in shell
     assert '--frontres_v015_hsl_initializer_checkpoint "${HSL_CHECKPOINT}"' in shell
     assert "STAGE3_IS_FULL_RESUME" not in shell
