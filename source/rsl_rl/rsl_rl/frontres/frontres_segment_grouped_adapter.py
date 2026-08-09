@@ -6,6 +6,7 @@ from typing import Any
 
 import torch
 
+from rsl_rl.frontres.frontres_return_utility import frontres_symmetric_log_utility
 from rsl_rl.frontres.frontres_segment_storage_records import (
     FrontRESSegmentStorageBatch,
     FrontRESV015GroupedCandidateMetadata,
@@ -126,7 +127,7 @@ def build_frontres_v017_grouped_candidate_storage(
     intent_q29_provenance: str,
     intent_q29_source: str,
 ) -> FrontRESSegmentStorageBatch:
-    """Bind owner-produced v007 scalars to all valid Repair policy rows."""
+    """Bind owner-produced v008 raw Gain and utility credit to Repair rows."""
 
     if not isinstance(evidence, FrontRESSealedRecoveryAwareGainBatch):
         raise TypeError("v017 grouped storage requires sealed recovery-aware evidence")
@@ -172,6 +173,7 @@ def build_frontres_v017_grouped_candidate_storage(
         intent_q29_source=str(intent_q29_source),
     )
     old_values = stack("policy_value").reshape(-1)
+    utility_advantages = frontres_symmetric_log_utility(gain_total) - old_values
     return FrontRESSegmentStorageBatch(
         observations=stack("policy_observation"),
         privileged_observations=stack("policy_privileged_observation"),
@@ -180,7 +182,7 @@ def build_frontres_v017_grouped_candidate_storage(
         old_values=old_values,
         rewards=gain_total,
         returns=gain_total,
-        advantages=gain_total - old_values,
+        advantages=utility_advantages,
         valid_mask=torch.ones(count, device=device, dtype=torch.bool),
         segment_ids=segment_ids,
         old_means=stack("policy_mean"),

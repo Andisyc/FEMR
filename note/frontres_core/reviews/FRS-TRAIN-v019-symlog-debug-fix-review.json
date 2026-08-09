@@ -1,0 +1,71 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v019-DEBUG-FIX-1",
+  "mode": "debug-fix",
+  "profiles": ["standard", "research-ml"],
+  "verdict": "DEBUG_FIX_PASS",
+  "scope": {
+    "requested": ["repair the TRAIN-v019 live utility-advantage failure and inspect the affected training path for further defects"],
+    "preserved": ["FRS-GAIN-v008 raw evidence", "symmetric-log utility before exact-M mean", "158D Actor and 449D Critic observations", "full-6D action and fixed split learning rates"],
+    "forbidden": ["MOSAIC or simulator changes", "Gain or PPO method changes", "legacy builder semantic migration", "policy-quality claims"]
+  },
+  "identities": {
+    "project": "FEMR",
+    "design": "FRS-METHOD-v020",
+    "contract": "FRS-TRAIN-v019",
+    "checkout": "8662da34954aa9b876ebdf5962b380735d72d6e0+v019-debug-fix-working-tree",
+    "review_object": "frontres_segment_grouped_adapter.py@ab29509e99cbd26d665b7813cd792e0331e1a3ef1be7712bc92234afe0511e77"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "debug-fix and affected-path review"},
+    "source_edits": {"status": "approved", "scope": "localized TRAIN-v019 repair and regression", "receipt": "user-request-2026-08-10-fix-and-review"},
+    "report_write": {"status": "approved", "scope": "debug-fix review receipt", "receipt": "user-request-2026-08-10-formal-audit"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_grouped_adapter.py",
+    "content_hash": "sha256:ab29509e99cbd26d665b7813cd792e0331e1a3ef1be7712bc92234afe0511e77",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "active repository engineering discipline"
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "the grouped adapter now delegates the only utility calculation to frontres_return_utility while retaining raw Gain as the evidence owner output"},
+    {"name": "public-interface", "disposition": "pass", "evidence": "the existing sealed evidence to immutable storage batch boundary is unchanged"},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "the carrier depends inward on the stable utility owner; Gain and PPO do not depend on the adapter"},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "failure occurred before optimizer step and the repair adds no mutable state or transaction exit"},
+    {"name": "change-surface", "disposition": "pass", "evidence": "one production owner and one semantic regression changed; exhaustive producer search found no second active raw-credit producer"},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "raw returns remain raw while utility advantages are independently asserted before PPO consumption"},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "detached finite per-attempt Gain and Segment-shared 449D old values preserve row and source identity"},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "the patch is pre-loss carrier logic; formal contracts retain critic-only Actor freeze and exact-one optimizer step"},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "checkpoint-v14 and evaluation identities are unchanged and their focused contracts pass"}
+  ],
+  "findings": [
+    {
+      "finding_id": "CRE-FRS-V019-001",
+      "severity": "P1",
+      "status": "resolved",
+      "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_grouped_adapter.py:184",
+      "evidence": [
+        {"kind": "trace", "locator": "log/FRS_TRAIN_V019_K8_M4_FULL_COLDSTART_20260810.log", "observation": "FRS-PPO-v008 rejected the first batch because carried advantage was raw G-V_old"},
+        {"kind": "test", "locator": "frontres_v017_step1_contract.py", "observation": "the new production-boundary assertion failed on all 4 rows before the repair and passes after it"},
+        {"kind": "source", "locator": "frontres_segment_grouped_adapter.py", "observation": "the active v017 builder was the sole active formal producer still subtracting old value from raw Gain"}
+      ],
+      "named_diagnostic": "Pinch Point",
+      "responsibility_at_risk": "the sealed candidate carrier must preserve raw return evidence while attaching the active utility advantage expected by grouped PPO",
+      "preserved_behavior": "raw Gain, row order, scenario identity, Critic state, Actor action, and optimizer semantics remain unchanged",
+      "smallest_safe_change": "call the fixed utility owner at the active v017 grouped adapter and retain raw returns",
+      "required_tests": ["frontres_v017_step1_contract.py", "frontres_v019_symmetric_log_utility_contract.py", "frontres_v015_transaction_route_contract.py", "frontres_formal_runtime_audit_contract.py", "frontres_segment_all_contract_suite.py"],
+      "stop_condition": "no live rerun until the focused regression, full suite, module manifest and Phase-B formal manifest all pass"
+    }
+  ],
+  "residual_risks": ["the repaired checkout still requires one new bounded simulator transaction; no policy-quality conclusion is available"],
+  "blockers": [],
+  "claims": {"maintainability": "reviewed", "semantic_correctness": "not-claimed", "module_correctness": "not-claimed", "runtime_root_cause": "not-claimed", "formal_route": "not-claimed", "policy_quality": "not-claimed"},
+  "dependencies": []
+}

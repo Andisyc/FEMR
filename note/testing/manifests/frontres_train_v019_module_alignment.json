@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "design_identity": "FRS-METHOD-v020/FRS-GAIN-v008/FRS-PPO-v008/FRS-TRAIN-v019",
-  "checkout_identity": "69e85387298636d1628decc3181e7655adc428dc+v019-working-tree",
+  "checkout_identity": "8662da34954aa9b876ebdf5962b380735d72d6e0+v019-debug-fix-working-tree",
   "modules": [
     {
       "id": "frontres-return-utility",
@@ -57,6 +57,54 @@
           "oracle": {"kind": "hand-calculation", "independent_from_production": true},
           "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
           "evidence": {"class": "contract-confirmed", "command": "frontres_v019_symmetric_log_utility_contract.py", "exit_code": 0, "identity": "placement-pass"}
+        }
+      ],
+      "status": "MODULE-CORRECT"
+    },
+    {
+      "id": "frontres-v017-grouped-utility-carrier",
+      "owner": "rsl_rl.frontres.frontres_segment_grouped_adapter.build_frontres_v017_grouped_candidate_storage",
+      "public_boundary": "FrontRESSealedRecoveryAwareGainBatch plus FrontRESRecoveryAwareGainResult to FrontRESSegmentStorageBatch",
+      "card": {"status": "confirmed", "identity": "TEST-15-v019-grouped-carrier"},
+      "required": {
+        "s_tiers": ["S1"],
+        "case_families": ["C1", "C3", "C4"],
+        "t_kinds": ["T-value", "T-role", "T-order"]
+      },
+      "case_family_waivers": {"C2": "The adapter has no threshold or boundary decision; zero and sign boundaries belong to the utility owner and are covered by frontres-return-utility."},
+      "cases": [
+        {
+          "id": "grouped-carrier-c1-raw-plus-utility",
+          "case_family": "C1",
+          "s_tier": "S1",
+          "t_kinds": ["T-value"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["raw-gain", "old-value", "utility-advantage"], "units_and_axes": "two Segment x M2 Repair rows", "validity_semantics": "finite detached sealed evidence"},
+          "oracle": {"kind": "hand-calculation", "independent_from_production": true},
+          "sensitivity": {"kind": "pre-fix", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "frontres_v017_step1_contract.py", "exit_code": 0, "identity": "raw-return-preserved-utility-advantage-pass"}
+        },
+        {
+          "id": "grouped-carrier-c3-invalid-seal",
+          "case_family": "C3",
+          "s_tier": "S1",
+          "t_kinds": ["T-role"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["partial-attempt-set", "mixed-scenario"], "units_and_axes": "sealed Segment attempts", "validity_semantics": "partial or mixed identity fails closed"},
+          "oracle": {"kind": "human-confirmed-golden", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "frontres_v017_step1_contract.py", "exit_code": 0, "identity": "partial-mixed-reject-pass"}
+        },
+        {
+          "id": "grouped-carrier-c4-shared-state",
+          "case_family": "C4",
+          "s_tier": "S1",
+          "t_kinds": ["T-role", "T-order"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["Segment-state", "Repair-trial", "critic-old-value"], "units_and_axes": "449D state shared within Segment, distinct across Segment", "validity_semantics": "trial rows retain scenario and source identity"},
+          "oracle": {"kind": "metamorphic-relation", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "frontres_v017_step1_contract.py", "exit_code": 0, "identity": "shared-state-exact-m-pass"}
         }
       ],
       "status": "MODULE-CORRECT"

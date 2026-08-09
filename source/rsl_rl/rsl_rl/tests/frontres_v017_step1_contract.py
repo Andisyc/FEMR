@@ -145,6 +145,8 @@ def _baseline(source: int) -> FrontRESSegmentBaselineEvidence:
 
 
 def _attempt(source: int, trial: int, joint: float) -> FrontRESRepairAttemptEvidence:
+    critic_observation = torch.zeros(449)
+    critic_observation[source] = float(source + 1)
     result = FrontRESRepairAttemptEvidence(
         transaction_id="tx-v017",
         policy_snapshot_id="pi-old-v017",
@@ -156,10 +158,10 @@ def _attempt(source: int, trial: int, joint: float) -> FrontRESRepairAttemptEvid
         trial_index=trial,
         horizon_k=K,
         policy_observation=torch.tensor([float(source), float(trial), 1.0]),
-        policy_privileged_observation=torch.tensor([float(source), float(trial), 2.0]),
+        policy_privileged_observation=critic_observation,
         policy_action=torch.full((6,), 0.005 * (trial + 1)),
         policy_log_prob=torch.tensor(0.0),
-        policy_value=torch.tensor(0.01 * trial),
+        policy_value=torch.tensor(0.01 * source),
         policy_mean=torch.zeros(6),
         policy_sigma=torch.ones(6),
         repair=_trajectory(joint, foot=0.01, zmp=0.0),
@@ -209,16 +211,20 @@ def test_v017_sealed_gain_to_grouped_scalar_ppo() -> None:
         intent_q29_source="motion_internal_q29",
     )
     batch = storage.to_grouped_ppo_candidate_batch(FrontRESSegmentPPOBatch)
+    expected_utility = torch.sign(gain.gain_total) * torch.log1p(torch.abs(gain.gain_total))
     assert torch.equal(batch.returns, gain.gain_total)
-    assert torch.equal(batch.advantages, gain.gain_total - batch.old_values)
+    torch.testing.assert_close(batch.advantages, expected_utility - batch.old_values)
     result = compute_frontres_segment_ppo_loss(
         _Policy(),
         batch,
         cfg=FrontRESSegmentPPOConfig(
             normalize_advantages=False,
             advantage_normalization="grouped_scale_only",
+            critic_target_id="segment-exact-m-mean-symlog-v1",
         ),
     )
+    torch.testing.assert_close(torch.tensor(result.utility_returns), expected_utility)
+    assert result.return_utility_id == "symmetric-log-gain-g0-1-v1"
     assert result.valid_count == 4
     assert result.grouped_segment_count == 2
     assert result.grouped_attempt_count == 4
