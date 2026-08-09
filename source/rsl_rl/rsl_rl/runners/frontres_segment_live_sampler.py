@@ -1357,7 +1357,7 @@ def prepare_frontres_v015_policy_quality_item_batch(runner: Any, item: Any) -> S
     return SimpleNamespace(sample=sample, batch=batch)
 
 
-def prepare_frontres_v017_policy_quality_batch(
+def prepare_frontres_policy_quality_k16_m4_batch(
     runner: Any,
     items: tuple[Any, Any],
     *,

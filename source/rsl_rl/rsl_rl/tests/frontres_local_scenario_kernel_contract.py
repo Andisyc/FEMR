@@ -764,7 +764,7 @@ def test_t_v018_heldout_k16_m4_transaction() -> None:
         ),
     )
     rng_before = torch.random.get_rng_state().clone()
-    prepared = live_sampler.prepare_frontres_v017_policy_quality_batch(
+    prepared = live_sampler.prepare_frontres_policy_quality_k16_m4_batch(
         runner, items, attempts_per_segment=4
     )
     assert torch.equal(torch.random.get_rng_state(), rng_before)
@@ -783,7 +783,7 @@ def test_t_v018_heldout_k16_m4_transaction() -> None:
     )
     _expect_error(
         RuntimeError,
-        lambda: live_sampler.prepare_frontres_v017_policy_quality_batch(
+        lambda: live_sampler.prepare_frontres_policy_quality_k16_m4_batch(
             SimpleNamespace(**{**runner.__dict__, "env": SimpleNamespace(num_envs=12)}),
             items,
             attempts_per_segment=4,

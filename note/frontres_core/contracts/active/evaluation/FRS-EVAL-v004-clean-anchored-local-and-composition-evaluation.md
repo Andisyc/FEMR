@@ -15,17 +15,19 @@ FRS-EVAL-v003 treated Clean as continuation data rather than an executed local
 baseline and reported the v006 scalar-Intent/Physics-projection decomposition.
 The active method now requires one observed Clean anchor, one observed fixed
 zero-action Noisy baseline, and M observed Repair outcomes per sealed Segment.
-This contract aligns evaluation with METHOD-v019, TRAIN-v018, PPO-v007 and
-GAIN-v007 without changing the separate full-sequence
+This contract aligns evaluation with METHOD-v020, TRAIN-v019, PPO-v008 and
+GAIN-v008 without changing the separate full-sequence
 deployment-composition question.
 
-The 2026-08-10 compatibility revision does not change the held-out scientific
-question. It migrates the active local evaluator from checkpoint-v10 K16/M3 to
-strict checkpoint-v13 K16/M4. The tested policy route temporarily installs the
-checkpoint's 158D Actor, 449D state-value Critic, Actor-prefix statistics and
-449D privileged-observation normalizer, then restores every prior state. The
-Critic value-loss normalizer remains output-preserving and is reported only as
-checkpoint identity; it is never applied to raw `V(s)` at evaluation time.
+The 2026-08-10 revision does not change the held-out scientific question.
+checkpoint-v13 remains a strict legacy K16/M4 compatibility route.
+checkpoint-v14 uses the same held-out Segment identity but reports both raw
+FRS-GAIN-v008 attempts and `U(G)=sign(G) log1p(abs(G))` utility. The tested
+policy route temporarily installs the checkpoint's 158D Actor, 449D
+state-value Critic, Actor-prefix statistics and 449D privileged-observation
+normalizer, then restores every prior state. The Critic loss normalizer remains
+output-preserving and is reported only as checkpoint identity; it is never
+applied to `V(s)` during evaluation.
 
 ## Concept Figure Mapping
 
@@ -65,7 +67,8 @@ select one scenario and Clean dynamic x_t
 -> execute fixed zero-action Noisy once from the same x_t
 -> execute M Repair attempts from the same x_t and frozen pi_old
 -> reuse the sealed Clean and Noisy evidence for every Repair comparison
--> produce one GAIN-v007 decomposition per valid Repair attempt
+-> produce one raw GAIN-v008 decomposition per valid Repair attempt
+-> transform each valid raw Gain independently for utility-space calibration
 ```
 
 Clean and Noisy are evaluator baselines, not PPO policy rows. Only Repair owns
@@ -90,16 +93,16 @@ The atomic local report must retain:
   support changes;
 - fixed `S_j`, within-family aggregates `I_X` and `P_X`, signed `G_I` and
   `G_P`, `lambda_RA`, full-6D `C_repair`, `beta`, and `G_total`;
-- METHOD-v019 / TRAIN-v018 / PPO-v007 / checkpoint-v13 identity, the 449D
+- METHOD-v020 / TRAIN-v019 / PPO-v008 / checkpoint-v14 identity, the 449D
   state-value/support-context contract and Critic normalizer fingerprints;
-- one shared raw `V(s)` per Segment, the arithmetic exact-M mean `G_total`
-  target and raw `V(s) - target` error, without action conditioning or value
-  rescaling;
+- every raw `G_total_m`, every independently transformed `U(G_total_m)`, one
+  shared raw `V(s)` per Segment, `mean_m U(G_total_m)` and the utility-space
+  `V(s) - target` error, without action conditioning or post-mean transform;
 - valid policy-row mask and same-Segment attempt ordering.
 
 Missing required evidence, identity drift, non-finite applicable values, or a
 silent zero/default fails the local item closed. Physics is reported through
-the v007 scalar ordering; the retired v006 constraint projection/KKT fields may
+the v008 raw scalar ordering; the retired v006 constraint projection/KKT fields may
 appear only as explicitly historical diagnostics and cannot determine status.
 
 ## Full-Sequence Deployment Composition
@@ -143,9 +146,10 @@ configuration are removed rather than retained as a fourth evaluation system.
 ## Required Evidence And Stop Conditions
 
 Deterministic evidence must cover baseline single-execution/reuse, exact M4
-Repair identity, row-role isolation, v007 field completeness, checkpoint-v13
-and 449D Critic/normalizer installation and restoration, Segment-mean
-calibration arithmetic, missing-evidence fail-closed behavior, route
+Repair identity, row-role isolation, v008 field completeness, checkpoint-v14
+and legacy checkpoint-v13 Critic/normalizer installation and restoration,
+per-attempt transform-before-M4 calibration arithmetic, missing-evidence
+fail-closed behavior, route
 permutation, atomic report production, and zero training-state mutation.
 Bounded physical evaluation must later establish the real
 Contact/phase-ZMP/survival and demo-quality facts; deterministic connectivity

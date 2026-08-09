@@ -177,3 +177,27 @@ calibration grouping, atomic-report, entrypoint or persistence test fails. Stop
 and return to design authority if supporting v018 would require changing Actor,
 Gain, PPO, GMT, simulator or the held-out scientific question.
 
+## 2026-08-10 Active-Name Cleanup Amendment
+
+This behavior-preserving cleanup removes repurposed historical v015/v017 names
+from the active v018 Evaluation public dependency surface without moving logic
+or introducing an abstraction.
+
+- Requested behavior: active checkpoint format, held-out K16/M4 batch materialization,
+  recovery-aware collection, inference mode and state guards use semantic names.
+- Preserved behavior: checkpoint bytes/schema, strict identities, K16/M4 row layout,
+  449D Critic coordinates, raw calibration arithmetic, JSON output, state restoration
+  and the explicit legacy evaluator remain unchanged.
+- Owners: checkpoint format remains owned by the checkpoint inspector; batch
+  materialization remains owned by the live sampler; inference/state/report helpers
+  remain private to the evaluator.
+- Public boundary: rename existing symbols and all in-repository consumers directly;
+  do not add aliases, wrappers, modules, registries or fallback paths.
+- Dependency/state boundary: no owner moves and no runtime, checkpoint, optimizer,
+  sampler, transaction, curriculum or simulator state changes.
+- Evidence: run the existing active evaluator, checkpoint restoration, local-scenario
+  batch and aggregate contract tests before and after the rename, then py_compile and
+  verify that active Evaluation no longer imports or exposes the repurposed names.
+- Stop: any behavioral test delta, remaining repurposed historical name on the active
+  Evaluation public surface, or need to move logic returns this cleanup to review
+  rather than expanding scope.

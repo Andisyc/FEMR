@@ -1,4 +1,4 @@
-"""Deterministic S1 contracts for FRS-GAIN-v007 and sealed baseline reuse."""
+"""Deterministic S1 contracts for FRS-GAIN-v008 and sealed baseline reuse."""
 
 from __future__ import annotations
 

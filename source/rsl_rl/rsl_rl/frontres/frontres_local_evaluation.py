@@ -26,7 +26,7 @@ _V015_COMPOSITION_EVALUATION_KIND = "deployment_composition_protocol"
 
 @dataclass(frozen=True)
 class FrontRESV017LocalEvaluationReport:
-    """Read-only projection of the exact evidence consumed by FRS-GAIN-v007."""
+    """Read-only projection of the exact evidence consumed by FRS-GAIN-v008."""
 
     transaction_id: str
     scenario_ids: tuple[str, ...]
@@ -78,7 +78,7 @@ class FrontRESV017LocalEvaluationReport:
     translation_repair_scale: float
     rotation_repair_scale: float
     beta: float
-    gain_contract_id: str = "FRS-GAIN-v007"
+    gain_contract_id: str = "FRS-GAIN-v008"
 
     @property
     def policy_row_count(self) -> int:

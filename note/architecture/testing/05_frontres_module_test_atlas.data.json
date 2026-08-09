@@ -1,6 +1,6 @@
 {
   "title": "FrontRES Module Test Atlas",
-  "subtitle": "TRAIN-v017/checkpoint-v12：18 passed；受影响的 TEST-02/15/16/18 已按确认 oracle 通过，其余 14 张卡保持回归通过",
+  "subtitle": "TRAIN-v019/checkpoint-v14：18 passed；TEST-13--18 已按 symlog utility oracle 通过；formal runtime sentinel 待执行",
   "humanStatus": "confirmed",
   "layout": "module_test_inspector",
   "defaultZoom": 0.8,
@@ -63,7 +63,7 @@
       "cardKind": "stage-reading",
       "humanStatus": "confirmed",
       "executionStatus": "not-run",
-      "executionSummary": "FRS-METHOD-v018 / TRAIN-v017 / PPO-v007 的 18 张 Module Test Card 已通过；新增数值尺度仍须经过新的 bounded official transaction。",
+      "executionSummary": "FRS-METHOD-v020 / TRAIN-v019 / PPO-v008 的 18 张 Module Test Card 与 55 项全套回归已通过；symlog utility 仍须经过 bounded official transaction。",
       "blockId": "FORMAL-RUNTIME",
       "title": "Formal Runtime Audit",
       "color": "#9a6718",
@@ -127,15 +127,15 @@
       "details": [
         {
           "heading": "这一阶段回答什么",
-          "text": "旧 TRAIN-v015 的 18/18 模块结果只刻画旧实现。FRS-METHOD-v018 / TRAIN-v016 / PPO-v006 必须先通过本轮已确认的变化测试卡，随后才能进入新的 Phase A。"
+          "text": "旧 TRAIN-v018 的模块结果只刻画 raw-Gain 学习对象。FRS-METHOD-v020 / TRAIN-v019 / PPO-v008 的 raw evidence、symlog utility、M4 reduction、telemetry 与 persistence 已通过离线 oracle，随后进入新的 Phase A。"
         },
         {
           "heading": "Phase A：Method-Code Alignment",
-          "text": "按十个 Concept Figure 设计点逐项核对 active contract、语义对象、唯一 owner 和正式上游、下游。只有本轮 Module Test 全部通过后，才能刷新 v018/v016/v006 的 Phase A 结论。"
+          "text": "按十个 Concept Figure 设计点逐项核对 active contract、语义对象、唯一 owner 和正式上游、下游。当前 Phase A 必须确认 transform-before-M4、Actor/Critic 共同 utility、raw evidence 保留以及 158/449/770 边界。"
         },
         {
           "heading": "Phase B：Formal Runtime Audit",
-          "text": "只检查新 Phase A 无法离线确认的事实。06 Runtime Audit Atlas 必须在 Phase A 后刷新为 v016：启动身份、情境封存、158/347/770 Observation、one-action-K、paired Gain、Segment mean target、separate clipping、exact-one update 与 committed v11 checkpoint。"
+          "text": "只检查新 Phase A 无法离线确认的事实：正式启动身份、158/449/770 Observation、raw Gain 到逐 attempt utility、M4 target、Actor/Critic 参数 delta、separate clipping、exact-one update 与 committed checkpoint-v14。"
         },
         {
           "heading": "怎样判断问题属于哪一层",
@@ -425,7 +425,7 @@
       "designId": "TEST-05",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "PASS：手算 composer 与无 simulator gateway fixture 均证明同一 sealed 58D tail 进入 158D Actor context 和 347D Critic；GMT suffix 逐元素保持 770D。",
+      "executionSummary": "PASS：手算 composer 与 gateway fixture 证明 sealed 58D tail 进入 Actor/Critic，102D action-pre support context 只进入 Critic；维度保持 158/449/770。",
       "blockId": "MOD-OBS",
       "title": "Observation Layout",
       "color": "#7656a8",
@@ -437,7 +437,7 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "同一 sealed deployment-Noisy q29[t+1,t+2] tail 必须同时服务 Actor 与 Critic：Actor 仍只看 158D，Critic 看 289D current privileged + 58D tail = 347D，GMT 仍只看 770D suffix；任何 action、Clean 或 evaluator 字段不得进入 Critic。"
+          "text": "同一 sealed deployment-Noisy q29[t+1,t+2] tail 必须同时服务 Actor 与 Critic：Actor 仍只看158D，Critic 看 289D current + 58D tail + 102D action-pre support context = 449D，GMT 只看 770D suffix；6D action、Repair-after、Clean 或 evaluator 字段不得进入 Critic。"
         },
         {
           "heading": "伪样本测试",
@@ -450,8 +450,8 @@
             ],
             "rows": [
               [
-                "Actor raw 870D、Critic current 289D、sealed tail 58D 均填连续 sentinel",
-                "Actor combined=928D；Actor visible=158D；Critic=347D；GMT=770D",
+                "Actor raw 870D、Critic current 289D、sealed tail 58D、support context 102D 均填连续 sentinel",
+                "Actor combined=928D；Actor visible=158D；Critic=449D；GMT=770D",
                 "四个维度和 authority 精确"
               ],
               [
@@ -954,7 +954,7 @@
       "designId": "TEST-13",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "Clean anchor、Noisy-Repair ordering、pressure、beta cost、permutation、missing evidence 与 baseline reuse 已测。",
+      "executionSummary": "PASS：FRS-GAIN-v008 raw 公式、Clean anchor、Noisy-Repair ordering、pressure、beta cost、permutation、missing evidence 与 baseline reuse 均保持不变。",
       "blockId": "MOD-GAIN",
       "title": "Repair Gain",
       "color": "#b87333",
@@ -966,11 +966,11 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "Clean 指出理想执行，Noisy 给出修复起点；Gain 比较每次 Repair 关闭了多少缺口，并由剩余 Physics 压力协调 Intent、Physics 和 full-6D repair cost。"
+          "text": "Clean 指出理想执行，Noisy 给出修复起点；FRS-GAIN-v008 仍为每次 Repair 产生未经压缩的 raw G_total。symlog 不进入 Gain 公式，也不能隐藏原始 Physics 证据。"
         },
         {
           "heading": "伪样本测试",
-          "text": "全部数值先按 GAIN-v007 公式独立手算，再与模块输出比较。",
+          "text": "全部数值先按 GAIN-v008 raw 公式独立手算，再与模块输出比较。",
           "table": {
             "columns": [
               "伪样本",
@@ -1017,7 +1017,7 @@
       "designId": "TEST-14",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "one Repair row、baseline evidence-only、metadata/valid mask、immutability 与 identity reject 已测。",
+      "executionSummary": "PASS：M4 one-Repair-row、raw return 保留、utility advantage 校验、baseline evidence-only、metadata/valid mask、immutability 与 identity reject 已测。",
       "blockId": "MOD-STORAGE",
       "title": "Segment Storage",
       "color": "#b87333",
@@ -1029,7 +1029,7 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "Storage 只保存每个 Repair attempt 的一条 policy row，并把 immutable scenario、Segment、attempt 和 evidence identity 一起封存。"
+          "text": "Storage 为每个 Repair attempt 保存一条 policy row，raw return 原样保留，同时只接受与固定 symlog(raw)-V_old 一致的 advantage；scenario、Segment、attempt 和 evidence identity 一起封存。"
         },
         {
           "heading": "伪样本测试",
@@ -1042,8 +1042,8 @@
             ],
             "rows": [
               [
-                "2 Segments，M=3",
-                "恰好6条 policy rows",
+                "2 Segments，M=4",
+                "恰好8条 policy rows",
                 "一 attempt 一 row"
               ],
               [
@@ -1055,6 +1055,11 @@
                 "重排 attempts",
                 "action、Gain、hash、attempt id 同步重排",
                 "metadata 不错位"
+              ],
+              [
+                "raw returns=[-100,4]，old V=0",
+                "returns 仍为[-100,4]；advantages 为[-log(101),log(5)]",
+                "raw 证据与 utility-space Actor credit 不混写"
               ],
               [
                 "一行 valid mask=false",
@@ -1080,7 +1085,7 @@
       "designId": "TEST-15",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "PASS：raw target/value/Actor credit 不变；EMA moments、不可放大 scale、raw/scale^2 Critic loss、permutation/floor/invalid-state 与独立 0.5 clipping 全部符合手算。",
+      "executionSummary": "PASS：固定 symlog 逐 attempt 计算，Actor 使用 U(G)-V_old，Critic 使用 M4 utility mean；raw Gain 保留，EMA 只缩放 Critic loss，独立 0.5 clipping 与 exact-one 均符合手算。",
       "blockId": "MOD-PPO",
       "title": "Segment PPO",
       "color": "#a5548b",
@@ -1092,11 +1097,11 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "同一 sealed Segment 的 exact-M attempts 必须共享一个 old V(s)，Critic 拟合 Segment mean。raw V/target 与 Actor return-V(s) 不变；只把 Critic raw loss 除以不可放大的 EMA target scale 平方，再独立裁剪到0.5并 exact-one step。"
+          "text": "同一 sealed Segment 的 M4 attempts 共享一个 old V(s)。每个 raw G 先由固定 U(G)=sign(G)log1p(abs(G)) 变换；Actor 使用逐 attempt U(G)-V_old，Critic 拟合 mean_m U(G_m)。EMA 只缩放 Critic loss，不再改变学习对象。"
         },
         {
           "heading": "伪样本测试",
-          "text": "用两个 Segment、每个 exact-M 个小整数 returns，再用可识别的 toy Actor/Critic 参数手算 target、advantage、clip 和 commit。",
+          "text": "用两个 Segment、每个 M4 个小整数与重尾 raw returns，再用可识别的 toy Actor/Critic 参数手算 utility、target、advantage、clip 和 commit。",
           "table": {
             "columns": [
               "伪样本",
@@ -1105,9 +1110,14 @@
             ],
             "rows": [
               [
-                "一个 Segment 的 returns=[1,3]，shared old V=1.5",
-                "Critic targets=[2,2]；Actor advantages=[-0.5,1.5]",
+                "一个 Segment 的 raw returns=[1,3]，shared old V=0.5",
+                "utility=[log2,log4]；target=mean(log2,log4)；advantages=[log2-0.5,log4-0.5]",
                 "V(s) target 与动作 credit 分离"
+              ],
+              [
+                "raw returns=[-100,4]",
+                "Critic target=(-log101+log5)/2，绝不等于 U((-100+4)/2)",
+                "非线性变换必须发生在 M 聚合之前"
               ],
               [
                 "同一 Segment 的 attempts 任意重排",
@@ -1115,8 +1125,8 @@
                 "Critic 不区分 action 且 Actor ordering 保留"
               ],
               [
-                "两个 Segment returns=[1,3] 与 [10,14]",
-                "各自 target=2 与12，绝不求 transaction 全局均值7",
+                "两个 Segment 各有 M4 raw returns",
+                "分别求各自四个 utility 的均值，绝不求 transaction 全局均值",
                 "target owner 按 Segment 分组"
               ],
               [
@@ -1140,9 +1150,9 @@
                 "独立性双向成立"
               ],
               [
-                "targets=[2,-2]，初始 moments=(0,1)，decay=0.9",
-                "candidate second moment=1.3，scale=sqrt(1.3)，raw target/value/Actor facts 不变",
-                "缩放公式与 output-preserving 边界"
+                "utility targets=[2,-2]，初始 moments=(0,1)，decay=0.9",
+                "candidate second moment=1.3，scale=sqrt(1.3)，utility target/value/Actor facts 不变",
+                "EMA 只拥有 loss scale，不成为第二 return transform"
               ],
               [
                 "targets=[1578,0.5]、顺序交换、或两个相等 target",
@@ -1168,7 +1178,7 @@
       "designId": "TEST-16",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "PASS：checkpoint-v12 原子 round-trip target moments/count；v11 不能 resume；active v12 与 legacy v10 均可严格只读 quality inspection；malformed state pre-mutation reject。",
+      "executionSummary": "PASS：checkpoint-v14 原子 round-trip raw/utility identity、449D Critic 与 target moments/count；v13 不能 resume；malformed utility state pre-mutation reject。",
       "blockId": "MOD-CHECKPOINT",
       "title": "Checkpointing",
       "color": "#3f826d",
@@ -1180,7 +1190,7 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "checkpoint-v12 必须原子保存并严格恢复 direct 6D Actor、347D state-value Critic、Segment exact-M mean target、value-normalizer moments/count、separate clipping、split-LR optimizer 和完整 transaction identity；v11 或 malformed payload 必须在任何内存修改前拒绝。"
+          "text": "checkpoint-v14 必须原子保存并严格恢复 direct 6D Actor、449D state-value Critic、M4 symlog-mean target、utility identity/G0、raw diagnostics、value-normalizer moments/count、separate clipping、split-LR optimizer 和完整 transaction identity；v13 或 malformed payload 必须在任何内存修改前拒绝。"
         },
         {
           "heading": "伪样本测试",
@@ -1193,12 +1203,12 @@
             ],
             "rows": [
               [
-                "完整 v12 payload round-trip",
-                "Actor、347D Critic、固定 std、两个 group/LR、target moments/count、sampler、normalizers、K/M/DR、RNG、receipt 全相同",
+                "完整 v14 payload round-trip",
+                "Actor、449D Critic、utility identity/G0、固定 std、两个 group/LR、target moments/count、sampler、normalizers、K/M/DR、RNG、receipt 全相同",
                 "full resume"
               ],
               [
-                "分别篡改 critic_input_dim=289、value_kind、target_id 或 clip_identity",
+                "分别篡改 critic_input_dim、value_kind、target_id、utility identity/G0 或 clip_identity",
                 "加载前拒绝，内存参数零变化",
                 "新语义身份严格"
               ],
@@ -1208,7 +1218,7 @@
                 "只恢复 committed Transaction"
               ],
               [
-                "给 checkpoint-v10、缺名/重名/重叠 group、非有限 LR 或 unversioned payload",
+                "给 checkpoint-v13、缺名/重名/重叠 group、非有限 LR 或 unversioned payload",
                 "pre-mutation reject",
                 "旧 Stage-3 状态不兼容加载"
               ],
@@ -1218,8 +1228,8 @@
                 "atomic save"
               ],
               [
-                "从 HSL-v2 artifact 冷启动 TRAIN-v017",
-                "只载入158D proposal Actor；347D Critic、optimizer、normalizer、sampler、receipt 全新",
+                "从 HSL-v2 artifact 冷启动 TRAIN-v019",
+                "只载入158D proposal Actor；449D Critic、optimizer、normalizer、sampler、receipt 全新",
                 "允许的 Actor-only initialization"
               ],
               [
@@ -1236,7 +1246,7 @@
       "designId": "TEST-17",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "v017 report 只投影 sealed Clean/Noisy/Repair evidence；Contact/load/flight、ZMP applicability/violation/recovery、survival、lean、非计划接触与零训练写入均通过。fresh evaluation runner 先安装唯一 idle transaction owner，再封存零写入基线；正式 collector 拒绝 training route 与陈旧 context，异常后清理，任何训练状态变化必须报告具体字段。",
+      "executionSummary": "PASS：EVAL-v004 同时报告每个 raw Gain、逐 attempt symlog、M4 utility target 和 449D Critic error；Contact/ZMP/survival 证据与训练状态零写入保持不变。",
       "blockId": "MOD-EVAL",
       "title": "Evaluation",
       "color": "#3f826d",
@@ -1248,7 +1258,7 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "Evaluation 必须在训练状态零写入的前提下，用固定 Clean/Noisy baseline 和 Repair trajectories 计算 Demo 质量证据。"
+          "text": "Evaluation 必须零训练写入：固定 Clean/Noisy baseline 和 M4 Repair trajectories 产生 raw 质量证据，再以 transform-before-M4 的同一 utility 评价 449D Critic calibration。"
         },
         {
           "heading": "伪样本测试",
@@ -1291,6 +1301,11 @@
                 "paired rollout 生命周期"
               ],
               [
+                "M4 raw Gain 含一个极端负值",
+                "raw 值完整报告；四个 utility 分别计算后求 target；不做 U(mean raw)",
+                "评估与训练学习对象一致且不掩盖极端证据"
+              ],
+              [
                 "评估前后训练 state signature",
                 "逐字段相同，report 原子生成",
                 "evaluation 不反馈训练"
@@ -1304,7 +1319,7 @@
       "designId": "TEST-18",
       "humanStatus": "confirmed",
       "executionStatus": "passed",
-      "executionSummary": "PASS：一次完整离线 formal update 原样序列化 raw/scaled Critic loss、scale/moments/count、158/347/770、逐 attempt advantage、separate clip 与 checkpoint-v12；缺失/非有限/错行拒绝。",
+      "executionSummary": "PASS：一次完整离线 formal update 原样序列化 raw/utility returns、utility advantage、M4 target、Critic loss scale、158/449/770、separate clip 与 checkpoint-v14；缺失/非有限/错行拒绝。",
       "blockId": "MOD-DIAGNOSTICS",
       "title": "Runtime Diagnostics",
       "color": "#3f826d",
@@ -1316,7 +1331,7 @@
       "details": [
         {
           "heading": "要验证的设计规则",
-          "text": "Diagnostics 只能忠实投影已有事实：除既有 v007 Gain 外，还必须报告 raw/scaled Critic loss、normalizer scale/moments/count、158/347/770、逐 attempt return/advantage、独立 clip 与 checkpoint-v12 receipt；绝不能重算或反馈训练。"
+          "text": "Diagnostics 只能忠实投影已有事实：raw GAIN-v008、逐 attempt utility、M4 utility target、utility advantage、raw/scaled Critic loss、normalizer moments/count、158/449/770、独立 clip 与 checkpoint-v14 receipt；绝不能重算或反馈训练。"
         },
         {
           "heading": "伪样本测试",
@@ -1329,12 +1344,12 @@
             ],
             "rows": [
               [
-                "layout 各放158、347、770 sentinel",
-                "报告逐字段原样保留且 identity 为v018/v017/v007/v12",
+                "layout 各放158、449、770 sentinel",
+                "报告逐字段原样保留且 identity 为v020/v019/v008/v14",
                 "观察与合同身份没有错接"
               ],
               [
-                "shared value=1.5、Segment target=2、returns=[1,3]、advantages=[-0.5,1.5]",
+                "raw returns=[1,3]、utility=[log2,log4]、shared value=0.5、对应 target/advantages",
                 "报告逐字段原样保留",
                 "state value 与 action credit 不混写"
               ],
@@ -1364,7 +1379,7 @@
                 "diagnostics 不成为第二 owner"
               ],
               [
-                "update_count=1、value-scale count 0→1、group mass 与 v12 receipt 已给定",
+                "update_count=1、value-scale count 0→1、group mass 与 v14 receipt 已给定",
                 "输出仍为1、原 group mass 与同一 committed receipt",
                 "exact-one 与 persistence 事实不被重新解释"
               ]

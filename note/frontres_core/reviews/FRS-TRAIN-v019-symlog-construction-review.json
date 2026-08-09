@@ -1,0 +1,67 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v019-CONSTRUCTION",
+  "mode": "construction",
+  "profiles": ["standard", "research-ml"],
+  "verdict": "CONSTRUCTION_PASS",
+  "scope": {
+    "requested": ["implement fixed per-attempt symmetric-log Actor/Critic utility"],
+    "preserved": ["raw Gain and Physics evidence", "158/449/770 observations", "full-6D action", "M4 K/DR beta split LR"],
+    "forbidden": ["MOSAIC or simulator changes", "post-mean transform", "old Stage-3 resume", "second optimizer or objective"]
+  },
+  "identities": {
+    "project": "FEMR",
+    "design": "FRS-METHOD-v020",
+    "contract": "FRS-TRAIN-v019",
+    "checkout": "69e85387298636d1628decc3181e7655adc428dc+v019-working-tree",
+    "review_object": "frontres_segment_ppo.py@b29aaad27efa919ea31c0aa8ba09a065d029c7247e4f856aa72859ed98ec3c14"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "construction inspection"},
+    "source_edits": {"status": "approved", "scope": "user-authorized v019 implementation", "receipt": "user-request-2026-08-10-one-shot"},
+    "report_write": {"status": "approved", "scope": "construction review receipt", "receipt": "user-request-2026-08-10-one-shot"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py",
+    "content_hash": "sha256:b29aaad27efa919ea31c0aa8ba09a065d029c7247e4f856aa72859ed98ec3c14",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "active repository engineering discipline"
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "one pure return utility owner"},
+    {"name": "public-interface", "disposition": "pass", "evidence": "tensor-in tensor-out fail-closed boundary"},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "storage PPO EVAL import pure owner"},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "checkpoint-v14 identity and committed normalizer"},
+    {"name": "change-surface", "disposition": "pass", "evidence": "no network simulator K/M/DR or LR changes"},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "raw and utility telemetry remain separate"},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "raw return to detached utility before M4 mean"},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "Actor and Critic utility paths share exact-one split Adam"},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "checkpoint-v14 and zero-write EVAL contracts pass"}
+  ],
+  "findings": [
+    {
+      "finding_id": "CRE-FRS-v019-001",
+      "severity": "P2",
+      "status": "resolved",
+      "location": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py",
+      "evidence": [{"kind": "diff", "locator": "critic_target_id admitted set", "observation": "mechanical migration duplicated the symlog identity and obscured the legacy raw branch"}],
+      "named_diagnostic": "Duplicated Code",
+      "responsibility_at_risk": "Critic target identity dispatch",
+      "preserved_behavior": "active symlog route and explicit legacy raw Segment target",
+      "smallest_safe_change": "restore one raw Segment identity and name the shared Segment target set",
+      "required_tests": ["legacy raw target pseudo-sample", "active symlog target pseudo-sample", "55-contract suite"],
+      "stop_condition": "both identities produce their hand-calculated targets and the aggregate suite passes"
+    }
+  ],
+  "residual_risks": ["policy quality remains unclaimed until long-run checkpoints are evaluated"],
+  "blockers": [],
+  "claims": {"maintainability": "reviewed", "semantic_correctness": "not-claimed", "module_correctness": "not-claimed", "runtime_root_cause": "not-claimed", "formal_route": "not-claimed", "policy_quality": "not-claimed"},
+  "dependencies": []
+}

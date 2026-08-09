@@ -34,6 +34,11 @@ from rsl_rl.algorithms.frontres_segment_ppo import (
     FrontRESValueNormalizerState,
 )
 from rsl_rl.frontres.frontres_local_evaluation import FrontRESV017LocalEvaluationReport
+from rsl_rl.frontres.frontres_return_utility import (
+    FRONTRES_RETURN_UTILITY_ID,
+    FRONTRES_RETURN_UTILITY_SCALE,
+    frontres_symmetric_log_utility,
+)
 from rsl_rl.frontres.frontres_segment_storage_records import FrontRESV015GroupedCandidateMetadata
 from rsl_rl.frontres.frontres_segment_warmup import resolve_frontres_k_stage_identity
 from rsl_rl.runners import frontres_segment_formal_transaction as formal_transaction
@@ -121,14 +126,16 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
         frontres_segment_live_train_enabled=False,
         frontres_segment_live_update_loop_only=False,
         frontres_segment_live_single_update_only=False,
-        frontres_method_contract_id="FRS-METHOD-v019",
-        frontres_gain_contract_id="FRS-GAIN-v007",
-        frontres_optimization_contract_id="FRS-PPO-v007",
-        frontres_training_contract_id="FRS-TRAIN-v018",
-        frontres_scalar_target_id="clean-anchored-recovery-aware-gain-v1",
+        frontres_method_contract_id="FRS-METHOD-v020",
+        frontres_gain_contract_id="FRS-GAIN-v008",
+        frontres_optimization_contract_id="FRS-PPO-v008",
+        frontres_training_contract_id="FRS-TRAIN-v019",
+        frontres_scalar_target_id="symmetric-log-recovery-aware-utility-v1",
         frontres_physics_schema_id="clean-anchored-contact-zmp-survival-v1",
         frontres_grouped_schema_id="grouped-all-attempt-scalar-v1",
         frontres_critic_support_context_id="action-pre-support-plan-kmax32-v1",
+        frontres_return_utility_id=FRONTRES_RETURN_UTILITY_ID,
+        frontres_return_utility_scale=FRONTRES_RETURN_UTILITY_SCALE,
         frontres_gain_beta=0.02,
     )
 
@@ -292,6 +299,7 @@ def _request(
     critic_obs[: identity.active_m, 0] = 1.0
     critic_obs[identity.active_m :, 0] = 2.0
     returns = torch.tensor(_report(transaction_id, count=count, horizon_k=identity.active_k).gain_total)
+    utility_returns = frontres_symmetric_log_utility(returns)
     batch = FrontRESSegmentPPOBatch(
         observations=obs,
         privileged_observations=critic_obs,
@@ -299,7 +307,7 @@ def _request(
         old_log_probs=torch.zeros(count),
         old_values=torch.zeros(count),
         returns=returns,
-        advantages=returns.clone(),
+        advantages=utility_returns,
         valid_mask=torch.ones(count, dtype=torch.bool),
         segment_ids=segment,
         old_means=torch.zeros(count, 6),
@@ -378,8 +386,8 @@ def test_exact_one_scalar_commit_and_critic_only() -> None:
     assert result.valid_row_count == 8 and result.policy_attempt_count == 8
     assert all(torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
     assert any(not torch.equal(value, critic_before[name]) for name, value in policy.critic.state_dict().items())
-    assert result.diagnostics["gain_contract_id"] == "FRS-GAIN-v007"
-    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v007"
+    assert result.diagnostics["gain_contract_id"] == "FRS-GAIN-v008"
+    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v008"
     assert "constraint_kkt_max_violation" not in result.diagnostics
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
     assert telemetry["clean_execution_count"] == (1, 1)
@@ -387,7 +395,7 @@ def test_exact_one_scalar_commit_and_critic_only() -> None:
     assert telemetry["policy_row_count"] == 8
     assert telemetry["optimizer_step_delta"] == 1
     assert telemetry["update_count"] == 1
-    assert telemetry["gain_contract_id"] == "FRS-GAIN-v007"
+    assert telemetry["gain_contract_id"] == "FRS-GAIN-v008"
     assert telemetry["intent_gain"] == (0.2, 0.1, 0.0, -0.1, -0.1, -0.2, -0.3, -0.4)
     assert telemetry["intent_remaining_noisy"] == (1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8)
     assert telemetry["physics_remaining_repaired"] == (1.9, 2.1, 2.3, 2.5, 2.6, 2.8, 3.0, 3.2)
@@ -539,7 +547,7 @@ def main() -> None:
     test_partial_transaction_rejects_before_update()
     test_value_normalizer_iteration_mismatch_rejects_before_update()
     test_phase_reset_routes_mode_through_sealed_reset_owner()
-    print("frontres_v015_transaction_route_contract: v018 state-value exact-one ok", flush=True)
+    print("frontres_v015_transaction_route_contract: v019 symlog state-value exact-one ok", flush=True)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 ---
 contract_id: FRS-METHOD-v019
-status: active
+status: superseded
 effective_date: 2026-08-09
 updated_date: 2026-08-09
 supersedes: FRS-METHOD-v018

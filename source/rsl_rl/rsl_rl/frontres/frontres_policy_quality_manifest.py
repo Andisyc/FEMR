@@ -378,19 +378,19 @@ class FrontRESV015PolicyQualityManifest:
 
 @dataclass(frozen=True)
 class FrontRESV018PolicyQualityManifest:
-    """Immutable EVAL-v004 held-out bank for checkpoint-v13 K16/M4 evaluation."""
+    """Immutable EVAL-v004 held-out bank for checkpoint-v14 K16/M4 evaluation."""
 
     environment_revision: str
     config_revision: str
     evaluator_version: str
     items: tuple[FrontRESPolicyQualityManifestItem, ...]
     schema_version: str = _V018_SCHEMA_VERSION
-    method_contract_id: str = "FRS-METHOD-v019"
-    training_contract_id: str = "FRS-TRAIN-v018"
-    gain_contract_id: str = "FRS-GAIN-v007"
-    ppo_contract_id: str = "FRS-PPO-v007"
+    method_contract_id: str = "FRS-METHOD-v020"
+    training_contract_id: str = "FRS-TRAIN-v019"
+    gain_contract_id: str = "FRS-GAIN-v008"
+    ppo_contract_id: str = "FRS-PPO-v008"
     evaluation_contract_id: str = "FRS-EVAL-v004"
-    checkpoint_format: str = "frontres-v018-checkpoint-v13"
+    checkpoint_format: str = "frontres-v019-checkpoint-v14"
     hsl_checkpoint_format: str = "frontres-v017-hsl-proposal-v2"
     hsl_method_contract_id: str = "FRS-METHOD-v017"
     hsl_training_contract_id: str = "FRS-TRAIN-v014"
@@ -406,7 +406,7 @@ class FrontRESV018PolicyQualityManifest:
     critic_input_dim: int = 449
     critic_value_kind: str = "state_value"
     critic_action_conditioned: bool = False
-    critic_target_id: str = "segment-exact-m-mean-v1"
+    critic_target_id: str = "segment-exact-m-mean-symlog-v1"
     critic_support_context_id: str = "action-pre-support-plan-kmax32-v1"
     critic_value_normalization_id: str = "ema-target-std-nonamplifying-v1"
     horizon_k: int = 16
@@ -417,12 +417,12 @@ class FrontRESV018PolicyQualityManifest:
         # B1: 固定 active Contract, layout, Critic 和 K16/M4 identity, 拒绝旧 evaluator payload.
         exact_identity = (
             self.schema_version == _V018_SCHEMA_VERSION
-            and self.method_contract_id == "FRS-METHOD-v019"
-            and self.training_contract_id == "FRS-TRAIN-v018"
-            and self.gain_contract_id == "FRS-GAIN-v007"
-            and self.ppo_contract_id == "FRS-PPO-v007"
+            and self.method_contract_id == "FRS-METHOD-v020"
+            and self.training_contract_id == "FRS-TRAIN-v019"
+            and self.gain_contract_id == "FRS-GAIN-v008"
+            and self.ppo_contract_id == "FRS-PPO-v008"
             and self.evaluation_contract_id == "FRS-EVAL-v004"
-            and self.checkpoint_format == "frontres-v018-checkpoint-v13"
+            and self.checkpoint_format == "frontres-v019-checkpoint-v14"
             and self.hsl_checkpoint_format == "frontres-v017-hsl-proposal-v2"
             and self.hsl_method_contract_id == "FRS-METHOD-v017"
             and self.hsl_training_contract_id == "FRS-TRAIN-v014"
@@ -438,7 +438,7 @@ class FrontRESV018PolicyQualityManifest:
             and self.critic_input_dim == 449
             and self.critic_value_kind == "state_value"
             and self.critic_action_conditioned is False
-            and self.critic_target_id == "segment-exact-m-mean-v1"
+            and self.critic_target_id == "segment-exact-m-mean-symlog-v1"
             and self.critic_support_context_id == "action-pre-support-plan-kmax32-v1"
             and self.critic_value_normalization_id == "ema-target-std-nonamplifying-v1"
             and self.horizon_k == 16

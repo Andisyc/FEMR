@@ -350,7 +350,9 @@ def test_segment_live_update_uses_scale_only_advantages_independent_of_base_ppo_
     )
 
     assert result.valid_count == 2
-    assert abs(result.advantage_scale - torch.sqrt(torch.tensor((1.0**2 + 1000.0**2) / 2.0)).item()) < 1e-3
+    expected_advantages = torch.log1p(torch.tensor([1.0, 1000.0]))
+    expected_scale = torch.sqrt(expected_advantages.square().mean()).item()
+    assert abs(result.advantage_scale - expected_scale) < 1e-3
     assert result.advantage_sign_flip_count == 0
     assert result.advantage_min > 0.0
     assert result.advantage_max > result.advantage_min

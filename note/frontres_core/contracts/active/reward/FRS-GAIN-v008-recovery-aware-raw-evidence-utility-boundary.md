@@ -1,20 +1,21 @@
 ---
-contract_id: FRS-GAIN-v007
+contract_id: FRS-GAIN-v008
 status: active
-effective_date: 2026-08-01
-updated_date: 2026-08-03
-supersedes: FRS-GAIN-v006
-scope: Clean-conditioned Intent and Physics evidence, continuous remaining-Physics pressure, full-6D repair cost, and one scalar Recovery-Aware G_total for every valid Repair attempt
+effective_date: 2026-08-10
+updated_date: 2026-08-10
+supersedes: FRS-GAIN-v007
+scope: Unchanged Clean-conditioned Intent and Physics evidence, full-6D repair cost, and raw Recovery-Aware G_total at the boundary to fixed downstream utility
 ---
 
-# Clean-Anchored Recovery-Aware Repair Gain
+# Recovery-Aware Raw Gain And Utility Boundary
 
 ## Design Delta
 
-FRS-GAIN-v006 supplied a scalar paired Intent objective and separate Contact,
-phase-ZMP, and survival constraint evidence. FRS-GAIN-v007 keeps the validated
-physical evidence authority but changes its formal consumer. Physics and Intent
-now interact continuously inside one scalar candidate ordering:
+FRS-GAIN-v007 established the validated Recovery-Aware raw scalar and physical
+evidence authority. FRS-GAIN-v008 changes no channel, scale, aggregation,
+pressure, beta, repair cost, or `G_total` arithmetic. It makes the downstream
+boundary explicit: Gain publishes finite raw evidence; FRS-PPO-v008 alone maps
+each attempt through fixed symmetric-log utility before learning.
 
 ```text
 Clean  -> defines correct phase, support, dynamic lean, and intended pose
@@ -209,7 +210,7 @@ G_{\mathrm{total}}^{(m)}
 -\beta C_{\mathrm{repair}}^{(m)}.
 \]
 
-This is the unique scalar return and candidate ordering. High Physics pressure
+This is the unique raw scalar evidence and candidate ordering. High Physics pressure
 prioritizes recovery; near physical stability, Intent determines demo quality;
 repair cost breaks otherwise comparable outcomes in favor of the smaller
 intervention. Segment Replay supplies only all-attempt comparison and must not
@@ -252,13 +253,15 @@ controller.
 ## PPO And Critic Consumption
 
 \[
-\mathrm{return}_K^{(m)}=G_{\mathrm{total}}^{(m)}.
+\mathrm{raw\_return}_K^{(m)}=G_{\mathrm{total}}^{(m)},\qquad
+\mathrm{utility}_K^{(m)}=\operatorname{sign}(G)\log(1+|G|).
 \]
 
-Every valid Repair contributes one return and one policy row. The scalar Critic
-owned by FRS-TRAIN-v018 predicts the expected complete `G_total` at the active K
-from the future-conditioned state; Gain remains per-attempt evidence and does
-not own the Segment-mean value target.
+Every valid Repair contributes one raw return and one policy row. The scalar
+Critic owned by FRS-TRAIN-v019 predicts expected utility at the active K; Gain
+remains per-attempt raw evidence and does not own the utility mapping or the
+Segment-mean value target. Raw Gain is retained in diagnostics and evaluation
+and is never overwritten by the utility representation.
 Contact, support-foot drift, phase-ZMP, and survival reach learning only through
 `P_X -> G_P -> G_total`. They do not simultaneously produce independent actor
 constraints, projection gradients, KKT gates, or fallback updates.

@@ -95,7 +95,8 @@ def test_segment_storage_writes_clean_6d_ppo_tuple() -> None:
     assert batch.segment_ids.tolist() == [4, 5, 6]
     assert batch.valid_mask.tolist() == [True, False, False]
     torch.testing.assert_close(batch.returns, torch.tensor([1.0, 0.5, 100.0]))
-    torch.testing.assert_close(batch.advantages, torch.tensor([0.9, 0.3, 90.0]))
+    expected = torch.sign(batch.returns) * torch.log1p(torch.abs(batch.returns)) - torch.tensor([0.1, 0.2, 10.0])
+    torch.testing.assert_close(batch.advantages, expected)
 
 
 def test_segment_storage_converts_to_algorithm_batch_and_masks_invalid_samples() -> None:
@@ -147,7 +148,8 @@ def test_segment_storage_applies_discounted_k_step_returns_to_active_ppo_batch()
     expected_first = 1.0 + 0.9 * -2.0 + 0.9 * 0.9 * -2.0 + 0.9 * 0.9 * 0.9 * -2.0
     expected_second = 0.5 + 0.9 * 0.25
     torch.testing.assert_close(batch.returns[:2], torch.tensor([expected_first, expected_second]))
-    torch.testing.assert_close(batch.advantages[:2], batch.returns[:2] - torch.tensor([0.1, 0.2]))
+    expected_utility = torch.sign(batch.returns[:2]) * torch.log1p(torch.abs(batch.returns[:2]))
+    torch.testing.assert_close(batch.advantages[:2], expected_utility - torch.tensor([0.1, 0.2]))
     assert batch.valid_mask.tolist() == [True, False, False]
     assert batch.returns[0] < 0.0
 

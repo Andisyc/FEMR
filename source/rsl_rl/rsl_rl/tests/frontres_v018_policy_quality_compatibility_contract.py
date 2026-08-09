@@ -36,14 +36,14 @@ def _assert_tensor_state_equal(first: dict[str, object], second: dict[str, objec
 
 def test_v018_manifest_and_request_seal_checkpoint_v13_critic_identity(tmp_path: Path) -> None:
     manifest = FrontRESV018PolicyQualityManifest.from_json(MANIFEST.read_text(encoding="utf-8"))
-    assert manifest.method_contract_id == "FRS-METHOD-v019"
-    assert manifest.training_contract_id == "FRS-TRAIN-v018"
-    assert manifest.ppo_contract_id == "FRS-PPO-v007"
-    assert manifest.checkpoint_format == "frontres-v018-checkpoint-v13"
+    assert manifest.method_contract_id == "FRS-METHOD-v020"
+    assert manifest.training_contract_id == "FRS-TRAIN-v019"
+    assert manifest.ppo_contract_id == "FRS-PPO-v008"
+    assert manifest.checkpoint_format == "frontres-v019-checkpoint-v14"
     assert manifest.critic_input_dim == 449
     assert manifest.critic_value_kind == "state_value"
     assert manifest.critic_action_conditioned is False
-    assert manifest.critic_target_id == "segment-exact-m-mean-v1"
+    assert manifest.critic_target_id == "segment-exact-m-mean-symlog-v1"
     assert manifest.critic_support_context_id == "action-pre-support-plan-kmax32-v1"
     assert manifest.critic_value_normalization_id == "ema-target-std-nonamplifying-v1"
     assert (manifest.horizon_k, manifest.attempts_per_segment) == (16, 4)
@@ -82,12 +82,12 @@ def test_v018_manifest_and_request_seal_checkpoint_v13_critic_identity(tmp_path:
             )
         assert Path(path).resolve() == policy_path.resolve()
         return SimpleNamespace(
-            format="frontres-v018-checkpoint-v13",
+            format="frontres-v019-checkpoint-v14",
             file_sha256="p" * 64,
-            method_contract_id="FRS-METHOD-v019",
-            training_contract_id="FRS-TRAIN-v018",
-            gain_contract_id="FRS-GAIN-v007",
-            ppo_contract_id="FRS-PPO-v007",
+            method_contract_id="FRS-METHOD-v020",
+            training_contract_id="FRS-TRAIN-v019",
+            gain_contract_id="FRS-GAIN-v008",
+            ppo_contract_id="FRS-PPO-v008",
             future_intent_layout=layout,
             action_kind="delta_se3",
             action_dim=6,
@@ -95,7 +95,7 @@ def test_v018_manifest_and_request_seal_checkpoint_v13_critic_identity(tmp_path:
             critic_input_dim=policy_critic_dim,
             critic_value_kind="state_value",
             critic_action_conditioned=False,
-            critic_target_id="segment-exact-m-mean-v1",
+            critic_target_id="segment-exact-m-mean-symlog-v1",
             critic_support_context_id="action-pre-support-plan-kmax32-v1",
             critic_value_normalization_id="ema-target-std-nonamplifying-v1",
         )
@@ -181,7 +181,7 @@ def test_policy_checkpoint_context_installs_and_restores_critic_observation_norm
     original_validate = checkpointing._validate_v015_checkpoint_resume
     checkpointing.inspect_frontres_quality_checkpoint = lambda *_args, **_kwargs: SimpleNamespace(
         file_sha256="c" * 64,
-        format="frontres-v018-checkpoint-v13",
+        format="frontres-v019-checkpoint-v14",
     )
     checkpointing.load_frontres_checkpoint_mapping = lambda *_args, **_kwargs: checkpoint
     checkpointing._validate_v015_checkpoint_resume = lambda *_args, **_kwargs: {}
@@ -226,28 +226,18 @@ def test_segment_calibration_uses_shared_value_and_exact_m4_mean() -> None:
         segment_ids=torch.tensor([10, 10, 10, 10, 20, 20, 20, 20]),
     )
     rows = quality.build_frontres_v018_critic_calibration_rows(report, plan)
-    assert rows == (
-        {
-            "source_index": 0,
-            "segment_id": 10,
-            "scenario_id": "s0",
-            "noisy_segment_hash": "h0",
-            "attempt_count": 4,
-            "policy_value": 2.0,
-            "target_mean": 4.0,
-            "value_error": -2.0,
-        },
-        {
-            "source_index": 1,
-            "segment_id": 20,
-            "scenario_id": "s1",
-            "noisy_segment_hash": "h1",
-            "attempt_count": 4,
-            "policy_value": -1.0,
-            "target_mean": -1.0,
-            "value_error": 0.0,
-        },
-    )
+    assert len(rows) == 2
+    expected_raw = (4.0, -1.0)
+    raw_groups = (report.gain_total[:4], report.gain_total[4:])
+    for index, row in enumerate(rows):
+        utility = torch.sign(torch.tensor(raw_groups[index])) * torch.log1p(torch.abs(torch.tensor(raw_groups[index])))
+        expected_target = float(utility.mean())
+        assert row["raw_target_mean"] == expected_raw[index]
+        assert row["return_utility_id"] == "symmetric-log-gain-g0-1-v1"
+        assert row["return_utility_scale"] == 1.0
+        torch.testing.assert_close(torch.tensor(row["utility_attempts"]), utility)
+        assert abs(row["target_mean"] - expected_target) < 1.0e-6
+        assert abs(row["value_error"] - (row["policy_value"] - expected_target)) < 1.0e-6
 
     permutation = torch.tensor((4, 7, 5, 6, 2, 0, 3, 1), dtype=torch.long)
     permuted_report = SimpleNamespace(

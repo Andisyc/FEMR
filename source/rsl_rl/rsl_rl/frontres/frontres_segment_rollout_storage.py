@@ -7,6 +7,7 @@ from typing import Any
 
 import torch
 
+from rsl_rl.frontres.frontres_return_utility import frontres_symmetric_log_utility
 from rsl_rl.frontres.frontres_segment_storage_records import (
     FrontRESSegmentStorageBatch,
     FrontRESSegmentTransition,
@@ -26,8 +27,8 @@ class FrontRESSegmentStorageStats:
 class FrontRESSegmentRolloutStorage:
     """Independent Stage 3 storage for Segment Replay HRL.
 
-    Segment rewards are already K-step rollout outcomes, so returns default to
-    reward and advantages default to reward minus stored value.
+    Segment rewards are already raw K-step Gain outcomes, so returns preserve
+    reward while advantages use the active fixed utility minus stored value.
     """
 
     def __init__(
@@ -108,7 +109,14 @@ class FrontRESSegmentRolloutStorage:
         self.old_values[sl].copy_(transition.values)
         self.rewards[sl].copy_(transition.rewards)
         returns = transition.returns if transition.returns is not None else transition.rewards
-        advantages = transition.advantages if transition.advantages is not None else returns - transition.values
+        advantages = frontres_symmetric_log_utility(returns) - transition.values
+        if transition.advantages is not None and not torch.allclose(
+            transition.advantages,
+            advantages,
+            rtol=0.0,
+            atol=1.0e-6,
+        ):
+            raise ValueError("TRAIN-v019 storage rejects non-utility carried advantages")
         self.returns[sl].copy_(returns)
         self.advantages[sl].copy_(advantages)
         self.valid_mask[sl].copy_(transition.valid_mask & transition.reset_mask)
@@ -192,7 +200,8 @@ class FrontRESSegmentRolloutStorage:
         storage_slice = slice(0, self.step)
         if reward_steps is None:
             self.returns[storage_slice].copy_(self.rewards[storage_slice])
-            self.advantages[storage_slice].copy_(self.returns[storage_slice] - self.old_values[storage_slice])
+            utility_returns = frontres_symmetric_log_utility(self.returns[storage_slice])
+            self.advantages[storage_slice].copy_(utility_returns - self.old_values[storage_slice])
             return
 
         if reward_steps.ndim != 2:
@@ -230,7 +239,8 @@ class FrontRESSegmentRolloutStorage:
             discount *= gamma_value
 
         self.returns[storage_slice].copy_(returns)
-        self.advantages[storage_slice].copy_(self.returns[storage_slice] - self.old_values[storage_slice])
+        utility_returns = frontres_symmetric_log_utility(self.returns[storage_slice])
+        self.advantages[storage_slice].copy_(utility_returns - self.old_values[storage_slice])
         # B3: finalized returns/advantages 已准备好进入 PPO batch conversion.
 
     def mini_batch_generator(

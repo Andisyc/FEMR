@@ -14,6 +14,11 @@ from typing import Any, Callable, Mapping
 import numpy as np
 import torch
 
+from rsl_rl.frontres.frontres_return_utility import (
+    FRONTRES_RETURN_UTILITY_ID,
+    FRONTRES_RETURN_UTILITY_SCALE,
+    frontres_symmetric_log_utility,
+)
 from rsl_rl.frontres.frontres_policy_quality_manifest import (
     FrontRESPolicyQualityManifest,
     FrontRESPolicyQualityRouteIdentity,
@@ -57,7 +62,7 @@ class FrontRESV015PolicyQualityEvalRequest:
 
 @dataclass(frozen=True)
 class FrontRESV018PolicyQualityEvalRequest:
-    """Strict HSL-v2 plus checkpoint-v13 K16/M4 identity for EVAL-v004."""
+    """Strict HSL-v2 plus checkpoint-v14 K16/M4 identity for EVAL-v004."""
 
     manifest_path: str
     hsl_checkpoint_path: str
@@ -228,7 +233,7 @@ def install_frontres_v015_policy_quality_owner_bundle(
     runner._frontres_v015_policy_quality_owner_bundle = bundle
 
 
-def _v015_quality_hash_state(digest: Any, value: Any) -> None:
+def _policy_quality_hash_state(digest: Any, value: Any) -> None:
     # B1: 按稳定类型递归编码 state value, 更新 deterministic SHA-256 digest.
     if isinstance(value, torch.Tensor):
         tensor = value.detach().to(device="cpu").contiguous()
@@ -238,16 +243,16 @@ def _v015_quality_hash_state(digest: Any, value: Any) -> None:
     elif isinstance(value, Mapping):
         for key in sorted(value, key=repr):
             digest.update(repr(key).encode("utf-8"))
-            _v015_quality_hash_state(digest, value[key])
+            _policy_quality_hash_state(digest, value[key])
     elif isinstance(value, (tuple, list)):
         digest.update(type(value).__name__.encode("ascii"))
         for item in value:
-            _v015_quality_hash_state(digest, item)
+            _policy_quality_hash_state(digest, item)
     else:
         digest.update(repr(value).encode("utf-8"))
 
 
-def _v015_quality_field_hash(name: str, value: Any) -> str:
+def _policy_quality_field_hash(name: str, value: Any) -> str:
     # B1: 将字段名和值共同编码, 产出避免跨字段碰撞的 state hash.
     digest = hashlib.sha256()
     digest.update(name.encode("ascii"))
@@ -265,12 +270,12 @@ def _v015_quality_field_hash(name: str, value: Any) -> str:
         for field_name, image in value:
             image.update_hash(digest, name=str(field_name))
     else:
-        _v015_quality_hash_state(digest, value)
+        _policy_quality_hash_state(digest, value)
     return digest.hexdigest()
 
 
 @contextmanager
-def _frontres_v015_quality_inference_mode(runner: Any):
+def _frontres_policy_quality_inference_mode(runner: Any):
     # B1: 捕获并冻结 policy/normalizer modes, 产出可恢复的 inference-only context.
     """Freeze every observation/policy module mode for held-out inference.
 
@@ -300,7 +305,7 @@ def _frontres_v015_quality_inference_mode(runner: Any):
             module.training = was_training
 
 
-def _v015_quality_training_state_field_hashes(runner: Any) -> dict[str, str]:
+def _policy_quality_training_state_field_hashes(runner: Any) -> dict[str, str]:
     """Hash each mutable training owner independently for actionable failures."""
 
     alg = getattr(runner, "alg", None)
@@ -341,27 +346,27 @@ def _v015_quality_training_state_field_hashes(runner: Any) -> dict[str, str]:
         ("warmup", getattr(runner, "_frontres_warmup_complete", None)),
         ("iteration", getattr(runner, "current_learning_iteration", None)),
     )
-    return {name: _v015_quality_field_hash(name, value) for name, value in values}
+    return {name: _policy_quality_field_hash(name, value) for name, value in values}
 
 
-def _v015_quality_training_state_signature(runner: Any) -> str:
+def _policy_quality_training_state_signature(runner: Any) -> str:
     # B1: 哈希 model/optimizer/sampler/normalizer/transaction facts, 产出零写入签名.
     """Hash every mutable training owner while excluding physical env state."""
 
     digest = hashlib.sha256()
-    for name, field_hash in _v015_quality_training_state_field_hashes(runner).items():
+    for name, field_hash in _policy_quality_training_state_field_hashes(runner).items():
         digest.update(name.encode("ascii"))
         digest.update(field_hash.encode("ascii"))
     return digest.hexdigest()
 
 
-def _assert_v015_quality_training_state_unchanged(
+def _assert_policy_quality_training_state_unchanged(
     runner: Any,
     expected: Mapping[str, str],
     *,
     label: str,
 ) -> None:
-    actual = _v015_quality_training_state_field_hashes(runner)
+    actual = _policy_quality_training_state_field_hashes(runner)
     differing_fields = tuple(name for name in expected if actual.get(name) != expected[name])
     if differing_fields:
         raise RuntimeError(f"{label}; differing_fields={differing_fields}")
@@ -538,7 +543,7 @@ def build_frontres_v015_policy_quality_owner_bundle(
         owner_identity=_V015_QUALITY_OWNER_IDENTITY,
         collect_one_action_k=collect_one_action_k,
         close_item=close_item,
-        training_state_signature=_v015_quality_training_state_signature,
+        training_state_signature=_policy_quality_training_state_signature,
     )
 
 
@@ -1016,7 +1021,7 @@ def run_frontres_v015_policy_quality_heldout_eval(
     # B1: 在可恢复 inference mode 中执行 matched evaluator, 产出零写入 report.
     """Run all held-out routes under one reversible inference-mode boundary."""
 
-    with _frontres_v015_quality_inference_mode(runner):
+    with _frontres_policy_quality_inference_mode(runner):
         return _run_frontres_v015_policy_quality_heldout_eval_inference(
             runner,
             request=request,
@@ -1025,7 +1030,7 @@ def run_frontres_v015_policy_quality_heldout_eval(
 
 
 def build_frontres_v018_critic_calibration_rows(report: Any, plan: Any) -> tuple[dict[str, Any], ...]:
-    """Project raw state values against exact-M Segment means without changing units."""
+    """Compare state values with M4 utility targets while retaining raw means."""
 
     active_m = int(getattr(plan, "active_m", 0))
     source_index = getattr(plan, "source_index", None)
@@ -1061,7 +1066,10 @@ def build_frontres_v018_critic_calibration_rows(report: Any, plan: Any) -> tuple
         segments = {int(segment_ids[index].item()) for index in indices}
         if len(scenarios) != 1 or len(hashes) != 1 or len(segments) != 1:
             raise RuntimeError("EVAL-v004 v018 Critic calibration mixed Segment identity")
-        target = sum(gain_total[index] for index in indices) / float(active_m)
+        raw_attempts = torch.tensor([gain_total[index] for index in indices], dtype=torch.float32)
+        utility_attempts = frontres_symmetric_log_utility(raw_attempts)
+        raw_target = float(raw_attempts.mean().item())
+        target = float(utility_attempts.mean().item())
         value = values[0]
         rows.append(
             {
@@ -1071,6 +1079,10 @@ def build_frontres_v018_critic_calibration_rows(report: Any, plan: Any) -> tuple
                 "noisy_segment_hash": next(iter(hashes)),
                 "attempt_count": active_m,
                 "policy_value": value,
+                "raw_target_mean": raw_target,
+                "utility_attempts": tuple(sorted(float(item) for item in utility_attempts.tolist())),
+                "return_utility_id": FRONTRES_RETURN_UTILITY_ID,
+                "return_utility_scale": FRONTRES_RETURN_UTILITY_SCALE,
                 "target_mean": target,
                 "value_error": value - target,
             }
@@ -1089,16 +1101,16 @@ def run_frontres_v018_policy_quality_heldout_eval(
 
     from rsl_rl.runners.frontres_checkpointing import frontres_quality_route_actor
     from rsl_rl.runners.frontres_segment_formal_transaction import (
-        collect_frontres_v017_recovery_aware_evaluation,
-        frontres_v017_readonly_collection_scope,
+        collect_frontres_recovery_aware_evaluation,
+        frontres_readonly_collection_scope,
     )
     from rsl_rl.runners.frontres_stage3_engine import frontres_stage3_transaction_aggregate
     from rsl_rl.runners.frontres_segment_live_sampler import (
         ensure_frontres_policy_quality_reset_support,
-        prepare_frontres_v017_policy_quality_batch,
+        prepare_frontres_policy_quality_k16_m4_batch,
     )
 
-    # B1: 冻结训练状态并安装 tested checkpoint-v13, 产出 inference-only policy owner.
+    # B1: 冻结训练状态并安装 tested checkpoint-v14, 产出 inference-only policy owner.
     if not isinstance(request, FrontRESV018PolicyQualityEvalRequest):
         raise TypeError("EVAL-v004 requires the strict v018 policy-quality request")
 
@@ -1111,30 +1123,30 @@ def run_frontres_v018_policy_quality_heldout_eval(
     aggregate = frontres_stage3_transaction_aggregate(runner)
     if aggregate.execution_phase != "idle" or aggregate.persistence_phase in {"collecting", "sealed"}:
         raise RuntimeError("EVAL-v004 requires an idle transaction owner before held-out collection")
-    baseline_state = _v015_quality_training_state_field_hashes(runner)
+    baseline_state = _policy_quality_training_state_field_hashes(runner)
     transactions: list[dict[str, Any]] = []
-    with _frontres_v015_quality_inference_mode(runner):
+    with _frontres_policy_quality_inference_mode(runner):
         with frontres_quality_route_actor(
             runner,
             request.policy_checkpoint_path,
             route="policy",
             expected_file_sha256=request.policy_checkpoint.file_sha256,
         ):
-            policy_state = _v015_quality_training_state_field_hashes(runner)
+            policy_state = _policy_quality_training_state_field_hashes(runner)
             items = tuple(request.manifest.items)
             gain_beta = getattr(getattr(runner, "alg", None), "frontres_gain_beta", None)
             if gain_beta is None:
-                raise RuntimeError("EVAL-v004 requires the formal FRS-GAIN-v007 repair-cost beta")
+                raise RuntimeError("EVAL-v004 requires the formal FRS-GAIN-v008 repair-cost beta")
             for item_offset in range(0, len(items), request.manifest.segments_per_transaction):
                 item_pair = tuple(items[item_offset : item_offset + request.manifest.segments_per_transaction])
-                with frontres_v017_readonly_collection_scope(runner):
+                with frontres_readonly_collection_scope(runner):
                     # B2: 每两个 held-out Segment 执行 Clean/Noisy 一次与 M4 Repairs, 产出完整 GAIN-v007 report.
-                    prepared = prepare_frontres_v017_policy_quality_batch(
+                    prepared = prepare_frontres_policy_quality_k16_m4_batch(
                         runner,
                         item_pair,
                         attempts_per_segment=request.manifest.attempts_per_segment,
                     )
-                    collection = collect_frontres_v017_recovery_aware_evaluation(
+                    collection = collect_frontres_recovery_aware_evaluation(
                         runner,
                         prepared,
                         route="policy_quality",
@@ -1159,12 +1171,12 @@ def run_frontres_v018_policy_quality_heldout_eval(
                         "report": asdict(collection.report),
                     }
                 )
-                _assert_v015_quality_training_state_unchanged(
+                _assert_policy_quality_training_state_unchanged(
                     runner,
                     policy_state,
                     label="EVAL-v004 held-out transaction mutated training state",
                 )
-    _assert_v015_quality_training_state_unchanged(
+    _assert_policy_quality_training_state_unchanged(
         runner,
         baseline_state,
         label="EVAL-v004 checkpoint route failed to restore training state",
@@ -1310,12 +1322,12 @@ def run_frontres_policy_quality_eval(
     policy_checkpoint_path: str,
     result_path: str,
 ) -> Any:
-    """Run the active EVAL-v004 checkpoint-v13 held-out evaluator."""
+    """Run the active EVAL-v004 checkpoint-v14 held-out evaluator."""
 
-    # B1: 验证 formal runner 并构造 strict v018 request, 产出 checkpoint-v13 evaluation identity.
+    # B1: 验证 formal runner 并构造 strict v018 request, 产出 checkpoint-v14 evaluation identity.
     if not bool(getattr(getattr(runner, "alg", None), "frontres_formal_transaction_enabled", False)):
         raise RuntimeError(
-            "active policy-quality evaluation requires the v017 formal transaction route; "
+            "active policy-quality evaluation requires the formal transaction route; "
             "legacy evaluation must use run_frontres_legacy_policy_quality_eval explicitly"
         )
     request = build_frontres_v018_policy_quality_eval_request(
@@ -1437,7 +1449,7 @@ def capture_frontres_v015_policy_quality_dynamic_state_identity(
         comparison_signature=comparison_signature,
         role_layout=role_layout,
         field_hashes=tuple(
-            (name, _v015_quality_field_hash(name, values[name]))
+            (name, _policy_quality_field_hash(name, values[name]))
             for name in _V015_DYNAMIC_STATE_FIELDS
         ),
     )

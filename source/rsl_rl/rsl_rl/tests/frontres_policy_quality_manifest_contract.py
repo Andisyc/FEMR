@@ -151,12 +151,12 @@ def test_checkpoint_is_route_metadata_not_comparison_identity() -> None:
 def test_v018_k16_m4_manifest_has_strict_active_identity() -> None:
     path = ROOT / "note" / "testing" / "manifests" / "frontres_v018_policy_quality_k16_m4_v1.json"
     manifest = FrontRESV018PolicyQualityManifest.from_json(path.read_text(encoding="utf-8"))
-    assert manifest.method_contract_id == "FRS-METHOD-v019"
-    assert manifest.training_contract_id == "FRS-TRAIN-v018"
-    assert manifest.gain_contract_id == "FRS-GAIN-v007"
-    assert manifest.ppo_contract_id == "FRS-PPO-v007"
+    assert manifest.method_contract_id == "FRS-METHOD-v020"
+    assert manifest.training_contract_id == "FRS-TRAIN-v019"
+    assert manifest.gain_contract_id == "FRS-GAIN-v008"
+    assert manifest.ppo_contract_id == "FRS-PPO-v008"
     assert manifest.evaluation_contract_id == "FRS-EVAL-v004"
-    assert manifest.checkpoint_format == "frontres-v018-checkpoint-v13"
+    assert manifest.checkpoint_format == "frontres-v019-checkpoint-v14"
     assert manifest.critic_input_dim == 449
     assert (manifest.horizon_k, manifest.attempts_per_segment, manifest.segments_per_transaction) == (16, 4, 2)
     assert len(manifest.items) == 8

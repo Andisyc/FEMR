@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "design_identity": "FRS-METHOD-v020/FRS-GAIN-v008/FRS-PPO-v008/FRS-TRAIN-v019",
+  "checkout_identity": "69e85387298636d1628decc3181e7655adc428dc+v019-working-tree",
+  "modules": [
+    {
+      "id": "frontres-return-utility",
+      "owner": "rsl_rl.frontres.frontres_return_utility",
+      "public_boundary": "frontres_symmetric_log_utility",
+      "card": {"status": "confirmed", "identity": "TEST-13--18-v019"},
+      "required": {
+        "s_tiers": ["S1"],
+        "case_families": ["C1", "C2", "C3", "C4"],
+        "t_kinds": ["T-value", "T-order", "T-detach"]
+      },
+      "cases": [
+        {
+          "id": "utility-c1-nominal",
+          "case_family": "C1",
+          "s_tier": "S1",
+          "t_kinds": ["T-value"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["raw-gain", "utility"], "units_and_axes": "scalar Gain, G0=1", "validity_semantics": "finite detached float tensor"},
+          "oracle": {"kind": "hand-calculation", "independent_from_production": true},
+          "sensitivity": {"kind": "pre-fix", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "frontres_v019_symmetric_log_utility_contract.py", "exit_code": 0, "identity": "formula-sign-tail-pass"}
+        },
+        {
+          "id": "utility-c2-order",
+          "case_family": "C2",
+          "s_tier": "S1",
+          "t_kinds": ["T-order"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["negative", "zero", "positive"], "units_and_axes": "ordered scalar Gain", "validity_semantics": "sign and strict order preserved"},
+          "oracle": {"kind": "metamorphic-relation", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "frontres_v019_symmetric_log_utility_contract.py", "exit_code": 0, "identity": "order-pass"}
+        },
+        {
+          "id": "utility-c3-invalid",
+          "case_family": "C3",
+          "s_tier": "S1",
+          "t_kinds": ["T-detach"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["nan", "gradient-carrying-input"], "units_and_axes": "invalid scalar Gain", "validity_semantics": "fail closed"},
+          "oracle": {"kind": "human-confirmed-golden", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "frontres_v019_symmetric_log_utility_contract.py", "exit_code": 0, "identity": "invalid-reject-pass"}
+        },
+        {
+          "id": "utility-c4-placement",
+          "case_family": "C4",
+          "s_tier": "S1",
+          "t_kinds": ["T-value", "T-order"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["attempt", "segment", "m4-mean"], "units_and_axes": "two Segment x M4 raw Gain", "validity_semantics": "transform each valid attempt before reduction"},
+          "oracle": {"kind": "hand-calculation", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "frontres_v019_symmetric_log_utility_contract.py", "exit_code": 0, "identity": "placement-pass"}
+        }
+      ],
+      "status": "MODULE-CORRECT"
+    }
+  ]
+}

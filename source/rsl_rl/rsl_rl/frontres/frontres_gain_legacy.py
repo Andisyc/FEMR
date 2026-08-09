@@ -234,7 +234,7 @@ class FrontRESIntentPhysicsGainResult:
         return torch.isfinite(self.gain_total)
 
 
-# Active FRS-GAIN-v007 moved to frontres_gain.py; this module is historical only.
+# Active FRS-GAIN-v008 moved to frontres_gain.py; this module is historical only.
 
 def compute_intent_physics_local_repair_gain(
     evidence: FrontRESIntentPhysicsGainInput,

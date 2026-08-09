@@ -206,31 +206,31 @@
     {
       "id": "SYS-OBS",
       "title": "Observation & Perturbation",
-      "summary": "构造 Actor 928D 与 state-value Critic 347D observation，并保持 frozen GMT 770D authority",
+      "summary": "构造 Actor 928D 与 state-value Critic 449D observation，并保持 frozen GMT 770D authority",
       "color": "#0f766e",
       "modules": [
         {
           "id": "MOD-OBS",
           "title": "Observation Layout",
-          "summary": "组合 Actor 的 158D deployable prefix 与 Critic 的 289D current + 58D future state",
+          "summary": "组合 Actor 的 158D deployable prefix 与 Critic 的 289D current + 58D future + 102D action-pre support context",
           "owns": "Actor/Critic 观测来源、字段顺序、prefix/suffix 与各自 normalizer 边界",
           "mustNot": "不把 Clean oracle 或未来 rollout outcome 放进 deployable input",
-          "objects": ["870D raw obs", "158D Actor prefix", "347D Critic state", "770D GMT suffix", "mean/std"],
+          "objects": ["870D raw obs", "158D Actor prefix", "449D Critic state", "770D GMT suffix", "mean/std"],
           "files": [
             {"id": "MAIN-10", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/observations.py", "role": "tracking observation terms", "functions": [], "sourceLine": 15, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fobservations.py&line=15"},
             {"id": "MAIN-11", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/balance.py", "role": "ZMP/support signals", "functions": [], "sourceLine": 6, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fbalance.py&line=6"},
-            {"id": "MAIN-12", "path": "source/rsl_rl/rsl_rl/modules/frontres_observation_layout.py", "role": "Actor/GMT authority and 347D Critic composition owner", "functions": ["resolve_frontres_v015_observation_authority()", "compose_frontres_v016_critic_observation()"], "sourceLine": 8, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffrontres_observation_layout.py&line=8"},
+            {"id": "MAIN-12", "path": "source/rsl_rl/rsl_rl/modules/frontres_observation_layout.py", "role": "Actor/GMT authority and 449D Critic composition owner", "functions": ["resolve_frontres_v015_observation_authority()", "compose_frontres_v018_critic_observation()"], "sourceLine": 8, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffrontres_observation_layout.py&line=8"},
             {"id": "MAIN-12A", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_one_action_k.py", "role": "same sealed future-tail live observation gateway", "functions": ["_read_live_observations()"], "sourceLine": 78, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_one_action_k.py&line=78"},
             {"id": "MAIN-20", "path": "source/rsl_rl/rsl_rl/modules/normalizer.py", "role": "running statistics", "functions": [], "sourceLine": 14, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Fnormalizer.py&line=14"}
           ],
       "mainRoute": [
         "B1 observations.py + balance.py: env/reference state -> observation terms",
-        "B2 future-intent gateway: sealed Noisy q29 tail -> Actor [58+100] and Critic [289+58]",
-        "B3 normalizer.py: Actor 928D and Critic 347D -> separately normalized inputs; GMT suffix remains 770D"
+        "B2 future-intent/support gateway: sealed Noisy q29 tail -> Actor [58+100] and Critic [289+58+102]",
+        "B3 normalizer.py: Actor 928D and Critic 449D -> separately normalized inputs; GMT suffix remains 770D"
       ],
       "mainRouteTitles": ["构造观测项", "共享 Sealed Future Intent", "分别归一化 Actor/Critic"],
-          "review": ["逐字段确认 158/347/770 shape、顺序、单位和 privilege", "检查 Actor/Critic normalizer 与 checkpoint-v11"],
-          "tests": ["TEST-05 v016 composer/live-gateway oracle", "TEST-16 v11 normalizer persistence"],
+          "review": ["逐字段确认 158/449/770 shape、顺序、单位和 privilege", "检查 Actor/Critic normalizer 与 checkpoint-v14"],
+          "tests": ["TEST-05 v018 composer/live-gateway oracle", "TEST-16 v14 normalizer persistence"],
           "gap": "OFFLINE_CONFIRMED；真实 simulator observation identity/timing 仍需 Phase B"
         },
         {
@@ -472,7 +472,7 @@
           "id": "MOD-GAIN",
           "title": "Repair Gain",
           "summary": "比较同一 Clean anchor 下的 Noisy 与 Repair frozen-GMT execution",
-          "owns": "FRS-GAIN-v007 Intent improvement、Physics improvement、remaining Physics pressure、full-6D Repair Cost 与 G_total",
+          "owns": "FRS-GAIN-v008 raw Intent improvement、Physics improvement、remaining Physics pressure、full-6D Repair Cost 与 G_total",
           "mustNot": "不读取 generic environment reward 作为 fallback",
           "objects": ["G_I", "G_P", "P_N", "P_R", "lambda_RA", "repair_cost", "G_total"],
           "files": [
@@ -510,7 +510,7 @@
             {"id": "MAIN-38F", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", "role": "bounded-live exact-one grouped commit owner", "functions": ["run_frontres_v015_formal_transaction_update()"], "sourceLine": 218, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_formal_transaction.py&line=218"}
           ],
       "mainRoute": [
-        "B1 evidence owner: one Repair actor/critic policy tuple + Clean/Noisy/Repair q29/K facts -> v007 scalar G_total",
+        "B1 evidence owner: one Repair actor/critic policy tuple + Clean/Noisy/Repair q29/K facts -> v008 raw scalar G_total",
         "B2 grouped-adapter owner: tuple + return evidence + transaction rows -> immutable local metadata",
         "B3 rollout-storage owner: complete v015 metadata and row-aligned critic input -> candidate PPO batch; legacy/partial metadata reject"
       ],
@@ -522,27 +522,29 @@
         {
           "id": "MOD-PPO",
           "title": "Segment PPO",
-          "summary": "执行 FRS-PPO-v007：逐 attempt Actor credit、per-Segment exact-M state-value target、不可放大的 Critic loss scale 与独立梯度裁剪",
-          "owns": "clipped scalar Actor objective、Segment-mean raw/scaled value loss、committed target moments、grouped reduction、separate clip 与 exact-one commit",
+          "summary": "执行 FRS-PPO-v008：逐 attempt symlog Actor credit、per-Segment M4 utility target、不可放大的 Critic loss scale 与独立梯度裁剪",
+          "owns": "fixed return utility、clipped Actor objective、Segment-mean utility value loss、committed target moments、grouped reduction、separate clip 与 exact-one commit",
           "mustNot": "不恢复 retired Physics projection/KKT、rho/acceptance 或 family action mask",
           "objects": ["ratio", "per-attempt advantage", "Segment mean target", "Actor/Critic clip facts", "optimizer state"],
           "files": [
+            {"id": "MAIN-43U", "path": "source/rsl_rl/rsl_rl/frontres/frontres_return_utility.py", "role": "pure fixed symmetric-log utility owner", "functions": ["frontres_symmetric_log_utility()"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_return_utility.py&line=1"},
             {"id": "MAIN-43N", "path": "source/rsl_rl/rsl_rl/frontres/frontres_value_normalization.py", "role": "pure immutable Critic target-moment and non-amplifying scale owner", "functions": ["preview_frontres_v007_value_normalization()"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_value_normalization.py&line=1"},
             {"id": "MAIN-43", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "Segment PPO formula plus candidate grouped transaction reducer", "functions": ["compute_frontres_segment_ppo_loss()"], "sourceLine": 251, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=251"},
-            {"id": "MAIN-44", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py", "role": "v017 algorithm composition, value-scale state and named split-LR optimizer owner", "functions": ["validate_frontres_v015_stage3_supervision_config()"], "sourceLine": 15, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_unified.py&line=15"},
+            {"id": "MAIN-44", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py", "role": "v019 algorithm composition, utility identity, value-scale state and named split-LR optimizer owner", "functions": ["validate_frontres_v015_stage3_supervision_config()"], "sourceLine": 15, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_unified.py&line=15"},
             {"id": "MAIN-45", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_policy.py", "role": "legacy single-update connector and compatibility diagnostics; not an active optimizer owner", "functions": ["run_frontres_segment_single_update()"], "sourceLine": 377, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_policy.py&line=377"},
-            {"id": "MAIN-45F", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", "role": "active v018/v007 exact-one transaction, value-scale and optimizer commit owner", "functions": ["run_frontres_formal_transaction_update()"], "sourceLine": 257, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_formal_transaction.py&line=257"}
+            {"id": "MAIN-45F", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", "role": "active v019/v008 exact-one transaction, utility identity, value-scale and optimizer commit owner", "functions": ["run_frontres_formal_transaction_update()"], "sourceLine": 257, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_formal_transaction.py&line=257"}
             ,{"id": "MAIN-45A", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "role": "DP-09 phase owner", "functions": ["frontres_segment_warmup_phase()"], "sourceLine": 27, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=27"}
           ],
       "mainRoute": [
-        "B1 compute_frontres_segment_ppo_loss(): sealed rows -> invariant per-attempt Actor loss + raw/scaled per-source exact-M mean value loss",
-        "B2 grouped reducer: policy rows -> equal attempt/Segment influence without replacing individual Actor advantages",
-        "B3 immutable value-scale preview + install gradients: Critic loss scale -> disjoint, separately clipped parameter families",
-        "B4 step_frontres_v005_scalar_optimizer(): installed gradients -> exactly one committed optimizer update"
+        "B1 frontres_return_utility.py: raw G_total per attempt -> detached fixed symlog utility",
+        "B2 compute_frontres_segment_ppo_loss(): utility rows -> per-attempt Actor loss + per-Segment M4 utility-mean value loss",
+        "B3 grouped reducer: policy rows -> equal attempt/Segment influence without replacing individual Actor advantages",
+        "B4 immutable value-scale preview + install gradients: Critic loss scale -> disjoint, separately clipped parameter families",
+        "B5 step_frontres_v005_scalar_optimizer(): installed gradients -> exactly one committed optimizer update"
       ],
-      "mainRouteTitles": ["计算 Scalar PPO Loss", "按层平均各组", "安装 Actor/Critic 梯度", "提交一次更新"],
+      "mainRouteTitles": ["变换 Raw Gain", "计算 Utility PPO Loss", "按层平均各组", "安装 Actor/Critic 梯度", "提交一次更新"],
           "review": ["检查 source/Segment/exact-M row mapping", "检查 Actor advantage 与 Critic target 未混用", "检查两组 0.5 clip 与 critic-only 边界", "检查 exact-one update 与 partial/mixed rejection"],
-          "tests": ["TEST-15 v007 hand-computed target scale/raw invariants", "TEST-18 committed-only normalizer connector", "v006 grouped regression"],
+          "tests": ["TEST-15 v008 raw-to-symlog hand-computed invariants", "TEST-18 committed-only utility/normalizer connector", "55-contract regression"],
           "gap": "OFFLINE_CONFIRMED；正式 simulator transaction、calibration trajectory 与 policy quality 仍未确认。"
         }
       ]
@@ -559,10 +561,10 @@
           "summary": "保存和恢复 policy、stats、optimizer、sampler 与 contract identity",
           "owns": "正式 OnPolicyRunner save/load payload 和兼容性检查",
           "mustNot": "不静默跳过不兼容 actor head 或 observation stats",
-          "objects": ["policy state", "347D Critic", "std", "Actor/Critic normalizers", "split Adam", "sampler", "receipt"],
+          "objects": ["policy state", "449D Critic", "return utility identity", "std", "Actor/Critic normalizers", "split Adam", "sampler", "receipt"],
           "files": [
-            {"id": "MAIN-32", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "checkpoint-v11/HSL-v2 strict persistence gateway; v10 resume forbidden", "functions": ["save_runner()", "load_runner()", "load_v015_hsl_initializer()"], "sourceLine": 1445, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1445"},
-            {"id": "MAIN-32Q", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpoint_quality.py", "role": "v11 and historical read-only v10 quality artifact inspection", "functions": ["inspect_frontres_quality_checkpoint()"], "sourceLine": 620, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpoint_quality.py&line=620"},
+            {"id": "MAIN-32", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "checkpoint-v14/HSL-v2 strict persistence gateway; v13 Stage-3 resume forbidden", "functions": ["save_runner()", "load_runner()", "load_v015_hsl_initializer()"], "sourceLine": 1445, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1445"},
+            {"id": "MAIN-32Q", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpoint_quality.py", "role": "v14 and historical read-only quality artifact inspection", "functions": ["inspect_frontres_quality_checkpoint()"], "sourceLine": 620, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpoint_quality.py&line=620"},
             {"id": "MAIN-50", "path": "source/whole_body_tracking/whole_body_tracking/utils/exporter.py", "role": "policy export", "functions": [], "sourceLine": 18, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Futils%2Fexporter.py&line=18"}
           ],
       "mainRoute": [
@@ -572,7 +574,7 @@
       ],
       "mainRouteTitles": ["保存完整训练状态", "恢复并验证状态", "导出 Policy Artifact"],
           "review": ["检查正式 owner 与 detached helper 区别", "检查 cold-start/resume identity", "检查 warmup phase state"],
-          "tests": ["TEST-16 checkpoint-v11 roundtrip/atomic/pre-mutation", "HSL-v2 Actor-only regression", "v10 strict read-only quality isolation"],
+          "tests": ["TEST-16 checkpoint-v14 utility roundtrip/atomic/pre-mutation", "HSL-v2 Actor-only regression", "legacy strict read-only quality isolation"],
           "gap": "OFFLINE_CONFIRMED；server filesystem、live save/resume 与 long-run cadence 仍待 Phase B。"
         },
         {
@@ -624,8 +626,8 @@
                 {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "name": "build_frontres_v018_policy_quality_eval_request"},
                 {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "name": "run_frontres_v018_policy_quality_heldout_eval"},
                 {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "name": "ensure_frontres_policy_quality_reset_support"},
-                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "name": "prepare_frontres_v017_policy_quality_batch"},
-                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", "name": "collect_frontres_v017_recovery_aware_evaluation"},
+                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "name": "prepare_frontres_policy_quality_k16_m4_batch"},
+                {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", "name": "collect_frontres_recovery_aware_evaluation"},
                 {"sourcePath": "source/rsl_rl/rsl_rl/runners/frontres_evaluation_reporting.py", "name": "write_frontres_atomic_json"}
               ]
             },
@@ -656,15 +658,15 @@
             {"id": "MAIN-37D", "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "role": "three thin Evaluation dispatches for Deployment Composition, Held-out Policy Quality and DR Sweep", "atlasFunctionScope": "declared", "functions": ["evaluate_frontres_dr_sweep()","run_frontres_policy_quality_eval()","run_frontres_v015_deployment_composition_eval()"], "sourceLine": 641, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Fon_policy_runner.py&line=641"},
             {"id": "MAIN-37E", "path": "scripts/rsl_rl/frontres_v015_deployment_composition.py", "role": "E-FI-31 CUDA-visible CLI connector; E-FI-46 closes carrier production, but compatible trained FEMR checkpoint and paired evaluator remain G5/G6 blockers", "functions": ["validate_frontres_v015_deployment_cli_args()","configure_frontres_v015_deployment_agent_cfg()","dispatch_frontres_v015_deployment_composition()"], "sourceLine": 1, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ffrontres_v015_deployment_composition.py&line=1"},
             {"id": "MAIN-49", "path": "source/rsl_rl/rsl_rl/runners/frontres_dr_sweep_eval.py", "role": "restoring DR-sweep session plus thin scale orchestration", "functions": ["_FrontRESDRSweepSession","evaluate_frontres_dr_sweep()"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_dr_sweep_eval.py&line=1"},
-            {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "role": "active EVAL-v004 checkpoint-v13 K16/M4 held-out entry, reversible 449D Critic normalization, Segment calibration and atomic report; historical matched-route entry remains explicit legacy", "functions": ["build_frontres_v018_policy_quality_eval_request()","build_frontres_v018_critic_calibration_rows()","run_frontres_v018_policy_quality_heldout_eval()","run_frontres_policy_quality_eval()","run_frontres_legacy_policy_quality_eval()"], "sourceLine": 688, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=688"},
-            {"id": "MAIN-39A", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "Held-out Policy Quality reset-support and immutable batch adapter", "atlasFunctionScope": "declared", "functions": ["ensure_frontres_policy_quality_reset_support()","prepare_frontres_v017_policy_quality_batch()"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1"},
-            {"id": "MAIN-39B", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", "role": "read-only recovery-aware evaluation collector reused by Held-out Policy Quality", "atlasFunctionScope": "declared", "functions": ["collect_frontres_v017_recovery_aware_evaluation()"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_formal_transaction.py&line=1"}
+            {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", "role": "active EVAL-v004 checkpoint-v14 K16/M4 held-out entry, raw/utility calibration, reversible 449D Critic normalization and atomic report; checkpoint-v13 remains explicit legacy", "functions": ["build_frontres_v018_policy_quality_eval_request()","build_frontres_v018_critic_calibration_rows()","run_frontres_v018_policy_quality_heldout_eval()","run_frontres_policy_quality_eval()","run_frontres_legacy_policy_quality_eval()"], "sourceLine": 688, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=688"},
+            {"id": "MAIN-39A", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "Held-out Policy Quality reset-support and immutable batch adapter", "atlasFunctionScope": "declared", "functions": ["ensure_frontres_policy_quality_reset_support()","prepare_frontres_policy_quality_k16_m4_batch()"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1"},
+            {"id": "MAIN-39B", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", "role": "read-only recovery-aware evaluation collector reused by Held-out Policy Quality", "atlasFunctionScope": "declared", "functions": ["collect_frontres_recovery_aware_evaluation()"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_formal_transaction.py&line=1"}
           ],
       "mainRoute": [
         "B1 v015 S1: explicit NPZ + persistent corruption spec -> immutable request identities",
         "B2 v015 S2A: sealed request -> immutable command q29/dq29 + cursor -> current [B,58] and dense H [B,H+1,29]",
         "B3 v015 S1: Baseline/Repair metric rows -> immutable paired branch report",
-        "B4 Held-out Quality: checkpoint-v13 + fixed K16/M4 manifest -> saved 449D Critic coordinates -> Clean/Noisy once + exact-M Repair -> one-action-K v007 atomic report",
+        "B4 Held-out Quality: checkpoint-v14 + fixed K16/M4 manifest -> saved 449D Critic coordinates -> Clean/Noisy once + M4 Repair -> raw v008 Gain + per-attempt symlog + utility calibration atomic report",
         "B5 v015 S2B: T-max(H) current/H -> one 6D FEMR + frozen GMT per frame -> metrics -> atomic JSON with zero training-state diff",
         "B6 v015 S4-S0 implemented-only: CUDA-visible CLI -> exact checkpoint/file/report -> S2B-only dispatch",
         "B7 DR Sweep: fixed perturbation levels -> independent robustness-budget report",
@@ -713,7 +715,7 @@
           "summary": "输出正式路径的 branch、shape、value、gradient 和 evidence facts",
           "owns": "结构化日志和可搜索 sentinel labels",
           "mustNot": "不重新计算或替代 owner semantic object",
-          "objects": ["branch flags", "158/347/770", "Segment target", "Actor advantage", "separate clip", "receipt", "Gain components"],
+          "objects": ["branch flags", "158/449/770", "raw/utility returns", "Segment utility target", "Actor utility advantage", "separate clip", "receipt", "Gain components"],
           "files": [
             {"id": "MAIN-18", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_reporting.py", "role": "Segment summary and formatting owner", "functions": ["summarize_segment_batch()"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_reporting.py&line=1"},
             {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "console formatter", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"},

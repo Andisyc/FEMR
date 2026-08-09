@@ -409,7 +409,8 @@ def test_build_live_segment_storage_preserves_first_step_tuple_trace() -> None:
     torch.testing.assert_close(batch.actions, capture.transition_actions)
     torch.testing.assert_close(storage.rewards[: storage.step], torch.tensor([1.0, 2.0]))
     torch.testing.assert_close(batch.returns, torch.tensor([2.0, 4.0]))
-    torch.testing.assert_close(batch.advantages, torch.tensor([1.5, 4.5]))
+    expected_utility = torch.log1p(torch.tensor([2.0, 4.0]))
+    torch.testing.assert_close(batch.advantages, expected_utility - torch.tensor([0.5, -0.5]))
     assert batch.valid_mask.tolist() == [True, False]
     assert storage.valid_mask[: storage.step].tolist() == [True, False]
     assert batch.segment_ids.tolist() == [0, 1]
@@ -468,7 +469,7 @@ def test_build_live_segment_storage_uses_b1_paired_gain_when_available() -> None
     _probe_tensor("capture.repair_score_accum", capture.repair_score_accum, "repair-specific executable score")
     _probe_tensor("batch.returns", batch.returns, "PPO learns executable repaired-minus-noisy gain")
     torch.testing.assert_close(batch.returns[:2], torch.tensor([1.20, 0.80]))
-    torch.testing.assert_close(batch.advantages[:2], torch.tensor([1.20, 0.80]))
+    torch.testing.assert_close(batch.advantages[:2], torch.log1p(torch.tensor([1.20, 0.80])))
     assert batch.valid_mask.tolist() == [True, True, False, False, False, False]
 
     summary = live_probe._paired_score_summary(capture)
@@ -575,9 +576,10 @@ def test_build_live_segment_storage_uses_discounted_reward_trace_for_ppo_returns
     _probe_tensor("capture.reward_steps", capture.reward_steps, "per-step executable reward trace")
     _probe_tensor("capture.done_steps", capture.done_steps, "per-step done mask for K-step return")
     _probe_tensor("batch.returns", batch.returns, "discounted K-step return consumed by Segment PPO")
-    _probe_tensor("batch.advantages", batch.advantages, "discounted K-step return minus first-step value")
+    _probe_tensor("batch.advantages", batch.advantages, "symlog K-step return minus first-step value")
     torch.testing.assert_close(batch.returns, torch.tensor([expected_first, expected_second]))
-    torch.testing.assert_close(batch.advantages, batch.returns - torch.tensor([0.1, 0.2]))
+    utility = torch.sign(batch.returns) * torch.log1p(torch.abs(batch.returns))
+    torch.testing.assert_close(batch.advantages, utility - torch.tensor([0.1, 0.2]))
     assert batch.returns[0] < 0.0
 
 

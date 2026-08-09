@@ -303,7 +303,7 @@ parser.add_argument(
     "--frontres_v015_resume_checkpoint",
     type=str,
     default=None,
-    help="Strict frontres-v018-checkpoint-v13 full resume for ordinary Stage-3 training; mutually exclusive with HSL initialization.",
+    help="Strict frontres-v019-checkpoint-v14 full resume for ordinary Stage-3 training; mutually exclusive with HSL initialization.",
 )
 parser.add_argument(
     "--frontres_segment_live_probe_only",
@@ -350,7 +350,7 @@ parser.add_argument(
     type=float,
     default=None,
     help=(
-        "Retired shared Stage-3 LR override. FRS-TRAIN-v018 rejects this option."
+        "Retired shared Stage-3 LR override. FRS-TRAIN-v019 rejects this option."
     ),
 )
 parser.add_argument(
@@ -846,7 +846,7 @@ def _parse_frontres_v015_future_offsets(raw_offsets: str | None) -> tuple[int, .
 
 
 def _parse_frontres_v015_k_curriculum(raw_schedule: str | None) -> tuple[tuple[object, ...], ...]:
-    """Parse and freeze the explicit FRS-TRAIN-v018 K x exact-M x DR schedule."""
+    """Parse and freeze the explicit FRS-TRAIN-v019 K x exact-M x DR schedule."""
 
     if raw_schedule is None:
         raise ValueError("v015 Stage-3 requires --frontres_segment_k_curriculum")
@@ -882,7 +882,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     if (hsl_initializer_arg or v015_resume_arg) and stage != "stage3_segment_hrl":
         raise ValueError("v018 HSL initialization/full resume requires --frontres_stage stage3_segment_hrl")
     if hsl_initializer_arg and v015_resume_arg:
-        raise ValueError("v018 HSL initialization and checkpoint-v13 full resume are mutually exclusive")
+        raise ValueError("v018 HSL initialization and checkpoint-v14 full resume are mutually exclusive")
     if hsl_live_smoke_arg and stage != "stage1_hsl":
         raise ValueError("--frontres_hsl_live_smoke requires --frontres_stage stage1_hsl")
     if (
@@ -905,7 +905,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     # B1: 在 Composition Root 拒绝旧 optimizer owner, 产出唯一 active Stage-3 route.
     if stage == "stage3_segment_hrl" and (live_single_update_arg or live_update_loop_arg):
         raise ValueError(
-            "FRS-PPO-v007 rejects retired Stage-3 single_update/update_loop modes; "
+            "FRS-PPO-v008 rejects retired Stage-3 single_update/update_loop modes; "
             "use the sealed formal train route"
         )
     legacy_local_evaluation_modes = tuple(
@@ -1123,7 +1123,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
                 )
             if resume_checkpoint:
                 if not os.path.isfile(resume_checkpoint):
-                    raise FileNotFoundError(f"v018 checkpoint-v13 resume checkpoint not found: {resume_checkpoint}")
+                    raise FileNotFoundError(f"v019 checkpoint-v14 resume checkpoint not found: {resume_checkpoint}")
                 agent_cfg.resume = True
                 agent_cfg.is_full_resume = True
                 agent_cfg.student_checkpoint_path = os.path.abspath(resume_checkpoint)
@@ -1192,7 +1192,7 @@ def _apply_frontres_segment_ppo_schedule_override(agent_cfg, args_cli) -> None:
         raise AttributeError("--frontres_segment_ppo_schedule requires an agent config with algorithm.schedule")
     schedule = str(schedule).lower()
     if schedule != "fixed":
-        raise ValueError("FRS-TRAIN-v018 Stage 3 rejects adaptive LR; schedule must be fixed")
+        raise ValueError("FRS-TRAIN-v019 Stage 3 rejects adaptive LR; schedule must be fixed")
     alg_cfg.schedule = schedule
     print(f"[FrontRES Stage3 Segment HRL] ppo_schedule_override schedule={schedule}", flush=True)
 
@@ -1206,20 +1206,20 @@ def _apply_frontres_segment_split_lr_override(agent_cfg, args_cli) -> None:
             raise ValueError("FrontRES Stage-3 LR options require --frontres_stage stage3_segment_hrl")
         return
     if getattr(args_cli, "frontres_segment_ppo_lr", None) is not None:
-        raise ValueError("FRS-TRAIN-v018 rejects --frontres_segment_ppo_lr; provide Actor and Critic LR separately")
+        raise ValueError("FRS-TRAIN-v019 rejects --frontres_segment_ppo_lr; provide Actor and Critic LR separately")
     alg_cfg = getattr(agent_cfg, "algorithm", None)
     if alg_cfg is None or not hasattr(alg_cfg, "learning_rate") or not hasattr(alg_cfg, "critic_learning_rate"):
-        raise AttributeError("FRS-TRAIN-v018 requires Actor and Critic LR config fields")
+        raise AttributeError("FRS-TRAIN-v019 requires Actor and Critic LR config fields")
     actor_arg = getattr(args_cli, "frontres_segment_actor_lr", None)
     critic_arg = getattr(args_cli, "frontres_segment_critic_lr", None)
     if (actor_arg is None) != (critic_arg is None):
-        raise ValueError("FRS-TRAIN-v018 requires Actor and Critic LR overrides together")
+        raise ValueError("FRS-TRAIN-v019 requires Actor and Critic LR overrides together")
     actor_lr = float(alg_cfg.learning_rate if actor_arg is None else actor_arg)
     critic_lr = float(alg_cfg.critic_learning_rate if critic_arg is None else critic_arg)
     if not math.isfinite(actor_lr) or actor_lr <= 0.0 or not math.isfinite(critic_lr) or critic_lr <= 0.0:
-        raise ValueError("FRS-TRAIN-v018 Actor and Critic LRs must be positive and finite")
+        raise ValueError("FRS-TRAIN-v019 Actor and Critic LRs must be positive and finite")
     if str(getattr(alg_cfg, "schedule", "")).lower() != "fixed":
-        raise ValueError("FRS-TRAIN-v018 Stage 3 requires schedule=fixed")
+        raise ValueError("FRS-TRAIN-v019 Stage 3 requires schedule=fixed")
     alg_cfg.learning_rate = actor_lr
     alg_cfg.critic_learning_rate = critic_lr
     print(
@@ -1664,7 +1664,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         getattr(args_cli, "frontres_v015_resume_checkpoint", "") or ""
     ).strip()
     if hsl_initializer and v015_resume_checkpoint:
-        raise ValueError("Stage-3 HSL initialization and checkpoint-v13 full resume are mutually exclusive")
+        raise ValueError("Stage-3 HSL initialization and checkpoint-v14 full resume are mutually exclusive")
     if hsl_initializer:
         if args_cli.frontres_stage != "stage3_segment_hrl":
             raise ValueError("--frontres_v015_hsl_initializer_checkpoint requires Stage 3")

@@ -1,4 +1,4 @@
-"""Active FRS-GAIN-v007 Clean-anchored Recovery-Aware scalar owner."""
+"""Active FRS-GAIN-v008 Clean-anchored Recovery-Aware scalar owner."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import torch
 
 @dataclass(frozen=True)
 class FrontRESRecoveryAwareGainConfig:
-    """Fixed semantic units for the active FRS-GAIN-v007 scalar owner."""
+    """Fixed semantic units for the active FRS-GAIN-v008 scalar owner."""
 
     beta: float = 0.02
     root_orientation_scale: float = 0.087
@@ -42,11 +42,11 @@ class FrontRESRecoveryAwareGainConfig:
             self.rotation_repair_scale,
         )
         if not math.isfinite(float(self.beta)) or float(self.beta) < 0.0:
-            raise ValueError("FRS-GAIN-v007 beta must be finite and non-negative")
+            raise ValueError("FRS-GAIN-v008 beta must be finite and non-negative")
         if any(not math.isfinite(float(value)) or float(value) <= 0.0 for value in scales):
-            raise ValueError("FRS-GAIN-v007 semantic scales must be finite and positive")
+            raise ValueError("FRS-GAIN-v008 semantic scales must be finite and positive")
         if int(self.contact_timing_tolerance) < 0:
-            raise ValueError("FRS-GAIN-v007 contact timing tolerance must be non-negative")
+            raise ValueError("FRS-GAIN-v008 contact timing tolerance must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -130,7 +130,7 @@ def compute_recovery_aware_gain(
     *,
     config: FrontRESRecoveryAwareGainConfig,
 ) -> FrontRESRecoveryAwareGainResult:
-    """Compute the unique FRS-GAIN-v007 Clean-anchored scalar.
+    """Compute the unique FRS-GAIN-v008 Clean-anchored scalar.
 
     B1 validates the complete executed evidence. B2 constructs normalized
     channel and family remaining problems. B3 applies the accepted signed
@@ -190,7 +190,7 @@ def compute_recovery_aware_gain(
     cost_free_score = intent_gain + weighted_physics_gain
     gain_total = cost_free_score - repair_penalty
     if not bool(torch.isfinite(gain_total).all()):
-        raise ValueError("FRS-GAIN-v007 produced a non-finite required scalar")
+        raise ValueError("FRS-GAIN-v008 produced a non-finite required scalar")
     return FrontRESRecoveryAwareGainResult(
         intent_remaining_noisy=intent_remaining_noisy,
         intent_remaining_repaired=intent_remaining_repaired,
@@ -232,10 +232,10 @@ def compute_recovery_aware_gain(
 
 def _validate_recovery_aware_gain_input(evidence: FrontRESRecoveryAwareGainInput) -> tuple[int, int]:
     if not isinstance(evidence, FrontRESRecoveryAwareGainInput):
-        raise TypeError("FRS-GAIN-v007 requires FrontRESRecoveryAwareGainInput")
+        raise TypeError("FRS-GAIN-v008 requires FrontRESRecoveryAwareGainInput")
     anchor = evidence.clean_joint_pos
     if anchor.ndim != 3 or int(anchor.shape[-1]) != 29 or int(anchor.shape[0]) <= 0 or int(anchor.shape[1]) <= 0:
-        raise ValueError("FRS-GAIN-v007 joint trajectories must start with [K,B,29]")
+        raise ValueError("FRS-GAIN-v008 joint trajectories must start with [K,B,29]")
     k_steps, batch_size = int(anchor.shape[0]), int(anchor.shape[1])
     shapes = {
         "noisy_joint_pos": (k_steps, batch_size, 29),
@@ -273,7 +273,7 @@ def _validate_recovery_aware_gain_input(evidence: FrontRESRecoveryAwareGainInput
     for name, shape in shapes.items():
         value = getattr(evidence, name)
         if not isinstance(value, torch.Tensor) or tuple(value.shape) != shape:
-            raise ValueError(f"FRS-GAIN-v007 {name} must have shape {shape}, got {getattr(value, 'shape', None)}")
+            raise ValueError(f"FRS-GAIN-v008 {name} must have shape {shape}, got {getattr(value, 'shape', None)}")
     key_shape = tuple(evidence.clean_key_body_pos.shape)
     if (
         len(key_shape) != 4
@@ -283,14 +283,14 @@ def _validate_recovery_aware_gain_input(evidence: FrontRESRecoveryAwareGainInput
         or tuple(evidence.noisy_key_body_pos.shape) != key_shape
         or tuple(evidence.repaired_key_body_pos.shape) != key_shape
     ):
-        raise ValueError("FRS-GAIN-v007 key-body trajectories must share [K,B,J,3]")
+        raise ValueError("FRS-GAIN-v008 key-body trajectories must share [K,B,J,3]")
     masks = (
         evidence.clean_valid_mask.bool(),
         evidence.noisy_valid_mask.bool(),
         evidence.repaired_valid_mask.bool(),
     )
     if any(not bool(mask.any(dim=0).all()) for mask in masks):
-        raise ValueError("FRS-GAIN-v007 requires at least one observed step per role and Repair row")
+        raise ValueError("FRS-GAIN-v008 requires at least one observed step per role and Repair row")
     binary = (
         evidence.expected_support,
         evidence.clean_contact,
@@ -301,7 +301,7 @@ def _validate_recovery_aware_gain_input(evidence: FrontRESRecoveryAwareGainInput
         evidence.repaired_survival,
     )
     if any(bool(((value != 0) & (value != 1)).any()) for value in binary):
-        raise ValueError("FRS-GAIN-v007 Contact/support/survival evidence must be binary")
+        raise ValueError("FRS-GAIN-v008 Contact/support/survival evidence must be binary")
     zmp_roles = (
         ("clean", evidence.clean_zmp_margin, evidence.clean_contact, evidence.clean_valid_mask),
         ("noisy", evidence.noisy_zmp_margin, evidence.noisy_contact, evidence.noisy_valid_mask),
@@ -311,7 +311,7 @@ def _validate_recovery_aware_gain_input(evidence: FrontRESRecoveryAwareGainInput
         applicable = valid.bool() & evidence.expected_support.bool().any(dim=-1) & contact.bool().any(dim=-1)
         finite = torch.isfinite(zmp.float())
         if not bool(finite[applicable].all()) or bool(finite[~applicable].any()):
-            raise ValueError(f"FRS-GAIN-v007 {name} ZMP must be finite exactly on loaded-support valid steps")
+            raise ValueError(f"FRS-GAIN-v008 {name} ZMP must be finite exactly on loaded-support valid steps")
     required_finite = (
         evidence.clean_joint_pos,
         evidence.noisy_joint_pos,
@@ -337,7 +337,7 @@ def _validate_recovery_aware_gain_input(evidence: FrontRESRecoveryAwareGainInput
         evidence.repair_actions,
     )
     if any(not bool(torch.isfinite(value.float()).all()) for value in required_finite):
-        raise ValueError("FRS-GAIN-v007 required execution evidence must be finite")
+        raise ValueError("FRS-GAIN-v008 required execution evidence must be finite")
     return k_steps, batch_size
 
 
@@ -429,7 +429,7 @@ def _recovery_physics_channels(
     valid_foot_exposure = valid.unsqueeze(-1).expand_as(contact_mismatch)
     contact_den = valid_foot_exposure.float().sum(dim=(0, 2))
     if bool((contact_den <= 0).any()):
-        raise ValueError("FRS-GAIN-v007 Contact exposure cannot be empty")
+        raise ValueError("FRS-GAIN-v008 Contact exposure cannot be empty")
     contact_problem = contact_mismatch.float().sum(dim=(0, 2)) / contact_den
 
     expected_loaded = evidence.expected_support.bool() & valid.unsqueeze(-1)
@@ -446,7 +446,7 @@ def _recovery_physics_channels(
     zmp_problem = _late_weighted_optional_mean(torch.relu(-zmp.float()), zmp_applicable)
     survival_den = clean_valid.float().sum(dim=0)
     if bool((survival_den <= 0).any()):
-        raise ValueError("FRS-GAIN-v007 survival exposure cannot be empty")
+        raise ValueError("FRS-GAIN-v008 survival exposure cannot be empty")
     survived = (survival & clean_valid).float().sum(dim=0)
     survival_problem = 1.0 - survived / survival_den
     return torch.stack(
@@ -468,7 +468,7 @@ def _late_weighted_mean(
     allow_no_observation: bool = False,
 ) -> torch.Tensor:
     if tuple(values.shape) != tuple(valid.shape) or values.ndim != 2:
-        raise ValueError("FRS-GAIN-v007 continuous channel requires aligned [K,B] values/mask")
+        raise ValueError("FRS-GAIN-v008 continuous channel requires aligned [K,B] values/mask")
     work = values.float()
     mask = valid.bool()
     if hold_after_invalid:
@@ -483,7 +483,7 @@ def _late_weighted_mean(
             held.append(last.clone())
             held_mask.append(seen.clone())
         if not allow_no_observation and not bool(seen.all()):
-            raise ValueError("FRS-GAIN-v007 continuous channel has no valid observation")
+            raise ValueError("FRS-GAIN-v008 continuous channel has no valid observation")
         work = torch.stack(held, dim=0)
         mask = torch.stack(held_mask, dim=0)
     tau = torch.arange(1, work.shape[0] + 1, device=work.device, dtype=work.dtype).unsqueeze(1)
@@ -491,7 +491,7 @@ def _late_weighted_mean(
     weights = tau * mask.to(dtype=work.dtype)
     denominator = weights.sum(dim=0)
     if not allow_no_observation and bool((denominator <= 0).any()):
-        raise ValueError("FRS-GAIN-v007 continuous channel has empty weighted exposure")
+        raise ValueError("FRS-GAIN-v008 continuous channel has empty weighted exposure")
     numerator = (work * weights).sum(dim=0)
     if allow_no_observation:
         return torch.where(
@@ -504,7 +504,7 @@ def _late_weighted_mean(
 
 def _late_weighted_optional_mean(values: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
     if tuple(values.shape) != tuple(valid.shape):
-        raise ValueError("FRS-GAIN-v007 optional channel requires aligned values/mask")
+        raise ValueError("FRS-GAIN-v008 optional channel requires aligned values/mask")
     tau = torch.arange(1, values.shape[0] + 1, device=values.device, dtype=values.dtype).unsqueeze(1)
     tau = tau / float(values.shape[0])
     weights = tau * valid.to(dtype=values.dtype)
@@ -534,7 +534,7 @@ def _contact_mismatch_with_tolerance(
     tolerance: int,
 ) -> torch.Tensor:
     if tuple(expected.shape) != tuple(actual.shape) or tuple(expected.shape[:2]) != tuple(valid.shape):
-        raise ValueError("FRS-GAIN-v007 Contact phase requires aligned [K,B,2] evidence")
+        raise ValueError("FRS-GAIN-v008 Contact phase requires aligned [K,B,2] evidence")
     k_steps = int(expected.shape[0])
     aligned = torch.zeros_like(expected, dtype=torch.bool)
     for delta in range(-int(tolerance), int(tolerance) + 1):
@@ -547,10 +547,10 @@ def _contact_mismatch_with_tolerance(
 
 def _smooth_worst_rows(channels: torch.Tensor, *, family: str) -> torch.Tensor:
     if channels.ndim != 2 or int(channels.shape[1]) <= 0:
-        raise ValueError(f"FRS-GAIN-v007 {family} channels must be [B,J]")
+        raise ValueError(f"FRS-GAIN-v008 {family} channels must be [B,J]")
     finite = torch.isfinite(channels)
     if not bool(finite.any(dim=1).all()):
-        raise ValueError(f"FRS-GAIN-v007 {family} family has no applicable channel")
+        raise ValueError(f"FRS-GAIN-v008 {family} family has no applicable channel")
     masked = torch.where(finite, channels, torch.full_like(channels, float("-inf")))
     count = finite.sum(dim=1).to(dtype=channels.dtype)
     return torch.logsumexp(masked, dim=1) - torch.log(count)

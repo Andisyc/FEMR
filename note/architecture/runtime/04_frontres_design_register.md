@@ -1,13 +1,12 @@
 # FrontRES Design Inspector
 
-Status: DP09 support-conditioned Critic and all-stage M4 were human-confirmed on
-2026-08-09 and activated as METHOD-v019 / PPO-v007 / TRAIN-v018. Actor stays
-158D and GMT stays 770D. The 449D state-value Critic keeps the arithmetic
-exact-M Segment mean target and output-preserving adaptive value scale; its new
-102D context contains only action-pre current support evidence and sealed
-planned support. Raw `G_total`, Actor credit, networks and split LR are
-unchanged. TRAIN-v017/checkpoint-v12 is historical evidence only;
-checkpoint-v13 requires fresh runtime evidence.
+Status: DP07/DP09 symmetric-log utility was human-confirmed on 2026-08-10 and
+activated as METHOD-v020 / GAIN-v008 / PPO-v008 / TRAIN-v019. Actor stays 158D,
+Critic stays 449D and GMT stays 770D. Raw `G_total` and hard Physics evidence
+remain unchanged; each attempt maps through fixed `sign(G)*log1p(abs(G))`
+before Actor advantage and before the M4 Critic mean. Networks, split LR, M,
+K/DR and simulator are unchanged. TRAIN-v018/checkpoint-v13 is historical;
+checkpoint-v14 requires fresh runtime evidence.
 
 Interactive page: `../02_frontres_design_inspector.html`
 
@@ -58,10 +57,10 @@ pre-Transaction initialization
 -> FrontRES remains frozen while frozen GMT executes K steps
 -> construct Clean/Noisy/Repair rollout evidence
 -> use Clean direction, Noisy zero point, and every Repair consequence to form
-one active scalar Recovery-Aware Gain per attempt
+one raw Recovery-Aware Gain per attempt, then map each attempt to fixed utility
 -> seal 2 x M PPO policy rows
--> form one shared 449D support-conditioned state value and exact-M mean target per Segment
--> use every attempt's scalar advantage, scale only the Critic loss, clip
+-> form one shared 449D support-conditioned state value and mean-M utility target per Segment
+-> use every attempt's utility advantage, scale only the Critic loss, clip
 Actor/Critic separately, and execute exactly one grouped optimizer update
 -> atomically commit checkpoint, curriculum and Critic target moments
 ```
@@ -79,9 +78,9 @@ English outline above.
 | FrontRES 6D Repair | consume the deployable actor prefix and emit one full-6D `Delta SE(3)` action at `t` |
 | Frozen GMT | freeze FrontRES and let frozen GMT execute the common continuation |
 | Paired Rollouts | execute one Clean anchor and one fixed Noisy zero point once per sealed Segment, then read-only reuse both while evaluating M Repair rollouts |
-| Repair Gain | keep one scalar `G_total` per attempt; subtract one shared state value so Actor ordering remains action-specific while the Critic target is the exact-M mean |
+| Repair Gain | retain raw `G_total`; transform each attempt with fixed symlog, subtract one shared state value for Actor credit, and average utilities for the Critic target |
 | HSL Warmup | initialize the proposal Actor before the first Stage-3 Transaction and never use HSL as its target |
-| Actor & Critic Warmup | first calibrate the 449D state-value Critic with M4 targets, then release the Actor; condition only its loss with a committed non-amplifying target scale, clip gradients independently and recalibrate the same Critic whenever K increases |
+| Actor & Critic Warmup | calibrate the 449D state-value Critic on M4 utility targets, then release Actor on the same utility; retain non-amplifying loss scale and separate clipping |
 | Future Motion Context | seal q29 at `t+1,t+2` plus action-pre current/planned support context for the 449D Critic while keeping Actor at 158D and GMT at 770D |
 
 ## Atomic Decisions Kept In The Primary View
@@ -163,11 +162,11 @@ decision itself. They are not rendered as separate metadata chips:
 horizon.
 - Clean Rollout is evaluator-only phase and demo-quality evidence; it does not
   become an actor input or PPO row.
-- Held-out Policy Quality loads the tested checkpoint-v13 Actor, 449D Critic
+- Held-out Policy Quality loads the tested checkpoint-v14 Actor, 449D Critic
   and 449D privileged-observation normalizer inside one reversible inference
-  scope. It reports the shared raw Segment value against the exact-M4 arithmetic
-  mean target; the value-loss normalizer remains output-preserving and is not
-  applied to `V(s)`.
+  scope. It reports every raw Gain and compares the shared Segment value with
+  the exact-M4 utility mean; the value-loss normalizer remains output-preserving
+  and is not applied to `V(s)`.
 - each sealed Segment executes one Clean Rollout and one fixed zero-action Noisy
   Rollout exactly once; both observed K-step outcomes are then sealed and
   read-only reused across all M Repair comparisons;
@@ -244,12 +243,12 @@ horizon.
   frozen across Segments and K rather than becoming a per-stage controller;
 - `G_total = G_I + lambda_RA G_P - beta C_repair` is the complete
   Recovery-Aware candidate score consumed by Segment Replay ranking;
-- `return_K=G_total`; all exact-M attempts share one old state value, their
- arithmetic mean `G_total` is the Critic target, and each Actor advantage keeps
- its own return minus that shared baseline;
+- raw `return_K=G_total` remains diagnostic; training uses
+ `U(G)=sign(G)*log1p(abs(G))` per attempt, Critic target `mean_m U(G_m)`, and
+ Actor advantage `U(G_m)-V_old(s)`;
 - Actor and Critic gradients are clipped independently at 0.5, then the two
  named LR groups still execute exactly one Adam step and persist as
- checkpoint-v11;
+ checkpoint-v14;
 - Contact phase, support-foot drift, phase-ZMP and survival remain fail-closed
   Physics evidence, but their learning route is `P_X -> G_P -> G_total`; the
   old independent constraint projection and KKT actor gate retire rather than
@@ -338,8 +337,8 @@ does not delete or supersede them.
   hiding a hard clip, mask, or scale;
 - HSL is visibly pre-Transaction rather than a per-Transaction operation;
 - Actor & Critic Warmup states the direct `HSL -> HRL` transition, the 449D
- state-value input, exact-M mean target, separate gradient clipping and
- checkpoint-v11 cold-start boundary;
+ state-value input, M4 symlog-mean target, separate gradient clipping and
+ checkpoint-v14 cold-start boundary;
 - the `Future Motion Context` detail card explicitly states `t+1,t+2`,
   `29D x 2 = 58D`,
  extraction from one fixed deployment Noisy reference, Actor/Critic reuse, and

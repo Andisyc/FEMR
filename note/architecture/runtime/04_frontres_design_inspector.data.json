@@ -2,7 +2,7 @@
   "layout": "design_transaction_inspector",
   "defaultZoom": 0.8,
   "title": "FrontRES Design Inspector",
-  "subtitle": "TRAIN-v018：Critic 增加动作前支撑条件，所有 K 从 M4 开始；V(s)、G_total、Actor credit 与 GMT 均保持不变",
+  "subtitle": "TRAIN-v019：raw G_total 保留；每次 Repair 先取固定 symlog utility，再共同形成 Actor credit 与 M4 Critic target",
   "cards": [
     {
       "designId": "FRS-DP-01",
@@ -218,11 +218,11 @@
       "blockId": "Q-01",
       "title": "Repair Gain",
       "color": "#a75555",
-      "responsibility": "Gain 为每个 Repair 产生自己的实际结果；Critic 只给同一状态提供一条共享参考线，Actor 仍按每次 Repair 的实际结果学习。",
+      "responsibility": "Gain 保留每个 Repair 的 raw 实际结果；固定 symlog utility 压缩重尾，并由 Actor 与 Critic 共同消费。",
       "details": [
         {
           "heading": "Intent、Physics 与 Segment Replay",
-          "text": "Gain 分为 Intent Gain 和 Physics Gain；两者在 G_total 中的连续交互定义 Recovery-Aware。每个 Repair attempt 都保留自己的 G_total。Critic 不判断哪一个动作更好，只预测从当前 sealed state 按冻结 pi_old 采样 Repair 时的期望 G_total；同一 Segment 的 M 次尝试共享这个 state-value baseline。每次尝试用自己的 G_total 减去共享 baseline，因此动作排序仍由实际 rollout 结果决定。Contact、support-foot drift、phase-ZMP 与 survival 只经 P_X、G_P、G_total 进入学习，不再建立独立 Physics projection。"
+          "text": "Gain 分为 Intent Gain 和 Physics Gain；两者在 raw G_total 中的连续交互定义 Recovery-Aware。每个 attempt 保留 raw G_total，再独立计算 U(G)=sign(G)×log1p(abs(G))。Critic 预测冻结 pi_old 下的期望 utility；每次尝试用自己的 U(G) 减共享 baseline。该变换严格单调，保留同 Segment 动作排序，但明确改变跨样本期望效用。Contact、support-foot drift、phase-ZMP 与 survival 的 raw 诊断始终保留。"
         },
         {
           "heading": "Recovery-Aware 分类规则",
@@ -268,7 +268,7 @@
         },
         {
           "heading": "组内有限补偿、Recovery 压力与 Total",
-          "text": "Intent 与 Physics 分别先用同一个平滑最差项汇总：每个 z_j 就是一项归一化后的 r_j。严重单项会越来越主导，但所有项目仍参与，避免自由平均掩盖明显坏姿态或支撑错误，也避免 hard max 的突变；1/n 使项目数量不改变同值基线。随后 Noisy-Repair 得到两组改善。lambda 用 Noisy 与 Repair 的平均剩余 Physics 压力，让失衡状态中的 Physics 变化获得更多作用：10→8 与 3→1 都改善 2，但贡献分别为 18 与 4。C_repair 只衡量这一次 full-6D 动作有多大：10 cm 平移和 5°旋转各算一个修复单位，再在同一根号内合并。根号中是平移与旋转，不是 Physics 与 Intent；动作是否改善 Physics/Intent 仍由 Clean-anchored rollout 判断。Clean 指路、Noisy 定零点、Repair 给出后果；M 个总分通过全部 attempt 的 advantage 传递排序信用。",
+          "text": "Intent 与 Physics 分别先用同一个平滑最差项汇总：每个 z_j 就是一项归一化后的 r_j。严重单项会越来越主导，但所有项目仍参与，避免自由平均掩盖明显坏姿态或支撑错误，也避免 hard max 的突变；1/n 使项目数量不改变同值基线。随后 Noisy-Repair 得到两组改善。lambda 用 Noisy 与 Repair 的平均剩余 Physics 压力，让失衡状态中的 Physics 变化获得更多作用：10→8 与 3→1 都改善 2，但贡献分别为 18 与 4。C_repair 只衡量这一次 full-6D 动作有多大：10 cm 平移和 5°旋转各算一个修复单位，再在同一根号内合并。根号中是平移与旋转，不是 Physics 与 Intent；动作是否改善 Physics/Intent 仍由 Clean-anchored rollout 判断。Clean 指路、Noisy 定零点、Repair 给出后果；M 个总分通过全部 attempt 的 advantage 传递排序信用。不再建立独立 Physics projection。",
           "latex": [
             "\\mathcal{M}(z_1,\\ldots,z_n)=\\log\\!\\left(\\frac{1}{n}\\sum_{j=1}^{n}e^{z_j}\\right)",
             "I_X=\\mathcal{M}(\\{r_{I,j}(X\\mid C)\\}_j),\\quad P_X=\\mathcal{M}(\\{r_{P,j}(X\\mid C)\\}_j)",
@@ -319,7 +319,7 @@
       "details": [
         {
           "heading": "Critic 的职责：预测状态难度，不预测指定动作",
-          "text": "Critic 保持 V(s)：它预测在当前 sealed state 下，从冻结 pi_old 采样一次 Repair 所能得到的期望 G_total。同一 Segment 的 M 个 Repair 共享一个 baseline；每个动作自己的 rollout G_total 决定它高于还是低于这条参考线。6D Repair action 不进入 Critic，因此不会把当前 PPO 悄悄改成 Q(s,a)。"
+          "text": "Critic 保持 V(s)：Critic 不判断哪一个动作更好；它预测在当前 sealed state 下，从冻结 pi_old 采样一次 Repair 所能得到的期望 U(G_total)。同一 Segment 的 M 个 Repair 共享一个 baseline；每个动作自己的 utility 决定它高于还是低于参考线。raw G_total 仍用于物理审计；6D Repair action 不进入 Critic，因此不会变成 Q(s,a)。"
         },
         {
           "heading": "阶段轮次：每个 K 先校准 Critic，再逐步释放 Actor",
@@ -344,16 +344,16 @@
           "text": "Critic 保留 289D privileged observation 与同源 Noisy q29[t+1:t+2] 58D，再增加当前实际 Contact 2D、左右脚载荷比例 2D、当前 ZMP 是否适用及 margin 2D、最多 32 步计划支撑 64D 和显式 valid mask 32D，共 449D。当前量都在 Repair action 前读取；计划支撑来自 sealed Clean-GMT continuation，只供训练期 Critic 判断状态难度。6D Repair action、Repair 后 Contact/ZMP/survival、G_total 与 evaluator 结果禁止进入。"
         },
         {
-          "heading": "Critic target：同一状态的 exact-M 平均结果",
-          "text": "同一 Segment 的 exact M 个 Repair 都来自同一个 frozen pi_old 和同一个 sealed state。Critic 用这 M 个 G_total 的平均值作为该状态的监督目标；Actor 仍保留每个 attempt 自己的 G_total 和 advantage。这样 Critic 学的是状态期望，不被要求同时拟合同一状态下互相不同的动作结果。"
+          "heading": "Critic target：先逐 attempt 变换，再取 exact-M 平均",
+          "text": "同一 Segment 的 exact M 个 Repair 都来自同一个 frozen pi_old 和同一个 sealed state。先分别计算 U(G_m)，Critic 再以 mean_m U(G_m) 为目标；Actor 使用每个 attempt 的 U(G_m)-V_old(s)。禁止先平均 raw G 再取 symlog，因为非线性下两者不是同一对象。"
         },
         {
           "heading": "Critic-only 与 Actor-ramp：参考线稳定后再释放 Actor",
           "text": "HSL 只初始化 proposal Actor，Stage 3 的 449D Critic 从头初始化。Critic-only 保持 Actor 与固定 std 不变；Actor-ramp 再逐步增加 Actor loss weight。Actor 改变后，Critic 继续更新，因为 frozen pi_old 所代表的 Repair 分布也会随 Transaction 改变。"
         },
         {
-          "heading": "自适应数值尺度：只缩放 Critic 误差，不改变预测对象",
-          "text": "每个完整 Transaction 用两个 Segment mean target 预览 EMA 均值与二阶矩，得到至少为 1 的 target std；Critic raw loss 除以 std 的平方后再求梯度。G_total、V(s)、value target、value clipping 与 Actor advantage 全部保持原单位。这不是对 Gain 取对数，也不是让 Critic 看 6D Action。候选统计只有在 exact-one update 与 receipt 成功后才提交。"
+          "heading": "固定 utility 与自适应 loss scale 分工",
+          "text": "固定 symlog 先把 raw G_total 映射为 Actor/Critic 共同预测的 robust utility；它无可学习参数且 G0=1。随后已有 EMA target std 只调节 Critic loss 梯度，且至少为 1。前者改变学习对象，后者不改变 utility 输出。两者都不让 Critic 看 6D Action；EMA 候选统计只在 exact-one commit 后提交。"
         },
         {
           "heading": "独立梯度裁剪：Critic 误差不能压缩 Actor",
@@ -361,7 +361,7 @@
         },
         {
           "heading": "Recalibrate 与 checkpoint：新数值状态必须冷启动",
-          "text": "K 增长时仍保留同一 Critic，降低 DR 后重新进入 critic-only。TRAIN-v018 使用 checkpoint-v13，并精确保存 449D normalizer、EMA mean、second moment 与 committed update count；checkpoint-v12 不能 resume。HSL-v2 仍可只初始化 158D Actor。EVAL-v004 临时恢复 checkpoint-v13 的 158D Actor、449D Critic 与 449D privileged-observation normalizer，对固定 K16 held-out Segment 执行 exact M4 Repair；每个 Segment 报告共享 raw V(s)、四次 G_total 的算术均值 target 与 raw error。value-loss normalizer 只保留 checkpoint 身份，不缩放 Evaluation 输出；成功或异常时均恢复所有模型与 normalizer 状态，并且不写 optimizer、sampler、curriculum 或训练 receipt。"
+          "text": "K 增长时仍保留同一 Critic，降低 DR 后重新进入 critic-only。TRAIN-v019 使用 checkpoint-v14，并保存 utility identity、G0=1、449D normalizer、EMA moments 与 committed count；checkpoint-v13 不能 resume。HSL-v2 仍只初始化 158D Actor。EVAL-v004 报告 raw M4 mean，同时以 mean_m U(G_m) 校准共享 V(s)，全程零训练写入。"
         }
       ],
       "highlightSteps": ["resolve-km", "grouped-update", "commit-state"],
@@ -447,7 +447,7 @@
         "id": "build-objectives",
         "phase": "update",
         "label": "形成 scalar Recovery-Aware Gain",
-        "detail": "Gain 为每个 attempt 形成自己的 G_total；Critic target 是同一 Segment exact-M 个 G_total 的平均值"
+        "detail": "Gain 保留每个 attempt 的 raw G_total；固定 symlog utility 在 M4 聚合前逐 attempt 计算"
       },
       {
         "id": "seal-policy-rows",
@@ -459,7 +459,7 @@
         "id": "grouped-update",
         "phase": "update",
         "label": "完整封存后执行一次 grouped update",
-        "detail": "每个 attempt 用自己的 G_total 减共享 V(s)；Actor/Critic 分别裁剪梯度后由同一 Adam exactly one step"
+        "detail": "每个 attempt 用 U(G_total) 减共享 V(s)；Critic 拟合 mean U(G)，再分别裁剪并 exact-one step"
       },
       {
         "id": "commit-state",

@@ -25,20 +25,20 @@ def run_design_contract_sentinel() -> None:
     registry = _read("frontres_core/contracts/README.md")
     design = _read(
         "frontres_core/contracts/active/method/"
-        "FRS-METHOD-v019-support-conditioned-state-value-segment-replay.md"
+        "FRS-METHOD-v020-symmetric-log-utility-segment-replay.md"
     )
     compatibility_entry = _read("frontres_core/contracts/design_contract.md")
     training = _read(
         "frontres_core/contracts/active/training/"
-        "FRS-TRAIN-v018-support-conditioned-m4-curriculum.md"
+        "FRS-TRAIN-v019-symmetric-log-utility-cold-start.md"
     )
     optimization = _read(
         "frontres_core/contracts/active/optimization/"
-        "FRS-PPO-v007-output-preserving-adaptive-value-scale.md"
+        "FRS-PPO-v008-symmetric-log-actor-critic-utility.md"
     )
     reward = _read(
         "frontres_core/contracts/active/reward/"
-        "FRS-GAIN-v007-clean-anchored-recovery-aware-ranking.md"
+        "FRS-GAIN-v008-recovery-aware-raw-evidence-utility-boundary.md"
     )
     evaluation = _read(
         "frontres_core/contracts/active/evaluation/"
@@ -53,26 +53,26 @@ def run_design_contract_sentinel() -> None:
         "FRS-TRAIN-v017-adaptive-critic-value-scale-curriculum.md"
     )
 
-    _assert_contains(registry, "FRS-METHOD-v019-support-conditioned-state-value-segment-replay.md", "registry")
-    _assert_contains(registry, "FRS-TRAIN-v018-support-conditioned-m4-curriculum.md", "registry")
-    _assert_contains(registry, "FRS-PPO-v007-output-preserving-adaptive-value-scale.md", "registry")
-    _assert_contains(registry, "FRS-GAIN-v007-clean-anchored-recovery-aware-ranking.md", "registry")
+    _assert_contains(registry, "FRS-METHOD-v020-symmetric-log-utility-segment-replay.md", "registry")
+    _assert_contains(registry, "FRS-TRAIN-v019-symmetric-log-utility-cold-start.md", "registry")
+    _assert_contains(registry, "FRS-PPO-v008-symmetric-log-actor-critic-utility.md", "registry")
+    _assert_contains(registry, "FRS-GAIN-v008-recovery-aware-raw-evidence-utility-boundary.md", "registry")
     _assert_contains(registry, "FRS-EVAL-v004-clean-anchored-local-and-composition-evaluation.md", "registry")
     _assert_contains(registry, "Do not scan `history/`", "registry")
-    _assert_contains(design, "contract_id: FRS-METHOD-v019", "design")
+    _assert_contains(design, "contract_id: FRS-METHOD-v020", "design")
     _assert_contains(design, "status: active", "design")
     _assert_contains(design, "one full-6D current-frame repair", "design")
-    _assert_contains(design, "FRS-GAIN-v007", "design")
-    _assert_contains(design, "FRS-PPO-v007", "design")
+    _assert_contains(design, "FRS-GAIN-v008", "design")
+    _assert_contains(design, "FRS-PPO-v008", "design")
     _assert_contains(compatibility_entry, "contracts/README.md", "compatibility entry")
-    _assert_contains(training, "contract_id: FRS-TRAIN-v018", "training")
-    _assert_contains(training, "checkpoint_schema = frontres-v018-checkpoint-v13", "training")
+    _assert_contains(training, "contract_id: FRS-TRAIN-v019", "training")
+    _assert_contains(training, "checkpoint_schema = frontres-v019-checkpoint-v14", "training")
     _assert_contains(training, "critic_input_dim = 449", "training")
     _assert_contains(training, "critic_value_normalization_id = ema-target-std-nonamplifying-v1", "training")
-    _assert_contains(optimization, "contract_id: FRS-PPO-v007", "optimization")
+    _assert_contains(optimization, "contract_id: FRS-PPO-v008", "optimization")
     _assert_contains(optimization, "L_value_scaled = L_value_raw / sigma^2", "optimization")
-    _assert_contains(optimization, "`G_total` is not transformed", "optimization")
-    _assert_contains(reward, "contract_id: FRS-GAIN-v007", "reward")
+    _assert_contains(optimization, "U(G) = sign(G) * log1p(abs(G))", "optimization")
+    _assert_contains(reward, "contract_id: FRS-GAIN-v008", "reward")
     _assert_contains(reward, "G_total", "reward")
     _assert_contains(evaluation, "contract_id: FRS-EVAL-v004", "evaluation")
     _assert_contains(historical_optimization, "contract_id: FRS-PPO-v006", "historical optimization")
@@ -97,7 +97,7 @@ def run_design_contract_sentinel() -> None:
         if phrase in active_contracts:
             raise AssertionError(f"active contract contains historical method text: {phrase}")
 
-    print("FrontRES active v019/v018/v007/v007/v004 design contract sentinel: PASS")
+    print("FrontRES active v020/v019/v008/v008/v004 design contract sentinel: PASS")
 
 
 if __name__ == "__main__":

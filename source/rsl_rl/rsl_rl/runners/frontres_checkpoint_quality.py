@@ -1,4 +1,4 @@
-"""Read-only identity and inspection for strict v015 quality checkpoints."""
+"""Read-only identity and inspection for active and legacy quality checkpoints."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from rsl_rl.frontres.frontres_segment_warmup import (
 )
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-_V015_CHECKPOINT_FORMAT = "frontres-v018-checkpoint-v13"
+FRONTRES_ACTIVE_CHECKPOINT_FORMAT = "frontres-v019-checkpoint-v14"
 _V015_LEGACY_POLICY_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v10"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
 _V015_HSL_CHECKPOINT_IDENTITY_KEY = "frontres_v015_hsl_checkpoint_identity"
@@ -156,11 +156,11 @@ def _v015_committed_transaction_receipt(
     expected_identity = dict(
         expected_contract_identity
         or {
-            "method_contract_id": "FRS-METHOD-v019",
-            "gain_contract_id": "FRS-GAIN-v007",
-            "optimization_contract_id": "FRS-PPO-v007",
-            "training_contract_id": "FRS-TRAIN-v018",
-            "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
+            "method_contract_id": "FRS-METHOD-v020",
+            "gain_contract_id": "FRS-GAIN-v008",
+            "optimization_contract_id": "FRS-PPO-v008",
+            "training_contract_id": "FRS-TRAIN-v019",
+            "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
         }
@@ -349,6 +349,8 @@ class FrontRESActiveQualityCheckpointIdentity:
     critic_value_kind: str | None = None
     critic_action_conditioned: bool | None = None
     critic_target_id: str | None = None
+    return_utility_id: str | None = None
+    return_utility_scale: float | None = None
     critic_support_context_id: str | None = None
     critic_value_normalization_id: str | None = None
     critic_observation_normalizer_fingerprint: str | None = None
@@ -508,22 +510,27 @@ def _inspect_frontres_v015_policy_quality_payload(
     if not isinstance(identity, Mapping):
         raise RuntimeError("quality policy requires the strict Stage-3 v015 checkpoint identity")
     checkpoint_format = identity.get("format")
-    if checkpoint_format == _V015_CHECKPOINT_FORMAT:
+    if checkpoint_format == FRONTRES_ACTIVE_CHECKPOINT_FORMAT:
         contract_identity = {
-            "method_contract_id": "FRS-METHOD-v019",
-            "gain_contract_id": "FRS-GAIN-v007",
-            "optimization_contract_id": "FRS-PPO-v007",
-            "training_contract_id": "FRS-TRAIN-v018",
-            "scalar_target_id": "clean-anchored-recovery-aware-gain-v1",
+            "method_contract_id": "FRS-METHOD-v020",
+            "gain_contract_id": "FRS-GAIN-v008",
+            "optimization_contract_id": "FRS-PPO-v008",
+            "training_contract_id": "FRS-TRAIN-v019",
+            "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
         }
     elif checkpoint_format == _V015_LEGACY_POLICY_CHECKPOINT_FORMAT:
         # Historical v10 is accepted only by this read-only inspection owner.
-        if "critic" in identity or "gradient_clip" in identity or "critic_value_normalizer" in identity:
-            raise RuntimeError("quality policy v10 cannot claim checkpoint-v13 Critic identity")
+        if (
+            "critic" in identity
+            or "gradient_clip" in identity
+            or "critic_value_normalizer" in identity
+            or "return_utility" in identity
+        ):
+            raise RuntimeError("quality policy v10 cannot claim checkpoint-v14 Critic identity")
         if "frontres_critic_value_normalizer_state_dict" in checkpoint:
-            raise RuntimeError("quality policy v10 cannot carry checkpoint-v13 Critic normalizer state")
+            raise RuntimeError("quality policy v10 cannot carry checkpoint-v14 Critic normalizer state")
         contract_identity = {
             "method_contract_id": "FRS-METHOD-v017",
             "gain_contract_id": "FRS-GAIN-v007",
@@ -551,17 +558,25 @@ def _inspect_frontres_v015_policy_quality_payload(
     critic_value_kind: str | None = None
     critic_action_conditioned: bool | None = None
     critic_target_id: str | None = None
+    return_utility_id: str | None = None
+    return_utility_scale: float | None = None
     critic_support_context_id: str | None = None
     critic_value_normalization_id: str | None = None
     critic_observation_normalizer_fingerprint: str | None = None
     critic_value_normalizer_fingerprint: str | None = None
-    if checkpoint_format == _V015_CHECKPOINT_FORMAT:
+    if checkpoint_format == FRONTRES_ACTIVE_CHECKPOINT_FORMAT:
         if identity.get("critic") != {
             "value_kind": "state_value",
             "input_dim": 449,
             "action_conditioned": False,
-            "target_id": "segment-exact-m-mean-v1",
+            "target_id": "segment-exact-m-mean-symlog-v1",
+            "return_utility_id": "symmetric-log-gain-g0-1-v1",
+            "return_utility_scale": 1.0,
             "support_context_id": "action-pre-support-plan-kmax32-v1",
+        } or identity.get("return_utility") != {
+            "identity": "symmetric-log-gain-g0-1-v1",
+            "scale": 1.0,
+            "placement": "per-attempt-before-exact-m-mean",
         } or identity.get("gradient_clip") != {
             "identity": "separate-actor-critic-v1",
             "max_norm": 0.5,
@@ -575,17 +590,19 @@ def _inspect_frontres_v015_policy_quality_payload(
             value_normalizer_payload = checkpoint.get("frontres_critic_value_normalizer_state_dict")
             value_normalizer_state = FrontRESValueNormalizerState.from_state_dict(value_normalizer_payload)
         except (TypeError, ValueError, FloatingPointError) as exc:
-            raise RuntimeError("quality policy has an invalid checkpoint-v13 Critic normalizer state") from exc
+            raise RuntimeError("quality policy has an invalid checkpoint-v14 Critic normalizer state") from exc
         critic_observation_normalizer = checkpoint.get("privileged_obs_norm_state_dict")
         _validate_v015_normalizer_state(
             critic_observation_normalizer,
             dim=449,
-            label="quality policy checkpoint-v13 Critic observation normalizer",
+            label="quality policy checkpoint-v14 Critic observation normalizer",
         )
         critic_input_dim = 449
         critic_value_kind = "state_value"
         critic_action_conditioned = False
-        critic_target_id = "segment-exact-m-mean-v1"
+        critic_target_id = "segment-exact-m-mean-symlog-v1"
+        return_utility_id = "symmetric-log-gain-g0-1-v1"
+        return_utility_scale = 1.0
         critic_support_context_id = "action-pre-support-plan-kmax32-v1"
         critic_value_normalization_id = FRONTRES_VALUE_NORMALIZATION_ID
         critic_observation_normalizer_fingerprint = _v015_state_dict_fingerprint(
@@ -614,7 +631,7 @@ def _inspect_frontres_v015_policy_quality_payload(
     schedule = curriculum.get("schedule")
     require_frontres_v013_campaign_schedule(schedule if isinstance(schedule, (tuple, list)) else ())
     iteration = int(curriculum.get("absolute_iteration", -1))
-    if checkpoint_format == _V015_CHECKPOINT_FORMAT and value_normalizer_state.update_count != iteration:
+    if checkpoint_format == FRONTRES_ACTIVE_CHECKPOINT_FORMAT and value_normalizer_state.update_count != iteration:
         raise RuntimeError("quality policy Critic normalizer count differs from checkpoint iteration")
     expected = resolve_frontres_k_stage_identity(
         schedule=schedule if isinstance(schedule, (tuple, list)) else (),
@@ -696,6 +713,8 @@ def _inspect_frontres_v015_policy_quality_payload(
         critic_value_kind=critic_value_kind,
         critic_action_conditioned=critic_action_conditioned,
         critic_target_id=critic_target_id,
+        return_utility_id=return_utility_id,
+        return_utility_scale=return_utility_scale,
         critic_support_context_id=critic_support_context_id,
         critic_value_normalization_id=critic_value_normalization_id,
         critic_observation_normalizer_fingerprint=critic_observation_normalizer_fingerprint,
@@ -725,7 +744,6 @@ def inspect_frontres_quality_checkpoint(
 # Public identity surface consumed by the mutable checkpoint gateway. Private
 # aliases remain local implementation details for compatibility inside this owner.
 EMPIRICAL_NORMALIZER_STATE_KEYS = _EMPIRICAL_NORMALIZER_STATE_KEYS
-FRONTRES_ACTIVE_CHECKPOINT_FORMAT = _V015_CHECKPOINT_FORMAT
 FRONTRES_LEGACY_POLICY_CHECKPOINT_FORMAT = _V015_LEGACY_POLICY_CHECKPOINT_FORMAT
 FRONTRES_ACTIVE_CHECKPOINT_IDENTITY_KEY = _V015_CHECKPOINT_IDENTITY_KEY
 FRONTRES_ACTIVE_GROUPED_CANDIDATE_LAYOUT = _V015_GROUPED_CANDIDATE_LAYOUT

@@ -121,7 +121,7 @@ def test_policy_quality_route_installs_checkpoint_actor_and_critic_only() -> Non
     original_validate = frontres_checkpointing._validate_v015_checkpoint_resume
     frontres_checkpointing.inspect_frontres_quality_checkpoint = lambda *_args, **_kwargs: SimpleNamespace(
         file_sha256="c" * 64,
-        format="frontres-v018-checkpoint-v13",
+        format="frontres-v019-checkpoint-v14",
     )
     frontres_checkpointing.load_frontres_checkpoint_mapping = lambda *_args, **_kwargs: checkpoint
     frontres_checkpointing._validate_v015_checkpoint_resume = lambda *_args, **_kwargs: {}
@@ -200,7 +200,7 @@ def test_policy_quality_collection_lifecycle_preserves_receipt_and_cleans_except
     formal.close_frontres_formal_training_request = lambda _runner: None
     try:
         try:
-            with formal.frontres_v017_readonly_collection_scope(runner):
+            with formal.frontres_readonly_collection_scope(runner):
                 aggregate = runtime_types.frontres_stage3_transaction_aggregate(runner)
                 assert aggregate.execution_phase == "evaluating"
                 assert aggregate.persistence_phase == "committed"
@@ -248,7 +248,7 @@ def test_policy_quality_collection_lifecycle_preserves_receipt_and_cleans_except
 def test_active_request_keeps_hsl_and_stage3_training_identities_separate(tmp_path: Path) -> None:
     """HSL-v2 remains a v014 artifact while the evaluated policy is v018."""
 
-    # B1: 构造同 layout 的 HSL-v2 与 checkpoint-v13 identity, 产出双 artifact fixture.
+    # B1: 构造同 layout 的 HSL-v2 与 checkpoint-v14 identity, 产出双 artifact fixture.
     hsl_path = tmp_path / "hsl.pt"
     policy_path = tmp_path / "policy.pt"
     result_path = tmp_path / "quality.json"
@@ -284,12 +284,12 @@ def test_active_request_keeps_hsl_and_stage3_training_identities_separate(tmp_pa
         if route == "policy":
             assert Path(_path).resolve() == policy_path.resolve()
             return SimpleNamespace(
-                format="frontres-v018-checkpoint-v13",
+                format="frontres-v019-checkpoint-v14",
                 file_sha256="p" * 64,
-                method_contract_id="FRS-METHOD-v019",
-                training_contract_id="FRS-TRAIN-v018",
-                gain_contract_id="FRS-GAIN-v007",
-                ppo_contract_id="FRS-PPO-v007",
+                method_contract_id="FRS-METHOD-v020",
+                training_contract_id="FRS-TRAIN-v019",
+                gain_contract_id="FRS-GAIN-v008",
+                ppo_contract_id="FRS-PPO-v008",
                 future_intent_layout=layout,
                 action_kind="delta_se3",
                 action_dim=6,
@@ -297,7 +297,7 @@ def test_active_request_keeps_hsl_and_stage3_training_identities_separate(tmp_pa
                 critic_input_dim=449,
                 critic_value_kind="state_value",
                 critic_action_conditioned=False,
-                critic_target_id="segment-exact-m-mean-v1",
+                critic_target_id="segment-exact-m-mean-symlog-v1",
                 critic_support_context_id="action-pre-support-plan-kmax32-v1",
                 critic_value_normalization_id="ema-target-std-nonamplifying-v1",
             )
@@ -315,7 +315,7 @@ def test_active_request_keeps_hsl_and_stage3_training_identities_separate(tmp_pa
         )
         assert request.hsl_checkpoint.training_contract_id == "FRS-TRAIN-v014"
         # B3: 将 HSL identity 篡改为 Stage-3 v018, 证明 request 在恢复状态前拒绝.
-        hsl_training_id = "FRS-TRAIN-v018"
+        hsl_training_id = "FRS-TRAIN-v019"
         try:
             quality.build_frontres_v018_policy_quality_eval_request(
                 manifest_path=str(MANIFEST),
@@ -347,12 +347,12 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
     manifest_bytes = MANIFEST.read_bytes()
     manifest = FrontRESV018PolicyQualityManifest.from_json(manifest_bytes.decode("utf-8"))
     checkpoint = SimpleNamespace(
-        format="frontres-v018-checkpoint-v13",
+        format="frontres-v019-checkpoint-v14",
         file_sha256="c" * 64,
         critic_input_dim=449,
         critic_value_kind="state_value",
         critic_action_conditioned=False,
-        critic_target_id="segment-exact-m-mean-v1",
+        critic_target_id="segment-exact-m-mean-symlog-v1",
         critic_support_context_id="action-pre-support-plan-kmax32-v1",
         critic_value_normalization_id="ema-target-std-nonamplifying-v1",
         critic_fingerprint="f" * 64,
@@ -437,8 +437,8 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
 
     original_route = frontres_checkpointing.frontres_quality_route_actor
     original_reset_support = sampler.ensure_frontres_policy_quality_reset_support
-    original_prepare = sampler.prepare_frontres_v017_policy_quality_batch
-    original_collect = formal.collect_frontres_v017_recovery_aware_evaluation
+    original_prepare = sampler.prepare_frontres_policy_quality_k16_m4_batch
+    original_collect = formal.collect_frontres_recovery_aware_evaluation
     original_close = formal.close_frontres_formal_training_request
     frontres_checkpointing.frontres_quality_route_actor = route_actor
 
@@ -448,8 +448,8 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
         reset_support_calls.append("installed")
 
     sampler.ensure_frontres_policy_quality_reset_support = ensure_reset_support
-    sampler.prepare_frontres_v017_policy_quality_batch = prepare
-    formal.collect_frontres_v017_recovery_aware_evaluation = collect
+    sampler.prepare_frontres_policy_quality_k16_m4_batch = prepare
+    formal.collect_frontres_recovery_aware_evaluation = collect
     formal.close_frontres_formal_training_request = lambda _runner: closes.append("closed")
     try:
         payload = quality.run_frontres_v018_policy_quality_heldout_eval(runner, request=request)
@@ -463,8 +463,8 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
     finally:
         frontres_checkpointing.frontres_quality_route_actor = original_route
         sampler.ensure_frontres_policy_quality_reset_support = original_reset_support
-        sampler.prepare_frontres_v017_policy_quality_batch = original_prepare
-        formal.collect_frontres_v017_recovery_aware_evaluation = original_collect
+        sampler.prepare_frontres_policy_quality_k16_m4_batch = original_prepare
+        formal.collect_frontres_recovery_aware_evaluation = original_collect
         formal.close_frontres_formal_training_request = original_close
 
     assert len(reset_support_calls) == 2
@@ -474,7 +474,7 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
     assert aggregate.persistence_phase == "idle"
     assert aggregate.collection_sample is None and aggregate.collection_batch is None
     assert payload["schema_version"] == "frontres-v018-policy-quality-report-v1"
-    assert payload["checkpoint_format"] == "frontres-v018-checkpoint-v13"
+    assert payload["checkpoint_format"] == "frontres-v019-checkpoint-v14"
     assert (payload["horizon_k"], payload["attempts_per_segment"]) == (16, 4)
     assert payload["critic_identity"]["input_dim"] == 449
     assert all(row["policy_row_count"] == 8 and row["role_row_count"] == 16 for row in payload["transactions"])
@@ -485,10 +485,10 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
 
 def test_training_state_guard_names_the_mutated_owner() -> None:
     runner = SimpleNamespace(current_learning_iteration=3500)
-    expected = quality._v015_quality_training_state_field_hashes(runner)
+    expected = quality._policy_quality_training_state_field_hashes(runner)
     runner.current_learning_iteration = 3501
     try:
-        quality._assert_v015_quality_training_state_unchanged(
+        quality._assert_policy_quality_training_state_unchanged(
             runner,
             expected,
             label="deliberate mutation",

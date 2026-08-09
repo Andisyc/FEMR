@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic TEST-15 contracts for FRS-PPO-v007."""
+"""Deterministic TEST-15 contracts for FRS-PPO-v008."""
 
 from __future__ import annotations
 
@@ -84,6 +84,7 @@ def _batch(
     privileged[:3, 0] = 1.0
     privileged[3:, 1] = 1.0
     returns = torch.tensor([1.0, 2.0, 3.0, -1.0, -2.0, -3.0])
+    utility = torch.sign(returns) * torch.log1p(torch.abs(returns))
     old_values = torch.tensor([0.5, 0.5, 0.5, -0.5, -0.5, -0.5])
     segment_ids = torch.tensor(
         [10, 10, 10, 10, 10, 10] if shared_local_segment_id else [10, 10, 10, 11, 11, 11]
@@ -95,7 +96,7 @@ def _batch(
         old_log_probs=torch.zeros(6)[order],
         old_values=old_values[order],
         returns=returns[order],
-        advantages=(returns - old_values)[order],
+        advantages=(utility - old_values)[order],
         valid_mask=torch.ones(6, dtype=torch.bool)[order],
         segment_ids=segment_ids[order],
         old_means=torch.zeros(6, 6)[order],
@@ -110,7 +111,7 @@ def _cfg(weight: float = 1.0) -> FrontRESSegmentPPOConfig:
         normalize_advantages=False,
         advantage_normalization="grouped_scale_only",
         actor_loss_weight=weight,
-        critic_target_id="segment-exact-m-mean-v1",
+        critic_target_id="segment-exact-m-mean-symlog-v1",
     )
 
 
@@ -126,9 +127,16 @@ def _expect_error(call, text: str) -> None:
 def test_segment_mean_target_and_permutation() -> None:
     policy = _Policy()
     result = compute_frontres_segment_ppo_loss(policy, _batch(), _cfg())
-    assert result.critic_value_targets == (2.0, 2.0, 2.0, -2.0, -2.0, -2.0)
-    assert result.critic_segment_target_means == (2.0, -2.0)
-    assert result.actor_advantages == (0.5, 1.5, 2.5, -0.5, -1.5, -2.5)
+    utility = torch.log1p(torch.tensor([1.0, 2.0, 3.0]))
+    target = float(utility.mean())
+    expected_targets = (target, target, target, -target, -target, -target)
+    torch.testing.assert_close(torch.tensor(result.critic_value_targets), torch.tensor(expected_targets))
+    torch.testing.assert_close(torch.tensor(result.critic_segment_target_means), torch.tensor((target, -target)))
+    expected_advantages = torch.tensor(
+        [utility[0] - 0.5, utility[1] - 0.5, utility[2] - 0.5,
+         -utility[0] + 0.5, -utility[1] + 0.5, -utility[2] + 0.5]
+    )
+    torch.testing.assert_close(torch.tensor(result.actor_advantages), expected_advantages)
 
     order = torch.tensor([4, 0, 5, 2, 3, 1])
     permuted = compute_frontres_segment_ppo_loss(policy, _batch(order), _cfg())
@@ -141,8 +149,13 @@ def test_segment_mean_target_and_permutation() -> None:
         _batch(shared_local_segment_id=True),
         _cfg(),
     )
-    assert shared_local_id.critic_value_targets == result.critic_value_targets
-    assert shared_local_id.critic_segment_target_means == result.critic_segment_target_means
+    torch.testing.assert_close(
+        torch.tensor(shared_local_id.critic_value_targets), torch.tensor(result.critic_value_targets)
+    )
+    torch.testing.assert_close(
+        torch.tensor(shared_local_id.critic_segment_target_means),
+        torch.tensor(result.critic_segment_target_means),
+    )
 
     aliased = _batch()
     privileged = aliased.privileged_observations.clone()
@@ -153,8 +166,15 @@ def test_segment_mean_target_and_permutation() -> None:
     )
     old_values = aliased.old_values.clone()
     old_values[2] += 0.25
+    adjusted_advantages = (
+        torch.sign(aliased.returns) * torch.log1p(torch.abs(aliased.returns)) - old_values
+    )
     _expect_error(
-        lambda: compute_frontres_segment_ppo_loss(policy, replace(aliased, old_values=old_values), _cfg()),
+        lambda: compute_frontres_segment_ppo_loss(
+            policy,
+            replace(aliased, old_values=old_values, advantages=adjusted_advantages),
+            _cfg(),
+        ),
         "shared old value",
     )
 

@@ -1,0 +1,73 @@
+{
+  "schema_version": "formal-runtime-audit/v1",
+  "audit_id": "FRA-FRS-TRAIN-v019-PHASE-B",
+  "identities": {
+    "design": "FRS-METHOD-v020/FRS-GAIN-v008/FRS-PPO-v008/FRS-TRAIN-v019",
+    "checkout": "69e85387298636d1628decc3181e7655adc428dc+v019-working-tree",
+    "entrypoint": "run_stage3.sh:train",
+    "effective_config": "fixed-symlog-g0-1-k8m4-splitlr-v1",
+    "checkpoint": "cold-start:HSL-v2:model_warmup.pt"
+  },
+  "module_admission": {
+    "status": "MODULE-CORRECT",
+    "manifest_path": "note/testing/manifests/frontres_train_v019_module_alignment.json",
+    "manifest_hash": "sha256:20de81cfed0a5e0f265c3b780958fd11ed870f6ccca7d5226147304224cf7aca",
+    "current": true
+  },
+  "offline_gaps": [],
+  "route_edges": [
+    {
+      "edge_id": "EDGE-V019-UTILITY",
+      "design_id": "FRS-DP-07/FRS-DP-09",
+      "producer": "FRS-GAIN-v008 raw G_total per attempt",
+      "carrier": "FrontRESSegmentPPOBatch returns plus fixed utility owner",
+      "consumer": "FRS-PPO-v008 Actor advantage and M4 Critic target",
+      "required_level": "R2",
+      "observed_level": "R2",
+      "evidence": {
+        "path_class": "official-entry",
+        "command": "frontres_segment_all_contract_suite.py",
+        "exit_code": 0,
+        "identity_receipt": "55/55 plus active v020/v019/v008/v008/v004 sentinel",
+        "effect_receipt": "hand-calculated symlog Actor and Critic targets",
+        "persistence_receipt": "checkpoint-v14 strict round-trip",
+        "current": true
+      }
+    },
+    {
+      "edge_id": "EDGE-V019-OFFICIAL-LIVE",
+      "design_id": "FRS-DP-02/FRS-DP-09",
+      "producer": "official simulator paired transaction",
+      "carrier": "formal transaction telemetry and committed receipt",
+      "consumer": "split Adam plus checkpoint-v14 persistence",
+      "required_level": "R3",
+      "observed_level": "R2",
+      "evidence": {
+        "path_class": "official-entry",
+        "command": "frontres_formal_runtime_audit_contract.py",
+        "exit_code": 0,
+        "identity_receipt": "offline formal route B01-B08",
+        "effect_receipt": "raw/utility finite and exact-one offline effect",
+        "persistence_receipt": "strict checkpoint-v14 readback offline",
+        "current": true
+      }
+    }
+  ],
+  "live_only_unknowns": [
+    {
+      "id": "LIVE-V019-1",
+      "status": "open",
+      "fact": "the official simulator transaction carries finite raw/utility values to one critic-only update and checkpoint-v14 readback",
+      "why_offline_impossible": "requires IsaacLab simulator lifecycle and server GPU",
+      "falsifier": "identity drift, non-finite raw/utility, Actor/std mutation, zero Critic delta, step count not one, or failed checkpoint-v14 readback",
+      "cost": "16 envs, one committed transaction",
+      "stop_condition": "stop after first committed receipt or first invariant failure",
+      "bounded_command": "CUDA_VISIBLE_DEVICES=<selected> FRONTRES_G5_S4_BOUNDED=1 bash run_stage3.sh <HSL-v2> <AMASS> 16 1 1 train",
+      "output_path": "log/FRS_TRAIN_V019_SYMLOG_UTILITY_SENTINEL.log",
+      "zero_write_boundary": "only the declared sentinel log, one new bounded output directory and checkpoint-v14 artifact"
+    }
+  ],
+  "live_attempts": [],
+  "claims": [{"kind": "formal-integration", "evidence_level": "R2"}],
+  "admission": "PHASE_B_READY"
+}

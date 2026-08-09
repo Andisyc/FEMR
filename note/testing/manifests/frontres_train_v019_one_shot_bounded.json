@@ -1,0 +1,77 @@
+{
+  "schema_version": "one-shot-execution/v1",
+  "unit_id": "OSE-FRS-TRAIN-v019-BOUNDED",
+  "closure_mode": "engineering",
+  "terminal_outcome": "one bounded official transaction followed by a fresh cold-start run only if all invariants pass",
+  "scope": {
+    "requested": ["execute v019 through restarted training"],
+    "preserved": ["raw Gain", "Actor/Critic/GMT 158/449/770", "full-6D action", "M4 K/DR beta split LR"],
+    "forbidden": ["long training before sentinel pass", "resume from sentinel or checkpoint-v13", "MOSAIC or simulator mutation"]
+  },
+  "identities": {
+    "design": "FRS-METHOD-v020/FRS-GAIN-v008/FRS-PPO-v008/FRS-TRAIN-v019",
+    "checkout": "69e85387298636d1628decc3181e7655adc428dc+v019-working-tree",
+    "entrypoint": "run_stage3.sh:train",
+    "effective_config": "fixed-symlog-g0-1-k8m4-splitlr-v1",
+    "checkpoint": "cold-start:HSL-v2:model_warmup.pt"
+  },
+  "authority": {
+    "local_reversible": {"status": "approved", "scope": "v019 implementation and verification"},
+    "git_actions": {"status": "approved", "scope": "push coherent v019 scope", "receipt": "user-request-2026-08-10-one-shot"},
+    "external_operations": {"status": "approved", "scope": "pull and execute on the declared FEMR server", "receipt": "user-request-2026-08-10-one-shot"},
+    "bounded_live": {"status": "approved", "scope": "one bounded official transaction", "receipt": "user-request-2026-08-10-one-shot"},
+    "long_run": {"status": "approved", "scope": "one fresh HSL-v2 K8/M4 cold-start after sentinel pass", "receipt": "user-request-2026-08-10-one-shot"},
+    "destructive": {"status": "not-requested", "scope": "none"}
+  },
+  "causal_closure": {
+    "required": true,
+    "status": "LOCALIZED",
+    "owner_or_invariant": "frontres_symmetric_log_utility before M4 reduction",
+    "evidence_ref": "note/testing/manifests/frontres_train_v019_module_alignment.json",
+    "falsifier": "active Actor or Critic consumes raw Gain, or transform occurs after M4 mean"
+  },
+  "dependencies": [
+    {
+      "kind": "module-alignment-test",
+      "status": "MODULE-CORRECT",
+      "schema_version": "module-alignment-test/v1",
+      "manifest_path": "frontres_train_v019_module_alignment.json",
+      "manifest_hash": "sha256:20de81cfed0a5e0f265c3b780958fd11ed870f6ccca7d5226147304224cf7aca",
+      "current": true,
+      "identities": {"design": "FRS-METHOD-v020/FRS-GAIN-v008/FRS-PPO-v008/FRS-TRAIN-v019", "checkout": "69e85387298636d1628decc3181e7655adc428dc+v019-working-tree", "entrypoint": "run_stage3.sh:train", "effective_config": "fixed-symlog-g0-1-k8m4-splitlr-v1", "checkpoint": "cold-start:HSL-v2:model_warmup.pt"},
+      "validation": {"command": "validate_module_test_manifest.py frontres_train_v019_module_alignment.json", "exit_code": 0, "identity": "ADMITTED-OFFLINE", "current": true}
+    },
+    {
+      "kind": "formal-runtime-audit",
+      "status": "PHASE_B_READY",
+      "schema_version": "formal-runtime-audit/v1",
+      "manifest_path": "frontres_train_v019_formal_phase_b.json",
+      "manifest_hash": "sha256:28afb112e170e747ed942c1d44c35aacb821d3739c4a050dcd695388940fc6af",
+      "current": true,
+      "identities": {"design": "FRS-METHOD-v020/FRS-GAIN-v008/FRS-PPO-v008/FRS-TRAIN-v019", "checkout": "69e85387298636d1628decc3181e7655adc428dc+v019-working-tree", "entrypoint": "run_stage3.sh:train", "effective_config": "fixed-symlog-g0-1-k8m4-splitlr-v1", "checkpoint": "cold-start:HSL-v2:model_warmup.pt"},
+      "validation": {"command": "validate_formal_audit_manifest.py frontres_train_v019_formal_phase_b.json --target phase-b", "exit_code": 0, "identity": "PHASE_B_READY", "current": true}
+    }
+  ],
+  "offline_gaps": [],
+  "next_action": {
+    "class": "bounded-live",
+    "description": "run one official critic-only v019 transaction and inspect raw/utility, deltas, exact-one and checkpoint-v14",
+    "reversible": true,
+    "costly": true,
+    "externally_visible": true,
+    "destroys_evidence": false,
+    "decision_boundary": {"kind": "none"},
+    "command": "CUDA_VISIBLE_DEVICES=<selected> FRONTRES_G5_S4_BOUNDED=1 bash run_stage3.sh <HSL-v2> <AMASS> 16 1 1 train",
+    "cost": "16 envs and one committed transaction",
+    "stop_condition": "stop after the first receipt or first invariant failure",
+    "output_path": "log/FRS_TRAIN_V019_SYMLOG_UTILITY_SENTINEL.log",
+    "write_boundary": "one new sentinel log, output directory and checkpoint-v14 only"
+  },
+  "live_only_unknowns": [
+    {"id": "LIVE-V019-1", "status": "open", "fact": "official simulator transaction preserves v019 utility and update identities", "why_offline_impossible": "requires server GPU and simulator", "falsifier": "any bounded stop condition fails"}
+  ],
+  "attempts": [
+    {"attempt_id": "ATTEMPT-V019-1", "ordinal": 1, "action_class": "bounded-live", "status": "planned", "unknown_id": "LIVE-V019-1", "command": "CUDA_VISIBLE_DEVICES=<selected> FRONTRES_G5_S4_BOUNDED=1 bash run_stage3.sh <HSL-v2> <AMASS> 16 1 1 train"}
+  ],
+  "admission": "BOUNDED_LIVE_READY"
+}

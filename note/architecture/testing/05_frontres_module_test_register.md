@@ -1,12 +1,13 @@
 # FrontRES Module Test Atlas
 
-Status: TRAIN-v017 affected cards confirmed and executed; Phase A passed.
+Status: TRAIN-v019 symlog-utility cards confirmed and executed offline; Phase A passed.
 
-Current result: `18 passed / 0 partial / 0 blocked`. TEST-02, TEST-15, TEST-16
-and TEST-18 contain the confirmed v018/v017/v007 composition, output-preserving
-Critic scale, checkpoint-v12 and diagnostics changes. TRAIN-v016 results remain
-historical characterization, not evidence for checkpoint-v12. The affected
-oracles were confirmed before implementation and remain unchanged.
+Current result: `18 passed / 0 partial / 0 blocked`; the repository-wide
+contract suite is `55 passed / 0 failed`. TEST-13--18 now cover the confirmed
+FRS-GAIN-v008 raw evidence boundary, per-attempt fixed symlog, M4 utility mean,
+shared Actor/Critic utility, checkpoint-v14, evaluation and diagnostics.
+TRAIN-v018/checkpoint-v13 results remain historical characterization, not
+runtime evidence for TRAIN-v019.
 
 Interactive page: `../05_frontres_module_test_atlas.html`
 
@@ -63,6 +64,8 @@ surface.
 | partial | none |
 | blocked | none |
 
-The current detailed claim, test, observed fact, and limitation ledger is
-`../../testing/frontres_v017_value_scale_module_test_execution_2026-08-08.md`.
-The v016 ledger remains historical evidence only.
+The current detailed oracle and execution evidence is linked by
+`../../frontres_core/checklists/FRS-TRAIN-v019-symmetric-log-utility-checklist.md`;
+the v017 value-scale ledger
+remains historical evidence only. Formal runtime and policy-quality claims are
+still separate gates.
