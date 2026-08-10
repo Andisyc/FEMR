@@ -74,6 +74,7 @@ from rsl_rl.runners.frontres_segment_live_sampler import close_frontres_local_sc
 from rsl_rl.runners.frontres_segment_runtime_types import (
     FrontRESFormalTransactionRequest,
     FrontRESFormalTransactionUpdateResult,
+    FrontRESSegmentLiveObservations,
     bind_frontres_collection_context,
     bind_frontres_checkpoint_transaction_plan as _bind_frontres_checkpoint_transaction_plan,
     clear_frontres_collection_context,
@@ -693,6 +694,82 @@ class FrontRESRecoveryAwareCollection:
     report: Any
     pair_layout: Any
     observation_trace: dict[str, Any]
+    policy_observations: FrontRESSegmentLiveObservations | None
+
+
+def _clone_frontres_policy_observations(
+    observations: FrontRESSegmentLiveObservations,
+    *,
+    expected_rows: int,
+    device: torch.device,
+) -> FrontRESSegmentLiveObservations:
+    """Detach one complete policy input without retaining simulator-owned storage."""
+
+    if not isinstance(observations, FrontRESSegmentLiveObservations):
+        raise TypeError("policy-quality repeat requires typed live observations")
+
+    def clone_field(name: str, *, optional: bool = False) -> torch.Tensor | None:
+        value = getattr(observations, name)
+        if optional and value is None:
+            return None
+        if (
+            not isinstance(value, torch.Tensor)
+            or value.ndim != 2
+            or int(value.shape[0]) != int(expected_rows)
+            or value.requires_grad
+            or not bool(torch.isfinite(value).all().item())
+        ):
+            raise RuntimeError(
+                f"policy-quality repeat requires detached finite {name} [{expected_rows},D]"
+            )
+        return value.detach().to(device=device).clone()
+
+    return FrontRESSegmentLiveObservations(
+        obs=clone_field("obs"),
+        privileged_obs=clone_field("privileged_obs"),
+        teacher_obs=clone_field("teacher_obs"),
+        ref_vel_estimator_obs=clone_field("ref_vel_estimator_obs", optional=True),
+    )
+
+
+def _resolve_frontres_repeat_policy_observations(
+    live: FrontRESSegmentLiveObservations,
+    *,
+    frozen: FrontRESSegmentLiveObservations | None,
+    route: str,
+    expected_rows: int,
+    device: torch.device,
+) -> tuple[FrontRESSegmentLiveObservations, float, float]:
+    """Use first-repeat policy inputs while retaining live-history drift as diagnostics."""
+
+    live_copy = _clone_frontres_policy_observations(
+        live,
+        expected_rows=expected_rows,
+        device=device,
+    )
+    if frozen is None:
+        return live_copy, 0.0, 0.0
+    if route != "policy_quality":
+        raise RuntimeError("frozen repeat policy inputs are restricted to the policy-quality route")
+    frozen_copy = _clone_frontres_policy_observations(
+        frozen,
+        expected_rows=expected_rows,
+        device=device,
+    )
+    for name in ("obs", "privileged_obs", "teacher_obs", "ref_vel_estimator_obs"):
+        live_value = getattr(live_copy, name)
+        frozen_value = getattr(frozen_copy, name)
+        if (live_value is None) != (frozen_value is None) or (
+            isinstance(live_value, torch.Tensor)
+            and isinstance(frozen_value, torch.Tensor)
+            and tuple(live_value.shape) != tuple(frozen_value.shape)
+        ):
+            raise RuntimeError(f"policy-quality repeat changed the {name} input shape")
+    actor_drift = float((live_copy.obs - frozen_copy.obs).abs().max().detach().cpu().item())
+    critic_drift = float(
+        (live_copy.privileged_obs - frozen_copy.privileged_obs).abs().max().detach().cpu().item()
+    )
+    return frozen_copy, actor_drift, critic_drift
 
 
 @contextmanager
@@ -718,9 +795,12 @@ def collect_frontres_recovery_aware_evaluation(
     route: str,
     label: str,
     beta: float,
+    policy_observations: FrontRESSegmentLiveObservations | None = None,
 ) -> FrontRESRecoveryAwareCollection:
     """Execute Clean once, Noisy once and exact-M Repairs without an optimizer update."""
 
+    if policy_observations is not None and route != "policy_quality":
+        raise RuntimeError("frozen repeat policy inputs are restricted to the policy-quality route")
     # B1: 安装 prepared transaction 并验证 two-role/exact-M identity, 产出 reset-ready layout.
     batch = getattr(prepared, "batch", None)
     sample = getattr(prepared, "sample", None)
@@ -799,9 +879,24 @@ def collect_frontres_recovery_aware_evaluation(
 
     # B3: 从同一 sealed scenario 收集 exact-M one-action-K Repairs, 产出唯一 GAIN-v007 report.
     reset_phase("repair_attempts")
+    live_policy_observations = _read_live_observations(runner)
+    if route == "policy_quality":
+        used_policy_observations, live_actor_drift, live_critic_drift = (
+            _resolve_frontres_repeat_policy_observations(
+                live_policy_observations,
+                frozen=policy_observations,
+                route=route,
+                expected_rows=2 * policy_row_count,
+                device=runner.device,
+            )
+        )
+    else:
+        used_policy_observations = live_policy_observations
+        live_actor_drift = 0.0
+        live_critic_drift = 0.0
     attempts = collect_frontres_v017_repair_attempts(
         runner,
-        _read_live_observations(runner),
+        used_policy_observations,
         pair_layout=pair_layout,
         transaction_id=plan.transaction_id,
         policy_snapshot_id=plan.policy_snapshot_id,
@@ -818,12 +913,30 @@ def collect_frontres_recovery_aware_evaluation(
         config=FrontRESRecoveryAwareGainConfig(beta=float(beta)),
     )
     report = build_frontres_v017_local_evaluation_report(evidence, gain)
+    observation_trace = dict(frontres_observation_trace(runner))
+    if route == "policy_quality":
+        observation_trace.update({
+            "repeat_policy_input_source": (
+                "first-repeat-frozen" if policy_observations is not None else "live-first-repeat"
+            ),
+            "repeat_live_actor_input_max_abs_diff": live_actor_drift,
+            "repeat_live_critic_input_max_abs_diff": live_critic_drift,
+        })
     return FrontRESRecoveryAwareCollection(
         evidence=evidence,
         gain=gain,
         report=report,
         pair_layout=pair_layout,
-        observation_trace=dict(frontres_observation_trace(runner)),
+        observation_trace=observation_trace,
+        policy_observations=(
+            _clone_frontres_policy_observations(
+                used_policy_observations,
+                expected_rows=2 * policy_row_count,
+                device=runner.device,
+            )
+            if route == "policy_quality"
+            else None
+        ),
     )
 
 

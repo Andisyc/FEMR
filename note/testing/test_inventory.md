@@ -212,7 +212,7 @@ is excluded from active aggregation.
 
 | Test | Tier | Current ownership |
 | --- | --- | --- |
-| `frontres_segment_all_contract_suite.py` | active S0-S3 aggregate | Secondary 55-target regression runner. Its passing result does not replace independently answered Module Test Cards. |
+| `frontres_segment_all_contract_suite.py` | active S0-S3 aggregate | Secondary 56-target regression runner. Its passing result does not replace independently answered Module Test Cards. |
 | `frontres_v016_state_value_observation_contract.py` | S1/S2 | Exact shared future tail, 289+58=347 Critic state, preserved 158D Actor/770D GMT and malformed-input rejection. |
 | `frontres_v016_state_value_ppo_contract.py` | S1 | Per-source exact-M mean Critic target, unchanged per-attempt Actor advantages, repeated local Segment-id isolation and separate clip(0.5). |
 | `frontres_v016_checkpoint_contract.py` | S3 | Atomic checkpoint-v11 round-trip and pre-mutation v10/malformed rejection; HSL-v2 remains Actor-only. |
@@ -224,6 +224,7 @@ is excluded from active aggregation.
 | `frontres_v018_policy_quality_compatibility_contract.py` | S1/S2 | Saved 449D Critic observation coordinates restore exactly; raw Segment value is compared with the exact-M mean target; invalid M, row alignment and shared-state value fail closed. |
 | `frontres_local_scenario_kernel_contract.py` | S1/S2 | Real held-out batch adapter resolves two fixed K16 Segments into exact M4 source/trial rows, 16 env roles and source-shared sealed scenario identities without RNG drift. |
 | `frontres_v018_policy_quality_eval_contract.py` | S2 | Fixed K16/M4 manifest -> four read-only two-Segment transactions -> existing v017 collector/Gain report -> atomic v018 JSON with two Segment calibration rows per transaction; a fresh runner installs the sole idle aggregate before the zero-write baseline, and protected-state mutation reports its exact owner field. |
+| `frontres_v019_critic_repeat_probe_contract.py` | S1/S2 | Fixed K8/M4 repeat diagnostics seal the first 928D Actor and 449D Critic inputs, reuse them through the public recovery-aware collector despite a `0.568127841` live-history drift, reject any used-input drift or training-route injection, and retain distinct M4 action groups with zero-write evaluation lifecycle. |
 | `frontres_policy_quality_q2_report_contract.py` | S1/S2 | Q2 exact 8-motion x 2-seed coverage, per-item zero noise floors and route deltas, inferred shared Repair weight, pre-cost Style+Physics decomposition, failure-owner classification, permutation invariance, identity/role/Gain fail-closed behavior, and separation of technical validity from negative scientific outcomes. |
 | `frontres_hsl_v007_s1_contract.py` | S1/S2/S3 | v007 proposal carrier and formal `(1,2)` `928/158/770` actor-only HSL; exact current anti-DR full-6D target preserves both `dz` signs without axis clamp; strict HSL-v2 direct-6D persistence and HSL-v1 pre-mutation rejection; exact normalized 158D reload plus CUDA/CPU numerical tolerance; critic/optimizer/Stage-3 HSL isolation. |
 | `frontres_hsl_v007_s2_connectivity_contract.py` | S2 | CPU-only fake local-scenario path: q29 -> normalizer -> Stage-1 actor -> current target, then v015 zero-writer -> actual storage -> batch -> zero HSL loss. |

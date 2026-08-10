@@ -31,10 +31,14 @@ applied to `V(s)` during evaluation.
 
 The optional TRAIN-v019 Critic learnability probe reuses this same evaluator
 with an explicit `repeat_count`. It fixes two K8/M4 Segment states and repeats
-only the M4 Actor sampling and Repair rollout. The default remains one pass, so
-ordinary held-out evaluation is unchanged. This diagnostic repeat dimension is
-not a new held-out benchmark, a condition-alignment requirement, or a training
-feedback path.
+only the M4 Actor sampling and Repair rollout. The first repeat seals the full
+normalized 928D Actor and 449D Critic inputs; later repeats reuse those tensors
+while still resetting and executing the same physical Segment. Fresh live
+observations may be retained as drift diagnostics but cannot condition the
+later action samples. The default remains one pass, so ordinary held-out
+evaluation is unchanged. This diagnostic repeat dimension is not a new
+held-out benchmark, a condition-alignment requirement, or a training feedback
+path.
 
 ## Concept Figure Mapping
 
@@ -109,13 +113,14 @@ The atomic local report must retain:
 
 When `repeat_count > 1`, the report additionally retains the repeat index,
 per-repeat M4 action fingerprint, fixed scenario/noisy-hash/`x_t` identity,
-one reference fingerprint plus maximum numeric drift for the normalized 449D
-Critic input, repeated `V(s)` statistics, and per-Segment target mean,
-population standard deviation, standard error, minimum and maximum. The Critic
-input drift limit is `1e-3`, derived from the reset owner's `1e-5` physical
-roundoff limit and the normalizer's `eps=1e-2`. This answers whether repeated
-realized M4 targets for the same Critic state are stable enough to learn; it
-does not claim policy quality.
+reference fingerprints plus exact used-input equality for the normalized 928D
+Actor and 449D Critic inputs, repeated `V(s)` statistics, and per-Segment target
+mean, population standard deviation, standard error, minimum and maximum. The
+live observation-history drift is reported separately and is not accepted as
+the policy condition. Any drift in the inputs actually consumed by Actor or
+Critic fails closed. This answers whether repeated realized M4 targets for one
+fixed policy state are stable enough to learn; it does not claim policy
+quality.
 
 Missing required evidence, identity drift, non-finite applicable values, or a
 silent zero/default fails the local item closed. Physics is reported through

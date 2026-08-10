@@ -44,6 +44,7 @@ from rsl_rl.runners.frontres_policy_quality_state import (
 )
 from rsl_rl.runners.frontres_checkpoint_quality import FRONTRES_HSL_ARTIFACT_TRAINING_CONTRACT_ID
 from rsl_rl.runners.frontres_evaluation_reporting import write_frontres_atomic_json
+from rsl_rl.runners.frontres_segment_runtime_types import FrontRESSegmentLiveObservations
 
 
 @dataclass(frozen=True)
@@ -84,7 +85,6 @@ _V015_QUALITY_ROUTES = ("zero", "hsl", "policy")
 _V015_QUALITY_REPORT_SCHEMA = "frontres-v015-heldout-quality-report-v2"
 _V015_GAIN_SOURCE = "FRS-GAIN-v006-loaded-support-zmp-applicability"
 _V018_QUALITY_REPORT_SCHEMA = "frontres-v018-policy-quality-report-v1"
-_V019_CRITIC_INPUT_MAX_ABS_DIFF = 1.0e-3
 _V015_DYNAMIC_STATE_FIELDS = (
     "root_state_w",
     "joint_pos",
@@ -1113,6 +1113,7 @@ def build_frontres_v019_critic_repeat_diagnostics(
         item_ids = transaction.get("item_ids")
         signatures = transaction.get("item_comparison_signatures")
         calibration = transaction.get("critic_calibration")
+        actor_input_rows = transaction.get("actor_input_rows")
         critic_input_rows = transaction.get("critic_input_rows")
         actions = report.get("policy_actions") if isinstance(report, dict) else None
         x_t_identities = transaction.get("x_t_identities")
@@ -1121,11 +1122,13 @@ def build_frontres_v019_critic_repeat_diagnostics(
             or not isinstance(item_ids, list)
             or not isinstance(signatures, list)
             or not isinstance(calibration, list)
+            or not isinstance(actor_input_rows, list)
             or not isinstance(critic_input_rows, list)
             or not isinstance(actions, (list, tuple))
             or not isinstance(x_t_identities, (list, tuple))
             or len(item_ids) != len(signatures)
             or len(item_ids) != len(calibration)
+            or len(item_ids) != len(actor_input_rows)
             or len(item_ids) != len(critic_input_rows)
         ):
             raise RuntimeError("EVAL-v004 critic repeat transaction identity is incomplete")
@@ -1142,6 +1145,7 @@ def build_frontres_v019_critic_repeat_diagnostics(
                 float(row.get("raw_target_mean", float("nan"))),
                 float(row.get("target_mean", float("nan"))),
             )
+            actor_input = actor_input_rows[item_offset]
             critic_input = critic_input_rows[item_offset]
             if (
                 source_index != item_offset
@@ -1149,6 +1153,9 @@ def build_frontres_v019_critic_repeat_diagnostics(
                 or len(action_rows) != attempt_count
                 or len(x_t_rows) != attempt_count
                 or len(set(x_t_rows)) != 1
+                or not isinstance(actor_input, (list, tuple))
+                or len(actor_input) != 928
+                or not all(math.isfinite(float(value)) for value in actor_input)
                 or not isinstance(critic_input, (list, tuple))
                 or len(critic_input) != 449
                 or not all(math.isfinite(float(value)) for value in critic_input)
@@ -1177,6 +1184,7 @@ def build_frontres_v019_critic_repeat_diagnostics(
                     "scenario_id": str(row.get("scenario_id", "")),
                     "noisy_segment_hash": str(row.get("noisy_segment_hash", "")),
                     "x_t_identity": x_t_rows[0],
+                    "actor_input": tuple(float(value) for value in actor_input),
                     "critic_input": tuple(float(value) for value in critic_input),
                     "critic_policy_value": values[0],
                     "raw_target_mean": values[1],
@@ -1204,21 +1212,22 @@ def build_frontres_v019_critic_repeat_diagnostics(
                 "EVAL-v004 critic repeat lost fixed Segment identity; "
                 f"differing_fields={differing_fields}"
             )
-        critic_input_reference = rows[0]["critic_input"]
-        critic_input_max_abs_diff = max(
-            abs(value - reference)
-            for row in rows
-            for value, reference in zip(row["critic_input"], critic_input_reference, strict=True)
-        )
-        # Reset permits 1e-5 physical roundoff; EmpiricalNormalization eps=1e-2
-        # bounds its worst-case amplification to 1e-3 in the normalized Critic input.
-        critic_input_tolerance = _V019_CRITIC_INPUT_MAX_ABS_DIFF
-        if critic_input_max_abs_diff > critic_input_tolerance:
-            raise RuntimeError(
-                "EVAL-v004 critic repeat detected material Critic input drift: "
-                f"item_id={item_id} max_abs_diff={critic_input_max_abs_diff:.9g} "
-                f"limit={critic_input_tolerance:.9g}"
+        input_summaries: dict[str, tuple[tuple[float, ...], float]] = {}
+        for label, key in (("Actor", "actor_input"), ("Critic", "critic_input")):
+            reference = rows[0][key]
+            max_abs_diff = max(
+                abs(value - reference_value)
+                for row in rows
+                for value, reference_value in zip(row[key], reference, strict=True)
             )
+            if max_abs_diff != 0.0:
+                raise RuntimeError(
+                    f"EVAL-v004 critic repeat detected used {label} input drift: "
+                    f"item_id={item_id} max_abs_diff={max_abs_diff:.9g}"
+                )
+            input_summaries[key] = (reference, max_abs_diff)
+        actor_input_reference, actor_input_max_abs_diff = input_summaries["actor_input"]
+        critic_input_reference, critic_input_max_abs_diff = input_summaries["critic_input"]
         policy_values = [row["critic_policy_value"] for row in rows]
         policy_value_mean = sum(policy_values) / repeat_count
         policy_value_std = math.sqrt(
@@ -1240,11 +1249,14 @@ def build_frontres_v019_critic_repeat_diagnostics(
                 "scenario_id": first["scenario_id"],
                 "noisy_segment_hash": first["noisy_segment_hash"],
                 "x_t_identity": first["x_t_identity"],
+                "actor_input_reference_fingerprint": hashlib.sha256(
+                    json.dumps(actor_input_reference, separators=(",", ":"), allow_nan=False).encode("utf-8")
+                ).hexdigest(),
+                "actor_input_max_abs_diff": actor_input_max_abs_diff,
                 "critic_input_reference_fingerprint": hashlib.sha256(
                     json.dumps(critic_input_reference, separators=(",", ":"), allow_nan=False).encode("utf-8")
                 ).hexdigest(),
                 "critic_input_max_abs_diff": critic_input_max_abs_diff,
-                "critic_input_tolerance": critic_input_tolerance,
                 "repeat_target_means": targets,
                 "repeat_raw_target_means": raw_targets,
                 "target_mean": target_mean,
@@ -1263,37 +1275,65 @@ def build_frontres_v019_critic_repeat_diagnostics(
             }
         )
     return {
-        "schema_version": "frontres-v019-critic-repeat-diagnostics-v1",
+        "schema_version": "frontres-v019-critic-repeat-diagnostics-v2",
+        "policy_input_contract": "first-repeat-frozen-actor-critic-v1",
         "repeat_count": repeat_count,
         "fixed_segment_count": len(segments),
         "segments": segments,
     }
 
 
-def build_frontres_v019_critic_input_rows(collection: Any, plan: Any) -> list[list[float]]:
-    """Retain one canonical normalized Critic row per fixed Segment for numeric comparison."""
+def _build_frontres_v019_policy_input_rows(
+    collection: Any,
+    plan: Any,
+    *,
+    field: str,
+    expected_dim: int,
+    label: str,
+) -> list[list[float]]:
+    """Retain one canonical normalized policy row per fixed Segment."""
 
     attempts = tuple(getattr(getattr(collection, "evidence", None), "attempts", ()) or ())
     source_index = getattr(plan, "source_index", None)
     if not isinstance(source_index, torch.Tensor) or len(attempts) != int(source_index.numel()):
         raise RuntimeError("EVAL-v004 critic repeat requires row-aligned Critic observations")
-    critic_input_rows: list[list[float]] = []
+    input_rows: list[list[float]] = []
     for source in sorted(set(int(value) for value in source_index.detach().cpu().tolist())):
         rows = tuple(attempt for attempt in attempts if int(getattr(attempt, "source_index", -1)) == source)
-        inputs = tuple(getattr(attempt, "policy_privileged_observation", None) for attempt in rows)
+        inputs = tuple(getattr(attempt, field, None) for attempt in rows)
         if (
             len(rows) != int(getattr(plan, "active_m", 0))
-            or any(not isinstance(value, torch.Tensor) or tuple(value.shape) != (449,) for value in inputs)
+            or any(not isinstance(value, torch.Tensor) or tuple(value.shape) != (expected_dim,) for value in inputs)
             or any(not bool(torch.isfinite(value).all().item()) for value in inputs)
             or any(not torch.equal(value, inputs[0]) for value in inputs[1:])
         ):
-            raise RuntimeError("EVAL-v004 critic repeat requires one shared Critic input per Segment")
-        critic_input_rows.append(
+            raise RuntimeError(f"EVAL-v004 critic repeat requires one shared {label} input per Segment")
+        input_rows.append(
             [float(value) for value in inputs[0].detach().to(device="cpu", dtype=torch.float32).tolist()]
         )
-    if len(critic_input_rows) != int(getattr(plan, "selected_segment_count", 0)):
-        raise RuntimeError("EVAL-v004 critic repeat lost one Segment Critic input")
-    return critic_input_rows
+    if len(input_rows) != int(getattr(plan, "selected_segment_count", 0)):
+        raise RuntimeError(f"EVAL-v004 critic repeat lost one Segment {label} input")
+    return input_rows
+
+
+def build_frontres_v019_actor_input_rows(collection: Any, plan: Any) -> list[list[float]]:
+    return _build_frontres_v019_policy_input_rows(
+        collection,
+        plan,
+        field="policy_observation",
+        expected_dim=928,
+        label="Actor",
+    )
+
+
+def build_frontres_v019_critic_input_rows(collection: Any, plan: Any) -> list[list[float]]:
+    return _build_frontres_v019_policy_input_rows(
+        collection,
+        plan,
+        field="policy_privileged_observation",
+        expected_dim=449,
+        label="Critic",
+    )
 
 
 def run_frontres_v018_policy_quality_heldout_eval(
@@ -1332,6 +1372,9 @@ def run_frontres_v018_policy_quality_heldout_eval(
         raise RuntimeError("EVAL-v004 requires an idle transaction owner before held-out collection")
     baseline_state = _policy_quality_training_state_field_hashes(runner)
     transactions: list[dict[str, Any]] = []
+    repeat_policy_observations: dict[
+        tuple[tuple[str, str], ...], FrontRESSegmentLiveObservations
+    ] = {}
     with _frontres_policy_quality_inference_mode(runner):
         with frontres_quality_route_actor(
             runner,
@@ -1347,6 +1390,12 @@ def run_frontres_v018_policy_quality_heldout_eval(
             for repeat_index in range(repeat_count):
                 for item_offset in range(0, len(items), request.manifest.segments_per_transaction):
                     item_pair = tuple(items[item_offset : item_offset + request.manifest.segments_per_transaction])
+                    pair_identity = tuple(
+                        (str(item.item_id), str(item.comparison_signature)) for item in item_pair
+                    )
+                    frozen_policy_observations = (
+                        repeat_policy_observations.get(pair_identity) if repeat_count > 1 else None
+                    )
                     with frontres_readonly_collection_scope(runner):
                         # B2: 每两个 held-out Segment 执行 Clean/Noisy 一次与 M4 Repairs, 产出完整 GAIN-v008 report.
                         prepared = prepare_frontres_policy_quality_fixed_k_m4_batch(
@@ -1360,13 +1409,23 @@ def run_frontres_v018_policy_quality_heldout_eval(
                             route="policy_quality",
                             label="EVAL-v004 held-out policy quality",
                             beta=float(gain_beta),
+                            policy_observations=frozen_policy_observations,
                         )
+                    if repeat_count > 1 and frozen_policy_observations is None:
+                        first_policy_observations = collection.policy_observations
+                        if first_policy_observations is None:
+                            raise RuntimeError("EVAL-v004 critic repeat lost first-repeat policy inputs")
+                        repeat_policy_observations[pair_identity] = first_policy_observations
                     plan = prepared.plan
                     critic_calibration = build_frontres_v018_critic_calibration_rows(collection.report, plan)
                     repeat_identity = (
                         {
                             "repeat_index": repeat_index,
                             "x_t_identities": list(plan.x_t_identities),
+                            "actor_input_rows": build_frontres_v019_actor_input_rows(
+                                collection,
+                                plan,
+                            ),
                             "critic_input_rows": build_frontres_v019_critic_input_rows(
                                 collection,
                                 plan,
@@ -1439,6 +1498,7 @@ def run_frontres_v018_policy_quality_heldout_eval(
             repeat_count=repeat_count,
         )
         for transaction in transactions:
+            transaction.pop("actor_input_rows", None)
             transaction.pop("critic_input_rows", None)
     write_frontres_atomic_json(request.result_path, payload, compact=True)
     return payload

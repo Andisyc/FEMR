@@ -382,6 +382,7 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
         _frontres_last_committed_transaction_receipt={"transaction_id": "fixed", "optimizer_step_delta": 1},
     )
     calls: list[tuple[str, ...]] = []
+    repeat_policy_inputs: list[object | None] = []
     closes: list[str] = []
     reset_support_calls: list[str] = []
 
@@ -411,8 +412,9 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
             )
         )
 
-    def collect(_runner, prepared, *, route, label, beta):
+    def collect(_runner, prepared, *, route, label, beta, policy_observations=None):
         assert route == "policy_quality" and "EVAL-v004" in label and beta == 0.02
+        repeat_policy_inputs.append(policy_observations)
         aggregate = runtime_types.frontres_stage3_transaction_aggregate(_runner)
         assert aggregate.execution_phase == "evaluating"
         assert aggregate.persistence_phase == "idle"
@@ -426,12 +428,18 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
         attempts = tuple(
             SimpleNamespace(
                 source_index=source,
+                policy_observation=torch.full((928,), float(source)),
                 policy_privileged_observation=torch.full((449,), float(source)),
             )
             for source in (0, 0, 0, 0, 1, 1, 1, 1)
         )
+        used_policy_observations = policy_observations or SimpleNamespace(
+            pair=tuple(calls[-1]),
+            generation=len(calls),
+        )
         return SimpleNamespace(
             evidence=SimpleNamespace(attempts=attempts),
+            policy_observations=used_policy_observations,
             observation_trace={"combined_observation_dim": 928, "femr_visible_dim": 158, "gmt_suffix_dim": 770},
             report=_Report(
                 scenario_ids=("scenario-0",) * 4 + ("scenario-1",) * 4,
@@ -485,6 +493,8 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
 
     assert len(reset_support_calls) == 3
     assert len(calls) == 12 and len(closes) == 12
+    assert all(value is None for value in repeat_policy_inputs[:8])
+    assert all(value is not None for value in repeat_policy_inputs[8:])
     aggregate = runtime_types.frontres_stage3_transaction_aggregate(runner)
     assert aggregate.execution_phase == "idle"
     assert aggregate.persistence_phase == "idle"
@@ -498,7 +508,14 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
     assert len(repeat_payload["transactions"]) == 8
     assert repeat_payload["repeat_count"] == 2
     assert repeat_payload["repeat_diagnostics"]["fixed_segment_count"] == 8
-    assert all("critic_input_rows" not in row for row in repeat_payload["transactions"])
+    assert all(
+        "actor_input_rows" not in row and "critic_input_rows" not in row
+        for row in repeat_payload["transactions"]
+    )
+    assert all(
+        row["actor_input_max_abs_diff"] == 0.0
+        for row in repeat_payload["repeat_diagnostics"]["segments"]
+    )
     assert all(
         row["critic_input_max_abs_diff"] == 0.0
         for row in repeat_payload["repeat_diagnostics"]["segments"]
