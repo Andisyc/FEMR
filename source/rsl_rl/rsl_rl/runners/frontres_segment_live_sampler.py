@@ -1357,13 +1357,13 @@ def prepare_frontres_v015_policy_quality_item_batch(runner: Any, item: Any) -> S
     return SimpleNamespace(sample=sample, batch=batch)
 
 
-def prepare_frontres_policy_quality_k16_m4_batch(
+def prepare_frontres_policy_quality_fixed_k_m4_batch(
     runner: Any,
     items: tuple[Any, Any],
     *,
     attempts_per_segment: int,
 ) -> SimpleNamespace:
-    """Materialize two fixed held-out Segments as one immutable v018 K16/M4 batch."""
+    """Materialize two fixed held-out Segments as one immutable K8/K16 M4 batch."""
 
     # B1: 解析两个 manifest Segment, 产出 distinct source identities 和 exact-M row plan.
     if not isinstance(items, tuple) or len(items) != 2 or attempts_per_segment != 4:
@@ -1375,6 +1375,7 @@ def prepare_frontres_policy_quality_k16_m4_batch(
     resolved = []
     families: list[str] = []
     strengths: list[float] = []
+    requested_horizon: int | None = None
     for item in items:
         motion_id = str(getattr(item, "motion_id", "")).lstrip("./")
         start_frame = int(getattr(item, "start_frame", -1))
@@ -1386,11 +1387,15 @@ def prepare_frontres_policy_quality_k16_m4_batch(
                 "EVAL-v004 manifest failed to resolve one Segment: "
                 f"motion={motion_id!r} frame={start_frame}"
             ) from exc
-        if horizon_k != 16:
+        if horizon_k not in (8, 16):
             raise RuntimeError(
-                "EVAL-v004 manifest must resolve each motion/start to one K16 Segment: "
+                "EVAL-v004 manifest must resolve each motion/start to one K8/K16 Segment: "
                 f"motion={motion_id!r} frame={start_frame} K={horizon_k}"
             )
+        if requested_horizon is None:
+            requested_horizon = horizon_k
+        elif horizon_k != requested_horizon:
+            raise RuntimeError("EVAL-v004 transaction requires one homogeneous K8 or K16 horizon")
         params = dict(getattr(item, "perturbation_parameters", ()) or ())
         strength_values = [params[name] for name in ("strength", "dr_scale", "scale") if name in params]
         family = str(getattr(item, "perturbation_family", ""))
@@ -1408,9 +1413,11 @@ def prepare_frontres_policy_quality_k16_m4_batch(
     repair_rows = 2 * attempts_per_segment
     if env_count != 2 * repair_rows:
         raise RuntimeError(
-            "EVAL-v004 v018 K16/M4 requires 16 env rows (8 Repair + 8 Noisy): "
+            "EVAL-v004 K8/K16 M4 requires 16 env rows (8 Repair + 8 Noisy): "
             f"observed={env_count}"
         )
+    if requested_horizon is None:
+        raise RuntimeError("EVAL-v004 transaction did not resolve a fixed horizon")
     device = torch.device(getattr(runner, "device", "cpu"))
     source_index = torch.arange(2, dtype=torch.long, device=device).repeat_interleave(attempts_per_segment)
     trial_index = torch.arange(attempts_per_segment, dtype=torch.long, device=device).repeat(2)
@@ -1419,7 +1426,7 @@ def prepare_frontres_policy_quality_k16_m4_batch(
         dtype=torch.long,
         device=device,
     )
-    horizon_k = torch.full((repair_rows,), 16, dtype=torch.long, device=device)
+    horizon_k = torch.full((repair_rows,), requested_horizon, dtype=torch.long, device=device)
     sample = FrontRESSegmentSample(
         segment_ids=segment_ids,
         source=tuple("heldout" for _ in range(repair_rows)),

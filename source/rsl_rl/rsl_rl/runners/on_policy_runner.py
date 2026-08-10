@@ -749,6 +749,7 @@ class OnPolicyRunner:
         hsl_checkpoint_path: str,
         policy_checkpoint_path: str,
         result_path: str,
+        repeat_count: int = 1,
     ):
         # QUALITY-ID-01: thin connector uses a lazy import so old modes never import quality evaluation.
         from rsl_rl.runners.frontres_policy_quality_eval import run_frontres_policy_quality_eval
@@ -759,6 +760,7 @@ class OnPolicyRunner:
             hsl_checkpoint_path=hsl_checkpoint_path,
             policy_checkpoint_path=policy_checkpoint_path,
             result_path=result_path,
+            repeat_count=repeat_count,
         )
         return self._dispatch_frontres_startup_once("policy_quality", operation)
 

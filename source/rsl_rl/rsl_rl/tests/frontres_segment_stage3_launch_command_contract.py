@@ -241,6 +241,7 @@ def test_stage3_launch_builds_active_v018_policy_quality_command() -> None:
         "POLICY_QUALITY_MANIFEST": "/tmp/frontres-v018-k16-m4.json",
         "POLICY_QUALITY_POLICY_CHECKPOINT": "/tmp/frontres-v018-model-2000.pt",
         "POLICY_QUALITY_RESULT": "/tmp/frontres-v018-quality.json",
+        "POLICY_QUALITY_REPEAT_COUNT": "8",
     }
     result = _run_preflight("policy_quality_eval", quality_env, bounds=("16", "0", "1"))
     assert result.returncode == 0, result.stderr
@@ -252,6 +253,7 @@ def test_stage3_launch_builds_active_v018_policy_quality_command() -> None:
     assert evaluator_hsl == initializer
     assert "--frontres_policy_quality_policy_checkpoint /tmp/frontres-v018-model-2000.pt" in command
     assert "--frontres_policy_quality_result /tmp/frontres-v018-quality.json" in command
+    assert "--frontres_policy_quality_repeat_count 8" in command
     assert "--frontres_checkpoint_interval" not in command
     assert "--frontres_segment_live_update_loop_only" not in command
 
@@ -260,7 +262,12 @@ def test_stage3_launch_builds_active_v018_policy_quality_command() -> None:
     assert "EVAL-v004 policy quality requires POLICY_QUALITY_MANIFEST" in missing.stderr
     wrong_rows = _run_preflight("policy_quality_eval", quality_env, bounds=("8", "0", "1"))
     assert wrong_rows.returncode == 4
-    assert "EVAL-v004 v018 K16/M4 policy quality requires NUM_ENVS=16" in wrong_rows.stderr
+    assert "EVAL-v004 K8/K16 M4 policy quality requires NUM_ENVS=16" in wrong_rows.stderr
+
+    invalid_repeat_env = dict(quality_env, POLICY_QUALITY_REPEAT_COUNT="0")
+    invalid_repeat = _run_preflight("policy_quality_eval", invalid_repeat_env, bounds=("16", "0", "1"))
+    assert invalid_repeat.returncode == 4
+    assert "POLICY_QUALITY_REPEAT_COUNT must be an integer from 1 to 16" in invalid_repeat.stderr
 
 
 def test_stage3_launch_rejects_retired_optimizer_modes() -> None:

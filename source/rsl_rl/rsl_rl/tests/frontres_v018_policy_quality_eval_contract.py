@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -407,6 +407,7 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
                 active_m=4,
                 source_index=torch.tensor((0, 0, 0, 0, 1, 1, 1, 1), dtype=torch.long),
                 segment_ids=torch.tensor((10, 10, 10, 10, 20, 20, 20, 20), dtype=torch.long),
+                x_t_identities=("x-t-0",) * 4 + ("x-t-1",) * 4,
             )
         )
 
@@ -421,7 +422,16 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
             sample=prepared.sample,
             batch=prepared.batch,
         )
+        action_value = 0.01 * len(calls)
+        attempts = tuple(
+            SimpleNamespace(
+                source_index=source,
+                policy_privileged_observation=torch.full((449,), float(source)),
+            )
+            for source in (0, 0, 0, 0, 1, 1, 1, 1)
+        )
         return SimpleNamespace(
+            evidence=SimpleNamespace(attempts=attempts),
             observation_trace={"combined_observation_dim": 928, "femr_visible_dim": 158, "gmt_suffix_dim": 770},
             report=_Report(
                 scenario_ids=("scenario-0",) * 4 + ("scenario-1",) * 4,
@@ -429,7 +439,7 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
                 valid_policy_row_mask=(True,) * 8,
                 policy_values=(0.25,) * 4 + (-0.1,) * 4,
                 gain_total=(0.1, 0.2, 0.3, 0.4, -0.4, -0.2, 0.0, 0.2),
-                policy_actions=((0.01,) * 6,) * 8,
+                policy_actions=tuple(((action_value + 0.001 * row,) * 6) for row in range(8)),
                 clean_execution_count=(1, 1),
                 noisy_execution_count=(1, 1),
             ),
@@ -437,7 +447,7 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
 
     original_route = frontres_checkpointing.frontres_quality_route_actor
     original_reset_support = sampler.ensure_frontres_policy_quality_reset_support
-    original_prepare = sampler.prepare_frontres_policy_quality_k16_m4_batch
+    original_prepare = sampler.prepare_frontres_policy_quality_fixed_k_m4_batch
     original_collect = formal.collect_frontres_recovery_aware_evaluation
     original_close = formal.close_frontres_formal_training_request
     frontres_checkpointing.frontres_quality_route_actor = route_actor
@@ -448,11 +458,17 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
         reset_support_calls.append("installed")
 
     sampler.ensure_frontres_policy_quality_reset_support = ensure_reset_support
-    sampler.prepare_frontres_policy_quality_k16_m4_batch = prepare
+    sampler.prepare_frontres_policy_quality_fixed_k_m4_batch = prepare
     formal.collect_frontres_recovery_aware_evaluation = collect
     formal.close_frontres_formal_training_request = lambda _runner: closes.append("closed")
     try:
         payload = quality.run_frontres_v018_policy_quality_heldout_eval(runner, request=request)
+        repeat_request = replace(request, result_path=str(tmp_path / "repeat-quality.json"))
+        repeat_payload = quality.run_frontres_v018_policy_quality_heldout_eval(
+            runner,
+            request=repeat_request,
+            repeat_count=2,
+        )
         del runner.alg.frontres_gain_beta
         try:
             quality.run_frontres_v018_policy_quality_heldout_eval(runner, request=request)
@@ -463,12 +479,12 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
     finally:
         frontres_checkpointing.frontres_quality_route_actor = original_route
         sampler.ensure_frontres_policy_quality_reset_support = original_reset_support
-        sampler.prepare_frontres_policy_quality_k16_m4_batch = original_prepare
+        sampler.prepare_frontres_policy_quality_fixed_k_m4_batch = original_prepare
         formal.collect_frontres_recovery_aware_evaluation = original_collect
         formal.close_frontres_formal_training_request = original_close
 
-    assert len(reset_support_calls) == 2
-    assert len(calls) == 4 and len(closes) == 4
+    assert len(reset_support_calls) == 3
+    assert len(calls) == 12 and len(closes) == 12
     aggregate = runtime_types.frontres_stage3_transaction_aggregate(runner)
     assert aggregate.execution_phase == "idle"
     assert aggregate.persistence_phase == "idle"
@@ -479,6 +495,13 @@ def test_active_v018_evaluator_serializes_four_readonly_k16_m4_transactions(tmp_
     assert payload["critic_identity"]["input_dim"] == 449
     assert all(row["policy_row_count"] == 8 and row["role_row_count"] == 16 for row in payload["transactions"])
     assert all(len(row["critic_calibration"]) == 2 for row in payload["transactions"])
+    assert len(repeat_payload["transactions"]) == 8
+    assert repeat_payload["repeat_count"] == 2
+    assert repeat_payload["repeat_diagnostics"]["fixed_segment_count"] == 8
+    assert all(
+        len(set(row["action_fingerprints"])) == 2
+        for row in repeat_payload["repeat_diagnostics"]["segments"]
+    )
     stored = json.loads(Path(request.result_path).read_text(encoding="utf-8"))
     assert stored == json.loads(json.dumps(payload))
 

@@ -284,6 +284,13 @@ CONTRACTS = (
         requires_torch=True,
     ),
     ContractTarget(
+        name="v019_critic_repeat_probe",
+        path="source/rsl_rl/rsl_rl/tests/frontres_v019_critic_repeat_probe_contract.py",
+        expected_marker="frontres_v019_critic_repeat_probe_contract: ok",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
         name="v018_policy_quality_compatibility",
         path="source/rsl_rl/rsl_rl/tests/frontres_v018_policy_quality_compatibility_contract.py",
         expected_marker="frontres_v018_policy_quality_compatibility_contract: ok",

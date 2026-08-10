@@ -382,6 +382,7 @@ parser.add_argument("--frontres_policy_quality_manifest", type=str, default=None
 parser.add_argument("--frontres_policy_quality_hsl_checkpoint", type=str, default=None)
 parser.add_argument("--frontres_policy_quality_policy_checkpoint", type=str, default=None)
 parser.add_argument("--frontres_policy_quality_result", type=str, default=None)
+parser.add_argument("--frontres_policy_quality_repeat_count", type=int, default=1)
 parser.add_argument("--frontres_policy_quality_q2d_eval_only", action="store_true", default=False)
 parser.add_argument("--frontres_policy_quality_q2d_result", type=str, default=None)
 parser.add_argument("--frontres_policy_quality_q2d_credit_result", type=str, default=None)
@@ -1781,6 +1782,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             hsl_checkpoint_path=args_cli.frontres_policy_quality_hsl_checkpoint,
             policy_checkpoint_path=args_cli.frontres_policy_quality_policy_checkpoint,
             result_path=args_cli.frontres_policy_quality_result,
+            repeat_count=args_cli.frontres_policy_quality_repeat_count,
         )
         env.close()
         return

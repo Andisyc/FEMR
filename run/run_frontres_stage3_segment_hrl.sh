@@ -34,6 +34,7 @@ FRONTRES_SPECIALIST_MODE="${FRONTRES_SPECIALIST_MODE:-rp}"
 FRONTRES_V015_FUTURE_OFFSETS="${FRONTRES_V015_FUTURE_OFFSETS:-1,2}"
 FRONTRES_V015_K_CURRICULUM="${FRONTRES_V015_K_CURRICULUM:-}"
 FRONTRES_V015_RESUME_CHECKPOINT="${FRONTRES_V015_RESUME_CHECKPOINT:-}"
+POLICY_QUALITY_REPEAT_COUNT="${POLICY_QUALITY_REPEAT_COUNT:-1}"
 
 if ! [[ "${CHECKPOINT_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
   echo "FRONTRES_CHECKPOINT_INTERVAL must be a positive integer" >&2
@@ -103,7 +104,11 @@ case "${MODE}" in
     ;;
   policy_quality_eval)
     if [[ "${NUM_ENVS}" != "16" ]]; then
-      echo "EVAL-v004 v018 K16/M4 policy quality requires NUM_ENVS=16" >&2
+      echo "EVAL-v004 K8/K16 M4 policy quality requires NUM_ENVS=16" >&2
+      exit 4
+    fi
+    if ! [[ "${POLICY_QUALITY_REPEAT_COUNT}" =~ ^[1-9][0-9]*$ ]] || (( POLICY_QUALITY_REPEAT_COUNT > 16 )); then
+      echo "POLICY_QUALITY_REPEAT_COUNT must be an integer from 1 to 16" >&2
       exit 4
     fi
     required_quality_vars=(
@@ -123,6 +128,7 @@ case "${MODE}" in
       --frontres_policy_quality_hsl_checkpoint "${HSL_CHECKPOINT}"
       --frontres_policy_quality_policy_checkpoint "${POLICY_QUALITY_POLICY_CHECKPOINT}"
       --frontres_policy_quality_result "${POLICY_QUALITY_RESULT}"
+      --frontres_policy_quality_repeat_count "${POLICY_QUALITY_REPEAT_COUNT}"
     )
     ;;
   single_update|update_loop)

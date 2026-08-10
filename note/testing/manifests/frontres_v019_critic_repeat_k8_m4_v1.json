@@ -1,0 +1,53 @@
+{
+  "schema_version": "frontres-v018-policy-quality-manifest-v1",
+  "method_contract_id": "FRS-METHOD-v020",
+  "training_contract_id": "FRS-TRAIN-v019",
+  "gain_contract_id": "FRS-GAIN-v008",
+  "ppo_contract_id": "FRS-PPO-v008",
+  "evaluation_contract_id": "FRS-EVAL-v004",
+  "checkpoint_format": "frontres-v019-checkpoint-v14",
+  "hsl_checkpoint_format": "frontres-v017-hsl-proposal-v2",
+  "hsl_method_contract_id": "FRS-METHOD-v017",
+  "hsl_training_contract_id": "FRS-TRAIN-v014",
+  "future_intent_layout_version": "frontres-v015-future-intent-q29-v1",
+  "future_offsets": [1, 2],
+  "raw_observation_dim": 870,
+  "combined_observation_dim": 928,
+  "actor_input_dim": 158,
+  "gmt_suffix_dim": 770,
+  "action_kind": "delta_se3",
+  "action_semantics": "direct-world-full6-v1",
+  "action_dim": 6,
+  "critic_input_dim": 449,
+  "critic_value_kind": "state_value",
+  "critic_action_conditioned": false,
+  "critic_target_id": "segment-exact-m-mean-symlog-v1",
+  "critic_support_context_id": "action-pre-support-plan-kmax32-v1",
+  "critic_value_normalization_id": "ema-target-std-nonamplifying-v1",
+  "horizon_k": 8,
+  "attempts_per_segment": 4,
+  "segments_per_transaction": 2,
+  "environment_revision": "FEMR-v019-symmetric-log-utility",
+  "config_revision": "FRS-METHOD-v020+FRS-TRAIN-v019+FRS-GAIN-v008+FRS-PPO-v008+FRS-EVAL-v004+local-rp+K8-M4+critic-repeat",
+  "evaluator_version": "frontres-v019-fixed-segment-critic-repeat-v1",
+  "items": [
+    {
+      "item_id": "v019-repeat-kit572-wave-right02-f163-s42",
+      "motion_id": "KIT/572/amass_g1_wave_right02_poses_reflect.npz",
+      "start_frame": 163,
+      "perturbation_family": "local_rp",
+      "perturbation_parameters": [["dr_scale", 1.25]],
+      "effective_horizon_k": 8,
+      "seed": 42
+    },
+    {
+      "item_id": "v019-repeat-bml-rub003-catch-throw-f93-s42",
+      "motion_id": "BioMotionLab_NTroje/rub003/amass_g1_0017_catching_and_throwing_poses.npz",
+      "start_frame": 93,
+      "perturbation_family": "local_rp",
+      "perturbation_parameters": [["dr_scale", 1.25]],
+      "effective_horizon_k": 8,
+      "seed": 42
+    }
+  ]
+}

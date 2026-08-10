@@ -42,7 +42,10 @@ from rsl_rl.runners.frontres_policy_quality_state import (
     resolve_frontres_policy_quality_envs,
     restore_frontres_policy_quality_state,
 )
-from rsl_rl.runners.frontres_checkpoint_quality import FRONTRES_HSL_ARTIFACT_TRAINING_CONTRACT_ID
+from rsl_rl.runners.frontres_checkpoint_quality import (
+    FRONTRES_HSL_ARTIFACT_TRAINING_CONTRACT_ID,
+    frontres_v015_tensor_fingerprint,
+)
 from rsl_rl.runners.frontres_evaluation_reporting import write_frontres_atomic_json
 
 
@@ -62,7 +65,7 @@ class FrontRESV015PolicyQualityEvalRequest:
 
 @dataclass(frozen=True)
 class FrontRESV018PolicyQualityEvalRequest:
-    """Strict HSL-v2 plus checkpoint-v14 K16/M4 identity for EVAL-v004."""
+    """Strict HSL-v2 plus checkpoint-v14 K8/K16 M4 identity for EVAL-v004."""
 
     manifest_path: str
     hsl_checkpoint_path: str
@@ -699,7 +702,7 @@ def build_frontres_v018_policy_quality_eval_request(
 ) -> FrontRESV018PolicyQualityEvalRequest:
     """Validate EVAL-v004 artifacts before any runner state can change."""
 
-    # B1: 解析路径和 manifest, 产出 immutable K16/M4 evaluation identity.
+    # B1: 解析路径和 manifest, 产出 immutable K8/K16 M4 evaluation identity.
     paths = {
         "manifest_path": Path(manifest_path).expanduser().resolve(),
         "hsl_checkpoint_path": Path(hsl_checkpoint_path).expanduser().resolve(),
@@ -1092,12 +1095,179 @@ def build_frontres_v018_critic_calibration_rows(report: Any, plan: Any) -> tuple
     return tuple(rows)
 
 
+def build_frontres_v019_critic_repeat_diagnostics(
+    transactions: list[dict[str, Any]],
+    *,
+    repeat_count: int,
+) -> dict[str, Any]:
+    """Summarize repeated M4 targets only when Segment state and value stay fixed."""
+
+    if isinstance(repeat_count, bool) or not isinstance(repeat_count, int) or not 1 <= repeat_count <= 16:
+        raise ValueError("EVAL-v004 critic repeat_count must be an integer from 1 to 16")
+    if not isinstance(transactions, list) or not transactions:
+        raise ValueError("EVAL-v004 critic repeat diagnostics require transaction rows")
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    item_order: list[str] = []
+    for transaction in transactions:
+        report = transaction.get("report")
+        repeat_index = transaction.get("repeat_index")
+        item_ids = transaction.get("item_ids")
+        signatures = transaction.get("item_comparison_signatures")
+        calibration = transaction.get("critic_calibration")
+        critic_input_fingerprints = transaction.get("critic_input_fingerprints")
+        actions = report.get("policy_actions") if isinstance(report, dict) else None
+        x_t_identities = transaction.get("x_t_identities")
+        if (
+            not isinstance(repeat_index, int)
+            or not isinstance(item_ids, list)
+            or not isinstance(signatures, list)
+            or not isinstance(calibration, list)
+            or not isinstance(critic_input_fingerprints, list)
+            or not isinstance(actions, (list, tuple))
+            or not isinstance(x_t_identities, (list, tuple))
+            or len(item_ids) != len(signatures)
+            or len(item_ids) != len(calibration)
+            or len(item_ids) != len(critic_input_fingerprints)
+        ):
+            raise RuntimeError("EVAL-v004 critic repeat transaction identity is incomplete")
+        for item_offset, row in enumerate(calibration):
+            item_id = str(item_ids[item_offset])
+            source_index = int(row.get("source_index", -1))
+            attempt_count = int(row.get("attempt_count", 0))
+            start = source_index * attempt_count
+            stop = start + attempt_count
+            action_rows = list(actions[start:stop])
+            x_t_rows = tuple(str(value) for value in x_t_identities[start:stop])
+            values = (
+                float(row.get("policy_value", float("nan"))),
+                float(row.get("raw_target_mean", float("nan"))),
+                float(row.get("target_mean", float("nan"))),
+            )
+            if (
+                source_index != item_offset
+                or attempt_count != 4
+                or len(action_rows) != attempt_count
+                or len(x_t_rows) != attempt_count
+                or len(set(x_t_rows)) != 1
+                or not all(math.isfinite(value) for value in values)
+            ):
+                raise RuntimeError("EVAL-v004 critic repeat row has invalid M4 identity or values")
+            action_row_fingerprints = tuple(
+                hashlib.sha256(
+                    json.dumps(action_row, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+                ).hexdigest()
+                for action_row in action_rows
+            )
+            if len(set(action_row_fingerprints)) != attempt_count:
+                raise RuntimeError("EVAL-v004 critic repeat requires four distinct Repair actions per M4 group")
+            action_fingerprint = hashlib.sha256(
+                json.dumps(action_rows, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            ).hexdigest()
+            if item_id not in grouped:
+                grouped[item_id] = []
+                item_order.append(item_id)
+            grouped[item_id].append(
+                {
+                    "repeat_index": repeat_index,
+                    "item_comparison_signature": str(signatures[item_offset]),
+                    "segment_id": int(row.get("segment_id", -1)),
+                    "scenario_id": str(row.get("scenario_id", "")),
+                    "noisy_segment_hash": str(row.get("noisy_segment_hash", "")),
+                    "x_t_identity": x_t_rows[0],
+                    "critic_input_fingerprint": str(critic_input_fingerprints[item_offset]),
+                    "critic_policy_value": values[0],
+                    "raw_target_mean": values[1],
+                    "target_mean": values[2],
+                    "action_fingerprint": action_fingerprint,
+                }
+            )
+
+    segments: list[dict[str, Any]] = []
+    expected_repeat_indices = list(range(repeat_count))
+    for item_id in item_order:
+        rows = sorted(grouped[item_id], key=lambda row: row["repeat_index"])
+        if len(rows) != repeat_count or [row["repeat_index"] for row in rows] != expected_repeat_indices:
+            raise RuntimeError("EVAL-v004 critic repeat rows are incomplete or reordered")
+        identity_fields = (
+            "item_comparison_signature",
+            "segment_id",
+            "scenario_id",
+            "noisy_segment_hash",
+            "x_t_identity",
+            "critic_input_fingerprint",
+        )
+        if any(len({row[name] for row in rows}) != 1 for name in identity_fields):
+            raise RuntimeError("EVAL-v004 critic repeat lost fixed Segment identity")
+        policy_values = [row["critic_policy_value"] for row in rows]
+        if any(not math.isclose(value, policy_values[0], rel_tol=0.0, abs_tol=1e-6) for value in policy_values[1:]):
+            raise RuntimeError("EVAL-v004 critic repeat lost its shared state value")
+        action_fingerprints = [row["action_fingerprint"] for row in rows]
+        if repeat_count > 1 and len(set(action_fingerprints)) != repeat_count:
+            raise RuntimeError("EVAL-v004 critic repeat requires distinct Repair actions for every repeat")
+        targets = [row["target_mean"] for row in rows]
+        raw_targets = [row["raw_target_mean"] for row in rows]
+        target_mean = sum(targets) / repeat_count
+        target_std = math.sqrt(sum((value - target_mean) ** 2 for value in targets) / repeat_count)
+        first = rows[0]
+        segments.append(
+            {
+                "item_id": item_id,
+                "item_comparison_signature": first["item_comparison_signature"],
+                "segment_id": first["segment_id"],
+                "scenario_id": first["scenario_id"],
+                "noisy_segment_hash": first["noisy_segment_hash"],
+                "x_t_identity": first["x_t_identity"],
+                "critic_input_fingerprint": first["critic_input_fingerprint"],
+                "repeat_target_means": targets,
+                "repeat_raw_target_means": raw_targets,
+                "target_mean": target_mean,
+                "target_std": target_std,
+                "target_standard_error": target_std / math.sqrt(repeat_count),
+                "target_min": min(targets),
+                "target_max": max(targets),
+                "critic_policy_value": policy_values[0],
+                "critic_error_to_repeat_mean": policy_values[0] - target_mean,
+                "action_fingerprints": action_fingerprints,
+            }
+        )
+    return {
+        "schema_version": "frontres-v019-critic-repeat-diagnostics-v1",
+        "repeat_count": repeat_count,
+        "fixed_segment_count": len(segments),
+        "segments": segments,
+    }
+
+
+def build_frontres_v019_critic_input_fingerprints(collection: Any, plan: Any) -> list[str]:
+    """Fingerprint the exact normalized Critic row shared by each fixed Segment."""
+
+    attempts = tuple(getattr(getattr(collection, "evidence", None), "attempts", ()) or ())
+    source_index = getattr(plan, "source_index", None)
+    if not isinstance(source_index, torch.Tensor) or len(attempts) != int(source_index.numel()):
+        raise RuntimeError("EVAL-v004 critic repeat requires row-aligned Critic observations")
+    fingerprints: list[str] = []
+    for source in sorted(set(int(value) for value in source_index.detach().cpu().tolist())):
+        rows = tuple(attempt for attempt in attempts if int(getattr(attempt, "source_index", -1)) == source)
+        row_fingerprints = tuple(
+            frontres_v015_tensor_fingerprint(getattr(attempt, "policy_privileged_observation", None))
+            for attempt in rows
+        )
+        if len(rows) != int(getattr(plan, "active_m", 0)) or len(set(row_fingerprints)) != 1:
+            raise RuntimeError("EVAL-v004 critic repeat requires one shared Critic input per Segment")
+        fingerprints.append(row_fingerprints[0])
+    if len(fingerprints) != int(getattr(plan, "selected_segment_count", 0)):
+        raise RuntimeError("EVAL-v004 critic repeat lost one Segment Critic input")
+    return fingerprints
+
+
 def run_frontres_v018_policy_quality_heldout_eval(
     runner: Any,
     *,
     request: FrontRESV018PolicyQualityEvalRequest,
+    repeat_count: int = 1,
 ) -> dict[str, Any]:
-    """Run the tested checkpoint through fixed EVAL-v004 K16/M4 transactions."""
+    """Run the tested checkpoint through fixed EVAL-v004 K8/K16 M4 transactions."""
 
     from rsl_rl.runners.frontres_checkpointing import frontres_quality_route_actor
     from rsl_rl.runners.frontres_segment_formal_transaction import (
@@ -1107,12 +1277,14 @@ def run_frontres_v018_policy_quality_heldout_eval(
     from rsl_rl.runners.frontres_stage3_engine import frontres_stage3_transaction_aggregate
     from rsl_rl.runners.frontres_segment_live_sampler import (
         ensure_frontres_policy_quality_reset_support,
-        prepare_frontres_policy_quality_k16_m4_batch,
+        prepare_frontres_policy_quality_fixed_k_m4_batch,
     )
 
     # B1: 冻结训练状态并安装 tested checkpoint-v14, 产出 inference-only policy owner.
     if not isinstance(request, FrontRESV018PolicyQualityEvalRequest):
         raise TypeError("EVAL-v004 requires the strict v018 policy-quality request")
+    if isinstance(repeat_count, bool) or not isinstance(repeat_count, int) or not 1 <= repeat_count <= 16:
+        raise ValueError("EVAL-v004 critic repeat_count must be an integer from 1 to 16")
 
     # B1a: 安装只读 Stage-1 dataset/reset support, 产出 held-out manifest 的解析边界.
     # Eval 不启用 Segment Replay, 因此必须显式安装该只读依赖且不得创建 sampler.
@@ -1137,45 +1309,59 @@ def run_frontres_v018_policy_quality_heldout_eval(
             gain_beta = getattr(getattr(runner, "alg", None), "frontres_gain_beta", None)
             if gain_beta is None:
                 raise RuntimeError("EVAL-v004 requires the formal FRS-GAIN-v008 repair-cost beta")
-            for item_offset in range(0, len(items), request.manifest.segments_per_transaction):
-                item_pair = tuple(items[item_offset : item_offset + request.manifest.segments_per_transaction])
-                with frontres_readonly_collection_scope(runner):
-                    # B2: 每两个 held-out Segment 执行 Clean/Noisy 一次与 M4 Repairs, 产出完整 GAIN-v007 report.
-                    prepared = prepare_frontres_policy_quality_k16_m4_batch(
-                        runner,
-                        item_pair,
-                        attempts_per_segment=request.manifest.attempts_per_segment,
+            for repeat_index in range(repeat_count):
+                for item_offset in range(0, len(items), request.manifest.segments_per_transaction):
+                    item_pair = tuple(items[item_offset : item_offset + request.manifest.segments_per_transaction])
+                    with frontres_readonly_collection_scope(runner):
+                        # B2: 每两个 held-out Segment 执行 Clean/Noisy 一次与 M4 Repairs, 产出完整 GAIN-v008 report.
+                        prepared = prepare_frontres_policy_quality_fixed_k_m4_batch(
+                            runner,
+                            item_pair,
+                            attempts_per_segment=request.manifest.attempts_per_segment,
+                        )
+                        collection = collect_frontres_recovery_aware_evaluation(
+                            runner,
+                            prepared,
+                            route="policy_quality",
+                            label="EVAL-v004 held-out policy quality",
+                            beta=float(gain_beta),
+                        )
+                    plan = prepared.plan
+                    critic_calibration = build_frontres_v018_critic_calibration_rows(collection.report, plan)
+                    repeat_identity = (
+                        {
+                            "repeat_index": repeat_index,
+                            "x_t_identities": list(plan.x_t_identities),
+                            "critic_input_fingerprints": build_frontres_v019_critic_input_fingerprints(
+                                collection,
+                                plan,
+                            ),
+                        }
+                        if repeat_count > 1
+                        else {}
                     )
-                    collection = collect_frontres_recovery_aware_evaluation(
-                        runner,
-                        prepared,
-                        route="policy_quality",
-                        label="EVAL-v004 held-out policy quality",
-                        beta=float(gain_beta),
+                    transactions.append(
+                        {
+                            **repeat_identity,
+                            "item_ids": [str(item.item_id) for item in item_pair],
+                            "item_comparison_signatures": [str(item.comparison_signature) for item in item_pair],
+                            "transaction_id": plan.transaction_id,
+                            "policy_snapshot_id": plan.policy_snapshot_id,
+                            "active_k": int(request.manifest.horizon_k),
+                            "active_m": int(request.manifest.attempts_per_segment),
+                            "segment_count": int(plan.selected_segment_count),
+                            "policy_row_count": int(plan.batch_size),
+                            "role_row_count": 2 * int(plan.batch_size),
+                            "observation_trace": dict(collection.observation_trace),
+                            "critic_calibration": list(critic_calibration),
+                            "report": asdict(collection.report),
+                        }
                     )
-                plan = prepared.plan
-                critic_calibration = build_frontres_v018_critic_calibration_rows(collection.report, plan)
-                transactions.append(
-                    {
-                        "item_ids": [str(item.item_id) for item in item_pair],
-                        "item_comparison_signatures": [str(item.comparison_signature) for item in item_pair],
-                        "transaction_id": plan.transaction_id,
-                        "policy_snapshot_id": plan.policy_snapshot_id,
-                        "active_k": int(request.manifest.horizon_k),
-                        "active_m": int(request.manifest.attempts_per_segment),
-                        "segment_count": int(plan.selected_segment_count),
-                        "policy_row_count": int(plan.batch_size),
-                        "role_row_count": 2 * int(plan.batch_size),
-                        "observation_trace": dict(collection.observation_trace),
-                        "critic_calibration": list(critic_calibration),
-                        "report": asdict(collection.report),
-                    }
-                )
-                _assert_policy_quality_training_state_unchanged(
-                    runner,
-                    policy_state,
-                    label="EVAL-v004 held-out transaction mutated training state",
-                )
+                    _assert_policy_quality_training_state_unchanged(
+                        runner,
+                        policy_state,
+                        label="EVAL-v004 held-out transaction mutated training state",
+                    )
     _assert_policy_quality_training_state_unchanged(
         runner,
         baseline_state,
@@ -1211,6 +1397,12 @@ def run_frontres_v018_policy_quality_heldout_eval(
         "attempts_per_segment": request.manifest.attempts_per_segment,
         "transactions": transactions,
     }
+    if repeat_count > 1:
+        payload["repeat_count"] = repeat_count
+        payload["repeat_diagnostics"] = build_frontres_v019_critic_repeat_diagnostics(
+            transactions,
+            repeat_count=repeat_count,
+        )
     write_frontres_atomic_json(request.result_path, payload, compact=True)
     return payload
 
@@ -1321,6 +1513,7 @@ def run_frontres_policy_quality_eval(
     hsl_checkpoint_path: str,
     policy_checkpoint_path: str,
     result_path: str,
+    repeat_count: int = 1,
 ) -> Any:
     """Run the active EVAL-v004 checkpoint-v14 held-out evaluator."""
 
@@ -1337,7 +1530,11 @@ def run_frontres_policy_quality_eval(
         result_path=result_path,
     )
     # B2: 直接调用现有 collector/Gain/report owners, 产出 atomic EVAL-v004 report.
-    return run_frontres_v018_policy_quality_heldout_eval(runner, request=request)
+    return run_frontres_v018_policy_quality_heldout_eval(
+        runner,
+        request=request,
+        repeat_count=repeat_count,
+    )
 
 
 def run_frontres_legacy_policy_quality_eval(

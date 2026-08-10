@@ -378,7 +378,7 @@ class FrontRESV015PolicyQualityManifest:
 
 @dataclass(frozen=True)
 class FrontRESV018PolicyQualityManifest:
-    """Immutable EVAL-v004 held-out bank for checkpoint-v14 K16/M4 evaluation."""
+    """Immutable EVAL-v004 held-out bank for checkpoint-v14 K8/K16 M4 evaluation."""
 
     environment_revision: str
     config_revision: str
@@ -414,7 +414,7 @@ class FrontRESV018PolicyQualityManifest:
     segments_per_transaction: int = 2
 
     def __post_init__(self) -> None:
-        # B1: 固定 active Contract, layout, Critic 和 K16/M4 identity, 拒绝旧 evaluator payload.
+        # B1: 固定 active Contract, layout, Critic 和 K8/K16 M4 identity, 拒绝旧 evaluator payload.
         exact_identity = (
             self.schema_version == _V018_SCHEMA_VERSION
             and self.method_contract_id == "FRS-METHOD-v020"
@@ -441,13 +441,13 @@ class FrontRESV018PolicyQualityManifest:
             and self.critic_target_id == "segment-exact-m-mean-symlog-v1"
             and self.critic_support_context_id == "action-pre-support-plan-kmax32-v1"
             and self.critic_value_normalization_id == "ema-target-std-nonamplifying-v1"
-            and self.horizon_k == 16
+            and self.horizon_k in (8, 16)
             and self.attempts_per_segment == 4
             and self.segments_per_transaction == 2
         )
         if not exact_identity:
             raise ValueError(
-                "v018 policy-quality manifest has incompatible contract, layout, Critic, action, or K16/M4 identity"
+                "v018 policy-quality manifest has incompatible contract, layout, Critic, action, or K8/K16 M4 identity"
             )
         object.__setattr__(self, "environment_revision", _require_text(self.environment_revision, name="environment_revision"))
         object.__setattr__(self, "config_revision", _require_text(self.config_revision, name="config_revision"))
@@ -458,7 +458,7 @@ class FrontRESV018PolicyQualityManifest:
         if not all(isinstance(item, FrontRESPolicyQualityManifestItem) for item in self.items):
             raise ValueError("v018 policy-quality manifest items have an invalid owner")
         if any(int(item.effective_horizon_k) != self.horizon_k for item in self.items):
-            raise ValueError("v018 policy-quality manifest requires homogeneous K16 items")
+            raise ValueError("v018 policy-quality manifest requires items homogeneous with its K8/K16 horizon")
         identities = tuple((item.motion_id, item.start_frame) for item in self.items)
         if len(set(identities)) != len(identities):
             raise ValueError("v018 policy-quality manifest requires distinct Segment identities")
