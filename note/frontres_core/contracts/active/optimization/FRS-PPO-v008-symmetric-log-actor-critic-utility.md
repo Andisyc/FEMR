@@ -138,7 +138,7 @@ scale normalization only; it is not a winner rule or a second reward.
 
 ## Warmup Weight Boundary
 
-FRS-TRAIN-v019 provides one actor-loss weight `w`:
+FRS-TRAIN-v020 provides one actor-loss weight `w`:
 
 ```text
 critic_only: w = 0

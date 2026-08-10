@@ -450,6 +450,16 @@ def test_t_hash() -> None:
         ),
     )
     assert all(other.noisy_segment_hash != scenario.noisy_segment_hash for other in alternatives)
+    revisit = sampler.FrontRESLocalScenario.from_materialization(
+        replace(
+            request,
+            transaction_id="tx-revisit",
+            scenario_id="scenario-revisit",
+            source_index=9,
+        ),
+        materialization,
+    )
+    assert revisit.noisy_segment_hash == scenario.noisy_segment_hash
     print("[T-hash] x_t/artifact/intent-source/window/continuation/support/K each affect noisy_segment_hash", flush=True)
 
 

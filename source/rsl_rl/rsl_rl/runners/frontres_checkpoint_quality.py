@@ -30,7 +30,8 @@ from rsl_rl.frontres.frontres_segment_warmup import (
 )
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-FRONTRES_ACTIVE_CHECKPOINT_FORMAT = "frontres-v019-checkpoint-v14"
+FRONTRES_ACTIVE_CHECKPOINT_FORMAT = "frontres-v020-checkpoint-v15"
+_V019_POLICY_CHECKPOINT_FORMAT = "frontres-v019-checkpoint-v14"
 _V015_LEGACY_POLICY_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v10"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
 _V015_HSL_CHECKPOINT_IDENTITY_KEY = "frontres_v015_hsl_checkpoint_identity"
@@ -156,10 +157,10 @@ def _v015_committed_transaction_receipt(
     expected_identity = dict(
         expected_contract_identity
         or {
-            "method_contract_id": "FRS-METHOD-v020",
+            "method_contract_id": "FRS-METHOD-v021",
             "gain_contract_id": "FRS-GAIN-v008",
             "optimization_contract_id": "FRS-PPO-v008",
-            "training_contract_id": "FRS-TRAIN-v019",
+            "training_contract_id": "FRS-TRAIN-v020",
             "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -512,6 +513,16 @@ def _inspect_frontres_v015_policy_quality_payload(
     checkpoint_format = identity.get("format")
     if checkpoint_format == FRONTRES_ACTIVE_CHECKPOINT_FORMAT:
         contract_identity = {
+            "method_contract_id": "FRS-METHOD-v021",
+            "gain_contract_id": "FRS-GAIN-v008",
+            "optimization_contract_id": "FRS-PPO-v008",
+            "training_contract_id": "FRS-TRAIN-v020",
+            "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
+            "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
+            "grouped_schema_id": "grouped-all-attempt-scalar-v1",
+        }
+    elif checkpoint_format == _V019_POLICY_CHECKPOINT_FORMAT:
+        contract_identity = {
             "method_contract_id": "FRS-METHOD-v020",
             "gain_contract_id": "FRS-GAIN-v008",
             "optimization_contract_id": "FRS-PPO-v008",
@@ -564,7 +575,7 @@ def _inspect_frontres_v015_policy_quality_payload(
     critic_value_normalization_id: str | None = None
     critic_observation_normalizer_fingerprint: str | None = None
     critic_value_normalizer_fingerprint: str | None = None
-    if checkpoint_format == FRONTRES_ACTIVE_CHECKPOINT_FORMAT:
+    if checkpoint_format in {FRONTRES_ACTIVE_CHECKPOINT_FORMAT, _V019_POLICY_CHECKPOINT_FORMAT}:
         if identity.get("critic") != {
             "value_kind": "state_value",
             "input_dim": 449,
@@ -631,7 +642,10 @@ def _inspect_frontres_v015_policy_quality_payload(
     schedule = curriculum.get("schedule")
     require_frontres_v013_campaign_schedule(schedule if isinstance(schedule, (tuple, list)) else ())
     iteration = int(curriculum.get("absolute_iteration", -1))
-    if checkpoint_format == FRONTRES_ACTIVE_CHECKPOINT_FORMAT and value_normalizer_state.update_count != iteration:
+    if checkpoint_format in {
+        FRONTRES_ACTIVE_CHECKPOINT_FORMAT,
+        _V019_POLICY_CHECKPOINT_FORMAT,
+    } and value_normalizer_state.update_count != iteration:
         raise RuntimeError("quality policy Critic normalizer count differs from checkpoint iteration")
     expected = resolve_frontres_k_stage_identity(
         schedule=schedule if isinstance(schedule, (tuple, list)) else (),
@@ -745,6 +759,7 @@ def inspect_frontres_quality_checkpoint(
 # aliases remain local implementation details for compatibility inside this owner.
 EMPIRICAL_NORMALIZER_STATE_KEYS = _EMPIRICAL_NORMALIZER_STATE_KEYS
 FRONTRES_LEGACY_POLICY_CHECKPOINT_FORMAT = _V015_LEGACY_POLICY_CHECKPOINT_FORMAT
+FRONTRES_V019_POLICY_CHECKPOINT_FORMAT = _V019_POLICY_CHECKPOINT_FORMAT
 FRONTRES_ACTIVE_CHECKPOINT_IDENTITY_KEY = _V015_CHECKPOINT_IDENTITY_KEY
 FRONTRES_ACTIVE_GROUPED_CANDIDATE_LAYOUT = _V015_GROUPED_CANDIDATE_LAYOUT
 FRONTRES_HSL_CHECKPOINT_FORMAT = _V015_HSL_CHECKPOINT_FORMAT
@@ -763,6 +778,7 @@ __all__ = (
     "EMPIRICAL_NORMALIZER_STATE_KEYS",
     "FRONTRES_ACTIVE_CHECKPOINT_FORMAT",
     "FRONTRES_LEGACY_POLICY_CHECKPOINT_FORMAT",
+    "FRONTRES_V019_POLICY_CHECKPOINT_FORMAT",
     "FRONTRES_ACTIVE_CHECKPOINT_IDENTITY_KEY",
     "FRONTRES_ACTIVE_GROUPED_CANDIDATE_LAYOUT",
     "FRONTRES_HSL_CHECKPOINT_FORMAT",

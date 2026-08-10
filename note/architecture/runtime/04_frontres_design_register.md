@@ -1,12 +1,13 @@
 # FrontRES Design Inspector
 
-Status: DP07/DP09 symmetric-log utility was human-confirmed on 2026-08-10 and
-activated as METHOD-v020 / GAIN-v008 / PPO-v008 / TRAIN-v019. Actor stays 158D,
-Critic stays 449D and GMT stays 770D. Raw `G_total` and hard Physics evidence
-remain unchanged; each attempt maps through fixed `sign(G)*log1p(abs(G))`
-before Actor advantage and before the M4 Critic mean. Networks, split LR, M,
-K/DR and simulator are unchanged. TRAIN-v018/checkpoint-v13 is historical;
-checkpoint-v14 requires fresh runtime evidence.
+Status: DP02 outer prioritized Scenario Replay was human-confirmed on 2026-08-10
+and activated as METHOD-v021 / TRAIN-v020 / checkpoint-v15. Actor stays 158D,
+Critic stays 449D and GMT stays 770D. Gain-v008, PPO-v008, symmetric-log utility,
+M4, K/DR, split LR and simulator are unchanged. The new owner stores complete
+ScenarioKeys, revisits them with fresh current-policy M4 actions, and commits
+score/staleness/RNG only with the exact-one receipt. Offline Module, checkpoint,
+Evaluation-compatibility and 57-contract regressions pass; the official bounded
+simulator transaction remains the final live gate before long training.
 
 Interactive page: `../02_frontres_design_inspector.html`
 
@@ -49,7 +50,7 @@ The canonical visual order is:
 ```text
 pre-Transaction initialization
 -> resolve K/M and training phase
--> select exactly two Segments
+-> select exactly two sealed Scenarios from global/replay/review
 -> seal one scenario per Segment
 -> restore all roles to the same Clean replay state x_t
 -> sample exact M Repair actions per Segment from frozen pi_old
@@ -62,7 +63,8 @@ one raw Recovery-Aware Gain per attempt, then map each attempt to fixed utility
 -> form one shared 449D support-conditioned state value and mean-M utility target per Segment
 -> use every attempt's utility advantage, scale only the Critic loss, clip
 Actor/Critic separately, and execute exactly one grouped optimizer update
--> atomically commit checkpoint, curriculum and Critic target moments
+-> atomically commit checkpoint, curriculum, Critic target moments and the
+seen/priority/staleness Replay state
 ```
 
 The main page renders these as short Chinese action statements rather than the
@@ -73,7 +75,7 @@ English outline above.
 | Parent design point | Highlighted Transaction responsibility |
 | --- | --- |
 | Perturbation Data | seal one first-frame root artifact, inject no new corruption during K, and retain random Segment coverage with a soft preference only for genuinely cheaper prefix-preroll resets |
-| Segment Replay | restore the same `x_t`, collect exact-M attempts for both Segments, and pass every valid attempt to grouped PPO so their different Gain values provide the current one-action reachable-frontier ordering |
+| Segment Replay | use inner exact-M collection to estimate each sealed Scenario, then use outer rank-and-staleness replay to revisit high-learning-value ScenarioKeys with fresh current-policy actions; commit Replay state only with the exact-one receipt |
 | K-step Curriculum | resolve active K/M, execute K-step evidence, and advance only at committed boundaries |
 | FrontRES 6D Repair | consume the deployable actor prefix and emit one full-6D `Delta SE(3)` action at `t` |
 | Frozen GMT | freeze FrontRES and let frozen GMT execute the common continuation |
@@ -89,6 +91,19 @@ Numbers and information boundaries appear only when they are part of the method
 decision itself. They are not rendered as separate metadata chips:
 
 - `exactly two Segments`;
+- outer Replay stores complete sealed Scenario identity rather than a bare
+  `segment_id`; same motion/frame with a newly sampled artifact is a different
+  learning problem;
+- every valid committed Scenario enters the seen table. Its replay learning
+  value is `mean_m |U(G_m)-V_old(s)|`, so incorrectly predicted negative-Gain
+  Scenarios remain eligible;
+- each Transaction chooses its two distinct sources from `global 40%`,
+  `replay 50%`, and `review 10%`. Replay uses priority rank plus staleness;
+  empty replay/review pools fall back to global discovery;
+- a replayed Scenario generates fresh exact-M actions and log probabilities
+  under the current frozen `pi_old`; old PPO rows are never reused;
+- Replay pool, priority, staleness and RNG state commit only with a successful
+  Transaction receipt, and priority is K-specific;
 - Segment selection remains stochastic. When reaching `x_t` requires prefix
   preroll, estimated lower-preroll-cost Segments receive a soft preference;
   every valid Segment keeps nonzero probability, and direct cached-state reset
@@ -241,14 +256,15 @@ horizon.
 - live evidence never mutates beta inside a run. Human review may revise the
   single global value between bounded calibration runs; once accepted, it is
   frozen across Segments and K rather than becoming a per-stage controller;
-- `G_total = G_I + lambda_RA G_P - beta C_repair` is the complete
-  Recovery-Aware candidate score consumed by Segment Replay ranking;
+- `G_total = G_I + lambda_RA G_P - beta C_repair` remains the raw Recovery-Aware
+  outcome; outer Replay ranks the committed current-K prediction error
+  `mean_m |U(G_m)-V_old(s)|`, not raw Gain magnitude;
 - raw `return_K=G_total` remains diagnostic; training uses
  `U(G)=sign(G)*log1p(abs(G))` per attempt, Critic target `mean_m U(G_m)`, and
  Actor advantage `U(G_m)-V_old(s)`;
 - Actor and Critic gradients are clipped independently at 0.5, then the two
  named LR groups still execute exactly one Adam step and persist as
- checkpoint-v14;
+ checkpoint-v15;
 - Contact phase, support-foot drift, phase-ZMP and survival remain fail-closed
   Physics evidence, but their learning route is `P_X -> G_P -> G_total`; the
   old independent constraint projection and KKT actor gate retire rather than
@@ -321,10 +337,12 @@ does not delete or supersede them.
  independent Physics projection as retired;
 - the bottom card contains four to eight numbered atomic decisions and no
   implementation/evidence panels;
-- Segment Replay visibly covers same-`x_t` reset, exact-M collection, zero updates
-  during collection, and exact-one grouped update. Its human-facing explanation
-  says that motions, Segments and attempts receive equal voting weight, so a
-  group cannot dominate merely because it contains more rows;
+- Segment Replay visibly separates inner exact-M estimation from outer
+  Scenario selection; it defines complete ScenarioKey identity, valid-only
+  admission, mean absolute utility-error learning value, rank plus staleness
+  selection, the 40/50/10 timing rule, fresh current-policy M4 recollection and
+  committed-only sampler mutation. It preserves equal grouped PPO voting weight
+  and never reuses old policy rows;
 - K-step Curriculum visibly shows K8/M4, K16/M4, K32/M4 and concise K64 inactive
   status;
 - K-step Curriculum shows one Clean, one Noisy, and M Repair evaluations per
@@ -338,7 +356,7 @@ does not delete or supersede them.
 - HSL is visibly pre-Transaction rather than a per-Transaction operation;
 - Actor & Critic Warmup states the direct `HSL -> HRL` transition, the 449D
  state-value input, M4 symlog-mean target, separate gradient clipping and
- checkpoint-v14 cold-start boundary;
+ checkpoint-v15 cold-start boundary;
 - the `Future Motion Context` detail card explicitly states `t+1,t+2`,
   `29D x 2 = 58D`,
  extraction from one fixed deployment Noisy reference, Actor/Critic reuse, and

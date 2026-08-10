@@ -1,6 +1,6 @@
 {
   "title": "FrontRES Module Test Atlas",
-  "subtitle": "TRAIN-v019/checkpoint-v14：18 passed；TEST-13--18 已按 symlog utility oracle 通过；formal runtime sentinel 待执行",
+  "subtitle": "TRAIN-v020/checkpoint-v15：22 passed；外层 Scenario Replay 离线合同通过；official bounded transaction 待执行",
   "humanStatus": "confirmed",
   "layout": "module_test_inspector",
   "defaultZoom": 0.8,
@@ -1386,6 +1386,86 @@
             ]
           }
         }
+      ]
+    },
+    {
+      "designId": "TEST-19",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "PASS：同一 perturbation seed 重建相同 noisy hash、future Intent 与 support identity；隔离 materializer 不推进 Actor/global RNG。",
+      "blockId": "MOD-OUTER-IDENTITY",
+      "title": "Outer Replay Scenario Identity",
+      "color": "#47749f",
+      "highlightSteps": ["purpose", "oracle", "cases"],
+      "details": [
+        {"heading": "要验证的设计规则", "text": "Replay 单位是完整 ScenarioKey，不是 bare segment_id；visit identity 不得进入物理内容 hash。"},
+        {"heading": "伪样本测试", "text": "固定 seed 重访同一物理 Scenario，并逐项改变身份字段。", "table": {"columns": ["伪样本", "正确结果", "证明什么"], "rows": [
+          ["同 motion/frame/K/seed，改变 transaction_id", "noisy hash 与 ScenarioKey 不变", "visit ID 不污染物理身份"],
+          ["同输入与 seed 重建两次", "artifact、future Intent、support identity 相同", "Scenario 可重放"],
+          ["materializer 前后读取 CPU RNG", "RNG state 逐字节相同", "不推进 Actor/global RNG"],
+          ["只改变 perturbation seed", "key 与 noisy hash 改变", "seed 属于 Scenario 身份"],
+          ["只改变 future Intent 或 planned support", "key 改变", "Critic 可见条件属于身份"]
+        ]}}
+      ]
+    },
+    {
+      "designId": "TEST-20",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "PASS：global/replay/review、rank+staleness、负 Gain 高误差与 per-K 隔离均按 METHOD-v021 oracle 工作。",
+      "blockId": "MOD-OUTER-SELECTION",
+      "title": "Outer Replay Selection And Priority",
+      "color": "#47749f",
+      "highlightSteps": ["purpose", "oracle", "cases"],
+      "details": [
+        {"heading": "要验证的设计规则", "text": "每次选择两个不同 Scenario；学习值是 mean_m abs(U(G_m)-V_old)，只调度、不改 PPO mass。"},
+        {"heading": "伪样本测试", "text": "构造正/负 advantage、低分陈旧记录和 K8/K16 分数。", "table": {"columns": ["伪样本", "正确结果", "证明什么"], "rows": [
+          ["advantages=[-4,-2,-1,-1]", "learning value=2", "负 Gain 不被 clamp"],
+          ["高分新记录与低分陈旧记录", "replay 按 rank，review/staleness 保留复查机会", "优先与遗忘检查分工"],
+          ["记录只有 K8 score，active K16", "不能进入 K16 replay/review pool", "per-K 隔离"],
+          ["replay 或 review pool 为空", "回退 global", "冷启动可运行"],
+          ["一次选择出现同 segment 两次", "计划拒绝", "两个 Scenario source 保持不同"]
+        ]}}
+      ]
+    },
+    {
+      "designId": "TEST-21",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "PASS：staged replay candidate 只接受匹配的 METHOD-v021/TRAIN-v020 exact-one receipt；失败、错配与重复 commit 均零 replay delta。",
+      "blockId": "MOD-OUTER-COMMIT",
+      "title": "Outer Replay Transaction Commit",
+      "color": "#47749f",
+      "highlightSteps": ["purpose", "oracle", "cases"],
+      "details": [
+        {"heading": "要验证的设计规则", "text": "Replay state、staleness 与 owner RNG 只能跟随同一个 optimizer exact-one receipt 提交一次。"},
+        {"heading": "伪样本测试", "text": "分别注入成功与失败的 transaction receipt。", "table": {"columns": ["伪样本", "正确结果", "证明什么"], "rows": [
+          ["缺少 receipt", "拒绝且 state signature 不变", "无提交不写池"],
+          ["transaction 或 policy_snapshot 不匹配", "拒绝且零 delta", "不能串事务"],
+          ["optimizer_step_delta=0", "拒绝且零 delta", "必须 exact-one"],
+          ["唯一匹配 receipt", "state_delta=1，记录 score/visit/RNG", "同一 Unit of Work"],
+          ["重复提交同一 candidate", "第二次拒绝且状态不变", "exactly-once replay commit"]
+        ]}}
+      ]
+    },
+    {
+      "designId": "TEST-22",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "PASS：checkpoint-v15 原子保存并严格恢复 Scenario records、per-K score、staleness、visit、owner RNG 与 last receipt；历史 v14 仅保留只读 Evaluation。",
+      "blockId": "MOD-OUTER-PERSISTENCE",
+      "title": "Outer Replay Checkpoint Persistence",
+      "color": "#47749f",
+      "highlightSteps": ["purpose", "oracle", "cases"],
+      "details": [
+        {"heading": "要验证的设计规则", "text": "checkpoint-v15 是唯一可训练 resume 身份；外层池不得丢失或从旧 checkpoint 猜测重建。"},
+        {"heading": "伪样本测试", "text": "保存含两条记录的 owner，并向 fresh owner 加载正常或损坏 payload。", "table": {"columns": ["伪样本", "正确结果", "证明什么"], "rows": [
+          ["正常 checkpoint-v15 fresh-load", "key/score/visit/staleness/RNG 完全相同", "严格 round-trip"],
+          ["删除 outer replay state", "任何 mutable restore 前拒绝", "不静默重建"],
+          ["修改 schema 或 fraction", "严格拒绝", "配置身份封存"],
+          ["checkpoint-v14 尝试 training resume", "拒绝", "旧池不能猜测迁移"],
+          ["checkpoint-v14 进入 Evaluation-only", "只读加载 Actor/Critic，零 replay 写入", "历史评价兼容与训练隔离"]
+        ]}}
       ]
     }
   ]

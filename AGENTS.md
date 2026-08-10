@@ -3,10 +3,18 @@
 This file is the local working contract for AI coding assistants in this
 repository. Keep it concise and update it when the experiment design changes.
 
+Versioned FrontRES semantics are owned by
+`note/frontres_core/contracts/README.md` and its active Contract set. Read that
+registry before asserting a current method, training, reward, optimization or
+evaluation identity. This file records stable working constraints and a compact
+current summary; it must not become a second semantic authority. If it conflicts
+with the active registry, the registry wins and this file must be corrected
+before further method work.
+
 ## Project Context
 
 FrontRES is a lightweight residual corrector placed before the frozen GMT
-tracker. Under the active v017 route it receives the deployable 158D
+tracker. Under the active Contract route it receives the deployable 158D
 FrontRES prefix: the current Noisy root artifact/state features plus the
 deployment/Noisy q29 future-intent tail. Frozen GMT retains authority over the
 original 770D suffix. FrontRES outputs task-space corrections:
@@ -46,25 +54,27 @@ The intended training flow is:
    - Store replayable Clean dynamic states and discrete Noisy variants.
 2. Stage 2 HSL
    - Initialize only the proposal actor from the deployable 158D FrontRES
-     prefix. HSL-v1 is proposal-only and does not define the Stage-3 target.
+     prefix. HSL-v2 initializes the actor/std and actor-prefix normalizer only;
+     it does not initialize or define the Stage-3 Critic target.
 3. Stage 3 Segment Replay PPO
    - Initialize the same 6D actor from HSL, then optimize direct Delta SE(3)
      repair with one-action-K paired evidence, sealed multi-Segment x M replay,
-     and exactly one grouped optimizer update per committed transaction.
-   - The scalar Critic predicts the single FRS-GAIN-v007 Recovery-Aware
-     `G_total`. Intent and Physics are both Clean-anchored; Physics recovery
-     pressure controls how strongly Physics improvement enters the same scalar.
-     TRAIN-v017 preserves raw `G_total`, raw `V(s)` and Actor credit while
-     dividing only the Critic value loss by a committed non-amplifying EMA
-     target-variance scale before the existing independent gradient clip.
-     There is no active constraint-gradient projection or KKT authority.
+     outer prioritized sealed-Scenario replay across transactions, and exactly
+     one grouped optimizer update per committed transaction.
+   - The reward owner publishes one raw Recovery-Aware `G_total` per Repair.
+     The optimization owner applies fixed symmetric-log utility independently
+     to each valid attempt before the exact-M Critic mean and Actor advantage.
+     The 449D support-conditioned scalar Critic predicts expected utility, not
+     raw Gain and not action-conditioned `Q(s,a)`. Actor and Critic retain
+     separate gradient clipping before the same exact-one Adam step. There is
+     no active constraint-gradient projection or KKT authority.
 
 ## Perturbation Curriculum
 
 The current experiment samples one sealed `local_rp` perturbation per Segment
 through `frontres_specialist_mode="rp"`. This restricts the corruption
 distribution, not the policy output: Stage 2 and Stage 3 always retain full-6D
-repair. TRAIN-v013 gives each active K its own lower-to-higher DR curriculum.
+repair. The active training Contract gives each K its own inner DR curriculum.
 At every K transition DR returns to a lower informative distribution while the
 same Critic recalibrates. For the current frozen GMT, robot and perturbation
 definition, `dr_scale=2.381` is the experimentally measured maximum reliable
@@ -80,11 +90,15 @@ Do not use the full environment reward for Segment gain or PPO return.
 Teleoperation, velocity-command, generic tracking, and unrelated task terms are
 not repair evidence.
 
-The accepted scalar Stage-3 objective is the unique FRS-GAIN-v007 value:
+The accepted raw Stage-3 evidence is the unique Recovery-Aware value published
+by the active reward Contract:
 
 ```text
 G_total = G_I + lambda_RA * G_P - beta * C_repair
 return_K = G_total
+U(G_total) = sign(G_total) * log1p(abs(G_total))
+critic_target = mean_m U(G_total_m)
+advantage_m = U(G_total_m) - V_old(s)
 ```
 
 `G_I` and `G_P` are signed Noisy-to-Repair improvements measured relative to
@@ -98,8 +112,9 @@ scalar Physics fallback, or epsilon gate.
 
 Important diagnostics:
 
-- scalar target, return, value, raw/scaled advantage, and Critic calibration;
-- raw/scaled Critic value loss, non-amplifying target scale, committed moments
+- raw Gain, transformed utility, exact-M target, value, advantage and Critic
+  calibration;
+- Critic value loss, committed non-amplifying target scale, committed moments
   and exact update-count transition;
 - expected/actual Contact and loaded-support phase-ZMP applicability/violation;
 - survival, sustained lateral lean, and unplanned support changes;
@@ -201,6 +216,21 @@ the training environment.
   - full-6D action identity;
   - perturbation schedule;
   - reward diagnostics.
+
+## Remote Server Operations
+
+- For server artifact inspection, run at most one read-only locator command to
+  identify the exact log or report. Do not repeatedly inspect large artifacts
+  inside Electerm or another remote terminal.
+- Once the exact artifact exists, stop remote inspection and ask the user to
+  pull it for local analysis. Use `./croc_send.sh` only when the user explicitly
+  authorizes that transfer.
+- After starting training or evaluation, report the command, log path and start
+  evidence, then stop. Do not poll, tail or monitor the background process
+  unless the user explicitly requests monitoring in the current task.
+- If one Computer Use action fails, do not retry the same objective through
+  alternative UI or SSH paths without new evidence or explicit user direction.
+  Return the exact artifact path or one concise command instead.
 
 ## Common Pitfalls
 

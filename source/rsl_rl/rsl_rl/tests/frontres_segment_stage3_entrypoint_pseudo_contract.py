@@ -454,7 +454,7 @@ def test_stage3_ppo_schedule_rejects_adaptive() -> None:
     except ValueError as exc:
         assert "schedule must be fixed" in str(exc)
     else:
-        raise AssertionError("FRS-TRAIN-v019 must reject adaptive Stage-3 scheduling")
+        raise AssertionError("FRS-TRAIN-v020 must reject adaptive Stage-3 scheduling")
 
 
 def test_stage3_ppo_schedule_override_rejects_non_stage3() -> None:
@@ -507,7 +507,7 @@ def test_stage3_split_lr_override_rejects_shared_and_partial_inputs() -> None:
         _probe_exception("rejects_non_positive_ppo_lr", exc)
         assert "rejects --frontres_segment_ppo_lr" in str(exc)
     else:
-        raise AssertionError("FRS-TRAIN-v019 must reject the shared LR option")
+        raise AssertionError("FRS-TRAIN-v020 must reject the shared LR option")
     try:
         _apply_frontres_segment_split_lr_override(
             agent_cfg,
@@ -516,7 +516,7 @@ def test_stage3_split_lr_override_rejects_shared_and_partial_inputs() -> None:
     except ValueError as exc:
         assert "together" in str(exc)
     else:
-        raise AssertionError("FRS-TRAIN-v019 must reject a partial split-LR override")
+        raise AssertionError("FRS-TRAIN-v020 must reject a partial split-LR override")
 
 
 def test_stage3_rejects_multiple_live_sentinel_modes() -> None:

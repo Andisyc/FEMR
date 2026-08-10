@@ -77,7 +77,7 @@ const expectedPerturbationHeadings = [
   "3. 固定情境",
   "4. GMT 扰动边界与 Probing",
   "5. DR 与 K 的关系",
-  "6. Segment 选择",
+  "6. Global Segment 选择",
   "7. 四类训练分布",
   "8. 为什么恢复四档",
 ];
@@ -181,21 +181,21 @@ for (const card of review.cards) {
 const segmentReplay = cardsById.get("FRS-DP-02");
 for (const requiredStep of [
  "select-segments", "seal-scenarios", "restore-xt", "sample-attempts",
- "seal-policy-rows", "grouped-update",
+ "seal-policy-rows", "grouped-update", "commit-state",
 ]) {
  if (!segmentReplay.highlightSteps.includes(requiredStep)) {
   throw new Error(`Segment Replay does not highlight ${requiredStep}`);
   }
 }
 const expectedSegmentReplayHeadings = [
-  "Transaction：完整收集后原子提交",
-  "Segment 数量：方法允许 N_segment > 1，当前取 2",
-  "每个 Segment 单独封存一个 scenario",
-  "同一 Segment 的尝试从相同 x_t 开始",
-  "exact M 次尝试只改变一次 Repair 动作",
-  "全部有效尝试共同进入 PPO",
-  "Gain 评分，Segment Replay 组织排序",
-  "当前一次更新封存 2 x M 条 policy row",
+  "两层 Replay：内层估计，外层重访",
+  "Replay 单位：同一个 sealed Scenario",
+  "保存规则：有效 Scenario 全部登记",
+  "学习价值：当前预测还差多少",
+  "池内选择：优先级排名加 staleness",
+  "重放时机：每个 Transaction 开始时选择来源",
+  "重放执行：当前策略重新生成 M4",
+  "提交边界：成功后才更新 Replay 状态",
 ];
 if (segmentReplay.details.length !== expectedSegmentReplayHeadings.length
   || segmentReplay.details.some((detail, index) => detail.heading !== expectedSegmentReplayHeadings[index])) {
@@ -245,7 +245,7 @@ for (const required of [
 "未来窗口固定为 t+1 与 t+2 两帧",
 "每帧只提取 29D 内部关节 Intent，共 58D",
 "两帧均来自同一条 sealed Noisy/deployment reference",
-"封存 2 x M 条 policy row 后只执行一次 grouped scalar update",
+"封存 2 x M 条 policy row 后仍只执行一次 grouped scalar update",
 "固定位置权重 tau_k=k/K",
 "能区分正在恢复和正在恶化",
 "每个 z_j 就是一项归一化后的 r_j",
@@ -255,8 +255,16 @@ for (const required of [
 "先让每条动作序列拥有相同发言权",
 "不能因为某组数据行更多就压倒其他组",
 "不使用 winner-only、argmax 或 best-of-M 权重",
-"所有有效 Segment 始终保留非零采样概率",
+"所有有效 Segment 始终保留非零 global 采样概率",
 "能够从缓存直接恢复 x_t 的 Segment 不因起始帧靠后而被降权",
+"mean_m |U(G_m)-V_old(s)|",
+"不再把负 Gain clamp 为零",
+"global 40%、replay 50%、review 10%",
+"按学习价值的排名进行概率采样",
+"增加 staleness 机会",
+"旧 action、log-prob、return 与 advantage 绝不复用",
+"同一个 sealed artifact",
+"失败事务不改变池或 staleness",
 "平移与旋转都解释为 world-frame residual",
 "向上 dz 不做硬裁剪",
 "首轮 bounded live test 使用 beta_init=0.02",
@@ -271,7 +279,8 @@ for (const required of [
 "EMA target std 只调节 Critic loss 梯度",
 "固定 symlog 先把 raw G_total 映射为 Actor/Critic 共同预测的 robust utility",
 "分别计算并裁剪各自的 gradient norm",
-"checkpoint-v13 不能 resume",
+"TRAIN-v020 使用 checkpoint-v15",
+"外层 Scenario Replay 的 key/score/staleness/RNG",
 "每个 K 都拥有一轮独立的 DR Curriculum",
 "降低 DR 后重新进入 critic-only",
 "不再建立独立 Physics projection",
@@ -314,7 +323,7 @@ for (const required of [
 "Actor LR = 3e-6",
 "Critic LR = 1e-5",
 "同一个 Adam",
-"checkpoint-v13",
+"checkpoint-v15",
 "至少为 1",
 "EMA target std 只调节 Critic loss 梯度",
 "exact-one commit 后提交",

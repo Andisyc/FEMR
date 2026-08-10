@@ -71,10 +71,10 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
         frontres_training_objective="segment_replay_hrl",
         frontres_segment_max_horizon_k=64,
         frontres_future_offsets=(1, 2),
-        frontres_method_contract_id="FRS-METHOD-v020",
+        frontres_method_contract_id="FRS-METHOD-v021",
         frontres_gain_contract_id="FRS-GAIN-v008",
         frontres_optimization_contract_id="FRS-PPO-v008",
-        frontres_training_contract_id="FRS-TRAIN-v019",
+        frontres_training_contract_id="FRS-TRAIN-v020",
         frontres_critic_value_kind="state_value",
         frontres_critic_input_dim=449,
         frontres_critic_support_context_id="action-pre-support-plan-kmax32-v1",
@@ -117,16 +117,27 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
 def _committed_receipt(*, transaction_id: str = "tx-v016") -> dict[str, object]:
     return {
         "transaction_id": transaction_id,
-        "method_contract_id": "FRS-METHOD-v020",
+        "method_contract_id": "FRS-METHOD-v021",
         "gain_contract_id": "FRS-GAIN-v008",
         "optimization_contract_id": "FRS-PPO-v008",
-        "training_contract_id": "FRS-TRAIN-v019",
+        "training_contract_id": "FRS-TRAIN-v020",
         "optimizer_step_delta": 1,
         "selected_segment_count": 2,
         "policy_row_count": 8,
         "role_row_count": 16,
         "active_k": 8,
         "active_m": 4,
+    }
+
+
+def _outer_replay_telemetry() -> dict[str, object]:
+    return {
+        "outer_replay_state_delta": 1,
+        "outer_replay_sources": ("global", "global"),
+        "outer_replay_scenario_key_digests": ("a" * 64, "b" * 64),
+        "outer_replay_learning_values": (0.2, 0.1),
+        "outer_replay_ema_scores": (0.2, 0.1),
+        "outer_replay_pool_sizes": (2, 0),
     }
 
 
@@ -154,10 +165,10 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
         optimizer_step_delta=1,
         update_invocation_count=1,
         diagnostics={
-            "method_contract_id": "FRS-METHOD-v020",
+            "method_contract_id": "FRS-METHOD-v021",
             "gain_contract_id": "FRS-GAIN-v008",
             "optimization_contract_id": "FRS-PPO-v008",
-            "training_contract_id": "FRS-TRAIN-v019",
+            "training_contract_id": "FRS-TRAIN-v020",
             "critic_support_context_id": "action-pre-support-plan-kmax32-v1",
             "selected_segment_count": 2,
             "active_m": 4,
@@ -189,11 +200,11 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                     "update_count": 4,
                 },
                 "frontres_v015_checkpoint_identity": {
-                    "format": "frontres-v019-checkpoint-v14",
-                    "method_contract_id": "FRS-METHOD-v020",
+                    "format": "frontres-v020-checkpoint-v15",
+                    "method_contract_id": "FRS-METHOD-v021",
                     "gain_contract_id": "FRS-GAIN-v008",
                     "optimization_contract_id": "FRS-PPO-v008",
-                    "training_contract_id": "FRS-TRAIN-v019",
+                    "training_contract_id": "FRS-TRAIN-v020",
                     "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
                     "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
                     "return_utility": {
@@ -280,7 +291,7 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     assert "segment_voting_weights=count=2,head=(0.5, 0.5)" in transaction_line
     assert "attempt_voting_weights=count=8,head=(0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125)" in transaction_line
     assert "optimizer_step_delta=1" in transaction_line and "update_invocations=1" in transaction_line
-    assert "FRS-METHOD-v020/FRS-GAIN-v008/FRS-PPO-v008/FRS-TRAIN-v019" in transaction_line
+    assert "FRS-METHOD-v021/FRS-GAIN-v008/FRS-PPO-v008/FRS-TRAIN-v020" in transaction_line
     assert "FRS-GAIN-v002" not in output and "shape=(2, 870)" not in output
     assert "lower-k8" in output and "active_k=8" in output
 
@@ -317,11 +328,11 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v013_curriculum() -> None:
             "update_count": 4,
         },
         "frontres_v015_checkpoint_identity": {
-            "format": "frontres-v019-checkpoint-v14",
-            "method_contract_id": "FRS-METHOD-v020",
+            "format": "frontres-v020-checkpoint-v15",
+            "method_contract_id": "FRS-METHOD-v021",
             "gain_contract_id": "FRS-GAIN-v008",
             "optimization_contract_id": "FRS-PPO-v008",
-            "training_contract_id": "FRS-TRAIN-v019",
+            "training_contract_id": "FRS-TRAIN-v020",
             "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
             "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
@@ -423,6 +434,7 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
     utility_returns = tuple(math.copysign(math.log1p(abs(value)), value) for value in raw_returns)
     utility_targets = (utility_returns[0], utility_returns[4])
     telemetry = {
+        **_outer_replay_telemetry(),
         "transaction_id": "tx-v016",
         "source_index": (0, 0, 0, 0, 1, 1, 1, 1),
         "trial_index": (0, 1, 2, 3, 0, 1, 2, 3),
@@ -626,6 +638,7 @@ def test_phase_b_return_audit_reproduces_float32_reduction() -> None:
         for values in (utility_returns[:4], utility_returns[4:])
     )
     telemetry = {
+        **_outer_replay_telemetry(),
         "transaction_id": "tx-v017-float32",
         "source_index": (0, 0, 0, 0, 1, 1, 1, 1),
         "trial_index": (0, 1, 2, 3, 0, 1, 2, 3),

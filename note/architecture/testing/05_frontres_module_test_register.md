@@ -1,13 +1,14 @@
 # FrontRES Module Test Atlas
 
-Status: TRAIN-v019 symlog-utility cards confirmed and executed offline; Phase A passed.
+Status: TRAIN-v020 outer Scenario Replay cards confirmed and executed offline; Phase A passed.
 
-Current result: `18 passed / 0 partial / 0 blocked`; the repository-wide
-contract suite is `55 passed / 0 failed`. TEST-13--18 now cover the confirmed
+Current result: `22 passed / 0 partial / 0 blocked`; the repository-wide
+contract suite is `57 passed / 0 failed`. TEST-13--18 cover the confirmed
 FRS-GAIN-v008 raw evidence boundary, per-attempt fixed symlog, M4 utility mean,
-shared Actor/Critic utility, checkpoint-v14, evaluation and diagnostics.
-TRAIN-v018/checkpoint-v13 results remain historical characterization, not
-runtime evidence for TRAIN-v019.
+shared Actor/Critic utility, historical checkpoint-v14 evaluation and diagnostics.
+TEST-19--22 cover stable Scenario identity, selection/priority, exact-one replay
+commit and checkpoint-v15 persistence. The official bounded simulator transaction
+remains the live gate before TRAIN-v020 long training.
 
 Interactive page: `../05_frontres_module_test_atlas.html`
 
@@ -16,8 +17,8 @@ Interactive page: `../05_frontres_module_test_atlas.html`
 This Atlas is the human control surface for module/function correctness. It
 does not prove formal-route connectivity or policy quality.
 
-It also contains a compact `Formal Runtime Audit` stage-reading card. That card
-does not add a nineteenth module test. It explains how the already-correct
+It also contains a compact `Formal Runtime Audit` stage-reading card. It explains
+how the already-correct
 modules are audited in two steps: Phase A checks method/code alignment, then
 Phase B checks only the remaining live-dependent facts on the official route.
 Module-semantic failures return to the existing Module Test Cards; policy
@@ -50,8 +51,8 @@ changes make affected evidence stale.
 
 ## Current Scope
 
-The first Atlas contains the 18 formal runtime module families from
-`architecture/01_repo_architecture.data.json`. Supporting GMT environment
+The Atlas contains the original 18 formal runtime module families plus four
+METHOD-v021 outer replay cards. Supporting GMT environment
 reward and test-infrastructure modules remain outside the primary method test
 surface.
 
@@ -59,13 +60,13 @@ surface.
 
 | Status | Cards |
 | --- | --- |
-| passed | TEST-01--18 |
+| passed | TEST-01--22 |
 | not-run | none |
 | partial | none |
 | blocked | none |
 
 The current detailed oracle and execution evidence is linked by
-`../../frontres_core/checklists/FRS-TRAIN-v019-symmetric-log-utility-checklist.md`;
+`../../frontres_core/plans/FRS-TRAIN-v020-outer-scenario-replay-one-shot-engineering-plan.md`;
 the v017 value-scale ledger
 remains historical evidence only. Formal runtime and policy-quality claims are
 still separate gates.

@@ -52,10 +52,14 @@ for (const required of [
 
 const expectedModuleIds = repoMap.runtimeOrder;
 const cardModuleIds = atlas.cards.map((card) => card.blockId);
-if (atlas.cards.length !== expectedModuleIds.length
- || new Set(cardModuleIds).size !== expectedModuleIds.length
+const outerReplayModuleIds = ["MOD-OUTER-IDENTITY", "MOD-OUTER-SELECTION", "MOD-OUTER-COMMIT", "MOD-OUTER-PERSISTENCE"];
+if (atlas.cards.length !== expectedModuleIds.length + outerReplayModuleIds.length
+ || new Set(cardModuleIds).size !== atlas.cards.length
  || expectedModuleIds.some((id) => !cardModuleIds.includes(id))) {
- throw new Error(`Module Test Atlas must cover all ${expectedModuleIds.length} runtime module families exactly once`);
+ throw new Error(`Module Test Atlas must cover all ${expectedModuleIds.length} runtime modules plus four outer replay boundaries exactly once`);
+}
+if (outerReplayModuleIds.some((id) => !cardModuleIds.includes(id))) {
+ throw new Error("Module Test Atlas is missing an outer replay boundary card");
 }
 for (const supportId of repoMap.supportOrder) {
  if (cardModuleIds.includes(supportId)) throw new Error(`support module leaked into primary Test Atlas: ${supportId}`);
@@ -122,10 +126,10 @@ const counts = Object.fromEntries(
   atlas.cards.filter((card) => card.executionStatus === status).length,
  ])
 );
-if (counts.passed !== 18 || counts.partial !== 0 || counts.blocked !== 0 || counts["not-run"] !== 0) {
+if (counts.passed !== 22 || counts.partial !== 0 || counts.blocked !== 0 || counts["not-run"] !== 0) {
  throw new Error(`module execution count drift: ${JSON.stringify(counts)}`);
 }
-for (const token of ["18 passed"]) {
+for (const token of ["22 passed"]) {
  if (!atlas.subtitle.includes(token)) throw new Error(`Module Test Atlas subtitle missing ${token}`);
 }
 console.log(

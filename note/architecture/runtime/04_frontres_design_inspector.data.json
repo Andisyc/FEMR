@@ -2,7 +2,7 @@
   "layout": "design_transaction_inspector",
   "defaultZoom": 0.8,
   "title": "FrontRES Design Inspector",
-  "subtitle": "TRAIN-v019：raw G_total 保留；每次 Repair 先取固定 symlog utility，再共同形成 Actor credit 与 M4 Critic target",
+  "subtitle": "FRS-METHOD-v021 active：exact-M 内层估计 + 跨 Transaction 外层优先 Scenario Replay",
   "cards": [
     {
       "designId": "FRS-DP-01",
@@ -32,8 +32,8 @@
           "text": "每个 K 都有自己的一轮 DR Curriculum：K8 从较低 DR 推进到较高 DR；切换 K16 后，DR 回到较低但仍有修复信号的水平，Critic 重新校准，再提高 DR；K32 同样重新开始。这里重置的是训练难度，不是 Actor、Critic 或已学能力。"
         },
         {
-          "heading": "6. Segment 选择",
-          "text": "Segment 原则上随机选择。只有当恢复 x_t 需要从动作开头 preroll 时，才软性偏向靠前、恢复成本较低的 Segment。所有有效 Segment 始终保留非零采样概率；能够从缓存直接恢复 x_t 的 Segment 不因起始帧靠后而被降权。"
+          "heading": "6. Global Segment 选择",
+          "text": "Global source 原则上随机发现新 Segment。只有当恢复 x_t 需要从动作开头 preroll 时，才软性偏向恢复成本较低的 Segment。所有有效 Segment 始终保留非零 global 采样概率；能够从缓存直接恢复 x_t 的 Segment 不因起始帧靠后而被降权。Replay 与 review source 的选择规则由 Segment Replay 设计点统一负责。"
         },
         {
           "heading": "7. 四类训练分布",
@@ -61,42 +61,42 @@
       "blockId": "SR-01",
       "title": "Segment Replay",
       "color": "#47749f",
-      "responsibility": "一个 Transaction 原子封存多个 Segment 的全部 exact M 次尝试，完整收集后只提交一次 grouped PPO update；当前 TRAIN-v014 campaign 取最小跨情境实例 N_segment=2。",
+      "responsibility": "内层 Replay 在一个 Transaction 中封存两个 Scenario 的 exact M 次尝试；外层 Replay 在后续 Transaction 中优先重访当前策略仍未学明白的同一 sealed Scenario。",
       "details": [
         {
-          "heading": "Transaction：完整收集后原子提交",
-          "text": "先冻结旧策略与全部 scenario，再收集所有 Segment x M attempts；收集期间禁止 optimizer update。只有全部尝试完整封存后，才恰好执行一次 grouped PPO update。缺失、混合或中途更新都不能提交。"
+          "heading": "两层 Replay：内层估计，外层重访",
+          "text": "内层 Replay 在同一个 frozen pi_old 下，对两个 Scenario 分别收集 exact M=4 次 Repair，再执行一次 grouped update。外层 Replay 发生在 committed Transaction 之间，决定下一次是发现新 Scenario，还是重访先前仍有学习价值的 Scenario；它不增加 optimizer step。"
         },
         {
-          "heading": "Segment 数量：方法允许 N_segment > 1，当前取 2",
-          "text": "一个 Segment 只能提供单一动作情境内的排序；两个 Segment 是产生跨情境信用的最小实例。更多 Segment 在概念上成立，但 rollout 与环境成本随 N_segment 线性增长，因此当前 TRAIN-v014 campaign 固定 N_segment=2，而不是把 2 当作理论定律。"
+          "heading": "Replay 单位：同一个 sealed Scenario",
+          "text": "Replay 保存的不是裸 segment_id，而是 motion/frame、x_t、扰动类型、强度与 seed/artifact hash、noisy_segment_hash、K、future Intent 和 planned support 共同定义的 ScenarioKey。重新选择同一 segment_id 却重采样 DR，不算重放同一个 Critic 状态。"
         },
         {
-          "heading": "每个 Segment 单独封存一个 scenario",
-          "text": "每个 Segment 都有自己的固定局部情境；不同 Segment 不共享或混合 artifact、future Intent、Clean continuation、K 与 scenario identity。"
+          "heading": "保存规则：有效 Scenario 全部登记",
+          "text": "每个完整、有限且成功提交的 Scenario 都进入 seen table；无效 reset、缺失证据或未完成 exact-M 的 Transaction 不得写入。高学习价值的进入 replay 候选，已经学会的进入低频 review，失败事务不改变池或 staleness。"
         },
         {
-          "heading": "同一 Segment 的尝试从相同 x_t 开始",
-          "text": "M 次尝试都恢复到同一个 Clean replay state x_t，使结果差异主要来自 FEMR 动作。x_t 只恢复动力学，不代表 actor 观察 Clean reference。"
+          "heading": "学习价值：当前预测还差多少",
+          "text": "一个 Scenario 的学习价值取 exact M 次 mean_m |U(G_m)-V_old(s)|。它只决定以后多常回来，不改变 Gain、Critic target、Actor loss 或 PPO mass。正 Gain 和负 Gain 都可高价值；不再把负 Gain clamp 为零。"
         },
         {
-          "heading": "exact M 次尝试只改变一次 Repair 动作",
-          "text": "同一 Segment 内的首帧 artifact、future Intent、Clean continuation、K、hash 与冻结 pi_old 全部不变；只有 t 时刻的 full-6D Delta SE(3) 不同，从而暴露当前策略一次修复的可达范围。"
+          "heading": "池内选择：优先级排名加 staleness",
+          "text": "Replay pool 按学习价值的排名进行概率采样，并给长期未访问的 Scenario 增加 staleness 机会。最高分更容易被选中，但不会永久独占；已经学会的 Scenario 降低优先级，仍可由 review 检查是否遗忘。"
         },
         {
-          "heading": "全部有效尝试共同进入 PPO",
-          "text": "先让每条动作序列拥有相同发言权，再让每个 Segment 拥有相同发言权，最后让同一 Segment 的每次有效尝试拥有相同发言权。发言权相同不代表分数相同；每次尝试自己的 G_total 与 advantage 决定它推动还是反对该动作。不能因为某组数据行更多就压倒其他组，也不使用 winner-only、argmax 或 best-of-M 权重。"
+          "heading": "重放时机：每个 Transaction 开始时选择来源",
+          "text": "两个不同 Scenario 在 Transaction 打开前分别按 global 40%、replay 50%、review 10% 选择。global 发现新情境，replay 重访未学会情境，review 复查已学会或陈旧情境；对应池为空时回退 global。K 改变后使用该 K 自己的 priority，不能沿用旧 K 的分数。"
         },
         {
-          "heading": "Gain 评分，Segment Replay 组织排序",
-          "text": "Recovery-Aware 的 Intent/Physics 关系由每次尝试的 Gain 定义；Segment Replay 不重新定义分数。它只保证每次有效尝试都参与学习，并防止行数更多的动作、Segment 或尝试组自动获得更大影响力。"
+          "heading": "重放执行：当前策略重新生成 M4",
+          "text": "抽到 Replay Scenario 后，冻结当前 Actor 为新的 pi_old，从同一个 Clean replay state x_t 和同一个 sealed artifact 重新采样 exact M=4 个 full-6D Repair。旧 action、log-prob、return 与 advantage 绝不复用。先让每条动作序列拥有相同发言权，再让每个 Scenario 和每次有效尝试拥有相同 grouped PPO 发言权，不能因为某组数据行更多就压倒其他组，也不使用 winner-only、argmax 或 best-of-M 权重。"
         },
         {
-          "heading": "当前一次更新封存 2 x M 条 policy row",
-          "text": "封存 2 x M 条 policy row 后只执行一次 grouped scalar update。当前 N_segment=2；若未来采用一般 N_segment，则相同原子提交规则自然扩展为 N_segment x M。"
+          "heading": "提交边界：成功后才更新 Replay 状态",
+          "text": "封存 2 x M 条 policy row 后仍只执行一次 grouped scalar update。Replay score、seen/review membership、staleness 与 sampler RNG 只随成功的 exact-one Transaction receipt 原子提交并进入 checkpoint；partial、rejected 或 mixed Transaction 的 sampler delta 必须为零。"
         }
       ],
-      "highlightSteps": ["select-segments", "seal-scenarios", "restore-xt", "sample-attempts", "seal-policy-rows", "grouped-update"],
+      "highlightSteps": ["select-segments", "seal-scenarios", "restore-xt", "sample-attempts", "seal-policy-rows", "grouped-update", "commit-state"],
       "chips": []
     },
     {
@@ -361,7 +361,7 @@
         },
         {
           "heading": "Recalibrate 与 checkpoint：新数值状态必须冷启动",
-          "text": "K 增长时仍保留同一 Critic，降低 DR 后重新进入 critic-only。TRAIN-v019 使用 checkpoint-v14，并保存 utility identity、G0=1、449D normalizer、EMA moments 与 committed count；checkpoint-v13 不能 resume。HSL-v2 仍只初始化 158D Actor。EVAL-v004 报告 raw M4 mean，同时以 mean_m U(G_m) 校准共享 V(s)，全程零训练写入。"
+          "text": "K 增长时仍保留同一 Critic，降低 DR 后重新进入 critic-only。TRAIN-v020 使用 checkpoint-v15，并保存 utility identity、G0=1、449D normalizer、EMA moments、committed count，以及外层 Scenario Replay 的 key/score/staleness/RNG；旧训练 checkpoint 不能 resume。HSL-v2 仍只初始化 158D Actor。EVAL-v004 可只读加载历史 checkpoint-v14，全程零训练写入。"
         }
       ],
       "highlightSteps": ["resolve-km", "grouped-update", "commit-state"],
@@ -405,7 +405,7 @@
         "id": "select-segments",
         "phase": "collection",
         "label": "选择两个 Segment",
-        "detail": "每个 Transaction 固定包含两个 Segment"
+        "detail": "每个 Transaction 从 global/replay/review 选择两个不同 sealed Scenario；Replay 只重访同一 ScenarioKey"
       },
       {
         "id": "seal-scenarios",
@@ -465,7 +465,7 @@
         "id": "commit-state",
         "phase": "update",
         "label": "提交 checkpoint 与训练阶段状态",
-        "detail": "只有已提交的 Transaction 才推进 absolute iteration 与 K/M 进度"
+        "detail": "只有已提交的 Transaction 才推进 absolute iteration、K/M 进度及 seen/priority/staleness Replay 状态"
       }
     ]
   }

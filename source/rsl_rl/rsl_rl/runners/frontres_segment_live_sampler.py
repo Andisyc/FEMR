@@ -15,6 +15,13 @@ from rsl_rl.frontres.frontres_local_scenario import (
     FrontRESLocalScenarioLifecycle,
     FrontRESLocalScenarioMaterialization,
 )
+from rsl_rl.frontres.frontres_outer_scenario_replay import (
+    FrontRESOuterReplayPlan,
+    FrontRESOuterScenarioReplay,
+    FrontRESScenarioKey,
+    frontres_tensor_identity,
+    isolated_frontres_perturbation_rng,
+)
 from rsl_rl.frontres.frontres_segment_legacy_scenario import (
     FrontRESFixedNoisyScenarioLifecycle,
     FrontRESNoisyReferenceMaterialization,
@@ -103,19 +110,28 @@ def initialize_frontres_segment_live_sampler(runner: Any) -> None:
     boundary = getattr(runner, "_frontres_segment_replay_boundary", None)
     if not bool(getattr(boundary, "requested", False) and getattr(boundary, "live_runner_enabled", False)):
         return
-    if getattr(runner, "_frontres_segment_sampler", None) is not None:
-        return
     _ensure_stage1_cache_dataset(runner)
     _ensure_stage1_index_reset_hook(runner)
     num_segments = _resolve_num_segments(runner)
-    runner._frontres_segment_sampler = FrontRESSegmentSampler(
-        num_segments=num_segments,
-        global_frac=float(getattr(runner.alg, "frontres_segment_sampler_global_frac", 0.4)),
-        replay_frac=float(getattr(runner.alg, "frontres_segment_sampler_replay_frac", 0.5)),
-        review_frac=float(getattr(runner.alg, "frontres_segment_sampler_review_frac", 0.1)),
-        seed=int(getattr(runner, "seed", 0) or 0),
-        device=getattr(runner, "device", "cpu"),
-    )
+    if getattr(runner, "_frontres_segment_sampler", None) is None:
+        runner._frontres_segment_sampler = FrontRESSegmentSampler(
+            num_segments=num_segments,
+            global_frac=float(getattr(runner.alg, "frontres_segment_sampler_global_frac", 0.4)),
+            replay_frac=float(getattr(runner.alg, "frontres_segment_sampler_replay_frac", 0.5)),
+            review_frac=float(getattr(runner.alg, "frontres_segment_sampler_review_frac", 0.1)),
+            seed=int(getattr(runner, "seed", 0) or 0),
+            device=getattr(runner, "device", "cpu"),
+        )
+    if (
+        bool(getattr(runner.alg, "frontres_formal_transaction_enabled", False))
+        and getattr(runner, "_frontres_outer_scenario_replay", None) is None
+    ):
+        runner._frontres_outer_scenario_replay = FrontRESOuterScenarioReplay(
+            global_frac=float(getattr(runner.alg, "frontres_segment_sampler_global_frac", 0.4)),
+            replay_frac=float(getattr(runner.alg, "frontres_segment_sampler_replay_frac", 0.5)),
+            review_frac=float(getattr(runner.alg, "frontres_segment_sampler_review_frac", 0.1)),
+            seed=int(getattr(runner, "seed", 0) or 0),
+        )
     print(
         _log_block(
             "[FrontRES Segment Sampler Ready]",
@@ -421,6 +437,53 @@ def _build_stage3_index_perturbation_plan(runner: Any, batch: Any, *, update_ste
     )
 
 
+def _build_outer_replay_perturbation_plan(
+    runner: Any,
+    batch: Any,
+    plan: FrontRESOuterReplayPlan,
+) -> Any:
+    plan.validate()
+    n = int(getattr(batch, "batch_size", int(batch.segment_ids.numel())))
+    source_index = _source_index_for_batch(batch, n=n, device=batch.segment_ids.device)
+    if set(source_index.detach().cpu().tolist()) != {0, 1}:
+        raise ValueError("TRAIN-v020 outer replay requires exactly two source identities")
+    selections = plan.selections
+    source_strength = torch.tensor(
+        [selection.perturbation_strength for selection in selections],
+        dtype=batch.perturbation_strength.dtype,
+        device=batch.segment_ids.device,
+    )
+    perturbation_strength = source_strength.index_select(0, source_index)
+    perturbation_family = tuple(
+        selections[int(source)].perturbation_family for source in source_index.detach().cpu().tolist()
+    )
+    curriculum = resolve_frontres_k_stage_identity(
+        schedule=tuple(getattr(runner.alg, "frontres_segment_k_curriculum", ()) or ()),
+        committed_update_iteration=int(getattr(runner, "current_learning_iteration", 0) or 0),
+        max_horizon_k=int(getattr(runner.alg, "frontres_segment_max_horizon_k", 32)),
+    )
+    if curriculum.active_k != plan.active_k:
+        raise RuntimeError("outer replay selection K differs from the active curriculum")
+    classes = tuple(selection.dr_class for selection in selections)
+    return SimpleNamespace(
+        perturbation_family=perturbation_family,
+        perturbation_strength=perturbation_strength,
+        source_index=source_index.detach().clone(),
+        source_ids=torch.tensor((0, 1), dtype=torch.long, device=batch.segment_ids.device),
+        source_perturbation_family=tuple(selection.perturbation_family for selection in selections),
+        source_perturbation_strength=source_strength.detach().clone(),
+        active_modes=("local_rp",),
+        complexity="single",
+        mix_mode="train-v020-outer-scenario",
+        mix_diag={name: classes.count(name) / 2.0 for name in set(classes)},
+        progress=float(curriculum.dr_progress),
+        d_cap=float(curriculum.d_cap),
+        dr_stage_fingerprint=str(curriculum.dr_stage_fingerprint),
+        source_dr_class=classes,
+        seq_idx=int(getattr(runner, "current_learning_iteration", 0) or 0),
+    )
+
+
 def _attach_stage3_index_perturbation_plan(batch: Any, plan: Any | None) -> Any:
     if plan is None:
         return batch
@@ -632,6 +695,13 @@ def _attach_frontres_local_scenarios(
         raise ValueError("v015 local scenario requires a non-empty immutable transaction id")
     x_t_identity_by_source = {source: reference[-1] for source, reference in source_reference.items()}
     intent_horizon = max(future_offsets)
+    outer_replay_plan = getattr(batch, "frontres_outer_replay_plan", None)
+    if outer_replay_plan is not None:
+        if not isinstance(outer_replay_plan, FrontRESOuterReplayPlan):
+            raise TypeError("outer replay batch contains a foreign selection plan")
+        outer_replay_plan.validate()
+        if outer_replay_plan.transaction_id != transaction_id:
+            raise ValueError("outer replay plan transaction differs from local scenario lifecycle")
 
     def materialize(request: Any) -> Any:
         row = source_rows.get(int(request.source_index))
@@ -640,14 +710,35 @@ def _attach_frontres_local_scenarios(
         motion_id, start_frame, horizon, family, strength, _x_t_identity = source_reference[int(request.source_index)]
         if int(request.horizon_k) != horizon:
             raise RuntimeError("local scenario lifecycle changed the selected K horizon")
-        payload = adapter.materialize_frontres_local_scenario(
-            motion_id=motion_id,
-            start_frame=start_frame,
-            horizon_k=horizon,
-            intent_horizon=intent_horizon,
-            perturbation_family=family,
-            perturbation_strength=strength,
-        )
+        if outer_replay_plan is None:
+            payload = adapter.materialize_frontres_local_scenario(
+                motion_id=motion_id,
+                start_frame=start_frame,
+                horizon_k=horizon,
+                intent_horizon=intent_horizon,
+                perturbation_family=family,
+                perturbation_strength=strength,
+            )
+        else:
+            selection = outer_replay_plan.selections[int(request.source_index)]
+            if (
+                selection.segment_id != int(request.segment_id)
+                or selection.perturbation_family != family
+                or selection.perturbation_strength != strength
+            ):
+                raise ValueError("outer replay selection changed before Scenario materialization")
+            with isolated_frontres_perturbation_rng(
+                selection.perturbation_seed,
+                device=getattr(runner, "device", batch.segment_ids.device),
+            ):
+                payload = adapter.materialize_frontres_local_scenario(
+                    motion_id=motion_id,
+                    start_frame=start_frame,
+                    horizon_k=horizon,
+                    intent_horizon=intent_horizon,
+                    perturbation_family=family,
+                    perturbation_strength=strength,
+                )
         if not isinstance(payload, dict):
             raise TypeError("local scenario adapter must return a dict payload")
         return FrontRESLocalScenarioMaterialization(
@@ -902,6 +993,7 @@ def _build_current_segment_batch(
     update_step: int,
     print_probe: bool = True,
     v015_local_scenario_transaction_id: str | None = None,
+    outer_replay_plan: FrontRESOuterReplayPlan | None = None,
 ) -> Any | None:
     dataset = getattr(runner, "_frontres_segment_dataset", None)
     if dataset is None or not hasattr(dataset, "get_segments"):
@@ -935,8 +1027,14 @@ def _build_current_segment_batch(
         if validation is not None and hasattr(validation, "valid_mask")
         else int(sample.segment_ids.numel())
     )
-    dynamic_plan = _build_stage3_index_perturbation_plan(runner, batch, update_step=update_step)
+    dynamic_plan = (
+        _build_outer_replay_perturbation_plan(runner, batch, outer_replay_plan)
+        if outer_replay_plan is not None
+        else _build_stage3_index_perturbation_plan(runner, batch, update_step=update_step)
+    )
     batch = _attach_stage3_index_perturbation_plan(batch, dynamic_plan)
+    if outer_replay_plan is not None:
+        object.__setattr__(batch, "frontres_outer_replay_plan", outer_replay_plan)
     if v015_local_scenario_transaction_id is not None:
         batch = _attach_frontres_local_scenarios(
             runner,
@@ -1086,6 +1184,71 @@ def _sample_frontres_v015_transaction_sources(
     )
 
 
+def _outer_replay_base_sample(plan: FrontRESOuterReplayPlan, *, device: torch.device | str) -> FrontRESSegmentSample:
+    plan.validate()
+    segment_ids = torch.tensor(
+        [selection.segment_id for selection in plan.selections],
+        dtype=torch.long,
+        device=device,
+    )
+    return FrontRESSegmentSample(
+        segment_ids=segment_ids,
+        source=tuple(selection.source for selection in plan.selections),
+        priority=torch.tensor([selection.score for selection in plan.selections], dtype=torch.float32, device=device),
+        staleness=torch.tensor(
+            [selection.staleness for selection in plan.selections], dtype=torch.float32, device=device
+        ),
+        valid_mask=torch.ones(2, dtype=torch.bool, device=device),
+        segment_state=None,
+        rollout_trial_count=torch.ones(2, dtype=torch.long, device=device),
+        horizon_k=torch.full((2,), int(plan.active_k), dtype=torch.long, device=device),
+        budget_reason=tuple(f"outer-{selection.source}" for selection in plan.selections),
+        trial_role=("policy", "policy"),
+        source_index=torch.arange(2, dtype=torch.long, device=device),
+        trial_index=torch.zeros(2, dtype=torch.long, device=device),
+    )
+
+
+def _outer_replay_scenario_keys(
+    batch: Any,
+    sample: FrontRESSegmentSample,
+    plan: FrontRESOuterReplayPlan,
+) -> tuple[FrontRESScenarioKey, FrontRESScenarioKey]:
+    rows = getattr(batch, "frontres_local_scenario_rows", None)
+    specs = tuple(getattr(batch, "specs", ()) or ())
+    if rows is None or len(specs) != int(sample.segment_ids.numel()):
+        raise RuntimeError("outer replay key construction requires sealed Scenario rows and Stage-1 specs")
+    result: list[FrontRESScenarioKey] = []
+    for source, selection in enumerate(plan.selections):
+        matches = torch.nonzero(sample.source_index == source, as_tuple=False).flatten()
+        if int(matches.numel()) <= 0:
+            raise RuntimeError(f"outer replay source {source} has no materialized rows")
+        row = int(matches[0].item())
+        scenario = rows.scenario_for_row(row)
+        spec = specs[row]
+        key = FrontRESScenarioKey(
+            motion_id=str(getattr(spec, "motion_id", "")),
+            start_frame=int(getattr(spec, "start_frame", -1)),
+            segment_id=int(selection.segment_id),
+            x_t_identity=str(scenario.request.x_t_identity),
+            perturbation_family=selection.perturbation_family,
+            perturbation_strength=selection.perturbation_strength,
+            perturbation_seed=selection.perturbation_seed,
+            noisy_segment_hash=scenario.noisy_segment_hash,
+            horizon_k=int(scenario.request.horizon_k),
+            future_intent_identity=frontres_tensor_identity(scenario.intent_q29),
+            planned_support_identity=frontres_tensor_identity(
+                scenario.expected_support,
+                scenario.expected_support_envelope,
+            ),
+        )
+        key.validate()
+        result.append(key)
+    if len({key.digest for key in result}) != 2:
+        raise RuntimeError("outer replay transaction requires two distinct stable ScenarioKeys")
+    return result[0], result[1]
+
+
 def _prepare_frontres_v015_local_transaction_batch(
     runner: Any,
     *,
@@ -1101,7 +1264,8 @@ def _prepare_frontres_v015_local_transaction_batch(
 
     alg = getattr(runner, "alg", None)
     sampler = getattr(runner, "_frontres_segment_sampler", None)
-    if alg is None or sampler is None:
+    outer_replay = getattr(runner, "_frontres_outer_scenario_replay", None)
+    if alg is None or sampler is None or not isinstance(outer_replay, FrontRESOuterScenarioReplay):
         raise RuntimeError("v015 local transaction requires initialized algorithm and segment sampler owners")
     if route not in {"sentinel", "training"}:
         raise ValueError(f"unknown v015 local transaction route={route!r}")
@@ -1143,11 +1307,21 @@ def _prepare_frontres_v015_local_transaction_batch(
         horizon_k=curriculum.active_k,
         intent_horizon=max(future_offsets),
     )
-    base_sample = _sample_frontres_v015_transaction_sources(
-        sampler,
-        selected_segment_count=FRONTRES_V011_SELECTED_SEGMENT_COUNT,
-        max_horizon_k=max_horizon,
-        candidate_is_eligible=candidate_is_eligible,
+    def global_descriptor(_segment_id: int, perturbation_seed: int) -> tuple[str, float, str]:
+        sample = sample_frontres_v013_dr_strength(curriculum, sample_key=int(perturbation_seed))
+        canonical_strength = float(torch.tensor(sample.strength, dtype=torch.float32).item())
+        return "local_rp", canonical_strength, str(sample.class_name)
+
+    outer_replay_plan = outer_replay.plan(
+        transaction_id=transaction_id,
+        active_k=curriculum.active_k,
+        num_segments=int(getattr(sampler, "num_segments", 0) or 0),
+        eligible=candidate_is_eligible,
+        global_descriptor=global_descriptor,
+    )
+    base_sample = _outer_replay_base_sample(
+        outer_replay_plan,
+        device=getattr(runner, "device", sampler.device),
     )
     base_ids = base_sample.segment_ids.detach().to(dtype=torch.long).clone()
     if int(base_ids.numel()) != FRONTRES_V011_SELECTED_SEGMENT_COUNT or int(
@@ -1198,6 +1372,7 @@ def _prepare_frontres_v015_local_transaction_batch(
         update_step=sequence,
         print_probe=True,
         v015_local_scenario_transaction_id=transaction_id,
+        outer_replay_plan=outer_replay_plan,
     )
     if batch is None or getattr(batch, "frontres_local_scenario_rows", None) is None:
         raise RuntimeError("v015 local transaction failed to materialize a sealed local scenario batch")
@@ -1215,6 +1390,7 @@ def _prepare_frontres_v015_local_transaction_batch(
     intent_source = {str(value.get("intent_q29_source", "")) for value in provenance}
     if len(intent_provenance) != 1 or len(intent_source) != 1:
         raise RuntimeError("v015 local transaction requires one q29 provenance/source semantic owner per transaction")
+    scenario_keys = _outer_replay_scenario_keys(batch, expanded_sample, outer_replay_plan)
     plan = FrontRESFormalTransactionPlan(
         snapshot=snapshot,
         motion_ids=tuple(str(getattr(spec, "motion_id", "")) for spec in specs),
@@ -1234,7 +1410,13 @@ def _prepare_frontres_v015_local_transaction_batch(
         intent_q29_source=next(iter(intent_source)),
     )
     plan.validate()
-    return SimpleNamespace(sample=expanded_sample, batch=batch, plan=plan)
+    return SimpleNamespace(
+        sample=expanded_sample,
+        batch=batch,
+        plan=plan,
+        outer_replay_plan=outer_replay_plan,
+        outer_replay_scenario_keys=scenario_keys,
+    )
 
 
 def prepare_frontres_v015_local_sentinel_batch(runner: Any) -> SimpleNamespace:

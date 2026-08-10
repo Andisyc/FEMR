@@ -34,6 +34,10 @@ from rsl_rl.algorithms.frontres_segment_ppo import (
     FrontRESValueNormalizerState,
 )
 from rsl_rl.frontres.frontres_local_evaluation import FrontRESV017LocalEvaluationReport
+from rsl_rl.frontres.frontres_outer_scenario_replay import (
+    FrontRESOuterScenarioReplay,
+    FrontRESScenarioKey,
+)
 from rsl_rl.frontres.frontres_return_utility import (
     FRONTRES_RETURN_UTILITY_ID,
     FRONTRES_RETURN_UTILITY_SCALE,
@@ -126,10 +130,10 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
         frontres_segment_live_train_enabled=False,
         frontres_segment_live_update_loop_only=False,
         frontres_segment_live_single_update_only=False,
-        frontres_method_contract_id="FRS-METHOD-v020",
+        frontres_method_contract_id="FRS-METHOD-v021",
         frontres_gain_contract_id="FRS-GAIN-v008",
         frontres_optimization_contract_id="FRS-PPO-v008",
-        frontres_training_contract_id="FRS-TRAIN-v019",
+        frontres_training_contract_id="FRS-TRAIN-v020",
         frontres_scalar_target_id="symmetric-log-recovery-aware-utility-v1",
         frontres_physics_schema_id="clean-anchored-contact-zmp-survival-v1",
         frontres_grouped_schema_id="grouped-all-attempt-scalar-v1",
@@ -252,14 +256,37 @@ def _request(
     count = 2 * identity.active_m
     transaction_id = f"tx-v017-formal-{iteration}"
     snapshot = capture_frontres_frozen_policy_snapshot(runner, transaction_id=transaction_id)
+    outer_replay = getattr(runner, "_frontres_outer_scenario_replay", None)
+    if outer_replay is None:
+        outer_replay = FrontRESOuterScenarioReplay(global_frac=1.0, replay_frac=0.0, review_frac=0.0, seed=7)
+        runner._frontres_outer_scenario_replay = outer_replay
+    outer_plan = outer_replay.plan(
+        transaction_id=transaction_id,
+        active_k=identity.active_k,
+        num_segments=12,
+        eligible=lambda segment_id: segment_id in {10, 11},
+        global_descriptor=lambda segment_id, _seed: (
+            "local_rp",
+            0.1 if segment_id == 10 else 0.4,
+            "easy" if segment_id == 10 else "hard",
+        ),
+    )
     source = torch.tensor([0] * identity.active_m + [1] * identity.active_m)
     trial = torch.tensor(list(range(identity.active_m)) * 2)
-    segment = torch.tensor([10] * identity.active_m + [11] * identity.active_m)
-    motion_ids = tuple("motion-a" if row < identity.active_m else "motion-b" for row in range(count))
-    start_frames = torch.tensor([4] * identity.active_m + [8] * identity.active_m)
-    scenario_ids = tuple("sa" if row < identity.active_m else "sb" for row in range(count))
-    noisy_hashes = tuple("ha" if row < identity.active_m else "hb" for row in range(count))
-    x_t_ids = tuple("xa" if row < identity.active_m else "xb" for row in range(count))
+    selected_segments = tuple(selection.segment_id for selection in outer_plan.selections)
+    segment = torch.tensor(
+        [selected_segments[0]] * identity.active_m + [selected_segments[1]] * identity.active_m
+    )
+    motion_by_source = ("motion-a", "motion-b")
+    frame_by_source = tuple(4 if segment_id == 10 else 8 for segment_id in selected_segments)
+    scenario_by_source = ("sa", "sb")
+    noisy_hash_by_source = ("ha", "hb")
+    x_t_by_source = ("xa", "xb")
+    motion_ids = tuple(motion_by_source[int(row)] for row in source.tolist())
+    start_frames = torch.tensor([frame_by_source[int(row)] for row in source.tolist()])
+    scenario_ids = tuple(scenario_by_source[int(row)] for row in source.tolist())
+    noisy_hashes = tuple(noisy_hash_by_source[int(row)] for row in source.tolist())
+    x_t_ids = tuple(x_t_by_source[int(row)] for row in source.tolist())
     plan = FrontRESFormalTransactionPlan(
         snapshot=snapshot,
         motion_ids=motion_ids,
@@ -330,8 +357,25 @@ def _request(
         dr_stage_fingerprint=identity.dr_stage_fingerprint,
         dr_progress=identity.dr_progress,
         d_cap=identity.d_cap,
-        dr_class_by_segment=("easy", "hard"),
-        dr_strength_by_segment=(0.1, 0.4),
+        dr_class_by_segment=tuple(selection.dr_class for selection in outer_plan.selections),
+        dr_strength_by_segment=tuple(selection.perturbation_strength for selection in outer_plan.selections),
+        outer_replay_plan=outer_plan,
+        outer_replay_scenario_keys=tuple(
+            FrontRESScenarioKey(
+                motion_id=motion_by_source[index],
+                start_frame=frame_by_source[index],
+                segment_id=selection.segment_id,
+                x_t_identity=x_t_by_source[index],
+                perturbation_family=selection.perturbation_family,
+                perturbation_strength=selection.perturbation_strength,
+                perturbation_seed=selection.perturbation_seed,
+                noisy_segment_hash=noisy_hash_by_source[index],
+                horizon_k=identity.active_k,
+                future_intent_identity=f"future-{selection.segment_id}",
+                planned_support_identity=f"support-{selection.segment_id}",
+            )
+            for index, selection in enumerate(outer_plan.selections)
+        ),
         policy_evaluator=_PolicyEvaluator(policy, critic_obs),
     )
     return runner, request, policy
@@ -382,6 +426,8 @@ def test_exact_one_scalar_commit_and_critic_only() -> None:
     critic_before = {name: value.detach().clone() for name, value in policy.critic.state_dict().items()}
     result = run_frontres_formal_transaction_update(runner, request)
     assert result.optimizer_step_delta == 1 and result.update_invocation_count == 1
+    assert len(runner._frontres_outer_scenario_replay.records) == 2
+    assert result.diagnostics["outer_replay"]["state_delta"] == 1
     assert runner.alg.frontres_critic_value_normalizer_state.update_count == 1
     assert result.valid_row_count == 8 and result.policy_attempt_count == 8
     assert all(torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
@@ -547,7 +593,7 @@ def main() -> None:
     test_partial_transaction_rejects_before_update()
     test_value_normalizer_iteration_mismatch_rejects_before_update()
     test_phase_reset_routes_mode_through_sealed_reset_owner()
-    print("frontres_v015_transaction_route_contract: v019 symlog state-value exact-one ok", flush=True)
+    print("frontres_v015_transaction_route_contract: v020 outer replay exact-one ok", flush=True)
 
 
 if __name__ == "__main__":

@@ -229,8 +229,8 @@
         "B3 normalizer.py: Actor 928D and Critic 449D -> separately normalized inputs; GMT suffix remains 770D"
       ],
       "mainRouteTitles": ["构造观测项", "共享 Sealed Future Intent", "分别归一化 Actor/Critic"],
-          "review": ["逐字段确认 158/449/770 shape、顺序、单位和 privilege", "检查 Actor/Critic normalizer 与 checkpoint-v14"],
-          "tests": ["TEST-05 v018 composer/live-gateway oracle", "TEST-16 v14 normalizer persistence"],
+          "review": ["逐字段确认 158/449/770 shape、顺序、单位和 privilege", "检查 Actor/Critic normalizer 与 checkpoint-v15"],
+          "tests": ["TEST-05 v018 composer/live-gateway oracle", "TEST-16/22 v15 normalizer and replay persistence"],
           "gap": "OFFLINE_CONFIRMED；真实 simulator observation identity/timing 仍需 Phase B"
         },
         {
@@ -343,28 +343,29 @@
         {
           "id": "MOD-SAMPLER",
           "title": "Segment Sampler",
-          "summary": "从 global/replay/review source 选择片段并分配 horizon K",
-          "owns": "source、priority、replay budget、horizon_k 与 segment state",
-          "mustNot": "不读取 post-update KL 或改变 PPO credit",
-          "objects": ["segment_id", "source", "priority", "horizon_k", "rollout evidence"],
+          "summary": "从 global/replay/review 选择完整 Scenario，并为当前 K 分配外层重访优先级",
+          "owns": "ScenarioKey、source、per-K learning-value rank、staleness、owner RNG 与 committed replay state",
+          "mustNot": "不复用旧 PPO rows，不读取 post-update KL，不按 priority 改变 PPO credit",
+          "objects": ["ScenarioKey", "source", "per-K score", "staleness", "horizon_k", "committed receipt"],
           "files": [
             {"id": "MAIN-28", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "sampler state 与 priority owner", "functions": ["sample()","update_with_probe()"], "sourceLine": 241, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=241"},
+            {"id": "MAIN-28O", "path": "source/rsl_rl/rsl_rl/frontres/frontres_outer_scenario_replay.py", "role": "METHOD-v021 formal outer Scenario replay Aggregate and checkpoint state owner", "functions": ["FrontRESOuterScenarioReplay.plan()","FrontRESOuterScenarioReplay.stage()","FrontRESOuterScenarioReplay.commit()"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_outer_scenario_replay.py&line=1"},
             {"id": "MAIN-28P", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_planning.py", "role": "immutable rollout/transaction planning owner", "functions": ["FrontRESFrozenPolicyTransactionPlan","plan_frontres_frozen_policy_transaction()"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_planning.py&line=1"},
             {"id": "MAIN-28S", "path": "source/rsl_rl/rsl_rl/frontres/frontres_local_scenario.py", "role": "active immutable v015 local-scenario owner", "functions": ["FrontRESLocalScenario","materialize_frontres_local_scenario()"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_local_scenario.py&line=1"},
             {"id": "MAIN-28L", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_legacy_scenario.py", "role": "retired fixed-Noisy lifecycle compatibility owner", "functions": ["FrontRESFixedNoisyScenarioLifecycle"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_legacy_scenario.py&line=1"},
-            {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "sealed TRAIN-v014 exact-K/exact-M direct-action transaction assembler and frozen-policy identity binder", "functions": ["capture_frontres_frozen_policy_snapshot()","bind_frontres_frozen_policy_transaction()","_build_current_segment_batch()"], "sourceLine": 157, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=157"},
+            {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "TRAIN-v020 outer selection, seeded materialization and exact-K/exact-M transaction assembler", "functions": ["_prepare_frontres_v015_local_transaction_batch()","_outer_replay_scenario_keys()","_build_current_segment_batch()"], "sourceLine": 110, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=110"},
             {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "train/eval orchestration", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"}
           ],
       "mainRoute": [
-        "B1 frontres_segment_sampler.py::sample(): global/replay state -> segment_id/source/horizon_k",
-        "B2 planning/local-scenario owners -> immutable batch/trial/scenario identity; live sampler composes materialization only",
+        "B1 outer owner plan(): current-K records/global candidates -> two distinct Scenario selections",
+        "B2 isolated seed + local-scenario owner -> reproducible ScenarioKey; current pi_old -> fresh exact-M rows",
         "B3 frontres_segment_live_training.py: trial plan -> K-step rollout evidence",
-        "B4 frontres_segment_sampler.py::update_with_probe(): rollout evidence -> priority/replay state"
+        "B4 owner stage/commit(): pre-update mean abs utility error + exact-one receipt -> replay state delta"
       ],
       "mainRouteTitles": ["选择 Segment", "构造训练 Batch", "执行 Segment", "回写 Replay Evidence"],
-          "review": ["K 是否真正进入正式 rollout", "priority 是否只读 rollout-time evidence", "search rows 是否错误获得 PPO credit"],
-          "tests": ["S1 T-dist/role", "S2 T-connect", "S4 K/source distribution"],
-          "gap": "正式 live source/K 分布尚需运行证据"
+          "review": ["ScenarioKey 是否可复现同一扰动", "priority 是否只读 pre-update utility error", "失败事务是否零 replay delta"],
+          "tests": ["TEST-19 identity/RNG", "TEST-20 selection/K isolation", "TEST-21 committed mutation", "TEST-22 checkpoint-v15"],
+          "gap": "OFFLINE_CONFIRMED；正式 live ScenarioKey/source/state_delta 尚需 bounded transaction 证据"
         },
         {
           "id": "MOD-RESET",
@@ -561,10 +562,10 @@
           "summary": "保存和恢复 policy、stats、optimizer、sampler 与 contract identity",
           "owns": "正式 OnPolicyRunner save/load payload 和兼容性检查",
           "mustNot": "不静默跳过不兼容 actor head 或 observation stats",
-          "objects": ["policy state", "449D Critic", "return utility identity", "std", "Actor/Critic normalizers", "split Adam", "sampler", "receipt"],
+          "objects": ["policy state", "449D Critic", "return utility identity", "std", "Actor/Critic normalizers", "split Adam", "outer replay", "receipt"],
           "files": [
-            {"id": "MAIN-32", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "checkpoint-v14/HSL-v2 strict persistence gateway; v13 Stage-3 resume forbidden", "functions": ["save_runner()", "load_runner()", "load_v015_hsl_initializer()"], "sourceLine": 1445, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1445"},
-            {"id": "MAIN-32Q", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpoint_quality.py", "role": "v14 and historical read-only quality artifact inspection", "functions": ["inspect_frontres_quality_checkpoint()"], "sourceLine": 620, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpoint_quality.py&line=620"},
+            {"id": "MAIN-32", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "checkpoint-v15/HSL-v2 strict persistence gateway; v14 Stage-3 resume forbidden", "functions": ["save_runner()", "load_runner()", "load_v015_hsl_initializer()"], "sourceLine": 1040, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1040"},
+            {"id": "MAIN-32Q", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpoint_quality.py", "role": "v15 active plus v14/v10 historical read-only quality artifact inspection", "functions": ["inspect_frontres_quality_checkpoint()"], "sourceLine": 500, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpoint_quality.py&line=500"},
             {"id": "MAIN-50", "path": "source/whole_body_tracking/whole_body_tracking/utils/exporter.py", "role": "policy export", "functions": [], "sourceLine": 18, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Futils%2Fexporter.py&line=18"}
           ],
       "mainRoute": [
@@ -574,7 +575,7 @@
       ],
       "mainRouteTitles": ["保存完整训练状态", "恢复并验证状态", "导出 Policy Artifact"],
           "review": ["检查正式 owner 与 detached helper 区别", "检查 cold-start/resume identity", "检查 warmup phase state"],
-          "tests": ["TEST-16 checkpoint-v14 utility roundtrip/atomic/pre-mutation", "HSL-v2 Actor-only regression", "legacy strict read-only quality isolation"],
+          "tests": ["TEST-16 utility roundtrip", "TEST-22 checkpoint-v15 outer replay atomic/pre-mutation", "HSL-v2 Actor-only regression", "v14 strict read-only quality isolation"],
           "gap": "OFFLINE_CONFIRMED；server filesystem、live save/resume 与 long-run cadence 仍待 Phase B。"
         },
         {

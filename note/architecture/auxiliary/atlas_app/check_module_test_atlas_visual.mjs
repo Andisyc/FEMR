@@ -16,7 +16,7 @@ page.on("response", (response) => {
 await page.goto(`${baseUrl}/05_frontres_module_test_atlas.html`, { waitUntil: "networkidle" });
 const frame = page.frameLocator("iframe");
 const moduleButtons = frame.locator('rect[role="button"][data-inspector-kind="module-test"]');
-if (await moduleButtons.count() !== 18) throw new Error("Test Atlas must render 18 module buttons");
+if (await moduleButtons.count() !== 22) throw new Error("Test Atlas must render 22 module buttons");
 
 const formalStageButton = frame.locator('rect[role="button"][data-inspector-kind="stage-reading"]');
 if (await formalStageButton.count() !== 1) throw new Error("Test Atlas must render one Formal Runtime Audit stage card");
@@ -27,7 +27,7 @@ for (const required of ["PhaseA：Method-CodeAlignment", "PhaseB：FormalRuntime
 }
 await page.screenshot({ path: "/tmp/frontres_formal_runtime_stage_desktop.png", fullPage: true });
 
-for (let index = 0; index < 18; index += 1) {
+for (let index = 0; index < 22; index += 1) {
  await moduleButtons.nth(index).click();
  const selectedText = (await frame.locator("svg").textContent()).replace(/\s+/g, "");
  for (const required of ["要验证的设计规则", "伪样本测试", "正确结果", "证明什么"]) {
@@ -52,7 +52,7 @@ await page.screenshot({ path: "/tmp/frontres_module_test_atlas_desktop.png", ful
 await page.setViewportSize({ width: 390, height: 844 });
 await page.reload({ waitUntil: "networkidle" });
 const mobileFrame = page.frameLocator("iframe");
-if (await mobileFrame.locator('rect[role="button"][data-inspector-kind="module-test"]').count() !== 18
+if (await mobileFrame.locator('rect[role="button"][data-inspector-kind="module-test"]').count() !== 22
  || await mobileFrame.locator('rect[role="button"][data-inspector-kind="stage-reading"]').count() !== 1) {
  throw new Error("mobile Test Atlas lost module buttons");
 }
@@ -93,4 +93,4 @@ for (const [path, expectedTitle] of [
 
 await browser.close();
 if (errors.length) throw new Error(`browser errors: ${errors.join(" | ")}`);
-console.log("visual inspector OK test_cards=18 formal_stage_cards=1 design_cards=10 desktop+mobile screenshots=/tmp/frontres_*inspector*.png");
+console.log("visual inspector OK test_cards=22 formal_stage_cards=1 design_cards=10 desktop+mobile screenshots=/tmp/frontres_*inspector*.png");

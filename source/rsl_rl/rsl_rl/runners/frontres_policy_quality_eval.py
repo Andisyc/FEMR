@@ -63,7 +63,7 @@ class FrontRESV015PolicyQualityEvalRequest:
 
 @dataclass(frozen=True)
 class FrontRESV018PolicyQualityEvalRequest:
-    """Strict HSL-v2 plus checkpoint-v14 K8/K16 M4 identity for EVAL-v004."""
+    """Strict HSL-v2 plus checkpoint-v15 K8/K16 M4 identity for EVAL-v004."""
 
     manifest_path: str
     hsl_checkpoint_path: str
@@ -1355,7 +1355,7 @@ def run_frontres_v018_policy_quality_heldout_eval(
         prepare_frontres_policy_quality_fixed_k_m4_batch,
     )
 
-    # B1: 冻结训练状态并安装 tested checkpoint-v14, 产出 inference-only policy owner.
+    # B1: 冻结训练状态并安装 tested checkpoint-v15, 产出 inference-only policy owner.
     if not isinstance(request, FrontRESV018PolicyQualityEvalRequest):
         raise TypeError("EVAL-v004 requires the strict v018 policy-quality request")
     if isinstance(repeat_count, bool) or not isinstance(repeat_count, int) or not 1 <= repeat_count <= 16:
@@ -1612,9 +1612,9 @@ def run_frontres_policy_quality_eval(
     result_path: str,
     repeat_count: int = 1,
 ) -> Any:
-    """Run the active EVAL-v004 checkpoint-v14 held-out evaluator."""
+    """Run the active EVAL-v004 checkpoint-v15 held-out evaluator."""
 
-    # B1: 验证 formal runner 并构造 strict v018 request, 产出 checkpoint-v14 evaluation identity.
+    # B1: 验证 formal runner 并构造 strict v018 request, 产出 checkpoint-v15 evaluation identity.
     if not bool(getattr(getattr(runner, "alg", None), "frontres_formal_transaction_enabled", False)):
         raise RuntimeError(
             "active policy-quality evaluation requires the formal transaction route; "

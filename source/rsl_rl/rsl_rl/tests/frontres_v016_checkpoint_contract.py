@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic TEST-16 contracts for strict checkpoint-v14 persistence."""
+"""Deterministic TEST-16 contracts for strict checkpoint-v15 persistence."""
 
 from __future__ import annotations
 
@@ -28,6 +28,11 @@ from frontres_v015_checkpoint_resume_contract import (
 from rsl_rl.algorithms.frontres_segment_ppo import (
     FRONTRES_VALUE_NORMALIZATION_ID,
     FrontRESValueNormalizerState,
+)
+from rsl_rl.frontres.frontres_outer_scenario_replay import (
+    FRONTRES_OUTER_REPLAY_SCHEMA,
+    FrontRESOuterScenarioReplay,
+    FrontRESScenarioKey,
 )
 
 
@@ -66,9 +71,9 @@ def _runner(layout, policy_base, *, iteration: int, gmt_checkpoint_path: Path):
             },
         ]
     )
-    runner.alg.frontres_method_contract_id = "FRS-METHOD-v020"
+    runner.alg.frontres_method_contract_id = "FRS-METHOD-v021"
     runner.alg.frontres_optimization_contract_id = "FRS-PPO-v008"
-    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v019"
+    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v020"
     runner.alg.frontres_critic_value_kind = "state_value"
     runner.alg.frontres_critic_input_dim = 449
     runner.alg.frontres_critic_action_conditioned = False
@@ -95,16 +100,17 @@ def _runner(layout, policy_base, *, iteration: int, gmt_checkpoint_path: Path):
     runner._frontres_extra_std = torch.ones(1, 158)
     runner._frontres_extra_normalizer = None
     runner._frontres_extra_stats_layout_version = runner._frontres_future_intent_layout.version
+    runner._frontres_outer_scenario_replay = FrontRESOuterScenarioReplay(seed=17)
     return runner
 
 
 def _receipt(checkpointing, *, training_iteration: int) -> dict[str, object]:
     value = _legacy_receipt(checkpointing, training_iteration=training_iteration)
     receipt = value["receipt"]
-    receipt["method_contract_id"] = "FRS-METHOD-v020"
+    receipt["method_contract_id"] = "FRS-METHOD-v021"
     receipt["gain_contract_id"] = "FRS-GAIN-v008"
     receipt["optimization_contract_id"] = "FRS-PPO-v008"
-    receipt["training_contract_id"] = "FRS-TRAIN-v019"
+    receipt["training_contract_id"] = "FRS-TRAIN-v020"
     receipt["scalar_target_id"] = "symmetric-log-recovery-aware-utility-v1"
     receipt["active_m"] = 4
     receipt["expected_policy_row_count"] = 8
@@ -122,7 +128,56 @@ def _expect_error(call, text: str) -> None:
     except RuntimeError as exc:
         assert text.lower() in str(exc).lower(), str(exc)
         return
-    raise AssertionError("expected checkpoint-v14 rejection")
+    raise AssertionError("expected checkpoint-v15 rejection")
+
+
+def _prime_outer_replay(runner) -> None:
+    owner = runner._frontres_outer_scenario_replay
+    plan = owner.plan(
+        transaction_id="tx-checkpoint-v15-replay",
+        active_k=8,
+        num_segments=2,
+        eligible=lambda _segment_id: True,
+        global_descriptor=lambda segment_id, _seed: (
+            "local_rp",
+            0.1 + 0.1 * segment_id,
+            "easy" if segment_id == 0 else "hard",
+        ),
+    )
+    keys = tuple(
+        FrontRESScenarioKey(
+            motion_id=f"motion-{index}",
+            start_frame=index,
+            segment_id=selection.segment_id,
+            x_t_identity=f"x-{index}",
+            perturbation_family=selection.perturbation_family,
+            perturbation_strength=selection.perturbation_strength,
+            perturbation_seed=selection.perturbation_seed,
+            noisy_segment_hash=f"hash-{index}",
+            horizon_k=8,
+            future_intent_identity=f"future-{index}",
+            planned_support_identity=f"support-{index}",
+        )
+        for index, selection in enumerate(plan.selections)
+    )
+    candidate = owner.stage(
+        plan,
+        keys=keys,
+        actor_advantages=torch.tensor([0.5] * 4 + [-0.25] * 4),
+        source_index=torch.tensor([0] * 4 + [1] * 4),
+        policy_snapshot_id="policy-checkpoint-v15",
+        active_m=4,
+    )
+    owner.commit(
+        candidate,
+        receipt={
+            "method_contract_id": "FRS-METHOD-v021",
+            "training_contract_id": "FRS-TRAIN-v020",
+            "transaction_id": plan.transaction_id,
+            "policy_snapshot_id": "policy-checkpoint-v15",
+            "optimizer_step_delta": 1,
+        },
+    )
 
 
 def main() -> None:
@@ -133,6 +188,7 @@ def main() -> None:
         gmt_path.write_bytes(b"frozen GMT artifact v11")
         path = root / "model_3.pt"
         source = _runner(layout, policy_base, iteration=3, gmt_checkpoint_path=gmt_path)
+        _prime_outer_replay(source)
         source._frontres_checkpoint_transaction_state = _receipt(checkpointing, training_iteration=2)
         source.privileged_obs_normalizer._var[..., 0] = 0.0
         source.privileged_obs_normalizer._std[..., 0] = 0.0
@@ -148,10 +204,11 @@ def main() -> None:
 
         payload = torch.load(path, weights_only=False)
         identity = payload["frontres_v015_checkpoint_identity"]
-        assert identity["format"] == "frontres-v019-checkpoint-v14"
-        assert identity["method_contract_id"] == "FRS-METHOD-v020"
+        assert identity["format"] == "frontres-v020-checkpoint-v15"
+        assert identity["method_contract_id"] == "FRS-METHOD-v021"
         assert identity["optimization_contract_id"] == "FRS-PPO-v008"
-        assert identity["training_contract_id"] == "FRS-TRAIN-v019"
+        assert identity["training_contract_id"] == "FRS-TRAIN-v020"
+        assert identity["outer_replay_schema_id"] == FRONTRES_OUTER_REPLAY_SCHEMA
         assert identity["return_utility"] == {
             "identity": "symmetric-log-gain-g0-1-v1",
             "scale": 1.0,
@@ -184,9 +241,9 @@ def main() -> None:
         assert payload["privileged_obs_norm_state_dict"]["_var"][0, 0].item() == 0.0
         assert payload["privileged_obs_norm_state_dict"]["_std"][0, 0].item() == 0.0
         active_quality_identity = checkpointing.inspect_frontres_quality_checkpoint(path, route="policy")
-        assert active_quality_identity.format == "frontres-v019-checkpoint-v14"
+        assert active_quality_identity.format == "frontres-v020-checkpoint-v15"
         assert active_quality_identity.ppo_contract_id == "FRS-PPO-v008"
-        assert active_quality_identity.training_contract_id == "FRS-TRAIN-v019"
+        assert active_quality_identity.training_contract_id == "FRS-TRAIN-v020"
 
         fresh = _runner(layout, policy_base, iteration=0, gmt_checkpoint_path=gmt_path)
         checkpointing.load_runner(fresh, str(path), load_optimizer=True)
@@ -195,6 +252,11 @@ def main() -> None:
         for name, value in critic_state.items():
             torch.testing.assert_close(fresh.alg.policy.critic.state_dict()[name], value)
         assert fresh.alg.frontres_critic_value_normalizer_state == source.alg.frontres_critic_value_normalizer_state
+        assert len(fresh._frontres_outer_scenario_replay.records) == 2
+        assert torch.equal(
+            fresh._frontres_outer_scenario_replay.generator.get_state(),
+            source._frontres_outer_scenario_replay.generator.get_state(),
+        )
 
         checkpoint_v11 = copy.deepcopy(payload)
         checkpoint_v11["frontres_v015_checkpoint_identity"].update(
@@ -349,7 +411,7 @@ def main() -> None:
         assert not tuple(root.glob("atomic.pt.tmp-*"))
 
     assert checkpointing._V015_HSL_CHECKPOINT_FORMAT == "frontres-v017-hsl-proposal-v2"
-    print("frontres_v016_checkpoint_contract: v14 utility round-trip and v13/v10 reject", flush=True)
+    print("frontres_v016_checkpoint_contract: v15 replay round-trip and legacy reject", flush=True)
 
 
 if __name__ == "__main__":

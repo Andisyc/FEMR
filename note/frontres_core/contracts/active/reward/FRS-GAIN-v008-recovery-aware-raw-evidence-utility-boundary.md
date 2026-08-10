@@ -258,7 +258,7 @@ controller.
 \]
 
 Every valid Repair contributes one raw return and one policy row. The scalar
-Critic owned by FRS-TRAIN-v019 predicts expected utility at the active K; Gain
+Critic owned by FRS-TRAIN-v020 predicts expected utility at the active K; Gain
 remains per-attempt raw evidence and does not own the utility mapping or the
 Segment-mean value target. Raw Gain is retained in diagnostics and evaluation
 and is never overwritten by the utility representation.

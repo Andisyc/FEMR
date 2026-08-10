@@ -156,7 +156,7 @@ def test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds() -> None:
 def test_strict_v11_resume_replaces_hsl_initializer() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         resume_path = Path(tmp) / "model_1.pt"
-        resume_path.write_text("semantic checkpoint-v14 fixture\n")
+        resume_path.write_text("semantic checkpoint-v15 fixture\n")
         result = _run_preflight(
             "train",
             {"FRONTRES_V015_RESUME_CHECKPOINT": str(resume_path)},
@@ -179,7 +179,7 @@ def test_strict_v11_resume_rejects_missing_checkpoint() -> None:
         bounds=("8", "199", "1"),
     )
     assert result.returncode != 0
-    assert "checkpoint-v14 resume checkpoint not found" in result.stderr
+    assert "checkpoint-v15 resume checkpoint not found" in result.stderr
 
 
 def test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel() -> None:

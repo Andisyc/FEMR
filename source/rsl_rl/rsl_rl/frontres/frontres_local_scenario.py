@@ -480,10 +480,7 @@ def _local_scenario_hash(
 ) -> str:
     digest = hashlib.sha256()
     for name, value in (
-        ("transaction_id", request.transaction_id),
-        ("scenario_id", request.scenario_id),
         ("segment_id", int(request.segment_id)),
-        ("source_index", int(request.source_index)),
         ("x_t_identity", request.x_t_identity),
         ("horizon_k", int(request.horizon_k)),
         ("future_offsets", tuple(int(offset) for offset in request.future_offsets)),

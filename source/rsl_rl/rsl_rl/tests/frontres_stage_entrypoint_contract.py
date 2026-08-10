@@ -429,7 +429,7 @@ def main() -> None:
     assert '--frontres_v015_future_offsets "${FRONTRES_V015_FUTURE_OFFSETS}"' in stage3
     assert '--resume_student_checkpoint "${HSL_CHECKPOINT}"' not in stage3
     assert 'STAGE3_IS_FULL_RESUME' not in stage3
-    assert 'v019 Stage 3 forbids legacy resume arguments' in stage3
+    assert 'v020 Stage 3 forbids legacy resume arguments' in stage3
     assert 'G5-S4 bounded Stage 3 requires train mode, 16 envs, 1 iteration, and 1 update' in stage3
     assert 'CHECKPOINT_INTERVAL="${FRONTRES_CHECKPOINT_INTERVAL:-1}"' in stage3
     assert 'TRAIN_CMD+=(--frontres_checkpoint_interval "${CHECKPOINT_INTERVAL}")' in stage3
@@ -438,7 +438,7 @@ def main() -> None:
     assert 'SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"' in stage3
     assert 'EXTRA_TRAIN_ARGS=("${@:7}")' in stage3
     assert 'SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size.' in stage3
-    assert 'FRS-TRAIN-v019 uses fixed Actor LR=3e-6 and Critic LR=1e-5' in stage3
+    assert 'FRS-TRAIN-v020 uses fixed Actor LR=3e-6 and Critic LR=1e-5' in stage3
     assert '--frontres_segment_cache_dir "${CACHE_DIR}"' in stage3
     assert '--frontres_segment_shard_cache_size "${SHARD_CACHE_SIZE}"' in stage3
     assert '--frontres_segment_live_update_steps "${UPDATE_STEPS}"' in stage3

@@ -1,6 +1,6 @@
 ---
 contract_id: FRS-TRAIN-v019
-status: active
+status: superseded
 effective_date: 2026-08-10
 updated_date: 2026-08-10
 supersedes: FRS-TRAIN-v018

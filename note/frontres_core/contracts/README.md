@@ -6,12 +6,18 @@ This registry is the only default entrypoint for FrontRES contracts.
 
 | Category | Active contract | Status |
 | --- | --- | --- |
-| Method | `active/method/FRS-METHOD-v020-symmetric-log-utility-segment-replay.md` | active |
-| Training | `active/training/FRS-TRAIN-v019-symmetric-log-utility-cold-start.md` | active |
+| Method | `active/method/FRS-METHOD-v021-outer-prioritized-scenario-replay.md` | active |
+| Training | `active/training/FRS-TRAIN-v020-outer-scenario-replay-cold-start.md` | active |
 | Reward | `active/reward/FRS-GAIN-v008-recovery-aware-raw-evidence-utility-boundary.md` | active |
 | Optimization | `active/optimization/FRS-PPO-v008-symmetric-log-actor-critic-utility.md` | active |
 | Evaluation | `active/evaluation/FRS-EVAL-v004-clean-anchored-local-and-composition-evaluation.md` | active |
 | Engineering | `active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md` | active |
+
+## Confirmed Design Rationale
+
+`../plans/FRS-METHOD-v021-outer-prioritized-scenario-replay-proposal.md` records
+the confirmed rationale for closing the outer Scenario Replay loop under
+`FRS-DP-02`. Active authority is the METHOD-v021/TRAIN-v020 pair above.
 
 ## Concept Figure Design Point Register
 
@@ -21,17 +27,17 @@ Concept Figure. Canonical names and block IDs come from
 
 | Design ID | Canonical human name | Active contract section | Figure block ID | Current code/evidence gap |
 | --- | --- | --- | --- | --- |
-| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v020` / `Sealed Local Scenario`; `FRS-TRAIN-v019` / `Per-K Inner DR Curriculum` | `M-02` | K/DR semantics are unchanged; prior runtime evidence is stale for the v019 formal route. |
-| `FRS-DP-01P` | Perturbation Probing | `FRS-TRAIN-v019` / `Optional GMT Boundary Acquisition` | `M-12` | The campaign still configures the measured 2.381 boundary directly. |
-| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v020` / `Frozen-Policy Transaction`; `FRS-PPO-v008` / `Grouped Equal-Mass Reduction`; `FRS-TRAIN-v019` / `Exact-M Frozen-Policy Transaction` | `SR-01` | Exact-one and M4 are retained; utility is transformed per attempt before reduction. |
-| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v020` / `One-Action K Evidence`; `FRS-TRAIN-v019` / `Nested K x M x DR Schedule` | `M-06` | K/DR timing is unchanged; checkpoint-v14 binds K8/M4 -> K16/M4 -> K32/M4. |
-| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v020` / `Actor And Information Boundary`; `FRS-TRAIN-v019` / `Design Delta` | `M-04` | Direct finite `[B,6]` action semantics are unchanged; action-conditioned Critic remains forbidden. |
-| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v020` / `One-Action K Evidence And Frozen GMT` | `M-10` | Frozen 770D GMT authority is unchanged; Critic-only support context stays isolated. |
-| `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v020` / `Clean/Noisy/Repair Evidence`; `FRS-GAIN-v008` / `Evidence Authority And Lifecycle`; `FRS-EVAL-v004` / `Local Clean/Noisy/Repair Evaluation` | `Q-PAIR` | Evaluation keeps raw evidence and compares the Critic with utility-space M4 targets. |
+| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v021` / `Stable Scenario Identity`; `FRS-TRAIN-v020` / `Formal Transaction` | `M-02` | K/DR semantics are unchanged; perturbation seed is now part of replay identity. |
+| `FRS-DP-01P` | Perturbation Probing | `FRS-TRAIN-v020` / `Fixed Training Schedule` | `M-12` | The campaign still configures the measured 2.381 boundary directly. |
+| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v021` / `Selection`; `FRS-PPO-v008` / `Grouped Equal-Mass Reduction`; `FRS-TRAIN-v020` / `Formal Transaction` | `SR-01` | Outer sealed-Scenario replay is active; implementation/formal evidence is pending this engineering unit. |
+| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v021` / `Admission And Priority`; `FRS-TRAIN-v020` / `Fixed Training Schedule` | `M-06` | K/DR timing is unchanged; checkpoint-v15 binds K-specific replay score. |
+| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v021` / `Preserved Boundaries`; `FRS-TRAIN-v020` / `Fixed Training Schedule` | `M-04` | Direct finite `[B,6]` action semantics are unchanged; action-conditioned Critic remains forbidden. |
+| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v021` / `Preserved Boundaries` | `M-10` | Frozen 770D GMT authority is unchanged. |
+| `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v021` / `Preserved Boundaries`; `FRS-GAIN-v008` / `Evidence Authority And Lifecycle`; `FRS-EVAL-v004` / `Local Clean/Noisy/Repair Evaluation` | `Q-PAIR` | Evaluation remains read-only and outer replay is training-only. |
 | `FRS-DP-07` | Repair Gain | `FRS-GAIN-v008` / `Recovery-Aware Total Gain`; `FRS-PPO-v008` / `Scalar Actor And Critic Signal`; `FRS-EVAL-v004` / `Local Report` | `Q-01` | Raw Gain is preserved; fixed symlog utility is shared by Actor and Critic. |
-| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v019` / `First Entry From HSL` | `M-03` | HSL-v2 remains Actor-only initialization; the 449D Critic and optimizer start fresh. |
-| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v019` / `Critic Recalibration And Actor Ramp`; `Adaptive Critic Value Scale`; `Fixed Split-LR Optimizer Identity`; `FRS-PPO-v008` / `Warmup Weight Boundary` | `M-05` | Phase counts/LRs remain; utility identity and checkpoint-v14 require fresh evidence. |
-| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v020` / `Actor And Information Boundary`; `FRS-TRAIN-v019` / `Scalar Critic Authority` | `M-11` | Actor remains 158D; Critic remains 449D and GMT remains 770D. |
+| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v020` / `Campaign Identity` | `M-03` | HSL-v2 remains Actor-only initialization; Critic, optimizer and replay state start fresh. |
+| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v020` / `Fixed Training Schedule`; `FRS-PPO-v008` / `Warmup Weight Boundary` | `M-05` | Phase counts/LRs remain; checkpoint-v15 requires fresh evidence. |
+| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v021` / `Preserved Boundaries`; `FRS-TRAIN-v020` / `Formal Transaction` | `M-11` | Actor remains 158D; Critic remains 449D and GMT remains 770D. |
 
 ## Active Recovery-Aware Contract Migration
 
@@ -44,10 +50,10 @@ network, observations, M/K/DR, LR, Gain arithmetic and simulator are unchanged.
 The coordinated active semantic authority is now:
 
 ```text
-FRS-METHOD-v020
+FRS-METHOD-v021
 FRS-GAIN-v008
 FRS-PPO-v008
-FRS-TRAIN-v019
+FRS-TRAIN-v020
 FRS-EVAL-v004
 ```
 
@@ -56,18 +62,21 @@ scores every valid Repair with
 `G_total = G_I + lambda_RA G_P - beta C_repair`, and sends all attempts through
 one grouped scalar PPO update. All attempts in one Segment share the same old
 state value; `mean_m(U(G_total_m))` supervises the Critic while individual
-`U(G_total_m)-V_old(s)` values supervise Actor credit. Checkpoint-v14 is the only compatible Stage-3
-persistence identity and carries the committed target moments/count. The current
+`U(G_total_m)-V_old(s)` values supervise Actor credit. Outer Replay schedules
+future visits by the committed current-K mean absolute utility error and never
+changes PPO mass. Checkpoint-v15 is the only compatible Stage-3 training/resume
+identity and carries target moments/count plus Scenario key/score/staleness/RNG. The current
 Engineering Plan and Module Test Cards are the executable-work and oracle
 control surfaces; implementation, formal route and live evidence close only at
 their own gates.
 
 The local/composition evaluation boundary is aligned by `FRS-EVAL-v004`.
 Its 2026-08-10 revision keeps legacy checkpoint-v13 inspection read-only and
-binds checkpoint-v14 Held-out Policy Quality to K16/M4, the 449D state-value
+binds the already-tested checkpoint-v14 Held-out Policy Quality to K16/M4, the 449D state-value
 Critic, raw Gain evidence, `mean_m U(G_total_m)` and the checkpoint's
-privileged-observation normalizer. The held-out Segment bank, raw Gain formula
-and deployment-composition question are unchanged.
+privileged-observation normalizer. checkpoint-v14 remains Evaluation-only and
+cannot resume TRAIN-v020. The held-out Segment bank, raw Gain formula and
+deployment-composition question are unchanged.
 The confirmed proposal at
 `../plans/FRS-METHOD-v018-state-value-future-context-proposal.md` is retained as
 design rationale. The five coordinated method, Gain, optimization, training,

@@ -18,14 +18,14 @@ from rsl_rl.frontres.frontres_return_utility import (
     FRONTRES_RETURN_UTILITY_SCALE,
 )
 
-FRONTRES_METHOD_CONTRACT_ID = "FRS-METHOD-v020"
+FRONTRES_METHOD_CONTRACT_ID = "FRS-METHOD-v021"
 FRONTRES_GAIN_CONTRACT_ID = "FRS-GAIN-v008"
 FRONTRES_OPTIMIZATION_CONTRACT_ID = "FRS-PPO-v008"
-FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v019"
+FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v020"
 FRONTRES_SCALAR_TARGET_ID = "symmetric-log-recovery-aware-utility-v1"
 FRONTRES_PHYSICS_SCHEMA_ID = "clean-anchored-contact-zmp-survival-v1"
 FRONTRES_GROUPED_SCHEMA_ID = "grouped-all-attempt-scalar-v1"
-FRONTRES_CHECKPOINT_FORMAT = "frontres-v019-checkpoint-v14"
+FRONTRES_CHECKPOINT_FORMAT = "frontres-v020-checkpoint-v15"
 FRONTRES_DR_CURRICULUM_SCHEMA_ID = "nested-k-dr-four-class-v1"
 FRONTRES_CRITIC_VALUE_KIND = "state_value"
 FRONTRES_CRITIC_INPUT_DIM = 449
@@ -384,9 +384,9 @@ class FrontRESActiveTelemetryView:
         if self.optimizer_step_delta != 1 or self.update_count != 1:
             raise ValueError("FrontRES telemetry requires exact-one update identity")
         if self.actor_learning_rate != 3.0e-6 or self.critic_learning_rate != 1.0e-5:
-            raise ValueError("FRS-TRAIN-v019 telemetry requires Actor LR=3e-6 and Critic LR=1e-5")
+            raise ValueError("FRS-TRAIN-v020 telemetry requires Actor LR=3e-6 and Critic LR=1e-5")
         if self.actor_observation_dim != 158 or self.gmt_observation_dim != 770:
-            raise ValueError("FRS-TRAIN-v019 telemetry requires Actor/GMT dimensions 158/770")
+            raise ValueError("FRS-TRAIN-v020 telemetry requires Actor/GMT dimensions 158/770")
         gradient_values = (
             self.gradient_clip_max_norm,
             self.actor_gradient_post_clip_norm,

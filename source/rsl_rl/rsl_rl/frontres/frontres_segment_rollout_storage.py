@@ -116,7 +116,7 @@ class FrontRESSegmentRolloutStorage:
             rtol=0.0,
             atol=1.0e-6,
         ):
-            raise ValueError("TRAIN-v019 storage rejects non-utility carried advantages")
+            raise ValueError("TRAIN-v020 storage rejects non-utility carried advantages")
         self.returns[sl].copy_(returns)
         self.advantages[sl].copy_(advantages)
         self.valid_mask[sl].copy_(transition.valid_mask & transition.reset_mask)

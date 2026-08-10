@@ -163,10 +163,10 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         raise RuntimeError("v017 telemetry requires one Clean and one Noisy execution per Segment")
 
     expected_ids = {
-        "method_contract_id": "FRS-METHOD-v020",
+        "method_contract_id": "FRS-METHOD-v021",
         "gain_contract_id": "FRS-GAIN-v008",
         "optimization_contract_id": "FRS-PPO-v008",
-        "training_contract_id": "FRS-TRAIN-v019",
+        "training_contract_id": "FRS-TRAIN-v020",
         "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -212,7 +212,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         or critic_targets != tuple(float(value) for value in getattr(ppo, "critic_value_targets", ()))
         or actor_advantages != tuple(float(value) for value in getattr(ppo, "actor_advantages", ()))
     ):
-        raise RuntimeError("TRAIN-v019 telemetry has malformed raw/utility/target/advantage rows")
+        raise RuntimeError("TRAIN-v020 telemetry has malformed raw/utility/target/advantage rows")
     required_v016_fields = {
         "actor_observation_dim",
         "critic_observation_dim",
@@ -239,7 +239,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
     }
     missing_v016_fields = tuple(sorted(required_v016_fields.difference(diagnostics)))
     if missing_v016_fields:
-        raise RuntimeError(f"TRAIN-v019 telemetry is missing required fields: {missing_v016_fields}")
+        raise RuntimeError(f"TRAIN-v020 telemetry is missing required fields: {missing_v016_fields}")
     if (
         int(diagnostics.get("actor_observation_dim", -1)) != 158
         or int(diagnostics.get("critic_observation_dim", -1)) != 449
@@ -253,7 +253,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         or str(diagnostics.get("gradient_clip_identity", "")) != "separate-actor-critic-v1"
         or _finite(diagnostics, "gradient_clip_max_norm") != 0.5
     ):
-        raise RuntimeError("TRAIN-v019 telemetry lost state-value utility or gradient identity")
+        raise RuntimeError("TRAIN-v020 telemetry lost state-value utility or gradient identity")
     value_normalization_id = str(diagnostics["critic_value_normalization_id"])
     value_scale = _finite(diagnostics, "critic_value_scale")
     value_decay = _finite(diagnostics, "critic_value_normalizer_decay")
@@ -284,7 +284,53 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
             abs_tol=1.0e-7,
         )
     ):
-        raise RuntimeError("TRAIN-v019 telemetry has invalid Critic value-normalizer transition")
+        raise RuntimeError("TRAIN-v020 telemetry has invalid Critic value-normalizer transition")
+
+    outer_replay = diagnostics.get("outer_replay")
+    outer_sources = tuple(str(value) for value in diagnostics.get("outer_replay_sources", ()))
+    outer_key_digests = tuple(str(value) for value in diagnostics.get("outer_replay_scenario_key_digests", ()))
+    outer_seeds = tuple(int(value) for value in diagnostics.get("outer_replay_perturbation_seeds", ()))
+    outer_utility_means = tuple(float(value) for value in diagnostics.get("outer_replay_utility_means", ()))
+    outer_old_value_means = tuple(float(value) for value in diagnostics.get("outer_replay_old_value_means", ()))
+    if not isinstance(outer_replay, Mapping):
+        raise RuntimeError("TRAIN-v020 telemetry requires committed outer replay evidence")
+    outer_learning_values = tuple(float(value) for value in outer_replay.get("learning_values", ()))
+    outer_ema_scores = tuple(float(value) for value in outer_replay.get("ema_scores", ()))
+    outer_visit_counts = tuple(int(value) for value in outer_replay.get("visit_counts", ()))
+    outer_staleness = tuple(int(value) for value in outer_replay.get("staleness", ()))
+    if (
+        int(outer_replay.get("state_delta", -1)) != 1
+        or len(outer_sources) != 2
+        or any(source not in {"global", "replay", "review"} for source in outer_sources)
+        or len(outer_key_digests) != 2
+        or len(set(outer_key_digests)) != 2
+        or any(len(value) != 64 for value in outer_key_digests)
+        or len(outer_seeds) != 2
+        or any(value < 0 for value in outer_seeds)
+        or any(
+            len(values) != 2 or not all(math.isfinite(value) for value in values)
+            for values in (
+                outer_utility_means,
+                outer_old_value_means,
+                outer_learning_values,
+                outer_ema_scores,
+            )
+        )
+        or len(outer_visit_counts) != 2
+        or any(value <= 0 for value in outer_visit_counts)
+        or len(outer_staleness) != 2
+        or any(value != 0 for value in outer_staleness)
+    ):
+        raise RuntimeError("TRAIN-v020 telemetry has malformed outer replay commit evidence")
+    source_index = tuple(int(value) for value in diagnostics.get("source_index", ()))
+    for source in range(2):
+        expected_learning_value = sum(
+            abs(actor_advantages[row])
+            for row, source_value in enumerate(source_index)
+            if source_value == source
+        ) / active_m
+        if not math.isclose(outer_learning_values[source], expected_learning_value, rel_tol=1.0e-6, abs_tol=1.0e-6):
+            raise RuntimeError("TRAIN-v020 outer replay learning value differs from pre-update U(G)-V_old")
 
     telemetry = {
         "transaction_id": transaction_id,
@@ -388,13 +434,28 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         "dr_strength_by_segment": tuple(float(value) for value in diagnostics.get("dr_strength_by_segment", ())),
         "critic_parameter_delta": dict(diagnostics.get("critic_parameter_delta", {})),
         "actor_std_parameter_delta": dict(diagnostics.get("actor_std_parameter_delta", {})),
+        "outer_replay_state_delta": int(outer_replay["state_delta"]),
+        "outer_replay_sources": outer_sources,
+        "outer_replay_scenario_key_digests": outer_key_digests,
+        "outer_replay_perturbation_seeds": outer_seeds,
+        "outer_replay_utility_means": outer_utility_means,
+        "outer_replay_old_value_means": outer_old_value_means,
+        "outer_replay_learning_values": outer_learning_values,
+        "outer_replay_ema_scores": outer_ema_scores,
+        "outer_replay_visit_counts": outer_visit_counts,
+        "outer_replay_staleness": outer_staleness,
+        "outer_replay_record_count": int(outer_replay.get("record_count", -1)),
+        "outer_replay_pool_sizes": (
+            int(outer_replay.get("replay_pool_size", -1)),
+            int(outer_replay.get("review_pool_size", -1)),
+        ),
         "return_feedback": False,
         "priority_feedback": False,
         "ppo_feedback": False,
         **expected_ids,
     }
     if len(telemetry["dr_class_by_segment"]) != 2 or len(telemetry["dr_strength_by_segment"]) != 2:
-        raise RuntimeError("FRS-TRAIN-v019 telemetry requires two sealed Segment DR class/strength values")
+        raise RuntimeError("FRS-TRAIN-v020 telemetry requires two sealed Segment DR class/strength values")
     FrontRESActiveTelemetryView.from_mapping(telemetry)
     return telemetry
 
@@ -437,7 +498,7 @@ def require_frontres_committed_result(runner: Any, result: Any) -> dict[str, Any
             float(actor_delta.get("param_delta_max_abs", float("nan"))) != 0.0
             or not float(critic_delta.get("param_delta_max_abs", 0.0)) > 0.0
         ):
-            raise RuntimeError("FRS-TRAIN-v019 critic-only commit requires frozen actor/std and updated Critic")
+            raise RuntimeError("FRS-TRAIN-v020 critic-only commit requires frozen actor/std and updated Critic")
     # AUDIT-B02/B05/B06/B07: 最终 serializer 只读审计, 不反馈训练状态.
     from rsl_rl.runners.frontres_formal_runtime_audit import print_phase_b_telemetry_audit
 

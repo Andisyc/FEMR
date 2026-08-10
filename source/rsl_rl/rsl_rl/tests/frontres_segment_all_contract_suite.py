@@ -298,6 +298,13 @@ CONTRACTS = (
         requires_torch=True,
     ),
     ContractTarget(
+        name="v020_outer_scenario_replay",
+        path="source/rsl_rl/rsl_rl/tests/frontres_v020_outer_scenario_replay_contract.py",
+        expected_marker="frontres_v020_outer_scenario_replay_contract: PASS",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
         name="v018_policy_quality_batch_adapter",
         path="source/rsl_rl/rsl_rl/tests/frontres_local_scenario_kernel_contract.py",
         expected_marker="[T-v018-heldout] two Segment x M4, K16 and source-shared scenario identities are sealed",
@@ -307,7 +314,7 @@ CONTRACTS = (
     ContractTarget(
         name="v017_transaction_route",
         path="source/rsl_rl/rsl_rl/tests/frontres_v015_transaction_route_contract.py",
-        expected_marker="frontres_v015_transaction_route_contract: v019 symlog state-value exact-one ok",
+        expected_marker="frontres_v015_transaction_route_contract: v020 outer replay exact-one ok",
         path_class="core_param_path",
         requires_torch=True,
     ),
@@ -335,7 +342,7 @@ CONTRACTS = (
     ContractTarget(
         name="v016_checkpoint_resume",
         path="source/rsl_rl/rsl_rl/tests/frontres_v016_checkpoint_contract.py",
-        expected_marker="frontres_v016_checkpoint_contract: v14 utility round-trip and v13/v10 reject",
+            expected_marker="frontres_v016_checkpoint_contract: v15 replay round-trip and legacy reject",
         path_class="core_param_path",
         requires_torch=True,
     ),
