@@ -42,10 +42,7 @@ from rsl_rl.runners.frontres_policy_quality_state import (
     resolve_frontres_policy_quality_envs,
     restore_frontres_policy_quality_state,
 )
-from rsl_rl.runners.frontres_checkpoint_quality import (
-    FRONTRES_HSL_ARTIFACT_TRAINING_CONTRACT_ID,
-    frontres_v015_tensor_fingerprint,
-)
+from rsl_rl.runners.frontres_checkpoint_quality import FRONTRES_HSL_ARTIFACT_TRAINING_CONTRACT_ID
 from rsl_rl.runners.frontres_evaluation_reporting import write_frontres_atomic_json
 
 
@@ -87,6 +84,7 @@ _V015_QUALITY_ROUTES = ("zero", "hsl", "policy")
 _V015_QUALITY_REPORT_SCHEMA = "frontres-v015-heldout-quality-report-v2"
 _V015_GAIN_SOURCE = "FRS-GAIN-v006-loaded-support-zmp-applicability"
 _V018_QUALITY_REPORT_SCHEMA = "frontres-v018-policy-quality-report-v1"
+_V019_CRITIC_INPUT_MAX_ABS_DIFF = 1.0e-3
 _V015_DYNAMIC_STATE_FIELDS = (
     "root_state_w",
     "joint_pos",
@@ -1115,7 +1113,7 @@ def build_frontres_v019_critic_repeat_diagnostics(
         item_ids = transaction.get("item_ids")
         signatures = transaction.get("item_comparison_signatures")
         calibration = transaction.get("critic_calibration")
-        critic_input_fingerprints = transaction.get("critic_input_fingerprints")
+        critic_input_rows = transaction.get("critic_input_rows")
         actions = report.get("policy_actions") if isinstance(report, dict) else None
         x_t_identities = transaction.get("x_t_identities")
         if (
@@ -1123,12 +1121,12 @@ def build_frontres_v019_critic_repeat_diagnostics(
             or not isinstance(item_ids, list)
             or not isinstance(signatures, list)
             or not isinstance(calibration, list)
-            or not isinstance(critic_input_fingerprints, list)
+            or not isinstance(critic_input_rows, list)
             or not isinstance(actions, (list, tuple))
             or not isinstance(x_t_identities, (list, tuple))
             or len(item_ids) != len(signatures)
             or len(item_ids) != len(calibration)
-            or len(item_ids) != len(critic_input_fingerprints)
+            or len(item_ids) != len(critic_input_rows)
         ):
             raise RuntimeError("EVAL-v004 critic repeat transaction identity is incomplete")
         for item_offset, row in enumerate(calibration):
@@ -1144,12 +1142,16 @@ def build_frontres_v019_critic_repeat_diagnostics(
                 float(row.get("raw_target_mean", float("nan"))),
                 float(row.get("target_mean", float("nan"))),
             )
+            critic_input = critic_input_rows[item_offset]
             if (
                 source_index != item_offset
                 or attempt_count != 4
                 or len(action_rows) != attempt_count
                 or len(x_t_rows) != attempt_count
                 or len(set(x_t_rows)) != 1
+                or not isinstance(critic_input, (list, tuple))
+                or len(critic_input) != 449
+                or not all(math.isfinite(float(value)) for value in critic_input)
                 or not all(math.isfinite(value) for value in values)
             ):
                 raise RuntimeError("EVAL-v004 critic repeat row has invalid M4 identity or values")
@@ -1175,7 +1177,7 @@ def build_frontres_v019_critic_repeat_diagnostics(
                     "scenario_id": str(row.get("scenario_id", "")),
                     "noisy_segment_hash": str(row.get("noisy_segment_hash", "")),
                     "x_t_identity": x_t_rows[0],
-                    "critic_input_fingerprint": str(critic_input_fingerprints[item_offset]),
+                    "critic_input": tuple(float(value) for value in critic_input),
                     "critic_policy_value": values[0],
                     "raw_target_mean": values[1],
                     "target_mean": values[2],
@@ -1195,13 +1197,33 @@ def build_frontres_v019_critic_repeat_diagnostics(
             "scenario_id",
             "noisy_segment_hash",
             "x_t_identity",
-            "critic_input_fingerprint",
         )
-        if any(len({row[name] for row in rows}) != 1 for name in identity_fields):
-            raise RuntimeError("EVAL-v004 critic repeat lost fixed Segment identity")
+        differing_fields = tuple(name for name in identity_fields if len({row[name] for row in rows}) != 1)
+        if differing_fields:
+            raise RuntimeError(
+                "EVAL-v004 critic repeat lost fixed Segment identity; "
+                f"differing_fields={differing_fields}"
+            )
+        critic_input_reference = rows[0]["critic_input"]
+        critic_input_max_abs_diff = max(
+            abs(value - reference)
+            for row in rows
+            for value, reference in zip(row["critic_input"], critic_input_reference, strict=True)
+        )
+        # Reset permits 1e-5 physical roundoff; EmpiricalNormalization eps=1e-2
+        # bounds its worst-case amplification to 1e-3 in the normalized Critic input.
+        critic_input_tolerance = _V019_CRITIC_INPUT_MAX_ABS_DIFF
+        if critic_input_max_abs_diff > critic_input_tolerance:
+            raise RuntimeError(
+                "EVAL-v004 critic repeat detected material Critic input drift: "
+                f"item_id={item_id} max_abs_diff={critic_input_max_abs_diff:.9g} "
+                f"limit={critic_input_tolerance:.9g}"
+            )
         policy_values = [row["critic_policy_value"] for row in rows]
-        if any(not math.isclose(value, policy_values[0], rel_tol=0.0, abs_tol=1e-6) for value in policy_values[1:]):
-            raise RuntimeError("EVAL-v004 critic repeat lost its shared state value")
+        policy_value_mean = sum(policy_values) / repeat_count
+        policy_value_std = math.sqrt(
+            sum((value - policy_value_mean) ** 2 for value in policy_values) / repeat_count
+        )
         action_fingerprints = [row["action_fingerprint"] for row in rows]
         if repeat_count > 1 and len(set(action_fingerprints)) != repeat_count:
             raise RuntimeError("EVAL-v004 critic repeat requires distinct Repair actions for every repeat")
@@ -1218,7 +1240,11 @@ def build_frontres_v019_critic_repeat_diagnostics(
                 "scenario_id": first["scenario_id"],
                 "noisy_segment_hash": first["noisy_segment_hash"],
                 "x_t_identity": first["x_t_identity"],
-                "critic_input_fingerprint": first["critic_input_fingerprint"],
+                "critic_input_reference_fingerprint": hashlib.sha256(
+                    json.dumps(critic_input_reference, separators=(",", ":"), allow_nan=False).encode("utf-8")
+                ).hexdigest(),
+                "critic_input_max_abs_diff": critic_input_max_abs_diff,
+                "critic_input_tolerance": critic_input_tolerance,
                 "repeat_target_means": targets,
                 "repeat_raw_target_means": raw_targets,
                 "target_mean": target_mean,
@@ -1226,8 +1252,13 @@ def build_frontres_v019_critic_repeat_diagnostics(
                 "target_standard_error": target_std / math.sqrt(repeat_count),
                 "target_min": min(targets),
                 "target_max": max(targets),
+                "repeat_critic_policy_values": policy_values,
                 "critic_policy_value": policy_values[0],
-                "critic_error_to_repeat_mean": policy_values[0] - target_mean,
+                "critic_policy_value_mean": policy_value_mean,
+                "critic_policy_value_std": policy_value_std,
+                "critic_policy_value_min": min(policy_values),
+                "critic_policy_value_max": max(policy_values),
+                "critic_error_to_repeat_mean": policy_value_mean - target_mean,
                 "action_fingerprints": action_fingerprints,
             }
         )
@@ -1239,26 +1270,30 @@ def build_frontres_v019_critic_repeat_diagnostics(
     }
 
 
-def build_frontres_v019_critic_input_fingerprints(collection: Any, plan: Any) -> list[str]:
-    """Fingerprint the exact normalized Critic row shared by each fixed Segment."""
+def build_frontres_v019_critic_input_rows(collection: Any, plan: Any) -> list[list[float]]:
+    """Retain one canonical normalized Critic row per fixed Segment for numeric comparison."""
 
     attempts = tuple(getattr(getattr(collection, "evidence", None), "attempts", ()) or ())
     source_index = getattr(plan, "source_index", None)
     if not isinstance(source_index, torch.Tensor) or len(attempts) != int(source_index.numel()):
         raise RuntimeError("EVAL-v004 critic repeat requires row-aligned Critic observations")
-    fingerprints: list[str] = []
+    critic_input_rows: list[list[float]] = []
     for source in sorted(set(int(value) for value in source_index.detach().cpu().tolist())):
         rows = tuple(attempt for attempt in attempts if int(getattr(attempt, "source_index", -1)) == source)
-        row_fingerprints = tuple(
-            frontres_v015_tensor_fingerprint(getattr(attempt, "policy_privileged_observation", None))
-            for attempt in rows
-        )
-        if len(rows) != int(getattr(plan, "active_m", 0)) or len(set(row_fingerprints)) != 1:
+        inputs = tuple(getattr(attempt, "policy_privileged_observation", None) for attempt in rows)
+        if (
+            len(rows) != int(getattr(plan, "active_m", 0))
+            or any(not isinstance(value, torch.Tensor) or tuple(value.shape) != (449,) for value in inputs)
+            or any(not bool(torch.isfinite(value).all().item()) for value in inputs)
+            or any(not torch.equal(value, inputs[0]) for value in inputs[1:])
+        ):
             raise RuntimeError("EVAL-v004 critic repeat requires one shared Critic input per Segment")
-        fingerprints.append(row_fingerprints[0])
-    if len(fingerprints) != int(getattr(plan, "selected_segment_count", 0)):
+        critic_input_rows.append(
+            [float(value) for value in inputs[0].detach().to(device="cpu", dtype=torch.float32).tolist()]
+        )
+    if len(critic_input_rows) != int(getattr(plan, "selected_segment_count", 0)):
         raise RuntimeError("EVAL-v004 critic repeat lost one Segment Critic input")
-    return fingerprints
+    return critic_input_rows
 
 
 def run_frontres_v018_policy_quality_heldout_eval(
@@ -1332,7 +1367,7 @@ def run_frontres_v018_policy_quality_heldout_eval(
                         {
                             "repeat_index": repeat_index,
                             "x_t_identities": list(plan.x_t_identities),
-                            "critic_input_fingerprints": build_frontres_v019_critic_input_fingerprints(
+                            "critic_input_rows": build_frontres_v019_critic_input_rows(
                                 collection,
                                 plan,
                             ),
@@ -1403,6 +1438,8 @@ def run_frontres_v018_policy_quality_heldout_eval(
             transactions,
             repeat_count=repeat_count,
         )
+        for transaction in transactions:
+            transaction.pop("critic_input_rows", None)
     write_frontres_atomic_json(request.result_path, payload, compact=True)
     return payload
 

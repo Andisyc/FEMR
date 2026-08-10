@@ -109,11 +109,13 @@ The atomic local report must retain:
 
 When `repeat_count > 1`, the report additionally retains the repeat index,
 per-repeat M4 action fingerprint, fixed scenario/noisy-hash/`x_t` identity,
-exact normalized 449D Critic-input fingerprint, fixed `V(s)`, and per-Segment
-target mean, population standard deviation, standard error, minimum and
-maximum. This answers whether repeated realized
-M4 targets for the same Critic state are stable enough to learn; it does not
-claim policy quality.
+one reference fingerprint plus maximum numeric drift for the normalized 449D
+Critic input, repeated `V(s)` statistics, and per-Segment target mean,
+population standard deviation, standard error, minimum and maximum. The Critic
+input drift limit is `1e-3`, derived from the reset owner's `1e-5` physical
+roundoff limit and the normalizer's `eps=1e-2`. This answers whether repeated
+realized M4 targets for the same Critic state are stable enough to learn; it
+does not claim policy quality.
 
 Missing required evidence, identity drift, non-finite applicable values, or a
 silent zero/default fails the local item closed. Physics is reported through
@@ -151,9 +153,10 @@ warmup, checkpoint, return, priority, or PPO state. Success and exception paths
 restore all module/normalizer state and inference/training mode and close their
 carrier/scenario lifecycle.
 
-Repeated evaluation must also fail closed if the fixed Segment identity or
-Critic value drifts, any target is non-finite, the M4 action groups collapse to
-the same fingerprint across repeats, or training state changes.
+Repeated evaluation must also fail closed if the fixed discrete Segment
+identity changes, normalized Critic input drift exceeds its derived numeric
+limit, any target is non-finite, the M4 action groups collapse to the same
+fingerprint across repeats, or training state changes.
 
 Legacy quartet/Clean-global Style reports, v002/v006 Gain fallbacks, direct
 runner-private access, hidden padding, and mixed Baseline/Repair state are

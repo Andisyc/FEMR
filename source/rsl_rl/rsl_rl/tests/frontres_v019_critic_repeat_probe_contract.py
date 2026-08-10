@@ -28,7 +28,7 @@ def _transaction(repeat_index: int, target_a: float, target_b: float, action_off
         "item_ids": ["fixed-a", "fixed-b"],
         "item_comparison_signatures": ["a" * 64, "b" * 64],
         "x_t_identities": ["x-t-a"] * 4 + ["x-t-b"] * 4,
-        "critic_input_fingerprints": ["critic-a", "critic-b"],
+        "critic_input_rows": [[0.0] * 449, [1.0] * 449],
         "critic_calibration": [
             {
                 "source_index": 0,
@@ -75,7 +75,24 @@ def test_repeat_diagnostics_preserve_fixed_segment_identity_and_hand_statistics(
     assert (first["target_min"], first["target_max"]) == (0.0, 2.0)
     assert first["critic_policy_value"] == 0.25
     assert first["critic_error_to_repeat_mean"] == -0.75
+    assert first["critic_input_max_abs_diff"] == 0.0
     assert len(set(first["action_fingerprints"])) == 3
+
+
+def test_repeat_diagnostics_tolerate_roundoff_but_reject_critic_state_drift() -> None:
+    roundoff = [_transaction(0, 0.0, -1.0, 0.0), _transaction(1, 1.0, 0.0, 1.0)]
+    roundoff[1]["critic_input_rows"][0][17] = 1.0e-4
+    result = quality.build_frontres_v019_critic_repeat_diagnostics(roundoff, repeat_count=2)
+    assert math.isclose(result["segments"][0]["critic_input_max_abs_diff"], 1.0e-4)
+
+    drifted = copy.deepcopy(roundoff)
+    drifted[1]["critic_input_rows"][0][17] = 1.0e-2
+    try:
+        quality.build_frontres_v019_critic_repeat_diagnostics(drifted, repeat_count=2)
+    except RuntimeError as exc:
+        assert "Critic input drift" in str(exc), str(exc)
+    else:
+        raise AssertionError("repeat diagnostics must reject material Critic-input drift")
 
 
 def test_repeat_diagnostics_fail_closed_on_identity_or_action_collapse() -> None:
@@ -89,15 +106,6 @@ def test_repeat_diagnostics_fail_closed_on_identity_or_action_collapse() -> None
         assert "fixed Segment identity" in str(exc), str(exc)
     else:
         raise AssertionError("repeat diagnostics must reject scenario/hash drift")
-
-    critic_drifted = copy.deepcopy(base)
-    critic_drifted[1]["critic_input_fingerprints"][0] = "changed"
-    try:
-        quality.build_frontres_v019_critic_repeat_diagnostics(critic_drifted, repeat_count=2)
-    except RuntimeError as exc:
-        assert "fixed Segment identity" in str(exc), str(exc)
-    else:
-        raise AssertionError("repeat diagnostics must reject Critic-input drift")
 
     collapsed = copy.deepcopy(base)
     collapsed[1]["report"]["policy_actions"] = copy.deepcopy(collapsed[0]["report"]["policy_actions"])
@@ -120,6 +128,7 @@ def test_k8_repeat_manifest_is_strict_and_minimal() -> None:
 
 if __name__ == "__main__":
     test_repeat_diagnostics_preserve_fixed_segment_identity_and_hand_statistics()
+    test_repeat_diagnostics_tolerate_roundoff_but_reject_critic_state_drift()
     test_repeat_diagnostics_fail_closed_on_identity_or_action_collapse()
     test_k8_repeat_manifest_is_strict_and_minimal()
     print("frontres_v019_critic_repeat_probe_contract: ok")
