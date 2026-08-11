@@ -96,8 +96,8 @@ from rsl_rl.runners.frontres_segment_probe_logging import (
 )
 
 
+from rsl_rl.frontres.frontres_policy_evaluation import FrontRESSegmentLivePolicyAdapter
 from rsl_rl.runners.frontres_segment_live_policy import (
-    FrontRESSegmentLivePolicyAdapter,
     snapshot_optimizer_parameters as _optimizer_parameter_snapshots,
     summarize_parameter_deltas as _parameter_delta_stats,
 )

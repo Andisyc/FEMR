@@ -38,7 +38,7 @@ from rsl_rl.algorithms.frontres_segment_ppo import (
 )
 from rsl_rl.algorithms.frontres_unified import FrontRESTrackedAdam
 from rsl_rl.modules.front_residual_actor_critic import FrontRESActorCritic
-from rsl_rl.runners.frontres_segment_live_policy import FrontRESSegmentLivePolicyAdapter
+from rsl_rl.frontres.frontres_policy_evaluation import FrontRESSegmentLivePolicyAdapter
 
 
 SCHEDULE = (

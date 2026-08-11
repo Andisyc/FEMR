@@ -99,18 +99,20 @@ from rsl_rl.runners.frontres_segment_probe_logging import (
     _verbose_reset_lines,
 )
 
-from rsl_rl.runners.frontres_segment_live_policy import (
+from rsl_rl.frontres.frontres_policy_evaluation import (
     FrontRESSegmentLivePolicyAdapter,
+    _evaluate_segment_delta_se_log_prob,
+    _evaluate_segment_delta_se_log_prob_from_stats,
+    _segment_delta_se_log_prob_parts,
+)
+from rsl_rl.runners.frontres_segment_live_policy import (
     _apply_segment_adaptive_learning_rate,
     _attach_ppo_update_diagnostics,
     _clear_noncritic_grads,
-    _evaluate_segment_delta_se_log_prob,
-    _evaluate_segment_delta_se_log_prob_from_stats,
     _optimizer_parameter_snapshots,
     _parameter_delta_stats,
     _post_update_segment_ppo_diagnostics,
     _restore_optimizer_parameters,
-    _segment_delta_se_log_prob_parts,
     _set_segment_optimizer_lr,
     run_frontres_segment_single_update,
 )
