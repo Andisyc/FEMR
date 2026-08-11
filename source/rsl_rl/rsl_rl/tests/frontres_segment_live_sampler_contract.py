@@ -50,6 +50,7 @@ def _install_import_stubs() -> None:
     ppo_module.FrontRESSegmentPPOBatch = object
     ppo_module.FrontRESSegmentPPOConfig = object
     ppo_module.compute_frontres_segment_ppo_loss = lambda *_args, **_kwargs: None
+    ppo_module.install_frontres_v006_scalar_gradients = lambda *_args, **_kwargs: None
     ppo_module.install_frontres_v005_scalar_gradients = lambda *_args, **_kwargs: None
     ppo_module.step_frontres_v005_scalar_optimizer = lambda *_args, **_kwargs: None
     sys.modules[ppo_module.__name__] = ppo_module
@@ -1843,6 +1844,52 @@ def test_formal_live_sampler_uses_configured_curriculum_ceiling() -> None:
     assert live_sampler_module._resolve_live_max_horizon_k(runner) == 64
 
 
+def test_outer_replay_base_sample_keeps_all_b8_fields_row_aligned() -> None:
+    owner = live_sampler_module.FrontRESOuterScenarioReplay(
+        global_frac=1.0,
+        replay_frac=0.0,
+        review_frac=0.0,
+        seed=23,
+    )
+    curriculum = live_sampler_module.resolve_frontres_k_stage_identity(
+        schedule=((8, 4, 200, 500, 1300, "lower-k8", 0.5, "linear-coupled-v1", 700, 2.381),),
+        committed_update_iteration=0,
+        max_horizon_k=8,
+    )
+    plan = owner.plan(
+        transaction_id="tx-b8-base-sample",
+        curriculum=curriculum,
+        num_segments=64,
+        eligible=lambda _segment_id: True,
+        global_family=lambda _segment_id: "local_rp",
+    )
+
+    sample = live_sampler_module._outer_replay_base_sample(plan, device="cpu")
+
+    assert int(sample.segment_ids.numel()) == 8
+    for field in (
+        sample.priority,
+        sample.staleness,
+        sample.valid_mask,
+        sample.rollout_trial_count,
+        sample.horizon_k,
+        sample.source_index,
+        sample.trial_index,
+    ):
+        assert tuple(field.shape) == (8,)
+    assert len(sample.source) == len(sample.budget_reason) == len(sample.trial_role) == 8
+    torch.testing.assert_close(sample.source_index, torch.arange(8, dtype=torch.long))
+
+    exact_m_source_index = torch.arange(8, dtype=torch.long).repeat_interleave(4)
+    for field in (
+        sample.priority,
+        sample.staleness,
+        sample.valid_mask,
+        sample.rollout_trial_count,
+    ):
+        assert tuple(field.index_select(0, exact_m_source_index).shape) == (32,)
+
+
 def main() -> None:
     test_live_summary_becomes_sampler_evidence()
     test_live_sampler_evidence_carries_partial_reset_failure()
@@ -1878,6 +1925,7 @@ def main() -> None:
     test_runner_checkpoint_save_skips_missing_external_writer()
     test_trial_plan_attachment_accepts_sequence_eval_sample_without_optional_metadata()
     test_formal_live_sampler_uses_configured_curriculum_ceiling()
+    test_outer_replay_base_sample_keeps_all_b8_fields_row_aligned()
     print("frontres_segment_live_sampler_contract: ok")
 
 

@@ -3,44 +3,44 @@
 [Warning] [simulation_app.simulation_app] Modules: ['omni.kit_app'] were loaded before SimulationApp was started and might not be loaded correctly.
 [Warning] [simulation_app.simulation_app] Please check to make sure no extra omniverse or pxr modules are imported before the call to SimulationApp(...)
 Loading user config located at: '/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/omni/data/Kit/Isaac-Sim/4.5/user.config.json'
-[Info] [carb] Logging to file: /hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/omni/logs/Kit/Isaac-Sim/4.5/kit_20260811_154956.log
-2026-08-11 15:49:56 [0ms] [Warning] [omni.kit.app.plugin] No crash reporter present, dumps uploading isn't available.
-2026-08-11 15:49:56 [3ms] [Warning] [omni.ext.plugin] [ext: rendering_modes] Extensions config 'extension.toml' doesn't exist '/home/yuxuancheng/IsaacLab_mosaic/apps/rendering_modes' or '/home/yuxuancheng/IsaacLab_mosaic/apps/rendering_modes/config'
-2026-08-11 15:49:56 [202ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
-2026-08-11 15:49:56 [318ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
-2026-08-11 15:49:57 [582ms] [Warning] [omni.datastore] OmniHub is inaccessible
-2026-08-11 15:49:57 [759ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
-2026-08-11 15:50:02 [5,636ms] [Warning] [carb.cudainterop.plugin] CUDA_VISIBLE_DEVICES environment variable is set.
-2026-08-11 15:50:02 [5,636ms] [Warning] [carb.cudainterop.plugin] Note CUDA device enumeration and Omniverse device enumeration are different.
-2026-08-11 15:50:02 [5,636ms] [Warning] [carb.cudainterop.plugin] Setting CUDA_VISIBLE_DEVICES can lead to undesired behavior or crashes.
-2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+[Info] [carb] Logging to file: /hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/omni/logs/Kit/Isaac-Sim/4.5/kit_20260811_173604.log
+2026-08-11 17:36:04 [0ms] [Warning] [omni.kit.app.plugin] No crash reporter present, dumps uploading isn't available.
+2026-08-11 17:36:04 [2ms] [Warning] [omni.ext.plugin] [ext: rendering_modes] Extensions config 'extension.toml' doesn't exist '/home/yuxuancheng/IsaacLab_mosaic/apps/rendering_modes' or '/home/yuxuancheng/IsaacLab_mosaic/apps/rendering_modes/config'
+2026-08-11 17:36:04 [190ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-08-11 17:36:04 [328ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+2026-08-11 17:36:04 [578ms] [Warning] [omni.datastore] OmniHub is inaccessible
+2026-08-11 17:36:04 [686ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+2026-08-11 17:36:09 [5,340ms] [Warning] [carb.cudainterop.plugin] CUDA_VISIBLE_DEVICES environment variable is set.
+2026-08-11 17:36:09 [5,340ms] [Warning] [carb.cudainterop.plugin] Note CUDA device enumeration and Omniverse device enumeration are different.
+2026-08-11 17:36:09 [5,340ms] [Warning] [carb.cudainterop.plugin] Setting CUDA_VISIBLE_DEVICES can lead to undesired behavior or crashes.
+2026-08-11 17:36:09 [5,365ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,365ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:09 [5,366ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,366ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:09 [5,366ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,366ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:09 [5,366ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,366ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:09 [5,367ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,367ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:09 [5,368ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,368ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:09 [5,369ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
 
 |---------------------------------------------------------------------------------------------|
 | Driver Version: 550.90.12     | Graphics API: Vulkan
@@ -98,51 +98,51 @@ Loading user config located at: '/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/py
 | Processor: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
 | Cores: 32 | Logical Cores: 64
 |---------------------------------------------------------------------------------------------|
-| Total Memory (MB): 515613 | Free Memory: 440377
+| Total Memory (MB): 515613 | Free Memory: 440337
 | Total Page/Swap (MB): 8191 | Free Page/Swap: 0
 |---------------------------------------------------------------------------------------------|
-2026-08-11 15:50:03 [6,787ms] [Warning] [gpu.foundation.plugin] IOMMU is enabled.
-2026-08-11 15:50:03 [6,787ms] [Warning] [gpu.foundation.plugin] Detected IOMMU is enabled. Running CUDA peer-to-peer bandwidth and latency validation.
+2026-08-11 17:36:10 [6,690ms] [Warning] [gpu.foundation.plugin] IOMMU is enabled.
+2026-08-11 17:36:10 [6,690ms] [Warning] [gpu.foundation.plugin] Detected IOMMU is enabled. Running CUDA peer-to-peer bandwidth and latency validation.
 Unidirectional P2P=Enabled Bandwidth (P2P Writes) Matrix (GB/s)
    D\D     0 
-     0 670.60 
+     0 672.04 
 P2P=Enabled Latency (P2P Writes) Matrix (us)
    GPU     0 
-     0   1.66 
+     0   1.65 
 
    CPU     0 
-     0   2.62 
-2026-08-11 15:50:05 [9,358ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
-2026-08-11 15:50:05 [9,358ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
-2026-08-11 15:50:05 [9,361ms] [Error] [gpu.foundation.plugin] DriverShaderCacheManager::init() called without a shutdown()!
-2026-08-11 15:50:06 [9,493ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,493ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:06 [9,493ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,493ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:06 [9,493ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,493ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
-2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
-2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+     0   3.99 
+2026-08-11 17:36:13 [9,363ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 17:36:13 [9,363ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 17:36:13 [9,369ms] [Error] [gpu.foundation.plugin] DriverShaderCacheManager::init() called without a shutdown()!
+2026-08-11 17:36:13 [9,468ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,468ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:13 [9,468ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,468ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:13 [9,468ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,468ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 17:36:13 [9,469ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
 
 |---------------------------------------------------------------------------------------------|
 | Driver Version: 550.90.12     | Graphics API: Vulkan
@@ -187,39 +187,485 @@ P2P=Enabled Latency (P2P Writes) Matrix (us)
 | Processor: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
 | Cores: 32 | Logical Cores: 64
 |---------------------------------------------------------------------------------------------|
-| Total Memory (MB): 515613 | Free Memory: 440043
+| Total Memory (MB): 515613 | Free Memory: 439995
 | Total Page/Swap (MB): 8191 | Free Page/Swap: 0
 |---------------------------------------------------------------------------------------------|
 Unidirectional P2P=Enabled Bandwidth (P2P Writes) Matrix (GB/s)
    D\D     0 
-     0 625.00 
+     0 672.62 
 P2P=Enabled Latency (P2P Writes) Matrix (us)
    GPU     0 
-     0   1.73 
+     0   1.74 
 
    CPU     0 
-     0   3.85 
-2026-08-11 15:50:07 [11,282ms] [Warning] [gpu.foundation.plugin] IOMMU is enabled.
-2026-08-11 15:50:07 [11,282ms] [Warning] [gpu.foundation.plugin] Detected IOMMU is enabled. Running CUDA peer-to-peer bandwidth and latency validation.
+     0   4.35 
+2026-08-11 17:36:14 [10,901ms] [Warning] [gpu.foundation.plugin] IOMMU is enabled.
+2026-08-11 17:36:14 [10,901ms] [Warning] [gpu.foundation.plugin] Detected IOMM[FrontRES Runtime Temp] temp_root=/tmp/femr_1009 asset_usd_dir=/tmp/femr_1009/isaaclab_assets/rank0_cdcyutkh rank=0
+[INFO] Logging experiment in directory: /hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage3_segment_hrl
+Setting seed: 42
+[INFO]: Base environment:
+	Environment device    : cuda:0
+	Environment seed      : 42
+	Physics step-size     : 0.005
+	Rendering step-size   : 0.02
+	Environment step-size : 0.02
+[INFO] Generating terrains randomly took : 0.407838 seconds
+[INFO]: Time taken for scene creation : 4.896648 seconds
+[INFO]: Scene manager:  <class InteractiveScene>
+	Number of environments: 64
+	Environment spacing   : 2.5
+	Source prim name      : /World/envs/env_0
+	Global prim paths     : ['/World/ground']
+	Replicate physics     : True
+[INFO]: Starting the simulation. This may take a few seconds. Please wait...
+[INFO]: Time taken for simulation start : 1.305759 seconds
+[MultiMotionLoader] Motion group distribution:
+  - default: 15291 motions
+[MultiMotionLoader] shard_info={'total_motions': 15291, 'selected_motions': 15291, 'shard_across_gpus': False, 'shard_by': 'global', 'shard_seed': 0, 'shard_strategy': 'chunk', 'rank': 0, 'world_size': 1, 'max_motions': -1}
+[MultiMotionCommand] Registered motion groups: ['default']
+[MultiMotionCommand]   - Group 'default': 15291 motions
+[INFO] Command Manager:  <CommandManager> contains 1 active terms.
++-------------------------------------+
+|         Active Command Terms        |
++-------+--------+--------------------+
+| Index | Name   |        Type        |
++-------+--------+--------------------+
+|   0   | motion | MultiMotionCommand |
++-------+--------+--------------------+
+
+[INFO] Event Manager:  <EventManager> contains 0 active terms.
+
+[INFO] Recorder Manager:  <RecorderManager> contains 0 active terms.
++---------------------+
+| Active Recorder Terms |
++-----------+---------+
+|   Index   | Name    |
++-----------+---------+
++-----------+---------+
+
+[INFO] Action Manager:  <ActionManager> contains 1 active terms.
++------------------------------------+
+|  Active Action Terms (shape: 29)   |
++--------+-------------+-------------+
+| Index  | Name        |   Dimension |
++--------+-------------+-------------+
+|   0    | joint_pos   |          29 |
++--------+-------------+-------------+
+
+[INFO] Observation Manager: <ObservationManager> contains 2 groups.
++-------------------------------------------------------------+
+| Active Observation Terms in Group: 'policy' (shape: (870,)) |
++----------+--------------------------------------+-----------+
+|  Index   | Name                                 |   Shape   |
++----------+--------------------------------------+-----------+
+|    0     | anchor_root_pos_error_w              |   (15,)   |
+|    1     | anchor_root_rpy_error_w              |   (15,)   |
+|    2     | frontres_balance_context             |   (70,)   |
+|    3     | command                              |   (290,)  |
+|    4     | motion_anchor_ori_b                  |   (30,)   |
+|    5     | base_ang_vel                         |   (15,)   |
+|    6     | joint_pos                            |   (145,)  |
+|    7     | joint_vel                            |   (145,)  |
+|    8     | actions                              |   (145,)  |
++----------+--------------------------------------+-----------+
++-----------------------------------------------------------+
+| Active Observation Terms in Group: 'critic' (shape: (289,)) |
++-----------+-----------------------------------+-----------+
+|   Index   | Name                              |   Shape   |
++-----------+-----------------------------------+-----------+
+|     0     | command                           |   (58,)   |
+|     1     | motion_anchor_pos_b               |    (3,)   |
+|     2     | motion_anchor_ori_b               |    (6,)   |
+|     3     | body_pos                          |   (42,)   |
+|     4     | body_ori                          |   (84,)   |
+|     5     | base_lin_vel                      |    (3,)   |
+|     6     | ref_base_lin_vel                  |    (3,)   |
+|     7     | base_ang_vel                      |    (3,)   |
+|     8     | joint_pos                         |   (29,)   |
+|     9     | joint_vel                         |   (29,)   |
+|     10    | actions                           |   (29,)   |
++-----------+-----------------------------------+-----------+
+
+[INFO] Termination Manager:  <TerminationManager> contains 5 active terms.
++--------------------------------+
+|    Active Termination Terms    |
++-------+-------------+----------+
+| Index | Name        | Time Out |
++-------+-------------+----------+
+|   0   | motion_end  |   True   |
+|   1   | time_out    |   True   |
+|   2   | anchor_pos  |  False   |
+|   3   | anchor_ori  |  False   |
+|   4   | ee_body_pos |  False   |
++-------+-------------+----------+
+
+[INFO] Reward Manager:  <RewardManager> contains 11 active terms.
++--------------------------------------------+
+|            Active Reward Terms             |
++-------+--------------------------+---------+
+| Index | Name                     |  Weight |
++-------+--------------------------+---------+
+|   0   | contact_feet             |     1.0 |
+|   1   | motion_feet_pos          |     1.0 |
+|   2   | motion_body_pos          |     0.5 |
+|   3   | motion_body_ori          |     0.5 |
+|   4   | motion_body_lin_vel      |    0.75 |
+|   5   | motion_body_ang_vel      |    0.75 |
+|   6   | motion_global_anchor_pos |     0.5 |
+|   7   | motion_global_anchor_ori |     0.5 |
+|   8   | undesired_contacts       |    -2.0 |
+|   9   | joint_limit              |   -20.0 |
+|   10  | joint_torque             | -0.0002 |
++-------+--------------------------+---------+
+
+[INFO] Curriculum Manager:  <CurriculumManager> contains 0 active terms.
++----------------------+
+| Active Curriculum Terms |
++-----------+----------+
+|   Index   | Name     |
++-----------+----------+
++-----------+----------+
+
+[INFO]: Completed setting up the environment...
+[Runner] FrontRES specialist mode enabled: rp (local_rp perturbation; full-6D repair)
+[FrontRES Segment Live Train Ready] objective=segment_replay_hrl segment_k=8 max_horizon_k=64 update_steps=1 reset_mode=auto live_runner=True runner_learn=True storage=independent ppo_action=delta_se3_6d evaluation=external
+[FrontRESUnified] Using 'critic' observations for value estimation.
+[Runner] FrontRES v015 future-intent actor layout: version=frontres-v015-future-intent-q29-v1 H=(1, 2) tail=58 raw_obs=870 actor_obs=928 frontres_obs=158 critic_obs=449 gmt_obs=770
+[ResidualActorCritic] Loading GMT policy from: /hdd0/yuxuancheng/FEMR/model/model_27000.pt
+[ResidualActorCritic] GMT architecture: actor_input=770, critic_input=289, actions=29
+Actor MLP: Sequential(
+  (0): Linear(in_features=770, out_features=1024, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=1024, out_features=1024, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=1024, out_features=512, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=512, out_features=256, bias=True)
+  (7): ELU(alpha=1.0)
+  (8): Linear(in_features=256, out_features=29, bias=True)
+)
+Critic MLP: Sequential(
+  (0): Linear(in_features=289, out_features=1024, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=1024, out_features=1024, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=1024, out_features=512, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=512, out_features=256, bias=True)
+  (7): ELU(alpha=1.0)
+  (8): Linear(in_features=256, out_features=1, bias=True)
+)
+[ResidualActorCritic] GMT policy frozen (all parameters require_grad=False)
+[ResidualActorCritic] GMT observation normalizer loaded (dim=770) and frozen
+[ResidualActorCritic] Residual last layer weight norm: 0.034206 (gain=0.01)
+[FrontEndResidualActorCritic] FrontRES output: 6 task-space dims [Δpos(3)+Δrpy(3)] — no Δq patching
+[FrontEndResidualActorCritic] FrontRES network: Sequential(
+  (0): Linear(in_features=158, out_features=512, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=512, out_features=256, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=256, out_features=128, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=128, out_features=6, bias=True)
+) (input_dim=158, output_dim=6)
+[ResidualActorCritic] Critic MLP: Sequential(
+  (0): Linear(in_features=449, out_features=1024, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=1024, out_features=1024, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=1024, out_features=512, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=512, out_features=256, bias=True)
+  (7): ELU(alpha=1.0)
+  (8): Linear(in_features=256, out_features=1, bias=True)
+)
+[ResidualActorCritic] Created composed actor for ONNX export
+[FrontRESActorCritic] Observation layout: 928D = 158D FrontRES-only prefix + 770D GMT-compatible suffix. GMT consumes the suffix only; no zero padding.
+[FrontRESUnified] Optimizer groups actor(lr=3e-07) + critic(lr=1e-05); fixed policy std
+[FrontRESUnified] Segment Replay HRL live training initialized; runner will execute 1 PPO optimizer steps per iteration.
+================================================================================
+  FrontRESUnified ▸ PPO + Supervised ΔSE3
+  Objective=segment_replay_hrl
+  L = Segment Replay HRL  (dedicated runner loop; legacy update disabled)
+================================================================================
+  Actor LR=3e-07  Critic LR=1e-05 schedule=fixed  clip=0.2  ent_coef=0.0
+  epochs=5  mini_batches=16
+  Supervised  λ=0.000 → 0.0  decay=0.995  trigger_cos=0.85  rpy_w=1.0  dir_w=0.03  mag_w=0.5  over_w=0.2  smooth_w=0.05  valid_w=4.0
+  MOSAIC teacher/off-policy branches: disabled by construction
+================================================================================
+
+--------------------------------------------------------------------------------
+
+[FrontRES Segment Dataset]
+  cache_load: mode=index_only loaded_motion_count=8739664 metadata_noisy_count=0 lazy=False index_only=True
+
+--------------------------------------------------------------------------------
+
+[FrontRES Segment Dataset Ready]
+  cache.cache_dir: /hdd0/yuxuancheng/AMASS_G1Segment
+  cache.num_segments: 8739664
+  cache.include_boundary_diagnostic: False
+  cache.shard_cache_size: 8
+  metadata: {'amass_root': '/hdd1/cyx/AMASS_G1NPZ_Final', 'format': 'frontres_segment_cache_index_v1', 'frame_stride': 1, 'horizon_k': 4, 'motion_count': 15291, 'segment_count': 8739664, 'skipped_short_motions': 0, 'index_only': True, 'loaded_motion_count': 8739664}
+
+--------------------------------------------------------------------------------
+
+[FrontRES Segment Index Reset Hook Ready]
+  loader: cache_amass_root=/hdd1/cyx/AMASS_G1NPZ_Final live_amass_root=/hdd0/yuxuancheng/AMASS_G1NPZ_Final loaded_motion_count=15291 all_motion_count=15291 first_loaded_motion=/hdd0/yuxuancheng/AMASS_G1NPZ_Final/BioMotionLab_NTroje/rub001/amass_g1_0004_motorcycle_poses.npz
+  index_filter: {'filtered': False, 'source_segments': 8739664, 'kept_segments': 8739664, 'source_motions': 15291, 'kept_motions': 15291, 'missing_motions': 0}
+
+--------------------------------------------------------------------------------
+
+[FrontRES Segment Sampler Ready]
+  config: num_segments=8739664 global_frac=0.400 replay_frac=0.500 review_frac=0.100
+[Runner] Using GMT's frozen normalizer for FrontRESActorCritic
+[Runner] FrontRES task-space obs layout: first 158 FrontRES-only dims use prefix stats or pass-through; last 770 GMT dims normalized
+[Runner] Passed obs_normalizer and privileged_obs_normalizer to FrontRESUnified
+[Runner] Passed environment's group mapping to FrontRESUnified: {'default': 0}
+[FrontRES v017 Stage-3 HSL Init] checkpoint=/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt format=frontres-v017-hsl-proposal-v2 restored=('residual_actor', 'std', 'frontres_prefix_norm_state_dict') critic=False optimizer=False sampler=False transaction=False
+[AUDIT-PERTURB-01] occurrence=1 specialist_mode=rp perturbation_channels=rp dr_scale=1.25 max_horizon_k=64
+[AUDIT-HSL-LOAD-01] occurrence=1 policy=FrontRESActorCritic actor=Sequential obs_normalizer=EmpiricalNormalization
+[AUDIT-B01] occurrence=1 checkpoint=/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt contracts=FRS-METHOD-v023/FRS-GAIN-v008/FRS-PPO-v010/FRS-TRAIN-v022 future_offsets=count=2,head=(1, 2) actor_lr=3e-07 critic_lr=1e-05 critic_value_normalization=ema-target-std-nonamplifying-v1 critic_value_normalizer_decay=0.9 critic_value_normalizer_scale_floor=1.0 critic_value_normalizer_update_count=0 active_k=8 active_m=4 envs=64 iterations=1 alternate_modes=0
+[AUDIT-ROUTE-01] objective=segment_replay_hrl live_train=1 alternate_modes=0 iterations=1 current_iter=0 checkpoint=/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt
+[FrontRES Segment Live Resume] loaded_checkpoint_path=/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt resumed_iteration=0 runner_learn=True legacy_runner_learn=False
+[AUDIT-WARMUP-01] occurrence=1 iteration=0 critic_warmup_iterations=200 actor_warmup_iterations=500 phase=low_dr_joint_init phase_iteration=0 actor_loss_weight=1.0 actor_learning_rate=3e-07
+[AUDIT-KPLAN-01] occurrence=1 schedule_fingerprint=392e1802d4681f226ac1d5ddcaa8f34d9bd44bde52d22d587968b6d9f6d869fb stage_index=0 active_k=8 active_m=4 stage_iteration=0 absolute_iteration=0 phase=low_dr_joint_init actor_loss_weight=1.0 actor_learning_rate=3e-07 d_cap=0.5 dr_progress=0.0
+[AUDIT-WARMUP-01] occurrence=2 iteration=0 critic_warmup_iterations=200 actor_warmup_iterations=500 phase=low_dr_joint_init phase_iteration=0 actor_loss_weight=1.0 actor_learning_rate=3e-07
+[AUDIT-KPLAN-01] occurrence=2 schedule_fingerprint=392e1802d4681f226ac1d5ddcaa8f34d9bd44bde52d22d587968b6d9f6d869fb stage_index=0 active_k=8 active_m=4 stage_iteration=0 absolute_iteration=0 phase=low_dr_joint_init actor_loss_weight=1.0 actor_learning_rate=3e-07 d_cap=0.5 dr_progress=0.0
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [8,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [9,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [10,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [11,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [12,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [13,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [14,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [15,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [16,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [17,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [18,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [19,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [20,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [21,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [22,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [23,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [24,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [25,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [26,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [27,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [28,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [29,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [30,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+../aten/src/ATen/native/cuda/Indexing.cu:1308: indexSelectLargeIndex: block: [0,0,0], thread: [31,0,0] Assertion `srcIndex < srcSelectDimSize` failed.
+U is enabled. Running CUDA peer-to-peer bandwidth and latency validation.
 Unidirectional P2P=Enabled Bandwidth (P2P Writes) Matrix (GB/s)
    D\D     0 
-     0 621.52 
+     0 674.36 
 P2P=Enabled Latency (P2P Writes) Matrix (us)
    GPU     0 
      0   1.66 
 
    CPU     0 
-     0   3.82 
-2026-08-11 15:50:08 [11,582ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
-2026-08-11 15:50:08 [11,582ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
-2026-08-11 15:50:08 [11,596ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
-2026-08-11 15:50:08 [11,596ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
-2026-08-11 15:50:08 [11,604ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
-2026-08-11 15:50:08 [11,604ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
-2026-08-11 15:50:08 [11,615ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
-2026-08-11 15:50:08 [11,615ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
-2026-08-11 15:50:08 [11,617ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
-2026-08-11 15:50:08 [11,617ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
-2026-08-11 15:50:08 [11,618ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
-2026-08-11 15:50:08 [11,618ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
-2026-08-11 15:50:08 [12,080ms] [Warning] [omni.graph.visualization.nodes._impl.extension] No Viewport Window to add omni.graph.visualization.nodes-2.1.1 scene to
+     0   4.32 
+2026-08-11 17:36:15 [11,201ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 17:36:15 [11,201ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 17:36:15 [11,216ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 17:36:15 [11,216ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 17:36:15 [11,224ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 17:36:15 [11,224ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 17:36:15 [11,236ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 17:36:15 [11,236ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 17:36:15 [11,238ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 17:36:15 [11,238ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 17:36:15 [11,240ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 17:36:15 [11,240ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 17:36:15 [11,708ms] [Warning] [omni.graph.visualization.nodes._impl.extension] No Viewport Window to add omni.graph.visualization.nodes-2.1.1 scene to
+Error executing job with overrides: []
+
+[Train] Uncaught exception in main thread:
+Traceback (most recent call last):
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_stage3_engine.py", line 337, in run_transaction
+    request = provider()
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_stage3_engine.py", line 389, in <lambda>
+    lambda: self.backend.build_training_request(
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_stage3_engine.py", line 274, in build_training_request
+    return self.bindings.build_request(
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", line 1140, in build_frontres_formal_training_request
+    return _build_frontres_v015_local_transaction_request(
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", line 1025, in _build_frontres_v015_local_transaction_request
+    prepared = prepare_frontres_v015_formal_training_batch(runner)
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", line 1427, in prepare_frontres_v015_formal_training_batch
+    return _prepare_frontres_v015_local_transaction_batch(runner, route="training")
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", line 1360, in _prepare_frontres_v015_local_transaction_batch
+    budget_reason=tuple(str(base_sample.budget_reason[int(index)]) for index in source_index.tolist()),
+RuntimeError: CUDA error: device-side assert triggered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hdd0/yuxuancheng/FEMR/scripts/rsl_rl/train.py", line 1825, in <module>
+    main()
+  File "/home/yuxuancheng/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 104, in wrapper
+    hydra_main()
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/main.py", line 94, in decorated_main
+    _run_hydra(
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 394, in _run_hydra
+    _run_app(
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 457, in _run_app
+    run_and_report(
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 223, in run_and_report
+    raise ex
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 220, in run_and_report
+    return func()
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 458, in <lambda>
+    lambda: hydra.run(
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/hydra.py", line 132, in run
+    _ = ret.return_value
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/core/utils.py", line 260, in return_value
+    raise self._return_value
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/core/utils.py", line 186, in run_job
+    ret.return_value = task_function(task_cfg)
+  File "/home/yuxuancheng/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
+    func(env_cfg, agent_cfg, *args, **kwargs)
+  File "/hdd0/yuxuancheng/FEMR/scripts/rsl_rl/train.py", line 1809, in main
+    runner.learn_frontres_segment_live(
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 743, in learn_frontres_segment_live
+    self._dispatch_frontres_startup_once("formal_train", operation)
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 1455, in _dispatch_frontres_startup_once
+    return lifecycle.dispatch_once(mode, operation)
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_runner_boundary.py", line 71, in dispatch_once
+    result = operation()
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 738, in <lambda>
+    operation = lambda: run_frontres_segment_live_training_loop(
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", line 544, in run_frontres_segment_live_training_loop
+    result = runner.run_frontres_formal_training_transaction(
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 712, in run_frontres_formal_training_transaction
+    return run_frontres_formal_training_update_loop_helper(
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 175, in run_frontres_formal_training_update_loop
+    return _frontres_stage3_engine(runner).run_training_transaction(
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_stage3_engine.py", line 388, in run_training_transaction
+    return self.run_transaction(
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_stage3_engine.py", line 369, in run_transaction
+    self.backend.abort_training_collection()
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_stage3_engine.py", line 283, in abort_training_collection
+    self.bindings.abort_collection(self.runner)
+  File "/hdd0/yuxuancheng/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py", line 1184, in abort_frontres_formal_training_collection
+    clear()
+  File "/hdd0/yuxuancheng/FEMR/source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", line 2126, in clear_frontres_local_scenario
+    env_ids = torch.arange(self.num_envs, dtype=torch.long, device=self.device)
+RuntimeError: CUDA error: device-side assert triggered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+
+[Train] Python stack dump for all live threads:
+Thread 0x0000737ffeffd6c0 (most recent call first):
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/concurrent/futures/thread.py", line 81 in _worker
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/threading.py", line 953 in run
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/threading.py", line 1016 in _bootstrap_inner
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/threading.py", line 973 in _bootstrap
+
+Thread 0x000073804d5ff6c0 (most recent call first):
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/concurrent/futures/thread.py", line 81 in _worker
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/threading.py", line 953 in run
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/threading.py", line 1016 in _bootstrap_inner
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/threading.py", line 973 in _bootstrap
+
+Thread 0x000073804e1ff6c0 (most recent call first):
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/concurrent/futures/thread.py", line 81 in _worker
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/threading.py", line 953 in run
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/threading.py", line 1016 in _bootstrap_inner
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/threading.py", line 973 in _bootstrap
+
+Current thread 0x00007386b6989740 (most recent call first):
+  File "/hdd0/yuxuancheng/FEMR/scripts/rsl_rl/train.py", line 498 in _dump_uncaught_exception
+2026-08-11 17:39:05 [181,223ms] [Error] [omni.physx.fabric.plugin] CUDA error: device-side assert triggered: ../../../extensions/runtime/source/omni.physx.fabric/plugins/DirectGpuHelper.cpp: 368
+2026-08-11 17:39:05 [181,223ms] [Error] [omni.physx.fabric.plugin] CUDA error: device-side assert triggered: ../../../extensions/runtime/source/omni.physx.fabric/plugins/DirectGpuHelper.cpp: 371
+2026-08-11 17:39:05 [181,223ms] [Error] [omni.physx.fabric.plugin] CUDA error: device-side assert triggered: ../../../extensions/runtime/source/omni.physx.fabric/plugins/DirectGpuHelper.cpp: 374
+2026-08-11 17:39:05 [181,223ms] [Error] [omni.physx.fabric.plugin] CUDA error: device-side assert triggered: ../../../extensions/runtime/source/omni.physx.fabric/plugins/DirectGpuHelper.cpp: 377
+2026-08-11 17:39:05 [181,223ms] [Error] [omni.physx.fabric.plugin] CUDA error: device-side assert triggered: ../../../extensions/runtime/source/omni.physx.fabric/plugins/DirectGpuHelper.cpp: 380
+2026-08-11 17:39:05 [181,223ms] [Error] [omni.physx.fabric.plugin] CUDA error: device-side assert triggered: ../../../extensions/runtime/source/omni.physx.fabric/plugins/DirectGpuHelper.cpp: 383
+2026-08-11 17:39:05 [181,223ms] [Error] [omni.physx.fabric.plugin] CUDA error: device-side assert triggered: ../../../extensions/runtime/source/omni.physx.fabric/plugins/DirectGpuHelper.cpp: 386
+2026-08-11 17:39:05 [181,223ms] [Error] [omni.physx.fabric.plugin] CUDA error: device-side assert triggered: ../../../extensions/runtime/source/omni.physx.fabric/plugins/DirectGpuHelper.cpp: 389
+2026-08-11 17:39:05 [181,231ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,231ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,231ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,231ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,231ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,232ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,232ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,232ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,232ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,232ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,232ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,232ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,232ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,232ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,232ms] [Warning] [omni.physx.plugin] PhysX warning: /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, FILE /builds/omniverse/physics/physx/source/gpucommon/src/PxgCudaMemoryAllocator.cpp, LINE 150
+2026-08-11 17:39:05 [181,237ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,237ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,237ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,237ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,238ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,238ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,238ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,238ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,238ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,239ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,239ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,239ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,239ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,239ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,240ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,240ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,240ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,240ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,241ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,241ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,241ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,241ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,241ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,242ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,242ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,242ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,242ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,242ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,243ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,243ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,243ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,243ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,243ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,244ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,244ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,244ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,244ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,244ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,245ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,245ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,245ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,245ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,245ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,246ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,246ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,246ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,246ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,247ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,247ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,247ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,247ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,247ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,248ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,248ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,248ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,248ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,248ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,249ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,249ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,249ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,249ms] [Error] [omni.physx.plugin] PhysX error: Failed to unload CUDA module data, returned 710., FILE /builds/omniverse/physics/physx/source/cudamanager/src/CudaContextManager.cpp, LINE 804
+2026-08-11 17:39:05 [181,354ms] [Warning] [omni.fabric.plugin] gFabricState->gUsdStageToSimStageWithHistoryMap had 1 outstanding SimStageWithHistory(s) at shutdown
+2026-08-11 17:39:05 [181,411ms] [Warning] [carb] Recursive unloadAllPlugins() detected!

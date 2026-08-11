@@ -1192,6 +1192,7 @@ def _outer_replay_base_sample(plan: FrontRESOuterReplayPlan, *, device: torch.de
         dtype=torch.long,
         device=device,
     )
+    scenario_count = int(segment_ids.numel())
     return FrontRESSegmentSample(
         segment_ids=segment_ids,
         source=tuple(selection.source for selection in plan.selections),
@@ -1199,14 +1200,14 @@ def _outer_replay_base_sample(plan: FrontRESOuterReplayPlan, *, device: torch.de
         staleness=torch.tensor(
             [selection.staleness for selection in plan.selections], dtype=torch.float32, device=device
         ),
-        valid_mask=torch.ones(2, dtype=torch.bool, device=device),
+        valid_mask=torch.ones(scenario_count, dtype=torch.bool, device=device),
         segment_state=None,
-        rollout_trial_count=torch.ones(2, dtype=torch.long, device=device),
-        horizon_k=torch.full((2,), int(plan.active_k), dtype=torch.long, device=device),
+        rollout_trial_count=torch.ones(scenario_count, dtype=torch.long, device=device),
+        horizon_k=torch.full((scenario_count,), int(plan.active_k), dtype=torch.long, device=device),
         budget_reason=tuple(f"outer-{selection.source}" for selection in plan.selections),
-        trial_role=("policy", "policy"),
-        source_index=torch.arange(2, dtype=torch.long, device=device),
-        trial_index=torch.zeros(2, dtype=torch.long, device=device),
+        trial_role=("policy",) * scenario_count,
+        source_index=torch.arange(scenario_count, dtype=torch.long, device=device),
+        trial_index=torch.zeros(scenario_count, dtype=torch.long, device=device),
     )
 
 
