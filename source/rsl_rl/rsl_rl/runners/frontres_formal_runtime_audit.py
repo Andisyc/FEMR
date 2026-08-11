@@ -585,7 +585,6 @@ def _print_one_action_k_audit_facts(
 
     trace = dict(frontres_observation_trace(runner))
     expected_trace = {
-        "role_row_count": 64,
         "current_command_dim": 58,
         "raw_observation_dim": 870,
         "q29_tail_dim": 58,
@@ -608,22 +607,29 @@ def _print_one_action_k_audit_facts(
         value = float(trace.get(name, float("nan")))
         assert math.isfinite(value) and value >= 0.0, f"AUDIT-B03 requires finite {name}"
 
-    assert len(roles) == 16 and roles.count("repair") == roles.count("noisy") == 8
-    assert len(provenance) == len(sources) == 16
+    role_count = len(roles)
+    repair_count = roles.count("repair")
+    noisy_count = roles.count("noisy")
+    assert role_count > 0 and repair_count == noisy_count and role_count == repair_count + noisy_count
+    assert roles == ("repair",) * repair_count + ("noisy",) * noisy_count
+    assert int(trace.get("role_row_count", -1)) == role_count
+    assert len(provenance) == len(sources) == role_count
     assert all(value == "deployment_noisy_q29" for value in provenance)
     assert all(value and not any(token in value for token in ("clean", "root", "global")) for value in sources)
 
-    assert isinstance(actions, torch.Tensor) and tuple(actions.shape) == (8, 6)
+    assert isinstance(actions, torch.Tensor) and tuple(actions.shape) == (repair_count, 6)
     assert bool(torch.isfinite(actions).all().item())
-    assert isinstance(horizon_k, torch.Tensor) and tuple(horizon_k.shape) == (16,)
-    assert bool((horizon_k == 8).all().item())
-    assert len(gmt_action_shapes) == 8 and all(shape == (16, 29) for shape in gmt_action_shapes)
+    assert isinstance(horizon_k, torch.Tensor) and tuple(horizon_k.shape) == (role_count,)
+    horizon_values = tuple(int(value) for value in torch.unique(horizon_k.detach()).cpu().tolist())
+    assert len(horizon_values) == 1 and horizon_values[0] > 0
+    active_k = horizon_values[0]
+    assert len(gmt_action_shapes) == active_k and all(shape == (role_count, 29) for shape in gmt_action_shapes)
     assert gmt_actions_finite
     assert actor_forward_count == 1
     assert later_femr_action_count == 0
     # This counts one fresh frozen-GMT observation read per horizon step, not
     # the number of parallel role rows. M therefore must not scale it.
-    assert int(trace.get("post_advance_gmt_read_count", -1)) == 8
+    assert int(trace.get("post_advance_gmt_read_count", -1)) == active_k
 
     policy = getattr(getattr(runner, "alg", None), "policy", None)
     alg = getattr(runner, "alg", None)
@@ -669,7 +675,7 @@ def _print_one_action_k_audit_facts(
         action_finite=1,
         actor_forward_count=actor_forward_count,
         later_femr_action_count=later_femr_action_count,
-        horizon_k=8,
+        horizon_k=active_k,
         gmt_steps=len(gmt_action_shapes),
         gmt_action_shape=gmt_action_shapes[0],
         gmt_eval=int(not gmt_policy.training),
@@ -684,11 +690,14 @@ def print_one_action_k_audit(runner: Any, *, evidence: Any) -> None:
         return
     continuation = getattr(evidence, "continuation", None)
     gmt_actions = getattr(evidence, "frozen_gmt_env_actions", None)
-    assert isinstance(continuation, torch.Tensor) and tuple(continuation.shape) == (16, 8, 65)
-    assert isinstance(gmt_actions, torch.Tensor) and tuple(gmt_actions.shape) == (16, 8, 29)
+    roles = tuple(getattr(evidence, "roles", ()))
+    assert isinstance(continuation, torch.Tensor) and continuation.ndim == 3
+    assert int(continuation.shape[0]) == len(roles) and int(continuation.shape[2]) == 65
+    assert isinstance(gmt_actions, torch.Tensor) and gmt_actions.ndim == 3
+    assert tuple(gmt_actions.shape) == (len(roles), int(continuation.shape[1]), 29)
     _print_one_action_k_audit_facts(
         runner,
-        roles=tuple(getattr(evidence, "roles", ())),
+        roles=roles,
         provenance=tuple(getattr(evidence, "intent_q29_provenance", ())),
         sources=tuple(str(value).lower() for value in getattr(evidence, "intent_q29_source", ())),
         actions=getattr(evidence, "policy_actions", None),
@@ -739,22 +748,23 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
         return
     rows = int(telemetry.get("policy_row_count", -1))
     active_m = int(telemetry.get("active_m", -1))
+    segment_count = int(telemetry.get("selected_segment_count", -1))
     source_index = tuple(int(value) for value in telemetry.get("source_index", ()))
     trial_index = tuple(int(value) for value in telemetry.get("trial_index", ()))
     scenario_ids = tuple(telemetry.get("scenario_ids", ()))
     noisy_hashes = tuple(telemetry.get("noisy_segment_hashes", ()))
-    assert rows == 32 and active_m == 4 and int(telemetry.get("selected_segment_count", -1)) == 8
-    assert int(telemetry.get("role_row_count", -1)) == 64
+    assert segment_count == 8 and active_m == 4 and rows == segment_count * active_m
+    assert int(telemetry.get("role_row_count", -1)) == 2 * rows
     assert len(source_index) == len(trial_index) == len(scenario_ids) == len(noisy_hashes) == rows
     unique_sources = sorted(set(source_index))
-    assert len(unique_sources) == 2
+    assert unique_sources == list(range(segment_count))
     for source in unique_sources:
         indices = [index for index, value in enumerate(source_index) if value == source]
         assert len(indices) == active_m and sorted(trial_index[index] for index in indices) == list(range(active_m))
         assert len({scenario_ids[index] for index in indices}) == 1
         assert len({noisy_hashes[index] for index in indices}) == 1
 
-    # AUDIT-B02: 检查两个 sealed Segment 各有 exact M=4 attempts.
+    # AUDIT-B02: 检查八个 sealed Scenario 各有 exact M=4 attempts.
     # Result: PENDING_LIVE.
     emit_formal_runtime_probe(
         "AUDIT-B02",
@@ -785,11 +795,11 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
     for name in gain_fields:
         values = tuple(float(value) for value in telemetry.get(name, ()))
         assert len(values) == rows and all(math.isfinite(value) for value in values), (
-            f"AUDIT-B05 requires eight finite {name} rows"
+            f"AUDIT-B05 requires {rows} finite {name} rows"
         )
-    assert tuple(telemetry.get("clean_execution_count", ())) == (1, 1)
-    assert tuple(telemetry.get("noisy_execution_count", ())) == (1, 1)
-    # AUDIT-B05: 检查 Clean/Noisy baseline 与八条完整 v007 Repair Gain.
+    assert tuple(telemetry.get("clean_execution_count", ())) == (1,) * segment_count
+    assert tuple(telemetry.get("noisy_execution_count", ())) == (1,) * segment_count
+    # AUDIT-B05: 检查 Clean/Noisy baseline 与三十二条完整 v008 Repair Gain.
     # Result: PENDING_LIVE.
     emit_formal_runtime_probe(
         "AUDIT-B05",
@@ -810,7 +820,7 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
 
     gains = tuple(float(value) for value in telemetry["gain_total"])
     assert int(telemetry.get("active_k", -1)) == 8
-    assert tuple(bool(value) for value in telemetry.get("valid_policy_row_mask", ())) == (True,) * 8
+    assert tuple(bool(value) for value in telemetry.get("valid_policy_row_mask", ())) == (True,) * rows
     critic_targets = tuple(float(value) for value in telemetry.get("critic_value_targets", ()))
     segment_targets = tuple(float(value) for value in telemetry.get("critic_segment_target_means", ()))
     actor_advantages = tuple(float(value) for value in telemetry.get("actor_advantages", ()))
@@ -869,8 +879,12 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
     )
 
     assert bool(telemetry.get("grouped_reduction_active", False))
-    assert tuple(float(value) for value in telemetry.get("grouped_segment_mass_shares", ())) == (0.5, 0.5)
-    assert tuple(float(value) for value in telemetry.get("grouped_attempt_mass_shares", ())) == (0.125,) * 8
+    assert tuple(float(value) for value in telemetry.get("grouped_segment_mass_shares", ())) == (
+        1.0 / segment_count,
+    ) * segment_count
+    assert tuple(float(value) for value in telemetry.get("grouped_attempt_mass_shares", ())) == (
+        1.0 / rows,
+    ) * rows
     assert int(telemetry.get("optimizer_step_delta", -1)) == 1
     assert int(telemetry.get("update_count", -1)) == 1
     outer_sources = tuple(telemetry.get("outer_replay_sources", ()))
@@ -884,12 +898,16 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
     )
     outer_ema_scores = tuple(float(value) for value in telemetry.get("outer_replay_ema_scores", ()))
     assert int(telemetry.get("outer_replay_state_delta", -1)) == 1
-    assert len(outer_sources) == 2 and all(value in {"global", "replay", "review"} for value in outer_sources)
-    assert len(outer_keys) == 2 and len(set(outer_keys)) == 2 and all(len(str(value)) == 64 for value in outer_keys)
+    assert len(outer_sources) == segment_count and all(
+        value in {"global", "replay", "review"} for value in outer_sources
+    )
+    assert len(outer_keys) == segment_count and len(set(outer_keys)) == segment_count and all(
+        len(str(value)) == 64 for value in outer_keys
+    )
     assert outer_score_kind in {"critic_calibration", "repair_spread"}
     expected_score_kind = "repair_spread" if telemetry.get("warmup_phase") == "joint" else "critic_calibration"
     assert outer_score_kind == expected_score_kind
-    assert len(outer_calibration_values) == len(outer_spread_values) == len(outer_ema_scores) == 2
+    assert len(outer_calibration_values) == len(outer_spread_values) == len(outer_ema_scores) == segment_count
     assert all(
         math.isfinite(value) and value >= 0.0
         for value in outer_calibration_values + outer_spread_values + outer_ema_scores

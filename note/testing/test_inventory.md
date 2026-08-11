@@ -264,7 +264,8 @@ is excluded from active aggregation.
 | `frontres_segment_live_single_update_contract.py` | S2 | Optimizer order, adaptive LR, post-KL, rollback, diagnostics. |
 | `frontres_segment_warmup_contract.py` | S1/S2 | DP-09 phase values and actor/critic gradient boundaries. |
 | `frontres_frozen_gmt_contract.py` | S1/S2 | GMT freeze, optimizer exclusion, and bitwise no-update boundary. |
-| `frontres_formal_runtime_audit_contract.py` | S1/S2 | Phase B flag, active v018/v007/v006/v016 two-Segment x exact-M target, B03/B04 Repair-collector connectivity, separate clipping, exact-one update, checkpoint-v11 atomic readback, formal-owner hooks, invalid identity/value rejection and silent-off behavior. |
+| `frontres_formal_runtime_audit_contract.py` | historical v021 S1/S2 | Historical two-Scenario runtime-audit fixtures retained outside the active aggregate. |
+| `frontres_v022_formal_runtime_audit_b8_contract.py` | active v022 S1/S2 | B8/M4 B03-B07 role, action, horizon, Gain/PPO telemetry and outer-Replay shapes, including retired B2 and partial-row rejection. |
 | `frontres_segment_checkpoint_contract.py` | S3 | Detached helper persistence compatibility tests; not the formal `OnPolicyRunner` owner. |
 | `frontres_segment_live_sampler_contract.py` | historical v002 S3 | Historical sampler persistence and retired Gain identity characterization; excluded from active v017 aggregation. |
 | `frontres_segment_live_training_pseudo_contract.py` | S2 | Training-loop diagnostics/checkpoint behavior and proof that no evaluator is embedded in training. |

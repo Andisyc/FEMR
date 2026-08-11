@@ -305,6 +305,13 @@ CONTRACTS = (
         requires_torch=True,
     ),
     ContractTarget(
+        name="v022_formal_runtime_audit_b8",
+        path="source/rsl_rl/rsl_rl/tests/frontres_v022_formal_runtime_audit_b8_contract.py",
+        expected_marker="frontres_v022_formal_runtime_audit_b8_contract: PASS",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
         name="v018_policy_quality_batch_adapter",
         path="source/rsl_rl/rsl_rl/tests/frontres_local_scenario_kernel_contract.py",
         expected_marker="[T-v018-heldout] two Segment x M4, K16 and source-shared scenario identities are sealed",
