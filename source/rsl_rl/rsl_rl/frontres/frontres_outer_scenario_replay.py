@@ -11,13 +11,18 @@ from typing import Any, Callable, Iterator, Mapping, Sequence
 import torch
 
 from rsl_rl.frontres.frontres_segment_warmup import (
+    FRONTRES_V013_DR_CLASS_NAMES,
+    FRONTRES_V013_DR_CLASS_WEIGHTS,
     FrontRESKStageIdentity,
     frontres_v021_dr_strength_in_class,
     sample_frontres_v013_dr_strength,
 )
 
-FRONTRES_OUTER_REPLAY_SCHEMA = "frontres-outer-scenario-replay-v2"
+FRONTRES_OUTER_REPLAY_SCHEMA = "frontres-outer-scenario-replay-v3"
 FRONTRES_OUTER_REPLAY_EMA_DECAY = 0.8
+FRONTRES_OUTER_REPLAY_SCENARIO_BATCH = 8
+FRONTRES_OUTER_REPLAY_CAPACITY_LADDER = (64, 128, 256)
+FRONTRES_OUTER_REPLAY_MIN_VISITS = 4
 
 
 def _require_nonempty(name: str, value: str) -> str:
@@ -266,6 +271,7 @@ class FrontRESOuterReplaySelection:
     perturbation_family: str
     perturbation_strength: float
     dr_class: str
+    purpose: str
     replay_key_digest: str | None
     score: float
     staleness: int
@@ -273,6 +279,8 @@ class FrontRESOuterReplaySelection:
     def validate(self) -> None:
         if self.source not in {"global", "replay", "review"}:
             raise ValueError(f"unsupported Scenario source {self.source!r}")
+        if self.purpose not in {"admission", "critic_calibration", "repair_spread", "stale_review"}:
+            raise ValueError(f"unsupported Replay Curriculum purpose {self.purpose!r}")
         if int(self.segment_id) < 0 or int(self.perturbation_seed) < 0:
             raise ValueError("selection segment_id and perturbation_seed must be nonnegative")
         _require_nonempty("perturbation_family", self.perturbation_family)
@@ -295,6 +303,8 @@ class FrontRESOuterReplayPlan:
     generator_state_before: torch.Tensor
     generator_state_after: torch.Tensor
     record_state_digest: str
+    active_capacity_before: int
+    active_capacity_after: int
 
     @property
     def active_k(self) -> int:
@@ -314,8 +324,8 @@ class FrontRESOuterReplayPlan:
             raise TypeError("outer replay plan requires one immutable TRAIN-v021 curriculum identity")
         if self.phase_name not in {"low_dr_joint_init", "coupled_ramp", "joint"}:
             raise ValueError("outer replay plan has an incompatible TRAIN-v021 phase")
-        if int(self.active_k) <= 0 or len(self.selections) != 2:
-            raise ValueError("outer replay plan requires positive K and exactly two selections")
+        if int(self.active_k) <= 0 or len(self.selections) != FRONTRES_OUTER_REPLAY_SCENARIO_BATCH:
+            raise ValueError("outer replay plan requires positive K and exactly eight selections")
         for selection in self.selections:
             selection.validate()
             if not frontres_v021_dr_strength_in_class(
@@ -324,8 +334,21 @@ class FrontRESOuterReplayPlan:
                 strength=selection.perturbation_strength,
             ):
                 raise ValueError("outer replay selection lies outside its current absolute DR interval")
-        if len({selection.segment_id for selection in self.selections}) != 2:
-            raise ValueError("outer replay plan requires two distinct Segment sources")
+        if len({selection.segment_id for selection in self.selections}) != FRONTRES_OUTER_REPLAY_SCENARIO_BATCH:
+            raise ValueError("outer replay plan requires eight distinct Scenario sources")
+        expected_purposes = (
+            ("admission",) + ("critic_calibration",) * 6 + ("stale_review",)
+            if self.phase_name != "joint"
+            else ("admission",) + ("repair_spread",) * 4 + ("critic_calibration",) * 2 + ("stale_review",)
+        )
+        if tuple(selection.purpose for selection in self.selections) != expected_purposes:
+            raise ValueError("outer replay plan violates the phase-specific B8 slot curriculum")
+        if self.active_capacity_before <= 0 or self.active_capacity_after <= 0:
+            raise ValueError("outer replay plan has an invalid active capacity")
+        if self.active_capacity_after < self.active_capacity_before:
+            raise ValueError("outer replay plan cannot shrink active capacity")
+        if self.active_capacity_after > self.active_capacity_before and self.phase_name != "joint":
+            raise ValueError("outer replay capacity cannot expand while DR is adapting")
         for value in (self.generator_state_before, self.generator_state_after):
             if not isinstance(value, torch.Tensor) or value.dtype != torch.uint8 or value.ndim != 1:
                 raise ValueError("outer replay plan requires uint8 generator states")
@@ -338,8 +361,9 @@ class FrontRESOuterReplayCandidate:
     policy_snapshot_id: str
     plan: FrontRESOuterReplayPlan
     records: tuple[FrontRESScenarioReplayRecord, ...]
-    critic_calibration_values: tuple[float, float]
-    repair_spread_values: tuple[float, float]
+    critic_calibration_values: tuple[float, ...]
+    repair_spread_values: tuple[float, ...]
+    active_digests_by_k: tuple[tuple[int, tuple[str, ...]], ...]
 
     def validate(self) -> None:
         self.plan.validate()
@@ -350,16 +374,21 @@ class FrontRESOuterReplayCandidate:
             ("critic_calibration_values", self.critic_calibration_values),
             ("repair_spread_values", self.repair_spread_values),
         ):
-            if len(values) != 2 or any(
+            if len(values) != FRONTRES_OUTER_REPLAY_SCENARIO_BATCH or any(
                 not math.isfinite(float(value)) or float(value) < 0.0 for value in values
             ):
-                raise ValueError(f"candidate requires two finite nonnegative {name}")
+                raise ValueError(f"candidate requires eight finite nonnegative {name}")
         digests = []
         for record in self.records:
             record.validate()
             digests.append(record.key.digest)
         if len(digests) != len(set(digests)):
             raise ValueError("candidate contains duplicate Scenario records")
+        for active_k, active_digests in self.active_digests_by_k:
+            if int(active_k) <= 0 or len(active_digests) != len(set(active_digests)):
+                raise ValueError("candidate active membership is invalid")
+            if any(digest not in set(digests) for digest in active_digests):
+                raise ValueError("candidate active membership references a missing archive record")
 
 
 class FrontRESOuterScenarioReplay:
@@ -373,6 +402,8 @@ class FrontRESOuterScenarioReplay:
         review_frac: float = 0.1,
         min_replay_score: float = 0.05,
         staleness_weight: float = 0.1,
+        capacity_ladder: Sequence[int] = FRONTRES_OUTER_REPLAY_CAPACITY_LADDER,
+        minimum_visits_before_expand: int = FRONTRES_OUTER_REPLAY_MIN_VISITS,
         seed: int = 0,
     ) -> None:
         fractions = (float(global_frac), float(replay_frac), float(review_frac))
@@ -382,9 +413,18 @@ class FrontRESOuterScenarioReplay:
         self.global_frac, self.replay_frac, self.review_frac = tuple(value / total for value in fractions)
         self.min_replay_score = float(min_replay_score)
         self.staleness_weight = float(staleness_weight)
+        ladder = tuple(int(value) for value in capacity_ladder)
+        if not ladder or any(value <= 0 for value in ladder) or tuple(sorted(set(ladder))) != ladder:
+            raise ValueError("Replay Curriculum capacity ladder must be positive and strictly increasing")
+        if int(minimum_visits_before_expand) <= 0:
+            raise ValueError("Replay Curriculum minimum visits must be positive")
+        self.capacity_ladder = ladder
+        self.minimum_visits_before_expand = int(minimum_visits_before_expand)
         self.generator = torch.Generator(device="cpu")
         self.generator.manual_seed(int(seed))
         self._records: dict[str, FrontRESScenarioReplayRecord] = {}
+        self._active_by_k: dict[int, set[str]] = {}
+        self._capacity_by_k: dict[int, int] = {}
         self._last_commit: dict[str, Any] | None = None
 
     @property
@@ -396,7 +436,104 @@ class FrontRESOuterScenarioReplay:
         for record in self.records:
             digest.update(repr(record.to_state()).encode("utf-8"))
             digest.update(b"\0")
+        digest.update(repr(tuple((k, tuple(sorted(v))) for k, v in sorted(self._active_by_k.items()))).encode("utf-8"))
+        digest.update(repr(tuple(sorted(self._capacity_by_k.items()))).encode("utf-8"))
         return digest.hexdigest()
+
+    def _capacity_for_k(self, active_k: int) -> int:
+        return int(self._capacity_by_k.get(int(active_k), self.capacity_ladder[0]))
+
+    def _active_records(self, active_k: int) -> tuple[FrontRESScenarioReplayRecord, ...]:
+        digests = self._active_by_k.get(int(active_k), set())
+        return tuple(self._records[digest] for digest in sorted(digests) if digest in self._records)
+
+    @staticmethod
+    def _slot_purposes(phase_name: str) -> tuple[str, ...]:
+        if phase_name == "joint":
+            return ("admission",) + ("repair_spread",) * 4 + ("critic_calibration",) * 2 + ("stale_review",)
+        return ("admission",) + ("critic_calibration",) * 6 + ("stale_review",)
+
+    def _preview_capacity(self, curriculum: FrontRESKStageIdentity) -> tuple[int, int]:
+        current = self._capacity_for_k(curriculum.active_k)
+        active = self._active_records(curriculum.active_k)
+        if curriculum.phase.name != "joint" or len(active) < current:
+            return current, current
+        if any(record.visit_count < self.minimum_visits_before_expand for record in active):
+            return current, current
+        index = self.capacity_ladder.index(current)
+        return current, self.capacity_ladder[min(index + 1, len(self.capacity_ladder) - 1)]
+
+    @staticmethod
+    def _quota_counts(capacity: int) -> dict[str, int]:
+        exact = [float(capacity) * weight for weight in FRONTRES_V013_DR_CLASS_WEIGHTS]
+        counts = [int(math.floor(value)) for value in exact]
+        remaining = int(capacity) - sum(counts)
+        order = sorted(range(len(exact)), key=lambda index: (exact[index] - counts[index], -index), reverse=True)
+        for index in order[:remaining]:
+            counts[index] += 1
+        return dict(zip(FRONTRES_V013_DR_CLASS_NAMES, counts, strict=True))
+
+    def _admission_class(self, *, active_k: int, capacity: int) -> str:
+        quotas = self._quota_counts(capacity)
+        counts = {name: 0 for name in FRONTRES_V013_DR_CLASS_NAMES}
+        for record in self._active_records(active_k):
+            counts[record.dr_class] = counts.get(record.dr_class, 0) + 1
+        return self._next_quota_class(counts=counts, capacity=capacity)
+
+    @classmethod
+    def _next_quota_class(cls, *, counts: Mapping[str, int], capacity: int) -> str:
+        quotas = cls._quota_counts(capacity)
+        return max(
+            FRONTRES_V013_DR_CLASS_NAMES,
+            key=lambda name: (quotas[name] - counts.get(name, 0), quotas[name], -FRONTRES_V013_DR_CLASS_NAMES.index(name)),
+        )
+
+    @staticmethod
+    def _sample_dr_class(
+        curriculum: FrontRESKStageIdentity,
+        *,
+        class_name: str,
+        generator: torch.Generator,
+    ) -> Any:
+        for _ in range(4096):
+            sample_key = int(torch.randint(0, 2**31 - 1, (1,), generator=generator).item())
+            sample = sample_frontres_v013_dr_strength(curriculum, sample_key=sample_key)
+            if sample.class_name == class_name:
+                return sample
+        raise RuntimeError("Replay Curriculum could not draw the required DR quota class")
+
+    @staticmethod
+    def _protected_anchor_digests(
+        records: Sequence[FrontRESScenarioReplayRecord],
+        *,
+        active_k: int,
+    ) -> set[str]:
+        protected: set[str] = set()
+        classes = {record.dr_class for record in records}
+        for dr_class in classes:
+            rows = [record for record in records if record.dr_class == dr_class]
+            for score_kind in ("critic_calibration", "repair_spread"):
+                ranked = sorted(
+                    rows,
+                    key=lambda record: (
+                        float(record.score_for_k(active_k, score_kind=score_kind) or 0.0),
+                        record.key.digest,
+                    ),
+                    reverse=True,
+                )
+                protected.update(record.key.digest for record in ranked[:2])
+        return protected
+
+    def _admission_open(self, curriculum: FrontRESKStageIdentity, *, capacity: int) -> bool:
+        active = self._active_records(curriculum.active_k)
+        if len(active) < int(capacity):
+            return True
+        protected = self._protected_anchor_digests(active, active_k=curriculum.active_k)
+        return any(
+            record.visit_count >= self.minimum_visits_before_expand
+            and record.key.digest not in protected
+            for record in active
+        )
 
     @staticmethod
     def _copy_generator(state: torch.Tensor) -> torch.Generator:
@@ -423,7 +560,7 @@ class FrontRESOuterScenarioReplay:
     ) -> list[FrontRESScenarioReplayRecord]:
         rows = [
             record
-            for record in self.records
+            for record in self._active_records(curriculum.active_k)
             if record.key.segment_id not in excluded_segments
             and record.score_for_k(curriculum.active_k, score_kind=score_kind) is not None
             and frontres_v021_dr_strength_in_class(
@@ -504,43 +641,132 @@ class FrontRESOuterScenarioReplay:
             raise TypeError("outer replay plan requires a TRAIN-v021 curriculum identity")
         if not callable(eligible) or not callable(global_family):
             raise TypeError("outer replay plan requires eligible and global_family callables")
-        score_kind = "repair_spread" if curriculum.phase.name == "joint" else "critic_calibration"
         before = self.generator.get_state().detach().cpu().clone()
         generator = self._copy_generator(before)
         selected: list[FrontRESOuterReplaySelection] = []
         excluded_segments: set[int] = set()
         seen_segments = {record.key.segment_id for record in self.records}
-        for _slot in range(2):
-            dr_sample_key = int(torch.randint(0, 2**31 - 1, (1,), generator=generator).item())
-            dr_sample = sample_frontres_v013_dr_strength(curriculum, sample_key=dr_sample_key)
-            requested_source = self._choose_source(generator)
-            pool = self._pool(
-                requested_source,
-                curriculum=curriculum,
-                dr_class=dr_sample.class_name,
-                score_kind=score_kind,
-                excluded_segments=excluded_segments,
+        capacity_before, capacity_after = self._preview_capacity(curriculum)
+        admission_open = self._admission_open(curriculum, capacity=capacity_after)
+        active_records = self._active_records(curriculum.active_k)
+        replacement_class: str | None = None
+        if admission_open and len(active_records) >= capacity_after:
+            protected = self._protected_anchor_digests(active_records, active_k=curriculum.active_k)
+            replaceable = tuple(
+                record
+                for record in active_records
+                if record.visit_count >= self.minimum_visits_before_expand
+                and record.key.digest not in protected
             )
-            if pool:
-                record = self._sample_record(
-                    pool,
-                    source=requested_source,
-                    active_k=int(curriculum.active_k),
-                    score_kind=score_kind,
+            if not replaceable:
+                raise RuntimeError("Replay Curriculum opened admission without a replaceable active Scenario")
+            replacement_class = min(
+                replaceable,
+                key=lambda record: (
+                    max(
+                        float(record.score_for_k(curriculum.active_k, score_kind="critic_calibration") or 0.0),
+                        float(record.score_for_k(curriculum.active_k, score_kind="repair_spread") or 0.0),
+                    ),
+                    record.key.digest,
+                ),
+            ).dr_class
+        planned_class_counts = {name: 0 for name in FRONTRES_V013_DR_CLASS_NAMES}
+        for record in self._active_records(curriculum.active_k):
+            planned_class_counts[record.dr_class] = planned_class_counts.get(record.dr_class, 0) + 1
+        for purpose in self._slot_purposes(curriculum.phase.name):
+            if purpose == "admission":
+                dr_sample = self._sample_dr_class(
+                    curriculum,
+                    class_name=(
+                        replacement_class
+                        if replacement_class is not None
+                        else self._next_quota_class(counts=planned_class_counts, capacity=capacity_after)
+                    ),
                     generator=generator,
                 )
+            else:
+                dr_sample_key = int(torch.randint(0, 2**31 - 1, (1,), generator=generator).item())
+                dr_sample = sample_frontres_v013_dr_strength(curriculum, sample_key=dr_sample_key)
+            admission_gated = purpose == "admission" and not admission_open
+            requested_source = (
+                "global"
+                if purpose == "admission" and not admission_gated
+                else ("review" if purpose == "stale_review" else "replay")
+            )
+            score_kind = "repair_spread" if purpose == "repair_spread" else "critic_calibration"
+            if admission_gated:
+                pool = tuple(
+                    record
+                    for record in self._active_records(curriculum.active_k)
+                    if record.key.segment_id not in excluded_segments
+                    and record.score_for_k(curriculum.active_k, score_kind=score_kind) is not None
+                    and frontres_v021_dr_strength_in_class(
+                        curriculum,
+                        class_name=record.dr_class,
+                        strength=record.key.perturbation_strength,
+                    )
+                )
+            else:
+                pool = self._pool(
+                    requested_source,
+                    curriculum=curriculum,
+                    dr_class=dr_sample.class_name,
+                    score_kind=score_kind,
+                    excluded_segments=excluded_segments,
+                )
+            if purpose == "stale_review" and not pool:
+                pool = self._pool(
+                    "replay",
+                    curriculum=curriculum,
+                    dr_class=dr_sample.class_name,
+                    score_kind="critic_calibration",
+                    excluded_segments=excluded_segments,
+                )
+            active_fallback = False
+            if not pool and self._active_records(curriculum.active_k):
+                pool = tuple(
+                    record
+                    for record in self._active_records(curriculum.active_k)
+                    if record.key.segment_id not in excluded_segments
+                    and record.score_for_k(curriculum.active_k, score_kind=score_kind) is not None
+                    and frontres_v021_dr_strength_in_class(
+                        curriculum,
+                        class_name=record.dr_class,
+                        strength=record.key.perturbation_strength,
+                    )
+                )
+                active_fallback = bool(pool)
+            if pool:
+                if purpose == "stale_review":
+                    record = max(pool, key=lambda item: (item.staleness, item.key.digest))
+                else:
+                    record = self._sample_record(
+                        pool,
+                        source="replay",
+                        active_k=int(curriculum.active_k),
+                        score_kind=score_kind,
+                        generator=generator,
+                    )
                 selection = FrontRESOuterReplaySelection(
                     source=requested_source,
                     segment_id=record.key.segment_id,
                     perturbation_seed=record.key.perturbation_seed,
                     perturbation_family=record.key.perturbation_family,
                     perturbation_strength=record.key.perturbation_strength,
-                    dr_class=dr_sample.class_name,
+                    dr_class=record.dr_class if admission_gated or active_fallback else dr_sample.class_name,
+                    purpose=purpose,
                     replay_key_digest=record.key.digest,
                     score=float(record.score_for_k(curriculum.active_k, score_kind=score_kind)),
                     staleness=record.staleness,
                 )
             else:
+                if purpose != "admission":
+                    quota_class = self._next_quota_class(counts=planned_class_counts, capacity=capacity_after)
+                    dr_sample = self._sample_dr_class(
+                        curriculum,
+                        class_name=quota_class,
+                        generator=generator,
+                    )
                 segment_id = self._sample_global_segment(
                     generator,
                     num_segments=int(num_segments),
@@ -557,6 +783,7 @@ class FrontRESOuterScenarioReplay:
                     perturbation_family=family,
                     perturbation_strength=float(torch.tensor(dr_sample.strength, dtype=torch.float32).item()),
                     dr_class=str(dr_sample.class_name),
+                    purpose=purpose,
                     replay_key_digest=None,
                     score=0.0,
                     staleness=0,
@@ -564,6 +791,8 @@ class FrontRESOuterScenarioReplay:
             selection.validate()
             selected.append(selection)
             excluded_segments.add(selection.segment_id)
+            if selection.source == "global":
+                planned_class_counts[selection.dr_class] = planned_class_counts.get(selection.dr_class, 0) + 1
         result = FrontRESOuterReplayPlan(
             transaction_id=str(transaction_id),
             curriculum=curriculum,
@@ -571,6 +800,8 @@ class FrontRESOuterScenarioReplay:
             generator_state_before=before,
             generator_state_after=generator.get_state().detach().cpu().clone(),
             record_state_digest=self._record_digest(),
+            active_capacity_before=capacity_before,
+            active_capacity_after=capacity_after,
         )
         result.validate()
         return result
@@ -590,17 +821,17 @@ class FrontRESOuterScenarioReplay:
             plan.generator_state_before, self.generator.get_state().cpu()
         ):
             raise RuntimeError("outer replay state changed after selection preview")
-        if len(keys) != 2 or any(key.horizon_k != plan.active_k for key in keys):
-            raise ValueError("outer replay stage requires two current-K ScenarioKeys")
+        if len(keys) != FRONTRES_OUTER_REPLAY_SCENARIO_BATCH or any(key.horizon_k != plan.active_k for key in keys):
+            raise ValueError("outer replay stage requires eight current-K ScenarioKeys")
         advantages = torch.as_tensor(actor_advantages, dtype=torch.float32).detach().cpu().flatten()
         sources = torch.as_tensor(source_index, dtype=torch.long).detach().cpu().flatten()
-        if int(advantages.numel()) != 2 * int(active_m) or int(sources.numel()) != int(advantages.numel()):
-            raise ValueError("outer replay stage requires exact two-Scenario x M advantages")
-        if not bool(torch.isfinite(advantages).all()) or set(sources.tolist()) != {0, 1}:
+        if int(advantages.numel()) != FRONTRES_OUTER_REPLAY_SCENARIO_BATCH * int(active_m) or int(sources.numel()) != int(advantages.numel()):
+            raise ValueError("outer replay stage requires exact B8 x M advantages")
+        if not bool(torch.isfinite(advantages).all()) or set(sources.tolist()) != set(range(FRONTRES_OUTER_REPLAY_SCENARIO_BATCH)):
             raise ValueError("outer replay stage requires finite row-aligned source evidence")
-        if any(int((sources == index).sum().item()) != int(active_m) for index in range(2)):
+        if any(int((sources == index).sum().item()) != int(active_m) for index in range(FRONTRES_OUTER_REPLAY_SCENARIO_BATCH)):
             raise ValueError("outer replay stage requires exact M rows for each Scenario")
-        grouped = tuple(advantages[sources == index] for index in range(2))
+        grouped = tuple(advantages[sources == index] for index in range(FRONTRES_OUTER_REPLAY_SCENARIO_BATCH))
         critic_calibration_values = tuple(float(group.mean().abs().item()) for group in grouped)
         repair_spread_values = tuple(
             float((group - group.mean()).abs().mean().item()) for group in grouped
@@ -646,6 +877,43 @@ class FrontRESOuterScenarioReplay:
                 )
             record.validate()
             records[key.digest] = record
+        active_by_k = {int(k): set(values) for k, values in self._active_by_k.items()}
+        active = active_by_k.setdefault(int(plan.active_k), set())
+        selected_digests = {key.digest for key in keys}
+        admitted_digests = {
+            key.digest
+            for selection, key in zip(plan.selections, keys, strict=True)
+            if selection.replay_key_digest is None
+        }
+        active.update(selected_digests)
+        while len(active) > int(plan.active_capacity_after):
+            active_records = [records[digest] for digest in active if digest in records]
+            protected = self._protected_anchor_digests(active_records, active_k=plan.active_k)
+            admission_classes = {
+                selection.dr_class for selection in plan.selections if selection.source == "global"
+            }
+            eligible = [
+                record
+                for record in active_records
+                if record.key.digest not in protected
+                and record.key.digest not in admitted_digests
+                and record.visit_count >= self.minimum_visits_before_expand
+                and (not admission_classes or record.dr_class in admission_classes)
+            ]
+            if not eligible:
+                raise RuntimeError("Replay Curriculum cannot evict without violating visit or anchor protection")
+            evicted = min(
+                eligible,
+                key=lambda record: (
+                    max(
+                        float(record.score_for_k(plan.active_k, score_kind="critic_calibration") or 0.0),
+                        float(record.score_for_k(plan.active_k, score_kind="repair_spread") or 0.0),
+                    ),
+                    -record.visit_count,
+                    record.key.digest,
+                ),
+            )
+            active.remove(evicted.key.digest)
         candidate = FrontRESOuterReplayCandidate(
             transaction_id=plan.transaction_id,
             policy_snapshot_id=_require_nonempty("policy_snapshot_id", policy_snapshot_id),
@@ -653,6 +921,7 @@ class FrontRESOuterScenarioReplay:
             records=tuple(records[key] for key in sorted(records)),
             critic_calibration_values=critic_calibration_values,
             repair_spread_values=repair_spread_values,
+            active_digests_by_k=tuple((k, tuple(sorted(values))) for k, values in sorted(active_by_k.items())),
         )
         candidate.validate()
         self._copy_generator(plan.generator_state_after)
@@ -661,8 +930,8 @@ class FrontRESOuterScenarioReplay:
     def commit(self, candidate: FrontRESOuterReplayCandidate, *, receipt: Mapping[str, Any]) -> dict[str, Any]:
         candidate.validate()
         expected = {
-            "method_contract_id": "FRS-METHOD-v022",
-            "training_contract_id": "FRS-TRAIN-v021",
+            "method_contract_id": "FRS-METHOD-v023",
+            "training_contract_id": "FRS-TRAIN-v022",
             "transaction_id": candidate.transaction_id,
             "policy_snapshot_id": candidate.policy_snapshot_id,
             "optimizer_step_delta": 1,
@@ -692,6 +961,8 @@ class FrontRESOuterScenarioReplay:
             selected_records.append(matches[0])
         generator = self._copy_generator(candidate.plan.generator_state_after)
         self._records = new_records
+        self._active_by_k = {int(k): set(values) for k, values in candidate.active_digests_by_k}
+        self._capacity_by_k[int(candidate.plan.active_k)] = int(candidate.plan.active_capacity_after)
         self.generator.set_state(generator.get_state())
         self._last_commit = dict(expected)
         stats = self.stats(active_k=candidate.plan.active_k, score_kind=candidate.plan.score_kind)
@@ -699,14 +970,29 @@ class FrontRESOuterScenarioReplay:
             "transaction_id": candidate.transaction_id,
             "state_delta": 1,
             "score_kind": candidate.plan.score_kind,
+            "slot_purposes": tuple(selection.purpose for selection in candidate.plan.selections),
             "critic_calibration_values": candidate.critic_calibration_values,
             "repair_spread_values": candidate.repair_spread_values,
             "record_count": stats["record_count"],
+            "archive_count": stats["record_count"],
+            "active_count": stats["active_count"],
+            "active_capacity_before": candidate.plan.active_capacity_before,
+            "active_capacity_after": candidate.plan.active_capacity_after,
+            "minimum_active_visits": stats["minimum_active_visits"],
             "replay_pool_size": stats["replay_pool_size"],
             "review_pool_size": stats["review_pool_size"],
             "ema_scores": tuple(
                 float(record.score_for_k(candidate.plan.active_k, score_kind=candidate.plan.score_kind))
                 for record in selected_records
+            ),
+            "ema_scores_by_slot": tuple(
+                float(
+                    record.score_for_k(
+                        candidate.plan.active_k,
+                        score_kind=("repair_spread" if selection.purpose == "repair_spread" else "critic_calibration"),
+                    )
+                )
+                for record, selection in zip(selected_records, candidate.plan.selections, strict=True)
             ),
             "critic_calibration_ema": tuple(
                 float(record.score_for_k(candidate.plan.active_k, score_kind="critic_calibration"))
@@ -721,10 +1007,14 @@ class FrontRESOuterScenarioReplay:
         }
 
     def stats(self, *, active_k: int, score_kind: str = "critic_calibration") -> dict[str, int | float]:
-        scores = [record.score_for_k(active_k, score_kind=score_kind) for record in self.records]
+        active_records = self._active_records(active_k)
+        scores = [record.score_for_k(active_k, score_kind=score_kind) for record in active_records]
         active_scores = [float(value) for value in scores if value is not None]
         return {
             "record_count": len(self._records),
+            "active_count": len(active_records),
+            "active_capacity": self._capacity_for_k(active_k),
+            "minimum_active_visits": min((record.visit_count for record in active_records), default=0),
             "replay_pool_size": sum(value >= self.min_replay_score for value in active_scores),
             "review_pool_size": sum(value < self.min_replay_score for value in active_scores),
             "score_mean": sum(active_scores) / len(active_scores) if active_scores else 0.0,
@@ -733,10 +1023,13 @@ class FrontRESOuterScenarioReplay:
     def state_dict(self) -> dict[str, Any]:
         return {
             "schema": FRONTRES_OUTER_REPLAY_SCHEMA,
-            "fractions": (self.global_frac, self.replay_frac, self.review_frac),
             "min_replay_score": self.min_replay_score,
             "staleness_weight": self.staleness_weight,
+            "capacity_ladder": self.capacity_ladder,
+            "minimum_visits_before_expand": self.minimum_visits_before_expand,
             "records": tuple(record.to_state() for record in self.records),
+            "active_by_k": tuple((k, tuple(sorted(values))) for k, values in sorted(self._active_by_k.items())),
+            "capacity_by_k": tuple(sorted(self._capacity_by_k.items())),
             "generator_state": self.generator.get_state().cpu(),
             "last_commit": dict(self._last_commit) if self._last_commit is not None else None,
         }
@@ -744,10 +1037,13 @@ class FrontRESOuterScenarioReplay:
     def load_state_dict(self, state: Mapping[str, Any]) -> None:
         expected = {
             "schema",
-            "fractions",
             "min_replay_score",
             "staleness_weight",
+            "capacity_ladder",
+            "minimum_visits_before_expand",
             "records",
+            "active_by_k",
+            "capacity_by_k",
             "generator_state",
             "last_commit",
         }
@@ -755,18 +1051,23 @@ class FrontRESOuterScenarioReplay:
             raise ValueError("outer replay checkpoint state has incompatible fields")
         if state["schema"] != FRONTRES_OUTER_REPLAY_SCHEMA:
             raise ValueError("outer replay checkpoint schema mismatch")
-        fractions = tuple(float(value) for value in state["fractions"])
-        if fractions != (self.global_frac, self.replay_frac, self.review_frac):
-            raise ValueError("outer replay checkpoint sampling fractions mismatch")
         if (
             float(state["min_replay_score"]) != self.min_replay_score
             or float(state["staleness_weight"]) != self.staleness_weight
+            or tuple(int(value) for value in state["capacity_ladder"]) != self.capacity_ladder
+            or int(state["minimum_visits_before_expand"]) != self.minimum_visits_before_expand
         ):
             raise ValueError("outer replay checkpoint scoring configuration mismatch")
         records = tuple(FrontRESScenarioReplayRecord.from_state(value) for value in state["records"])
         record_map = {record.key.digest: record for record in records}
         if len(record_map) != len(records):
             raise ValueError("outer replay checkpoint contains duplicate ScenarioKeys")
+        active_by_k = {int(k): set(values) for k, values in state["active_by_k"]}
+        if any(digest not in record_map for values in active_by_k.values() for digest in values):
+            raise ValueError("outer replay checkpoint active membership references a missing archive record")
+        capacity_by_k = {int(k): int(value) for k, value in state["capacity_by_k"]}
+        if any(value not in self.capacity_ladder for value in capacity_by_k.values()):
+            raise ValueError("outer replay checkpoint capacity state is invalid")
         generator_state = state["generator_state"]
         if not isinstance(generator_state, torch.Tensor) or generator_state.dtype != torch.uint8:
             raise ValueError("outer replay checkpoint generator state is invalid")
@@ -785,6 +1086,8 @@ class FrontRESOuterScenarioReplay:
         ):
             raise ValueError("outer replay checkpoint last commit is invalid")
         self._records = record_map
+        self._active_by_k = active_by_k
+        self._capacity_by_k = capacity_by_k
         self.generator.set_state(generator.get_state())
         self._last_commit = dict(last_commit) if last_commit is not None else None
 

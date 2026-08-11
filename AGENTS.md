@@ -58,7 +58,7 @@ The intended training flow is:
      it does not initialize or define the Stage-3 Critic target.
 3. Stage 3 Segment Replay PPO
    - Initialize the same 6D actor from HSL, then optimize direct Delta SE(3)
-     repair with one-action-K paired evidence, sealed multi-Segment x M replay,
+     repair with one-action-K paired evidence, sealed B8 x M4 replay,
      outer prioritized sealed-Scenario replay across transactions, and exactly
      one grouped optimizer update per committed transaction.
    - The reward owner publishes one raw Recovery-Aware `G_total` per Repair.
@@ -68,6 +68,13 @@ The intended training flow is:
      raw Gain and not action-conditioned `Q(s,a)`. Actor and Critic retain
      separate gradient clipping before the same exact-one Adam step. There is
      no active constraint-gradient projection or KKT authority.
+   - Under TRAIN-v022 the single Adam owns two named groups. Critic LR remains
+     `1e-5`; Actor LR is the actual optimizer-group LR, starting at `3e-7`,
+     ramping to `1e-6`, and resetting to `3e-7` at each K transition.
+   - Outer Scenario replay keeps an unbounded archive but a bounded per-K active
+     pool (`64 -> 128 -> 256`). Each active Scenario must receive at least four
+     committed M4 visits before breadth expansion; DR and replay breadth never
+     expand in the same phase.
 
 ## Perturbation Curriculum
 

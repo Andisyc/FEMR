@@ -130,10 +130,10 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
         frontres_segment_live_train_enabled=False,
         frontres_segment_live_update_loop_only=False,
         frontres_segment_live_single_update_only=False,
-        frontres_method_contract_id="FRS-METHOD-v022",
+        frontres_method_contract_id="FRS-METHOD-v023",
         frontres_gain_contract_id="FRS-GAIN-v008",
-        frontres_optimization_contract_id="FRS-PPO-v009",
-        frontres_training_contract_id="FRS-TRAIN-v021",
+        frontres_optimization_contract_id="FRS-PPO-v010",
+        frontres_training_contract_id="FRS-TRAIN-v022",
         frontres_scalar_target_id="symmetric-log-recovery-aware-utility-v1",
         frontres_physics_schema_id="clean-anchored-contact-zmp-survival-v1",
         frontres_grouped_schema_id="grouped-all-attempt-scalar-v1",
@@ -230,7 +230,7 @@ def _request(
             [
                 {
                     "params": (*tuple(policy.actor.parameters()), policy.log_std),
-                    "lr": 3.0e-6,
+                    "lr": 3.0e-7,
                     "frontres_role": "actor",
                 },
                 {
@@ -253,7 +253,7 @@ def _request(
         committed_update_iteration=iteration,
         max_horizon_k=32,
     )
-    count = 2 * identity.active_m
+    count = 8 * identity.active_m
     transaction_id = f"tx-v017-formal-{iteration}"
     snapshot = capture_frontres_frozen_policy_snapshot(runner, transaction_id=transaction_id)
     outer_replay = getattr(runner, "_frontres_outer_scenario_replay", None)
@@ -263,21 +263,21 @@ def _request(
     outer_plan = outer_replay.plan(
         transaction_id=transaction_id,
         curriculum=identity,
-        num_segments=12,
-        eligible=lambda segment_id: segment_id in {10, 11},
+        num_segments=32,
+        eligible=lambda _segment_id: True,
         global_family=lambda _segment_id: "local_rp",
     )
-    source = torch.tensor([0] * identity.active_m + [1] * identity.active_m)
-    trial = torch.tensor(list(range(identity.active_m)) * 2)
+    source = torch.arange(8).repeat_interleave(identity.active_m)
+    trial = torch.arange(identity.active_m).repeat(8)
     selected_segments = tuple(selection.segment_id for selection in outer_plan.selections)
     segment = torch.tensor(
-        [selected_segments[0]] * identity.active_m + [selected_segments[1]] * identity.active_m
+        [segment_id for segment_id in selected_segments for _ in range(identity.active_m)]
     )
-    motion_by_source = ("motion-a", "motion-b")
-    frame_by_source = tuple(4 if segment_id == 10 else 8 for segment_id in selected_segments)
-    scenario_by_source = ("sa", "sb")
-    noisy_hash_by_source = ("ha", "hb")
-    x_t_by_source = ("xa", "xb")
+    motion_by_source = tuple(f"motion-{index}" for index in range(8))
+    frame_by_source = tuple(4 * (index + 1) for index in range(8))
+    scenario_by_source = tuple(f"scenario-{index}" for index in range(8))
+    noisy_hash_by_source = tuple(f"hash-{index}" for index in range(8))
+    x_t_by_source = tuple(f"x-{index}" for index in range(8))
     motion_ids = tuple(motion_by_source[int(row)] for row in source.tolist())
     start_frames = torch.tensor([frame_by_source[int(row)] for row in source.tolist()])
     scenario_ids = tuple(scenario_by_source[int(row)] for row in source.tolist())
@@ -315,12 +315,10 @@ def _request(
         intent_q29_source=plan.intent_q29_source,
     )
     obs = torch.tensor(
-        [[float(row + 1), 0.0] for row in range(identity.active_m)]
-        + [[0.0, float(row + 1)] for row in range(identity.active_m)]
+        [[float(source_id + 1), float(trial_id + 1)] for source_id in range(8) for trial_id in range(identity.active_m)]
     )
     critic_obs = torch.zeros(count, 449)
-    critic_obs[: identity.active_m, 0] = 1.0
-    critic_obs[identity.active_m :, 0] = 2.0
+    critic_obs[:, 0] = source.to(dtype=torch.float32) + 1.0
     returns = torch.tensor(_report(transaction_id, count=count, horizon_k=identity.active_k).gain_total)
     utility_returns = frontres_symmetric_log_utility(returns)
     batch = FrontRESSegmentPPOBatch(
@@ -350,6 +348,7 @@ def _request(
         training_iteration=identity.absolute_iteration,
         warmup_phase_name=identity.phase.name,
         warmup_actor_loss_weight=identity.phase.actor_loss_weight,
+        warmup_actor_learning_rate=identity.phase.actor_learning_rate,
         dr_stage_fingerprint=identity.dr_stage_fingerprint,
         dr_progress=identity.dr_progress,
         d_cap=identity.d_cap,
@@ -431,7 +430,7 @@ def test_exact_one_scalar_commit_updates_actor_and_critic_from_first_transaction
     assert any(not torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
     assert any(not torch.equal(value, critic_before[name]) for name, value in policy.critic.state_dict().items())
     assert result.diagnostics["gain_contract_id"] == "FRS-GAIN-v008"
-    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v009"
+    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v010"
     assert "constraint_kkt_max_violation" not in result.diagnostics
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
     assert telemetry["clean_execution_count"] == (1, 1)
@@ -568,7 +567,7 @@ def test_phase_reset_routes_mode_through_sealed_reset_owner() -> None:
                 object(),
                 pair_layout=layout,
                 mode=mode,
-                policy_row_count=8,
+                policy_row_count=32,
                 label="contract",
             )
     finally:

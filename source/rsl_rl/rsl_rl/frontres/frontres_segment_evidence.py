@@ -179,24 +179,24 @@ class FrontRESRepairAttemptEvidence:
 
 @dataclass(frozen=True)
 class FrontRESSealedRecoveryAwareGainBatch:
-    """Complete two-Segment baseline plus exact-M Repair consistency boundary."""
+    """Complete B8 baseline plus exact-M Repair consistency boundary."""
 
     baselines: tuple[FrontRESSegmentBaselineEvidence, ...]
     attempts: tuple[FrontRESRepairAttemptEvidence, ...]
     active_m: int
 
     def validate(self) -> None:
-        if len(self.baselines) != 2 or int(self.active_m) < 2:
-            raise ValueError("v017 sealed Gain batch requires exactly two Segments and M>=2")
+        if len(self.baselines) != 8 or int(self.active_m) < 2:
+            raise ValueError("v022 sealed Gain batch requires exactly eight Scenarios and M>=2")
         for baseline in self.baselines:
             baseline.validate()
         for attempt in self.attempts:
             attempt.validate()
-        if len(self.attempts) != 2 * int(self.active_m):
-            raise ValueError("v017 sealed Gain batch requires exact two-Segment x M Repair attempts")
+        if len(self.attempts) != 8 * int(self.active_m):
+            raise ValueError("v022 sealed Gain batch requires exact B8 x M Repair attempts")
         by_source = {int(value.source_index): value for value in self.baselines}
-        if len(by_source) != 2:
-            raise ValueError("v017 sealed Gain batch requires two distinct source identities")
+        if len(by_source) != 8:
+            raise ValueError("v022 sealed Gain batch requires eight distinct source identities")
         seen: set[tuple[int, int]] = set()
         counts = {source: 0 for source in by_source}
         for attempt in self.attempts:
@@ -284,5 +284,4 @@ def _validate_v017_role_zmp(
     finite = torch.isfinite(trajectory.zmp_margin.float())
     if not bool(finite[applicable].all()) or bool(finite[~applicable].any()):
         raise ValueError(f"v017 {role} ZMP must be finite exactly on loaded expected-support steps")
-
 

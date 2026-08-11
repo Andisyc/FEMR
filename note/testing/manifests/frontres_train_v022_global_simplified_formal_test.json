@@ -1,0 +1,41 @@
+{
+  "schema": "frontres-global-simplified-formal-test-v1",
+  "status": "READY_NOT_RUN",
+  "date": "2026-08-11",
+  "contracts": {
+    "method": "FRS-METHOD-v023",
+    "gain": "FRS-GAIN-v008",
+    "optimization": "FRS-PPO-v010",
+    "training": "FRS-TRAIN-v022",
+    "checkpoint": "frontres-v022-checkpoint-v17"
+  },
+  "boundary": {
+    "entry": "run/run_frontres_v022_global_simplified_formal_test.sh",
+    "device": "cpu",
+    "k": 8,
+    "scenario_batch": 8,
+    "attempts_per_scenario": 4,
+    "transactions": 32,
+    "phase_transactions": [4, 4, 24],
+    "test_capacity_ladder": [8, 16, 24],
+    "production_capacity_ladder": [64, 128, 256]
+  },
+  "preserved": [
+    "production FrontRESActorCritic architecture and frozen GMT artifact",
+    "production symmetric-log utility",
+    "exact B8/M4 Scenario reduction",
+    "named Actor/Critic Adam groups and separate clipping",
+    "production Replay Curriculum owner and replay-v3 persistence"
+  ],
+  "replaced": [
+    "external simulator rollout evidence only"
+  ],
+  "required_receipts": [
+    "Actor LR 3e-7 to 1e-6 with Critic LR 1e-5",
+    "32 exact-one optimizer updates",
+    "B8/M4 replay slot and capacity evidence",
+    "transaction 8 simplified save and exact resume",
+    "final invalid commit leaves Replay state unchanged"
+  ],
+  "result": null
+}

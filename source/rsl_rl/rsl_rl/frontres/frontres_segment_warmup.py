@@ -9,7 +9,10 @@ from typing import Iterable
 from rsl_rl.frontres.frontres_formal_runtime_probe import emit_formal_runtime_probe
 
 
-FRONTRES_V011_SELECTED_SEGMENT_COUNT = 2
+FRONTRES_V011_SELECTED_SEGMENT_COUNT = 8
+FRONTRES_V022_ACTOR_LR_INIT = 3.0e-7
+FRONTRES_V022_ACTOR_LR_JOINT = 1.0e-6
+FRONTRES_V022_CRITIC_LR = 1.0e-5
 FRONTRES_V011_MAX_ABSOLUTE_ITERATION = 8000
 FRONTRES_V011_REVIEW_BOUNDARIES = (2000, 3500, 4825, 6500, 8000)
 FRONTRES_V011_K_M_SCHEDULE = (
@@ -31,6 +34,7 @@ class FrontRESSegmentWarmupPhase:
     name: str
     phase_iteration: int
     actor_loss_weight: float
+    actor_learning_rate: float
     critic_update_enabled: bool = True
 
 
@@ -413,6 +417,7 @@ def resolve_frontres_k_stage_identity(
         absolute_iteration=identity.absolute_iteration,
         phase=identity.phase.name,
         actor_loss_weight=identity.phase.actor_loss_weight,
+        actor_learning_rate=identity.phase.actor_learning_rate,
         d_cap=identity.d_cap,
         dr_progress=identity.dr_progress,
     )
@@ -456,20 +461,20 @@ def frontres_segment_warmup_phase(
     critic_warmup_iterations: int,
     actor_warmup_iterations: int,
 ) -> FrontRESSegmentWarmupPhase:
-    """Map persisted Stage-3 progress to coupled Actor/Critic phases.
+    """Map persisted Stage-3 progress to coupled Actor/Critic phases and Actor LR.
 
     函数名说明:
-        `frontres_segment_warmup_phase` 是纯 phase scheduler, 只计算 actor loss
-        weight 和 phase identity; 它不是 acceptance/rho authority ramp.
+        `frontres_segment_warmup_phase` 是纯 phase scheduler, 计算实际 Actor
+        parameter-group LR 和 phase identity; 它不是 acceptance/rho authority ramp.
 
     主链路:
         上游: runner 提供 persisted iteration 和 immutable warmup boundaries.
-        下游: PPO update 使用 `actor_loss_weight`, critic 始终保持可训练.
+        下游: formal update 安装 `actor_learning_rate`, critic 始终保持可训练.
 
     语义:
         Actor and Critic update together from the first low-DR transaction.
-        One monotonic weight spans joint initiation and coupled ramp before
-        entering full joint optimization.
+        Actor loss weight remains one. The actual Actor LR stays low during
+        joint initiation and ramps before full joint optimization.
     """
 
     iteration = max(0, int(iteration))
@@ -477,32 +482,42 @@ def frontres_segment_warmup_phase(
     actor_warmup_iterations = max(0, int(actor_warmup_iterations))
 
     # B1: 读取 persisted Stage 3 iteration 和 immutable warmup boundaries.
-    # B2: Select one coupled phase and one strictly nonzero warmup weight.
+    # B2: Select one coupled phase and the actual named Actor-group LR.
     coupled_updates = critic_warmup_iterations + actor_warmup_iterations
     if coupled_updates <= 0:
         phase = FrontRESSegmentWarmupPhase(
             name="joint",
             phase_iteration=iteration,
             actor_loss_weight=1.0,
+            actor_learning_rate=FRONTRES_V022_ACTOR_LR_JOINT,
         )
     elif iteration < coupled_updates:
-        weight = float(iteration + 1) / float(coupled_updates)
         if iteration < critic_warmup_iterations:
             name = "low_dr_joint_init"
             phase_iteration = iteration
+            actor_lr = FRONTRES_V022_ACTOR_LR_INIT
         else:
             name = "coupled_ramp"
             phase_iteration = iteration - critic_warmup_iterations
+            if actor_warmup_iterations <= 1:
+                ramp_progress = 1.0
+            else:
+                ramp_progress = float(phase_iteration) / float(actor_warmup_iterations - 1)
+            actor_lr = FRONTRES_V022_ACTOR_LR_INIT + (
+                FRONTRES_V022_ACTOR_LR_JOINT - FRONTRES_V022_ACTOR_LR_INIT
+            ) * min(1.0, max(0.0, ramp_progress))
         phase = FrontRESSegmentWarmupPhase(
             name=name,
             phase_iteration=phase_iteration,
-            actor_loss_weight=min(1.0, weight),
+            actor_loss_weight=1.0,
+            actor_learning_rate=float(actor_lr),
         )
     else:
         phase = FrontRESSegmentWarmupPhase(
             name="joint",
             phase_iteration=iteration - coupled_updates,
             actor_loss_weight=1.0,
+            actor_learning_rate=FRONTRES_V022_ACTOR_LR_JOINT,
         )
     # B3: AUDIT-WARMUP-01 截获 PPO loss weighting 实际消费的 phase.
     # Historical critic_only/actor_ramp labels are forbidden by TRAIN-v021.
@@ -514,6 +529,7 @@ def frontres_segment_warmup_phase(
         phase=phase.name,
         phase_iteration=phase.phase_iteration,
         actor_loss_weight=phase.actor_loss_weight,
+        actor_learning_rate=phase.actor_learning_rate,
     )
     return phase
 
@@ -523,6 +539,9 @@ __all__ = [
     "FRONTRES_V011_MAX_ABSOLUTE_ITERATION",
     "FRONTRES_V011_REVIEW_BOUNDARIES",
     "FRONTRES_V011_SELECTED_SEGMENT_COUNT",
+    "FRONTRES_V022_ACTOR_LR_INIT",
+    "FRONTRES_V022_ACTOR_LR_JOINT",
+    "FRONTRES_V022_CRITIC_LR",
     "FrontRESKStageIdentity",
     "FrontRESKStageSpec",
     "FrontRESDRStrengthSample",

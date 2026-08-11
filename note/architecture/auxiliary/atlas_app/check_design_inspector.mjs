@@ -277,8 +277,8 @@ for (const required of [
 "先分别计算 U(G_m)",
 "HSL 只初始化 proposal Actor",
 "第一笔 committed Transaction 起 Actor 与 Critic 就同时更新",
-"0 < w_actor < 1；Actor/Critic 同时更新",
-"w_actor 单调缓慢升至 1",
+"Actor LR=3e-7；Actor/Critic 同时更新",
+"Actor LR 由 3e-7 线性升至 1e-6",
 "EMA target std 只调节 Critic loss 梯度",
 "固定 symlog 先把 raw G_total 映射为 Actor/Critic 共同预测的 robust utility",
 "分别计算并裁剪各自的 gradient norm",
@@ -300,7 +300,7 @@ const expectedWarmupHeadings = [
 "Critic target：先逐 attempt 变换，再取 exact-M 平均",
 "分布跟随：Actor 与 Critic 共同适应",
 "固定 utility 与自适应 loss scale 分工",
-"独立梯度裁剪：Critic 误差不能压缩 Actor",
+"真实 LR 与独立梯度裁剪",
 "K 迁移与冷启动：保留能力，重启联合适应",
 ];
 if (warmupDetails.length !== expectedWarmupHeadings.length
@@ -310,21 +310,20 @@ if (warmupDetails.length !== expectedWarmupHeadings.length
 const warmupText = JSON.stringify(warmupDetails);
 const warmupSchedule = warmupDetails[1].table;
 const expectedWarmupSchedule = [
- ["Low-DR Joint Initiation", "0 < w_actor < 1；Actor/Critic 同时更新", "较低且有明确信号"],
- ["Coupled Ramp", "w_actor 单调缓慢升至 1；Actor/Critic 同时更新", "随同一 K 阶段逐步提高"],
- ["Joint Optimize", "w_actor = 1；Actor/Critic 共同更新", "覆盖当前 K 的训练分布"],
+ ["Low-DR Joint Initiation", "Actor LR=3e-7；Actor/Critic 同时更新", "较低且有明确信号"],
+ ["Coupled Ramp", "Actor LR 由 3e-7 线性升至 1e-6", "随同一 K 阶段逐步提高"],
+ ["Joint Optimize", "Actor LR=1e-6；Critic LR=1e-5", "覆盖当前 K 的训练分布"],
 ];
 if (!warmupSchedule || JSON.stringify(warmupSchedule.rows) !== JSON.stringify(expectedWarmupSchedule)) {
  throw new Error("Actor & Critic Warmup must expose low-DR joint initiation, coupled ramp, and joint optimization");
 }
 for (const required of [
 "不再冻结 Actor 让 Critic 单独拟合旧策略",
-"0 < w_actor < 1",
-"w_actor 单调缓慢升至 1",
-"Actor LR = 3e-6",
-"Critic LR = 1e-5",
+"Actor loss weight 固定为 1",
+"3e-7 到 1e-6",
+"Critic group 始终为 1e-5",
 "同一个 Adam",
-"不能 resume TRAIN-v020 checkpoint-v15",
+      "不能 resume TRAIN-v022 checkpoint-v17",
 "至少为 1",
 "EMA target std 只调节 Critic loss 梯度",
 "exact-one commit 后提交",
@@ -362,7 +361,7 @@ if (!viewer.includes('addText(String(index + 1), left + 22, rowY')) {
 }
 const conceptFigure = JSON.parse(fs.readFileSync(path.join(repoRoot, "note/architecture/concept/03_frontres_concept_tabs.data.json"), "utf8"));
 const warmupNode = conceptFigure.nodes.find((node) => node.id === "M-05");
-if (!warmupNode || warmupNode.summary !== "低 DR 联合适应, 再提高 Actor 权重") {
+if (!warmupNode || warmupNode.summary !== "低 DR 联合适应, 再提高 Actor LR") {
  throw new Error("Concept Figure must bind Actor/Critic joint adaptation to the lower-DR transition");
 }
 if (!conceptFigure.edges.some((edge) => edge.from === "M-06" && edge.to === "M-05" && edge.label === "低 DR 共适应")) {

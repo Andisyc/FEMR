@@ -117,7 +117,7 @@
     {
       "id": "M-05",
       "title": "Actor & Critic Warmup",
-      "summary": "低 DR 联合适应, 再提高 Actor 权重",
+      "summary": "低 DR 联合适应, 再提高 Actor LR",
       "concept": "C-TRAIN",
       "x": 855,
       "y": 470,

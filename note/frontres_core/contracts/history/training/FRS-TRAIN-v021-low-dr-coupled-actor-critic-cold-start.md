@@ -1,10 +1,11 @@
 ---
 contract_id: FRS-TRAIN-v021
-status: active
+status: superseded
 effective_date: 2026-08-11
 updated_date: 2026-08-11
 supersedes: FRS-TRAIN-v020
-scope: Fresh HSL-v2 Stage-3 campaign with low-DR coupled Actor/Critic adaptation, phase-aware DR-compatible replay and checkpoint-v16
+superseded_by: FRS-TRAIN-v022
+scope: Historical HSL-v2 Stage-3 campaign with low-DR coupled Actor/Critic adaptation, phase-aware DR-compatible replay and checkpoint-v16
 ---
 
 # Low-DR Coupled Actor/Critic Cold Start

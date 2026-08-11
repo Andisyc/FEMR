@@ -150,16 +150,17 @@ class _FakeRequest:
             shape=interfaces.FrontRESActiveTransactionShape(
                 active_k=active_k,
                 active_m=active_m,
-                selected_segment_count=2,
-                policy_row_count=2 * active_m,
-                role_row_count=4 * active_m,
+                selected_segment_count=8,
+                policy_row_count=8 * active_m,
+                role_row_count=16 * active_m,
             ),
             curriculum_fingerprint="a" * 64,
             k_stage_index={8: 0, 16: 1, 32: 2}.get(active_k, 0),
             k_stage_iteration=0,
             training_iteration=0,
             warmup_phase_name="low_dr_joint_init",
-            warmup_actor_loss_weight=1.0 / 700.0,
+            warmup_actor_loss_weight=1.0,
+            warmup_actor_learning_rate=3.0e-7,
             dr_stage_fingerprint="b" * 64,
             dr_progress=0.0,
             d_cap=0.5,
@@ -244,9 +245,9 @@ def test_schema_and_identity(interfaces) -> None:
         shape = interfaces.FrontRESActiveTransactionShape(
             active_k=active_k,
             active_m=active_m,
-            selected_segment_count=2,
-            policy_row_count=2 * active_m,
-            role_row_count=4 * active_m,
+            selected_segment_count=8,
+            policy_row_count=8 * active_m,
+            role_row_count=16 * active_m,
         )
         shape.validate()
     _expect_error(
@@ -264,7 +265,8 @@ def test_schema_and_identity(interfaces) -> None:
     ramp_view = replace(
         _FakeRequest(interfaces)._view,
         warmup_phase_name="coupled_ramp",
-        warmup_actor_loss_weight=0.25,
+            warmup_actor_loss_weight=1.0,
+            warmup_actor_learning_rate=5.0e-7,
     )
     ramp_view.validate()
     _expect_error(

@@ -30,7 +30,7 @@ from rsl_rl.frontres.frontres_segment_warmup import (
 )
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-FRONTRES_ACTIVE_CHECKPOINT_FORMAT = "frontres-v021-checkpoint-v16"
+FRONTRES_ACTIVE_CHECKPOINT_FORMAT = "frontres-v022-checkpoint-v17"
 _V019_POLICY_CHECKPOINT_FORMAT = "frontres-v019-checkpoint-v14"
 _V015_LEGACY_POLICY_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v10"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
@@ -157,10 +157,10 @@ def _v015_committed_transaction_receipt(
     expected_identity = dict(
         expected_contract_identity
         or {
-            "method_contract_id": "FRS-METHOD-v022",
+            "method_contract_id": "FRS-METHOD-v023",
             "gain_contract_id": "FRS-GAIN-v008",
-            "optimization_contract_id": "FRS-PPO-v009",
-            "training_contract_id": "FRS-TRAIN-v021",
+            "optimization_contract_id": "FRS-PPO-v010",
+            "training_contract_id": "FRS-TRAIN-v022",
             "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -513,10 +513,10 @@ def _inspect_frontres_v015_policy_quality_payload(
     checkpoint_format = identity.get("format")
     if checkpoint_format == FRONTRES_ACTIVE_CHECKPOINT_FORMAT:
         contract_identity = {
-            "method_contract_id": "FRS-METHOD-v022",
+            "method_contract_id": "FRS-METHOD-v023",
             "gain_contract_id": "FRS-GAIN-v008",
-            "optimization_contract_id": "FRS-PPO-v009",
-            "training_contract_id": "FRS-TRAIN-v021",
+            "optimization_contract_id": "FRS-PPO-v010",
+            "training_contract_id": "FRS-TRAIN-v022",
             "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -525,7 +525,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         contract_identity = {
             "method_contract_id": "FRS-METHOD-v020",
             "gain_contract_id": "FRS-GAIN-v008",
-            "optimization_contract_id": "FRS-PPO-v009",
+            "optimization_contract_id": "FRS-PPO-v010",
             "training_contract_id": "FRS-TRAIN-v019",
             "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",

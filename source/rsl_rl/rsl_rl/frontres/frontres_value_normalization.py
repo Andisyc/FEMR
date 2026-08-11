@@ -85,8 +85,8 @@ def preview_frontres_v007_value_normalization(
 ) -> FrontRESValueNormalizerUpdate:
     """Preview one non-amplifying EMA scale without mutating training state."""
 
-    if not isinstance(segment_targets, torch.Tensor) or segment_targets.ndim != 1 or segment_targets.numel() != 2:
-        raise ValueError("FRS-PPO-v009 value normalization requires exactly two Segment targets")
+    if not isinstance(segment_targets, torch.Tensor) or segment_targets.ndim != 1 or segment_targets.numel() != 8:
+        raise ValueError("FRS-PPO-v010 value normalization requires exactly eight Scenario targets")
     if not bool(torch.isfinite(segment_targets).all().item()):
         raise FloatingPointError("FRS-PPO-v009 value normalization requires finite Segment targets")
     if not isinstance(state, FrontRESValueNormalizerState):

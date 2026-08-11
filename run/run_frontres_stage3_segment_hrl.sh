@@ -9,7 +9,7 @@ if [[ $# -lt 2 ]]; then
   echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
   echo "Evaluation is launched independently through Held-out Policy Quality, Deployment Composition, or DR Sweep."
   echo "FRONTRES_SPECIALIST_MODE selects the perturbation preset for train/eval; default rp."
-  echo "FRS-TRAIN-v021 uses fixed Actor LR=3e-6 and Critic LR=1e-5; shared/adaptive overrides are rejected."
+  echo "FRS-TRAIN-v022 uses actual Actor LR=3e-7->1e-6 and Critic LR=1e-5 with B8/M4; shared/adaptive overrides are rejected."
   echo "Example:"
   echo "  SHARD_CACHE_SIZE=8 bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 12000 2000 4 train"
   exit 1
@@ -35,6 +35,9 @@ FRONTRES_V015_FUTURE_OFFSETS="${FRONTRES_V015_FUTURE_OFFSETS:-1,2}"
 FRONTRES_V015_K_CURRICULUM="${FRONTRES_V015_K_CURRICULUM:-}"
 FRONTRES_V015_RESUME_CHECKPOINT="${FRONTRES_V015_RESUME_CHECKPOINT:-}"
 POLICY_QUALITY_REPEAT_COUNT="${POLICY_QUALITY_REPEAT_COUNT:-1}"
+FRONTRES_SEGMENT_ACTOR_LR_INIT="${FRONTRES_SEGMENT_ACTOR_LR_INIT:-3e-7}"
+FRONTRES_SEGMENT_ACTOR_LR="${FRONTRES_SEGMENT_ACTOR_LR:-1e-6}"
+FRONTRES_SEGMENT_CRITIC_LR="${FRONTRES_SEGMENT_CRITIC_LR:-1e-5}"
 
 if ! [[ "${CHECKPOINT_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
   echo "FRONTRES_CHECKPOINT_INTERVAL must be a positive integer" >&2
@@ -42,7 +45,7 @@ if ! [[ "${CHECKPOINT_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 if [[ ("${MODE}" == "train" || "${MODE}" == "policy_quality_eval") && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
-  echo "FRS-TRAIN-v021 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
+  echo "FRS-TRAIN-v022 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
   exit 4
 fi
 FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"
@@ -50,15 +53,15 @@ CONTRACT_SUITE="${FRONTRES_STAGE3_CONTRACT_SUITE:-source/rsl_rl/rsl_rl/tests/fro
 CONTRACT_PYTHON="${FRONTRES_STAGE3_CONTRACT_PYTHON:-python}"
 
 if [[ -n "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${FRONTRES_V015_RESUME_CHECKPOINT}" ]]; then
-  echo "checkpoint-v16 resume checkpoint not found: ${FRONTRES_V015_RESUME_CHECKPOINT}" >&2
+  echo "checkpoint-v17 resume checkpoint not found: ${FRONTRES_V015_RESUME_CHECKPOINT}" >&2
   exit 2
 fi
 if [[ -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${HSL_CHECKPOINT}" ]]; then
   echo "HSL checkpoint not found: ${HSL_CHECKPOINT}" >&2
   exit 2
 fi
-if [[ "${MODE}" == "train" && -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && "${NUM_ENVS}" != "16" ]]; then
-  echo "FRS-TRAIN-v021 fresh K8/M4 campaign requires NUM_ENVS=16" >&2
+if [[ "${MODE}" == "train" && "${NUM_ENVS}" != "64" ]]; then
+  echo "FRS-TRAIN-v022 K8/B8/M4 campaign requires NUM_ENVS=64" >&2
   exit 4
 fi
 
@@ -74,8 +77,8 @@ if [[ ${#EXTRA_TRAIN_ARGS[@]} -gt 0 ]]; then
 fi
 
 if [[ "${FRONTRES_G5_S4_BOUNDED}" == "1" ]]; then
-  if [[ "${MODE}" != "train" || "${NUM_ENVS}" != "16" || "${MAX_ITERS}" != "1" || "${UPDATE_STEPS}" != "1" ]]; then
-    echo "G5-S4 bounded Stage 3 requires train mode, 16 envs, 1 iteration, and 1 update" >&2
+  if [[ "${MODE}" != "train" || "${NUM_ENVS}" != "64" || "${MAX_ITERS}" != "1" || "${UPDATE_STEPS}" != "1" ]]; then
+    echo "G5-S4 bounded Stage 3 requires train mode, 64 envs, 1 iteration, and 1 update" >&2
     exit 4
   fi
 elif [[ "${FRONTRES_G5_S4_BOUNDED}" != "0" ]]; then
@@ -132,7 +135,7 @@ case "${MODE}" in
     )
     ;;
   single_update|update_loop)
-    echo "FRS-PPO-v009 rejects retired optimizer-writing Stage 3 mode: ${MODE}" >&2
+  echo "FRS-PPO-v010 rejects retired optimizer-writing Stage 3 mode: ${MODE}" >&2
     exit 4
     ;;
   offline_eval|sequence_eval|policy_quality_q2d_eval)
@@ -161,6 +164,10 @@ TRAIN_CMD=(
   --frontres_segment_cache_dir "${CACHE_DIR}"
   --frontres_segment_shard_cache_size "${SHARD_CACHE_SIZE}"
   --frontres_segment_live_update_steps "${UPDATE_STEPS}"
+  --frontres_segment_ppo_schedule fixed
+  --frontres_segment_actor_lr_init "${FRONTRES_SEGMENT_ACTOR_LR_INIT}"
+  --frontres_segment_actor_lr "${FRONTRES_SEGMENT_ACTOR_LR}"
+  --frontres_segment_critic_lr "${FRONTRES_SEGMENT_CRITIC_LR}"
   --frontres_v015_future_offsets "${FRONTRES_V015_FUTURE_OFFSETS}"
   --frontres_segment_k_curriculum "${FRONTRES_V015_K_CURRICULUM}"
 )
@@ -219,6 +226,9 @@ if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
     "${identity_fragment}" \
     " --frontres_v015_future_offsets ${FRONTRES_V015_FUTURE_OFFSETS} " \
     " --frontres_segment_k_curriculum ${FRONTRES_V015_K_CURRICULUM} " \
+    " --frontres_segment_actor_lr_init ${FRONTRES_SEGMENT_ACTOR_LR_INIT} " \
+    " --frontres_segment_actor_lr ${FRONTRES_SEGMENT_ACTOR_LR} " \
+    " --frontres_segment_critic_lr ${FRONTRES_SEGMENT_CRITIC_LR} " \
     " --frontres_segment_cache_dir ${CACHE_DIR} " \
     " --frontres_segment_shard_cache_size ${SHARD_CACHE_SIZE} " \
     " --frontres_segment_live_update_steps ${UPDATE_STEPS} " \

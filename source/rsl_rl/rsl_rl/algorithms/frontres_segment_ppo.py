@@ -335,7 +335,7 @@ def install_frontres_v006_scalar_gradients(
     actor_parameters, critic_parameters = _frontres_scalar_parameter_partition(
         policy,
         optimizer_parameters,
-        contract_id="FRS-PPO-v009",
+        contract_id="FRS-PPO-v010",
     )
     max_norm = float(max_grad_norm)
     if not math.isfinite(max_norm) or max_norm <= 0.0:
@@ -516,7 +516,7 @@ def _build_frontres_v006_segment_value_targets(
 ) -> _FrontRESSegmentValueTargets:
     """Build row-aligned exact-M means after proving one shared state per Segment."""
 
-    # B1: 校验完整 two-Segment x exact-M rows, 产出每个 Segment 的共享 state/value group.
+    # B1: 校验完整 B8 x exact-M rows, 产出每个 Scenario 的共享 state/value group.
     privileged = batch.privileged_observations
     if (
         not isinstance(privileged, torch.Tensor)
@@ -525,11 +525,11 @@ def _build_frontres_v006_segment_value_targets(
         or privileged.requires_grad
         or not bool(torch.isfinite(privileged).all().item())
     ):
-        raise ValueError("FRS-PPO-v009 requires detached finite Critic observations with shape [B,449]")
+        raise ValueError("FRS-PPO-v010 requires detached finite Critic observations with shape [B,449]")
     selected_sources = rows.source_index[valid]
     segment_keys_tensor = torch.unique(selected_sources, sorted=True)
-    if int(segment_keys_tensor.numel()) != 2:
-        raise ValueError("FRS-PPO-v009 requires exactly two Segment state groups")
+    if int(segment_keys_tensor.numel()) != 8:
+        raise ValueError("FRS-PPO-v010 requires exactly eight Scenario state groups")
     selected_returns = (
         batch.returns[valid].detach() if selected_target_returns is None else selected_target_returns.detach()
     )
@@ -553,7 +553,7 @@ def _build_frontres_v006_segment_value_targets(
         if expected_m is None:
             expected_m = count
         if count < 2 or count != expected_m:
-            raise ValueError("FRS-PPO-v009 requires the same exact-M count for both Segments")
+            raise ValueError("FRS-PPO-v010 requires the same exact-M count for all eight Scenarios")
         expected_trials = torch.arange(count, device=selected_trials.device, dtype=torch.long)
         if not torch.equal(torch.sort(selected_trials[local_rows]).values, expected_trials):
             raise ValueError("FRS-PPO-v009 requires unique trial_index=0..M-1 within each Segment")
@@ -577,7 +577,7 @@ def _build_frontres_v006_segment_value_targets(
         row_targets[local_rows] = target
         segment_means.append(float(target.detach().cpu().item()))
 
-    # B3: 将两个 mean 对齐回 policy rows, 不改逐 attempt Actor advantage 或 row ordering.
+    # B3: 将八个 mean 对齐回 policy rows, 不改逐 attempt Actor advantage 或 row ordering.
     return _FrontRESSegmentValueTargets(
         row_targets=row_targets,
         segment_keys=tuple(int(value) for value in segment_keys_tensor.detach().cpu().tolist()),

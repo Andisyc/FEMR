@@ -407,7 +407,7 @@ def collect_frontres_v017_no_actor_baseline(
     horizon_k: int,
     authoritative_rows: torch.Tensor,
 ) -> tuple[FrontRESExecutedKTrajectory, torch.Tensor]:
-    """Execute one logical Clean/Noisy baseline for the two selected Segments."""
+    """Execute one logical Clean/Noisy baseline for the eight selected Segments."""
 
     # B1: 从 command 和 policy public port 取得 sealed phase 与 frozen GMT suffix action.
     command = frontres_motion_command(runner)
@@ -416,8 +416,8 @@ def collect_frontres_v017_no_actor_baseline(
     if not callable(direct) or int(horizon_k) <= 0:
         raise RuntimeError("v017 baseline requires the frozen GMT suffix port and positive K")
     ids = authoritative_rows.to(device=runner.device, dtype=torch.long).reshape(-1)
-    if int(ids.numel()) != 2 or int(torch.unique(ids).numel()) != 2:
-        raise ValueError("v017 baseline requires exactly two unique authoritative Segment rows")
+    if int(ids.numel()) != 8 or int(torch.unique(ids).numel()) != 8:
+        raise ValueError("v022 baseline requires exactly eight unique authoritative Scenario rows")
     execution_started = False
     try:
         t_actions = direct(_read_v017_normalized_gmt_suffix(runner))

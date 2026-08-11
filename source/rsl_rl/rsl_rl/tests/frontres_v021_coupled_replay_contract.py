@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TEST-22B/C semantic pseudo-samples for TRAIN-v021 outer replay."""
+"""TEST-22B/C semantic pseudo-samples for TRAIN-v022 outer replay."""
 
 from __future__ import annotations
 
@@ -75,8 +75,8 @@ def _plan(owner: FrontRESOuterScenarioReplay, transaction_id: str, *, iteration:
 
 def _receipt(plan, *, policy_snapshot_id: str) -> dict[str, object]:
     return {
-        "method_contract_id": "FRS-METHOD-v022",
-        "training_contract_id": "FRS-TRAIN-v021",
+        "method_contract_id": "FRS-METHOD-v023",
+        "training_contract_id": "FRS-TRAIN-v022",
         "transaction_id": plan.transaction_id,
         "policy_snapshot_id": policy_snapshot_id,
         "optimizer_step_delta": 1,
@@ -89,22 +89,24 @@ def test_phase_scores_are_independent_hand_computed_values() -> None:
     assert plan.phase_name == "low_dr_joint_init"
     assert plan.score_kind == "critic_calibration"
     keys = tuple(_key(selection, suffix=str(index)) for index, selection in enumerate(plan.selections))
-    advantages = torch.tensor([3.0, 1.0, -1.0, -3.0, 5.0, 5.0, 5.0, 5.0])
+    advantages = torch.tensor(
+        [3.0, 1.0, -1.0, -3.0, 5.0, 5.0, 5.0, 5.0]
+        + [float(source) for source in range(2, 8) for _ in range(4)]
+    )
     candidate = owner.stage(
         plan,
         keys=keys,
         actor_advantages=advantages,
-        source_index=torch.tensor([0] * 4 + [1] * 4),
+        source_index=torch.arange(8).repeat_interleave(4),
         policy_snapshot_id="pi-dual-score",
         active_m=4,
     )
-    assert candidate.critic_calibration_values == (0.0, 5.0)
-    assert candidate.repair_spread_values == (2.0, 0.0)
+    assert candidate.critic_calibration_values == (0.0, 5.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0)
+    assert candidate.repair_spread_values == (2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     telemetry = owner.commit(candidate, receipt=_receipt(plan, policy_snapshot_id="pi-dual-score"))
-    assert telemetry["critic_calibration_values"] == (0.0, 5.0)
-    assert telemetry["repair_spread_values"] == (2.0, 0.0)
-    assert sorted(record.score_for_k(8, score_kind="critic_calibration") for record in owner.records) == [0.0, 5.0]
-    assert sorted(record.score_for_k(8, score_kind="repair_spread") for record in owner.records) == [0.0, 2.0]
+    assert telemetry["critic_calibration_values"] == candidate.critic_calibration_values
+    assert telemetry["repair_spread_values"] == candidate.repair_spread_values
+    assert len(owner.records) == 8
 
     joint_plan = _plan(owner, "tx-joint-score", iteration=4)
     assert joint_plan.phase_name == "joint"

@@ -18,14 +18,14 @@ from rsl_rl.frontres.frontres_return_utility import (
     FRONTRES_RETURN_UTILITY_SCALE,
 )
 
-FRONTRES_METHOD_CONTRACT_ID = "FRS-METHOD-v022"
+FRONTRES_METHOD_CONTRACT_ID = "FRS-METHOD-v023"
 FRONTRES_GAIN_CONTRACT_ID = "FRS-GAIN-v008"
-FRONTRES_OPTIMIZATION_CONTRACT_ID = "FRS-PPO-v009"
-FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v021"
+FRONTRES_OPTIMIZATION_CONTRACT_ID = "FRS-PPO-v010"
+FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v022"
 FRONTRES_SCALAR_TARGET_ID = "symmetric-log-recovery-aware-utility-v1"
 FRONTRES_PHYSICS_SCHEMA_ID = "clean-anchored-contact-zmp-survival-v1"
 FRONTRES_GROUPED_SCHEMA_ID = "grouped-all-attempt-scalar-v1"
-FRONTRES_CHECKPOINT_FORMAT = "frontres-v021-checkpoint-v16"
+FRONTRES_CHECKPOINT_FORMAT = "frontres-v022-checkpoint-v17"
 FRONTRES_DR_CURRICULUM_SCHEMA_ID = "nested-k-dr-four-class-v1"
 FRONTRES_CRITIC_VALUE_KIND = "state_value"
 FRONTRES_CRITIC_INPUT_DIM = 449
@@ -105,7 +105,7 @@ class FrontRESActiveObservationAuthority:
 
 @dataclass(frozen=True)
 class FrontRESActiveTransactionShape:
-    """Exact two-Segment x M policy/role layout for one sealed transaction."""
+    """Exact B8 x M4 policy/role layout for one sealed transaction."""
 
     active_k: int
     active_m: int
@@ -122,12 +122,12 @@ class FrontRESActiveTransactionShape:
                 "FrontRES transaction active M does not match TRAIN-v013: "
                 f"K={self.active_k} expected_M={expected_m_by_k[int(self.active_k)]} actual_M={self.active_m}"
             )
-        if int(self.selected_segment_count) != 2:
-            raise ValueError("FrontRES transaction requires exactly two Segment sources")
-        expected_policy_rows = 2 * int(self.active_m)
+        if int(self.selected_segment_count) != 8:
+            raise ValueError("FrontRES transaction requires exactly eight Scenario sources")
+        expected_policy_rows = 8 * int(self.active_m)
         if int(self.policy_row_count) != expected_policy_rows:
             raise ValueError(
-                "FrontRES transaction policy rows must equal two Segment sources x active M: "
+                "FrontRES transaction policy rows must equal eight Scenario sources x active M: "
                 f"expected={expected_policy_rows} actual={self.policy_row_count}"
             )
         if int(self.role_row_count) != 2 * expected_policy_rows:
@@ -151,6 +151,7 @@ class FrontRESActiveTransactionRequestView:
     training_iteration: int
     warmup_phase_name: str
     warmup_actor_loss_weight: float
+    warmup_actor_learning_rate: float
     dr_stage_fingerprint: str
     dr_progress: float
     d_cap: float
@@ -172,10 +173,12 @@ class FrontRESActiveTransactionRequestView:
                 raise ValueError(f"FrontRES request {name} must be a nonnegative integer")
         if self.warmup_phase_name not in {"low_dr_joint_init", "coupled_ramp", "joint"}:
             raise ValueError("FrontRES request has an invalid TRAIN-v021 phase")
-        if not math.isfinite(float(self.warmup_actor_loss_weight)) or not 0.0 <= float(
-            self.warmup_actor_loss_weight
-        ) <= 1.0:
-            raise ValueError("FrontRES request actor-loss weight must be finite in [0,1]")
+        if float(self.warmup_actor_loss_weight) != 1.0:
+            raise ValueError("FrontRES request actor-loss weight must remain one")
+        if not math.isfinite(float(self.warmup_actor_learning_rate)) or not 3.0e-7 <= float(
+            self.warmup_actor_learning_rate
+        ) <= 1.0e-6:
+            raise ValueError("FrontRES request Actor LR must be finite in [3e-7,1e-6]")
         if len(self.dr_stage_fingerprint) != 64 or any(
             char not in "0123456789abcdef" for char in self.dr_stage_fingerprint
         ):
@@ -240,8 +243,8 @@ class FrontRESActiveCommittedUpdateView:
     def validate(self, *, expected_request: FrontRESActiveTransactionRequestView | None = None) -> None:
         if not self.transaction_id or not self.policy_snapshot_id:
             raise ValueError("committed FrontRES update requires transaction and frozen-policy identity")
-        if self.segment_count != 2:
-            raise ValueError("committed FrontRES update requires exactly two Segment sources")
+        if self.segment_count != 8:
+            raise ValueError("committed FrontRES update requires exactly eight Scenario sources")
         if (
             self.policy_attempt_count < 4
             or self.valid_row_count <= 0
@@ -383,10 +386,10 @@ class FrontRESActiveTelemetryView:
             raise ValueError("FrontRES telemetry requires transaction identity")
         if self.optimizer_step_delta != 1 or self.update_count != 1:
             raise ValueError("FrontRES telemetry requires exact-one update identity")
-        if self.actor_learning_rate != 3.0e-6 or self.critic_learning_rate != 1.0e-5:
-            raise ValueError("FRS-TRAIN-v021 telemetry requires Actor LR=3e-6 and Critic LR=1e-5")
+        if not 3.0e-7 <= self.actor_learning_rate <= 1.0e-6 or self.critic_learning_rate != 1.0e-5:
+            raise ValueError("FRS-TRAIN-v022 telemetry requires Actor LR in [3e-7,1e-6] and Critic LR=1e-5")
         if self.actor_observation_dim != 158 or self.gmt_observation_dim != 770:
-            raise ValueError("FRS-TRAIN-v021 telemetry requires Actor/GMT dimensions 158/770")
+            raise ValueError("FRS-TRAIN-v022 telemetry requires Actor/GMT dimensions 158/770")
         gradient_values = (
             self.gradient_clip_max_norm,
             self.actor_gradient_post_clip_norm,
@@ -398,7 +401,7 @@ class FrontRESActiveTelemetryView:
             or self.actor_gradient_post_clip_norm > self.gradient_clip_max_norm + 1.0e-6
             or self.critic_gradient_post_clip_norm > self.gradient_clip_max_norm + 1.0e-6
         ):
-            raise ValueError("FRS-PPO-v009 telemetry has invalid separate gradient clipping facts")
+            raise ValueError("FRS-PPO-v010 telemetry has invalid separate gradient clipping facts")
         if (
             self.critic_value_normalization_id != FRONTRES_VALUE_NORMALIZATION_ID
             or self.critic_value_normalizer_decay != FRONTRES_VALUE_NORMALIZER_DECAY

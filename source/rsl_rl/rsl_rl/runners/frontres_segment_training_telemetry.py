@@ -163,10 +163,10 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         raise RuntimeError("v017 telemetry requires one Clean and one Noisy execution per Segment")
 
     expected_ids = {
-        "method_contract_id": "FRS-METHOD-v022",
+        "method_contract_id": "FRS-METHOD-v023",
         "gain_contract_id": "FRS-GAIN-v008",
-        "optimization_contract_id": "FRS-PPO-v009",
-        "training_contract_id": "FRS-TRAIN-v021",
+        "optimization_contract_id": "FRS-PPO-v010",
+        "training_contract_id": "FRS-TRAIN-v022",
         "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -186,8 +186,8 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
     active_m = int(diagnostics.get("active_m", -1))
     selected_segments = int(diagnostics.get("selected_segment_count", -1))
     role_rows = int(diagnostics.get("role_row_count", -1))
-    if selected_segments != 2 or row_count != 2 * active_m or role_rows != 4 * active_m:
-        raise RuntimeError("v017 telemetry lost exact two-Segment x M layout")
+    if selected_segments != 8 or row_count != 8 * active_m or role_rows != 16 * active_m:
+        raise RuntimeError("v022 telemetry lost exact eight-Segment x M layout")
     critic_targets = tuple(float(value) for value in diagnostics.get("critic_value_targets", ()))
     segment_targets = tuple(float(value) for value in diagnostics.get("critic_segment_target_means", ()))
     actor_advantages = tuple(float(value) for value in diagnostics.get("actor_advantages", ()))
@@ -329,7 +329,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
     ):
         raise RuntimeError("TRAIN-v021 telemetry has malformed outer replay commit evidence")
     source_index = tuple(int(value) for value in diagnostics.get("source_index", ()))
-    for source in range(2):
+    for source in range(8):
         source_advantages = tuple(
             actor_advantages[row]
             for row, source_value in enumerate(source_index)
@@ -471,8 +471,8 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         "ppo_feedback": False,
         **expected_ids,
     }
-    if len(telemetry["dr_class_by_segment"]) != 2 or len(telemetry["dr_strength_by_segment"]) != 2:
-        raise RuntimeError("FRS-TRAIN-v021 telemetry requires two sealed Segment DR class/strength values")
+    if len(telemetry["dr_class_by_segment"]) != 8 or len(telemetry["dr_strength_by_segment"]) != 8:
+        raise RuntimeError("FRS-TRAIN-v022 telemetry requires eight sealed Segment DR class/strength values")
     FrontRESActiveTelemetryView.from_mapping(telemetry)
     return telemetry
 
@@ -515,7 +515,7 @@ def require_frontres_committed_result(runner: Any, result: Any) -> dict[str, Any
             not float(actor_delta.get("param_delta_max_abs", 0.0)) > 0.0
             or not float(critic_delta.get("param_delta_max_abs", 0.0)) > 0.0
         ):
-            raise RuntimeError("FRS-TRAIN-v021 first coupled commit requires updated Actor/std and Critic")
+            raise RuntimeError("FRS-TRAIN-v022 first coupled commit requires updated Actor/std and Critic")
     # AUDIT-B02/B05/B06/B07: 最终 serializer 只读审计, 不反馈训练状态.
     from rsl_rl.runners.frontres_formal_runtime_audit import print_phase_b_telemetry_audit
 

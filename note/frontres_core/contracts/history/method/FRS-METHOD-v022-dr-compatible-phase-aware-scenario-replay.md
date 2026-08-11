@@ -1,10 +1,11 @@
 ---
 contract_id: FRS-METHOD-v022
-status: active
+status: superseded
 effective_date: 2026-08-11
 updated_date: 2026-08-11
 supersedes: FRS-METHOD-v021
-scope: Recovery-Aware exact-M training with DR-compatible phase-aware outer sealed-Scenario replay
+superseded_by: FRS-METHOD-v023
+scope: Historical Recovery-Aware exact-M training with DR-compatible phase-aware outer sealed-Scenario replay
 ---
 
 # DR-Compatible Phase-Aware Scenario Replay

@@ -1,10 +1,11 @@
 ---
 contract_id: FRS-PPO-v009
-status: active
+status: superseded
 effective_date: 2026-08-10
 updated_date: 2026-08-10
 supersedes: FRS-PPO-v008
-scope: unchanged grouped symlog PPO with a strictly nonzero low-DR coupled Actor/Critic warmup boundary
+superseded_by: FRS-PPO-v010
+scope: Historical grouped symlog PPO with a strictly nonzero low-DR coupled Actor/Critic warmup boundary
 ---
 
 # Grouped PPO With Low-DR Coupled Actor/Critic Warmup

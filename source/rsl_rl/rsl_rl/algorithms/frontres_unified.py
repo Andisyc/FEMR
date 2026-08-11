@@ -156,6 +156,7 @@ class FrontRESUnified:
         frontres_segment_live_update_steps: int = 4,
         frontres_segment_critic_warmup_iterations: int = 0,
         frontres_segment_actor_warmup_iterations: int = 0,
+        frontres_segment_actor_joint_lr: float = 1.0e-6,
         frontres_segment_k_curriculum: tuple[tuple[object, ...], ...] = (),
         frontres_formal_runtime_audit: bool = False,
         frontres_segment_live_fail_on_invalid_update: bool = True,
@@ -292,10 +293,10 @@ class FrontRESUnified:
         self.frontres_segment_live_update_loop_only = bool(frontres_segment_live_update_loop_only)
         self.frontres_segment_live_train_enabled = bool(frontres_segment_live_train_enabled)
         self.frontres_formal_transaction_enabled = bool(frontres_formal_transaction_enabled)
-        self.frontres_method_contract_id = "FRS-METHOD-v022"
+        self.frontres_method_contract_id = "FRS-METHOD-v023"
         self.frontres_gain_contract_id = "FRS-GAIN-v008"
-        self.frontres_optimization_contract_id = "FRS-PPO-v009"
-        self.frontres_training_contract_id = "FRS-TRAIN-v021"
+        self.frontres_optimization_contract_id = "FRS-PPO-v010"
+        self.frontres_training_contract_id = "FRS-TRAIN-v022"
         self.frontres_dr_curriculum_schema_id = "nested-k-dr-four-class-v1"
         self.frontres_scalar_target_id = "symmetric-log-recovery-aware-utility-v1"
         self.frontres_physics_schema_id = "clean-anchored-contact-zmp-survival-v1"
@@ -324,6 +325,16 @@ class FrontRESUnified:
         self.frontres_segment_live_update_steps = max(1, int(frontres_segment_live_update_steps))
         self.frontres_segment_critic_warmup_iterations = max(0, int(frontres_segment_critic_warmup_iterations))
         self.frontres_segment_actor_warmup_iterations = max(0, int(frontres_segment_actor_warmup_iterations))
+        self.frontres_segment_actor_joint_lr = self._require_positive_finite_lr(
+            frontres_segment_actor_joint_lr,
+            name="frontres_segment_actor_joint_lr",
+        )
+        if self.frontres_formal_transaction_enabled and (
+            self.actor_learning_rate != 3.0e-7
+            or self.frontres_segment_actor_joint_lr != 1.0e-6
+            or self.critic_learning_rate != 1.0e-5
+        ):
+            raise ValueError("FRS-TRAIN-v022 requires Actor LR curriculum 3e-7 -> 1e-6")
         self.frontres_segment_k_curriculum = tuple(tuple(row) for row in frontres_segment_k_curriculum)
         self.frontres_segment_k_curriculum_fingerprint = ""
         if self.frontres_segment_k_curriculum:

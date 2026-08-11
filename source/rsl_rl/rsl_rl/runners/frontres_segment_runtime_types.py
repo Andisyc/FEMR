@@ -144,6 +144,7 @@ class FrontRESFormalTransactionRequest:
     training_iteration: int
     warmup_phase_name: str
     warmup_actor_loss_weight: float
+    warmup_actor_learning_rate: float
     dr_stage_fingerprint: str
     dr_progress: float
     d_cap: float
@@ -187,8 +188,8 @@ class FrontRESFormalTransactionRequest:
             self.outer_replay_plan.validate()
             if self.outer_replay_plan.transaction_id != self.plan.transaction_id:
                 raise ValueError("formal transaction outer replay plan has a different transaction")
-            if len(self.outer_replay_scenario_keys) != 2:
-                raise ValueError("formal transaction outer replay requires two ScenarioKeys")
+            if len(self.outer_replay_scenario_keys) != 8:
+                raise ValueError("formal transaction outer replay requires eight ScenarioKeys")
             for key in self.outer_replay_scenario_keys:
                 key.validate()
         if not isinstance(self.curriculum_fingerprint, str) or len(self.curriculum_fingerprint) != 64:
@@ -202,17 +203,19 @@ class FrontRESFormalTransactionRequest:
             raise ValueError("v015 formal transaction active_k must be positive")
         if isinstance(self.active_m, bool) or int(self.active_m) < 2:
             raise ValueError("FRS-TRAIN-v021 formal transaction active_m must be at least two")
-        if self.plan.active_m != int(self.active_m) or self.plan.selected_segment_count != 2:
-            raise ValueError("FRS-TRAIN-v021 formal transaction plan does not match exact two-Segment x M identity")
+        if self.plan.active_m != int(self.active_m) or self.plan.selected_segment_count != 8:
+            raise ValueError("FRS-TRAIN-v022 formal transaction plan does not match exact B8 x M identity")
         if self.warmup_phase_name not in {"low_dr_joint_init", "coupled_ramp", "joint"}:
             raise ValueError("FRS-TRAIN-v021 formal transaction has an invalid warmup phase")
-        if not 0.0 <= float(self.warmup_actor_loss_weight) <= 1.0:
-            raise ValueError("v015 formal transaction actor loss weight must be in [0,1]")
+        if float(self.warmup_actor_loss_weight) != 1.0:
+            raise ValueError("FRS-TRAIN-v022 formal transaction actor loss weight must remain one")
+        if not 3.0e-7 <= float(self.warmup_actor_learning_rate) <= 1.0e-6:
+            raise ValueError("FRS-TRAIN-v022 formal transaction Actor LR must be in [3e-7,1e-6]")
         if len(self.dr_stage_fingerprint) != 64:
             raise ValueError("FRS-TRAIN-v021 formal transaction requires a sealed DR-stage fingerprint")
         if not 0.0 <= float(self.dr_progress) <= 1.0 or not 0.0 < float(self.d_cap) <= 2.381:
             raise ValueError("FRS-TRAIN-v021 formal transaction has invalid DR progress or d_cap")
-        if len(self.dr_class_by_segment) != 2 or len(self.dr_strength_by_segment) != 2:
+        if len(self.dr_class_by_segment) != 8 or len(self.dr_strength_by_segment) != 8:
             raise ValueError("FRS-TRAIN-v021 transaction requires one sealed DR class/strength per Segment")
         if any(name not in {"easy", "medium", "hard", "broken"} for name in self.dr_class_by_segment):
             raise ValueError("FRS-TRAIN-v021 transaction has an invalid DR class")
@@ -242,6 +245,7 @@ class FrontRESFormalTransactionRequest:
             training_iteration=int(self.training_iteration),
             warmup_phase_name=str(self.warmup_phase_name),
             warmup_actor_loss_weight=float(self.warmup_actor_loss_weight),
+            warmup_actor_learning_rate=float(self.warmup_actor_learning_rate),
             dr_stage_fingerprint=str(self.dr_stage_fingerprint),
             dr_progress=float(self.dr_progress),
             d_cap=float(self.d_cap),
@@ -341,10 +345,10 @@ def _commit_frontres_checkpoint_transaction(
     if state.get("state") != "sealed":
         raise RuntimeError("v015 formal transaction commit requires a sealed checkpoint barrier")
     receipt = {
-        "method_contract_id": "FRS-METHOD-v022",
+            "method_contract_id": "FRS-METHOD-v023",
         "gain_contract_id": "FRS-GAIN-v008",
-        "optimization_contract_id": "FRS-PPO-v009",
-        "training_contract_id": "FRS-TRAIN-v021",
+            "optimization_contract_id": "FRS-PPO-v010",
+            "training_contract_id": "FRS-TRAIN-v022",
         "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",

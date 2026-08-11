@@ -354,10 +354,16 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
+    "--frontres_segment_actor_lr_init",
+    type=float,
+    default=None,
+    help="For TRAIN-v022 Stage 3 only: initial/low-DR Actor parameter-group learning rate.",
+)
+parser.add_argument(
     "--frontres_segment_actor_lr",
     type=float,
     default=None,
-    help="For Stage 3 only: explicit fixed residual Actor learning rate.",
+    help="For TRAIN-v022 Stage 3 only: full-joint residual Actor learning rate.",
 )
 parser.add_argument(
     "--frontres_segment_critic_lr",
@@ -1202,7 +1208,7 @@ def _apply_frontres_segment_split_lr_override(agent_cfg, args_cli) -> None:
     if getattr(args_cli, "frontres_stage", None) != "stage3_segment_hrl":
         if any(
             getattr(args_cli, name, None) is not None
-            for name in ("frontres_segment_ppo_lr", "frontres_segment_actor_lr", "frontres_segment_critic_lr")
+            for name in ("frontres_segment_ppo_lr", "frontres_segment_actor_lr_init", "frontres_segment_actor_lr", "frontres_segment_critic_lr")
         ):
             raise ValueError("FrontRES Stage-3 LR options require --frontres_stage stage3_segment_hrl")
         return
@@ -1211,21 +1217,25 @@ def _apply_frontres_segment_split_lr_override(agent_cfg, args_cli) -> None:
     alg_cfg = getattr(agent_cfg, "algorithm", None)
     if alg_cfg is None or not hasattr(alg_cfg, "learning_rate") or not hasattr(alg_cfg, "critic_learning_rate"):
         raise AttributeError("FRS-TRAIN-v019 requires Actor and Critic LR config fields")
+    actor_init_arg = getattr(args_cli, "frontres_segment_actor_lr_init", None)
     actor_arg = getattr(args_cli, "frontres_segment_actor_lr", None)
     critic_arg = getattr(args_cli, "frontres_segment_critic_lr", None)
-    if (actor_arg is None) != (critic_arg is None):
-        raise ValueError("FRS-TRAIN-v019 requires Actor and Critic LR overrides together")
-    actor_lr = float(alg_cfg.learning_rate if actor_arg is None else actor_arg)
+    supplied = tuple(value is not None for value in (actor_init_arg, actor_arg, critic_arg))
+    if any(supplied) and not all(supplied):
+        raise ValueError("FRS-TRAIN-v022 requires Actor init/joint and Critic LR overrides together")
+    actor_init_lr = float(alg_cfg.learning_rate if actor_init_arg is None else actor_init_arg)
+    actor_lr = float(getattr(alg_cfg, "frontres_segment_actor_joint_lr", 1.0e-6) if actor_arg is None else actor_arg)
     critic_lr = float(alg_cfg.critic_learning_rate if critic_arg is None else critic_arg)
-    if not math.isfinite(actor_lr) or actor_lr <= 0.0 or not math.isfinite(critic_lr) or critic_lr <= 0.0:
-        raise ValueError("FRS-TRAIN-v019 Actor and Critic LRs must be positive and finite")
+    if (actor_init_lr, actor_lr, critic_lr) != (3.0e-7, 1.0e-6, 1.0e-5):
+        raise ValueError("FRS-TRAIN-v022 requires Actor LR 3e-7 -> 1e-6 and Critic LR 1e-5")
     if str(getattr(alg_cfg, "schedule", "")).lower() != "fixed":
         raise ValueError("FRS-TRAIN-v019 Stage 3 requires schedule=fixed")
-    alg_cfg.learning_rate = actor_lr
+    alg_cfg.learning_rate = actor_init_lr
+    alg_cfg.frontres_segment_actor_joint_lr = actor_lr
     alg_cfg.critic_learning_rate = critic_lr
     print(
         "[FrontRES Stage3 Segment HRL] split_lr "
-        f"actor_learning_rate={actor_lr:.6g} critic_learning_rate={critic_lr:.6g} schedule=fixed",
+        f"actor_lr_init={actor_init_lr:.6g} actor_lr_joint={actor_lr:.6g} critic_learning_rate={critic_lr:.6g} schedule=fixed",
         flush=True,
     )
 

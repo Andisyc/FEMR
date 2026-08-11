@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+# Historical B2/replay-v2 evidence. Do not collect it against the active
+# TRAIN-v022 B8/replay-v3 owner.
+__test__ = False
+
 from dataclasses import replace
 from pathlib import Path
 import sys
