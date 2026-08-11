@@ -142,14 +142,22 @@ def _one_transaction(
     assert len(plan.selections) == 8
     keys = tuple(_key_for_selection(replay, selection, transaction) for selection in plan.selections)
 
-    scenario = torch.arange(8, dtype=torch.float32).unsqueeze(1)
+    segment_value = torch.tensor([selection.segment_id for selection in plan.selections], dtype=torch.float32)
+    strength_value = torch.tensor(
+        [selection.perturbation_strength for selection in plan.selections],
+        dtype=torch.float32,
+    )
+    seed_phase = torch.tensor(
+        [selection.perturbation_seed % 100_000 for selection in plan.selections],
+        dtype=torch.float32,
+    ) / 100_000.0
     compact = torch.cat(
         (
-            scenario / 7.0,
-            torch.full_like(scenario, float(curriculum.dr_progress)),
-            torch.sin(scenario + transaction),
-            torch.cos(scenario - transaction),
-            torch.full_like(scenario, float(transaction) / 32.0),
+            (segment_value / 511.0).unsqueeze(1),
+            (strength_value / 2.381).unsqueeze(1),
+            torch.sin(0.017 * segment_value).unsqueeze(1),
+            torch.cos(2.0 * math.pi * seed_phase).unsqueeze(1),
+            torch.full((8, 1), float(curriculum.active_k) / 8.0),
         ),
         dim=1,
     )
@@ -167,31 +175,36 @@ def _one_transaction(
     old_values = old_values_by_scenario.repeat_interleave(4)
     source_index = torch.arange(8, dtype=torch.long).repeat_interleave(4)
     trial_index = torch.arange(4, dtype=torch.long).repeat(8)
-    scenario_value = source_index.to(dtype=torch.float32)
+    scenario_signal = (
+        torch.sin(0.17 * segment_value)
+        + 0.5 * torch.cos(2.0 * math.pi * seed_phase)
+        - 0.2 * strength_value
+    ).repeat_interleave(4)
     trial_value = trial_index.to(dtype=torch.float32)
     raw_gain = (
-        0.35 * scenario_value
+        0.35 * scenario_signal
         - 0.08 * trial_value
         - 0.04 * sealed_actions.square().sum(dim=1)
         + 0.12 * torch.sin(trial_value + transaction)
     )
     utility = frontres_symmetric_log_utility(raw_gain)
     advantage = utility - old_values
-    segment_ids = source_index.clone()
+    scenario_segment_ids = torch.tensor([key.segment_id for key in keys], dtype=torch.long)
+    segment_ids = scenario_segment_ids.repeat_interleave(4)
     metadata = FrontRESV015GroupedCandidateMetadata(
         transaction_id=plan.transaction_id,
         policy_snapshot_id=f"policy-{transaction:03d}",
-        motion_ids=tuple(f"motion-{source}" for source in source_index.tolist()),
-        start_frames=source_index * 8,
+        motion_ids=tuple(key.motion_id for key in keys for _ in range(4)),
+        start_frames=torch.tensor([key.start_frame for key in keys], dtype=torch.long).repeat_interleave(4),
         segment_ids=segment_ids,
         source_index=source_index,
         trial_index=trial_index,
         horizon_k=torch.full((32,), 8, dtype=torch.long),
         evidence_valid_step_count=torch.full((32,), 8, dtype=torch.long),
         trial_role=("policy",) * 32,
-        noisy_segment_hashes=tuple(f"noisy-{source}" for source in source_index.tolist()),
-        scenario_ids=tuple(f"scenario-{source}" for source in source_index.tolist()),
-        x_t_identities=tuple(f"x-{source}" for source in source_index.tolist()),
+        noisy_segment_hashes=tuple(key.noisy_segment_hash for key in keys for _ in range(4)),
+        scenario_ids=tuple(f"scenario-{key.digest}" for key in keys for _ in range(4)),
+        x_t_identities=tuple(key.x_t_identity for key in keys for _ in range(4)),
         intent_q29_provenance="deployment_noisy_q29",
         intent_q29_source="deterministic-simulator-adapter",
     )
@@ -321,6 +334,7 @@ def main() -> None:
     )
     value_normalizer = FrontRESValueNormalizerState()
     capacity_transitions: list[tuple[int, int]] = []
+    replacement_digests: list[str] = []
     with tempfile.TemporaryDirectory(prefix="frontres-v022-global-") as directory:
         checkpoint = Path(directory) / "tx8.pt"
         for transaction in range(32):
@@ -334,6 +348,8 @@ def main() -> None:
             capacity_transitions.append(
                 (int(telemetry["active_capacity_before"]), int(telemetry["active_capacity_after"]))
             )
+            if telemetry["replacement_key_digest"] is not None:
+                replacement_digests.append(str(telemetry["replacement_key_digest"]))
             if transaction == 7:
                 model, optimizer, replay, value_normalizer = _checkpoint_roundtrip(
                     checkpoint,
@@ -347,6 +363,7 @@ def main() -> None:
     groups = _named_groups(optimizer)
     assert {int(group["frontres_step_count"]) for group in groups.values()} == {32}
     assert all(before <= after and after in {8, 16, 24} for before, after in capacity_transitions)
+    assert replacement_digests
     state_before = copy.deepcopy(replay.state_dict())
     curriculum = resolve_frontres_k_stage_identity(schedule=SCHEDULE, committed_update_iteration=32, max_horizon_k=8)
     failed_plan = replay.plan(
