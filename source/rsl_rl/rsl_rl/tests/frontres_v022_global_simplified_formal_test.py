@@ -140,6 +140,7 @@ def _one_transaction(
         global_family=lambda _segment_id: "local_rp",
     )
     assert len(plan.selections) == 8
+    assert transaction == 0 or any(selection.replay_key_digest is not None for selection in plan.selections)
     keys = tuple(_key_for_selection(replay, selection, transaction) for selection in plan.selections)
 
     segment_value = torch.tensor([selection.segment_id for selection in plan.selections], dtype=torch.float32)
@@ -283,6 +284,7 @@ def _one_transaction(
         },
     )
     assert len(telemetry["slot_purposes"]) == 8
+    assert int(telemetry["active_count"]) <= int(telemetry["active_capacity_after"])
     next_normalizer = result.critic_value_normalizer_candidate_state
     assert isinstance(next_normalizer, FrontRESValueNormalizerState)
     return telemetry, next_normalizer
@@ -313,7 +315,7 @@ def _checkpoint_roundtrip(
     new_optimizer = _optimizer(new_model)
     new_optimizer.load_state_dict(restored["optimizer"])
     new_replay = FrontRESOuterScenarioReplay(
-        capacity_ladder=(8, 16, 24),
+        capacity_ladder=(64, 128, 256),
         minimum_visits_before_expand=4,
         seed=20260811,
     )
@@ -328,13 +330,12 @@ def main() -> None:
     model = _production_policy()
     optimizer = _optimizer(model)
     replay = FrontRESOuterScenarioReplay(
-        capacity_ladder=(8, 16, 24),
+        capacity_ladder=(64, 128, 256),
         minimum_visits_before_expand=4,
         seed=20260811,
     )
     value_normalizer = FrontRESValueNormalizerState()
     capacity_transitions: list[tuple[int, int]] = []
-    replacement_digests: list[str] = []
     with tempfile.TemporaryDirectory(prefix="frontres-v022-global-") as directory:
         checkpoint = Path(directory) / "tx8.pt"
         for transaction in range(32):
@@ -348,8 +349,6 @@ def main() -> None:
             capacity_transitions.append(
                 (int(telemetry["active_capacity_before"]), int(telemetry["active_capacity_after"]))
             )
-            if telemetry["replacement_key_digest"] is not None:
-                replacement_digests.append(str(telemetry["replacement_key_digest"]))
             if transaction == 7:
                 model, optimizer, replay, value_normalizer = _checkpoint_roundtrip(
                     checkpoint,
@@ -362,8 +361,7 @@ def main() -> None:
 
     groups = _named_groups(optimizer)
     assert {int(group["frontres_step_count"]) for group in groups.values()} == {32}
-    assert all(before <= after and after in {8, 16, 24} for before, after in capacity_transitions)
-    assert replacement_digests
+    assert all(before <= after and after in {64, 128, 256} for before, after in capacity_transitions)
     state_before = copy.deepcopy(replay.state_dict())
     curriculum = resolve_frontres_k_stage_identity(schedule=SCHEDULE, committed_update_iteration=32, max_horizon_k=8)
     failed_plan = replay.plan(
