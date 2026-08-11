@@ -24,18 +24,19 @@ def _expect_error(call, text: str) -> None:
 
 def main() -> None:
     runner, request, _policy = _request()
-    runner.alg.frontres_method_contract_id = "FRS-METHOD-v022"
-    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v009"
-    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v021"
+    runner.alg.frontres_method_contract_id = "FRS-METHOD-v023"
+    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v010"
+    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v022"
     runner.alg.frontres_return_utility_id = "symmetric-log-gain-g0-1-v1"
     runner.alg.frontres_return_utility_scale = 1.0
     runner.alg.max_grad_norm = 0.5
 
     active_m = request.active_m
-    shared_actor = torch.tensor([[1.0, 0.0]] * active_m + [[0.0, 1.0]] * active_m)
-    shared_critic = torch.zeros(2 * active_m, 449)
-    shared_critic[:active_m, 0] = 1.0
-    shared_critic[active_m:, 1] = 1.0
+    source_index = torch.arange(8).repeat_interleave(active_m)
+    shared_actor = torch.zeros(8 * active_m, 2)
+    shared_actor[:, 0] = source_index.float() + 1.0
+    shared_critic = torch.zeros(8 * active_m, 449)
+    shared_critic[torch.arange(8 * active_m), source_index] = 1.0
     batch = request.candidate_batches[0]
     sealed_batch = replace(
         batch,
@@ -50,14 +51,14 @@ def main() -> None:
     open_frontres_checkpoint_transaction_barrier(runner)
     result = run_frontres_formal_transaction_update(runner, request)
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
-    assert telemetry["method_contract_id"] == "FRS-METHOD-v022"
-    assert telemetry["optimization_contract_id"] == "FRS-PPO-v009"
-    assert telemetry["training_contract_id"] == "FRS-TRAIN-v021"
-    assert telemetry["checkpoint_format"] == "frontres-v021-checkpoint-v16"
+    assert telemetry["method_contract_id"] == "FRS-METHOD-v023"
+    assert telemetry["optimization_contract_id"] == "FRS-PPO-v010"
+    assert telemetry["training_contract_id"] == "FRS-TRAIN-v022"
+    assert telemetry["checkpoint_format"] == "frontres-v022-checkpoint-v17"
     assert telemetry["outer_replay_state_delta"] == 1
-    assert telemetry["outer_replay_sources"] == ("global", "global")
-    assert len(telemetry["outer_replay_scenario_key_digests"]) == 2
-    assert telemetry["outer_replay_visit_counts"] == (1, 1)
+    assert telemetry["outer_replay_sources"] == ("global",) * 8
+    assert len(telemetry["outer_replay_scenario_key_digests"]) == 8
+    assert telemetry["outer_replay_visit_counts"] == (1,) * 8
     assert telemetry["actor_observation_dim"] == 158
     assert telemetry["critic_observation_dim"] == 449
     assert telemetry["gmt_observation_dim"] == 770

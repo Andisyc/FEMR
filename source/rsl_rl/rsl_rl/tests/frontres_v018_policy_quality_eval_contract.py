@@ -35,6 +35,9 @@ def test_policy_quality_algorithm_constructs_readonly_stage3_identity() -> None:
     )
     algorithm = FrontRESUnified(
         torch.nn.Linear(2, 1),
+        learning_rate=3.0e-7,
+        critic_learning_rate=1.0e-5,
+        frontres_segment_actor_joint_lr=1.0e-6,
         frontres_training_objective="segment_replay_hrl",
         frontres_policy_quality_eval_only=True,
         frontres_segment_replay_enabled=False,
@@ -56,6 +59,9 @@ def test_policy_quality_algorithm_constructs_readonly_stage3_identity() -> None:
     try:
         FrontRESUnified(
             torch.nn.Linear(2, 1),
+            learning_rate=3.0e-7,
+            critic_learning_rate=1.0e-5,
+            frontres_segment_actor_joint_lr=1.0e-6,
             frontres_training_objective="segment_replay_hrl",
             frontres_policy_quality_eval_only=True,
             frontres_segment_replay_enabled=True,

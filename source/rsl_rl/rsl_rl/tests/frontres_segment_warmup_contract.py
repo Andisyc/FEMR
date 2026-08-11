@@ -110,11 +110,13 @@ def test_phase_boundaries_are_monotonic() -> None:
         "joint",
         "joint",
     ]
-    weights = [phase.actor_loss_weight for phase in phases]
-    torch.testing.assert_close(torch.tensor(weights[:6]), torch.arange(1.0, 7.0) / 6.0)
-    assert weights[6:] == [1.0, 1.0]
-    assert weights[0] > 0.0
-    assert weights == sorted(weights)
+    assert [phase.actor_loss_weight for phase in phases] == [1.0] * 8
+    actor_lrs = [phase.actor_learning_rate for phase in phases]
+    torch.testing.assert_close(
+        torch.tensor(actor_lrs),
+        torch.tensor([3.0e-7, 3.0e-7, 3.0e-7, 5.333333333333333e-7, 7.666666666666667e-7, 1.0e-6, 1.0e-6, 1.0e-6]),
+    )
+    assert actor_lrs == sorted(actor_lrs)
 
 
 def test_low_dr_joint_init_updates_actor_std_and_critic() -> None:
@@ -218,7 +220,7 @@ def test_v011_campaign_schedule_is_exact_and_checkpoint_bounded() -> None:
         "8:4:200:500:1300,16:4:300:300:900,32:4:400:300:625"
     )
     assert require_frontres_v011_campaign_schedule(schedule) == schedule
-    assert WARMUP_MODULE.FRONTRES_V011_SELECTED_SEGMENT_COUNT == 2
+    assert WARMUP_MODULE.FRONTRES_V011_SELECTED_SEGMENT_COUNT == 8
     assert WARMUP_MODULE.FRONTRES_V011_MAX_ABSOLUTE_ITERATION == 8000
     assert WARMUP_MODULE.FRONTRES_V011_REVIEW_BOUNDARIES == (2000, 3500, 4825, 6500, 8000)
     for bad in (

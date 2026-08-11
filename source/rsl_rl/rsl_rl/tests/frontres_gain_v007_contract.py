@@ -97,12 +97,11 @@ def _attempt(source: int, trial: int, *, joint: float, action: float = 0.0) -> F
 
 def _batch() -> FrontRESSealedRecoveryAwareGainBatch:
     result = FrontRESSealedRecoveryAwareGainBatch(
-        baselines=(_baseline(0), _baseline(1)),
-        attempts=(
-            _attempt(0, 0, joint=0.0435),
-            _attempt(0, 1, joint=0.087),
-            _attempt(1, 0, joint=0.0435),
-            _attempt(1, 1, joint=0.087),
+        baselines=tuple(_baseline(source) for source in range(8)),
+        attempts=tuple(
+            _attempt(source, trial, joint=0.0435 if trial == 0 else 0.087)
+            for source in range(8)
+            for trial in range(2)
         ),
         active_m=2,
     )
@@ -114,9 +113,9 @@ def test_clean_anchor_pressure_and_row_permutation() -> None:
     batch = _batch()
     config = FrontRESRecoveryAwareGainConfig(beta=0.02)
     result = compute_recovery_aware_gain(batch.to_gain_input(), config=config)
-    assert tuple(result.gain_total.shape) == (4,)
+    assert tuple(result.gain_total.shape) == (16,)
     assert bool(torch.isfinite(result.gain_total).all())
-    assert bool((result.intent_gain[[0, 2]] > result.intent_gain[[1, 3]]).all())
+    assert bool((result.intent_gain[0::2] > result.intent_gain[1::2]).all())
     expected_weighted = 0.5 * (
         result.physics_remaining_noisy.square() - result.physics_remaining_repaired.square()
     )
@@ -206,13 +205,14 @@ def test_flight_support_drift_is_na_without_erasing_physics_score() -> None:
     assert bool(torch.isnan(result.physics_channel_repaired[1::2, 2]).all())
     assert bool(torch.isfinite(result.physics_remaining_repaired).all())
 
-    permutation = torch.tensor([3, 1, 2, 0])
+    row_count = int(result.gain_total.numel())
+    permutation = torch.arange(row_count - 1, -1, -1)
     permuted = type(mixed)(
         **{
             name: value.index_select(1, permutation)
-            if isinstance(value, torch.Tensor) and value.ndim >= 2 and value.shape[1] == 4
+            if isinstance(value, torch.Tensor) and value.ndim >= 2 and value.shape[1] == row_count
             else value.index_select(0, permutation)
-            if isinstance(value, torch.Tensor) and value.ndim == 2 and value.shape[0] == 4
+            if isinstance(value, torch.Tensor) and value.ndim == 2 and value.shape[0] == row_count
             else value
             for name, value in mixed.__dict__.items()
         }

@@ -20,7 +20,7 @@ def _run_preflight(
     mode: str,
     env_overrides: dict[str, str] | None = None,
     extra_args: list[str] | None = None,
-    bounds: tuple[str, str, str] = ("16", "2", "3"),
+    bounds: tuple[str, str, str] = ("64", "2", "3"),
 ) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -103,15 +103,15 @@ def test_stage3_train_launch_preflight_builds_femr_command() -> None:
     assert "/MOSAIC/" not in command
 
 
-def test_g5_s4_bounded_launch_freezes_16_1_1_and_audit() -> None:
+def test_g5_s4_bounded_launch_freezes_64_1_1_and_audit() -> None:
     result = _run_preflight(
         "train",
         {"FRONTRES_G5_S4_BOUNDED": "1"},
-        bounds=("16", "1", "1"),
+        bounds=("64", "1", "1"),
     )
     assert result.returncode == 0, result.stderr
     command = _command_line(result)
-    assert "--num_envs=16" in command
+    assert "--num_envs=64" in command
     assert "--max_iterations 1" in command
     assert "--frontres_segment_live_update_steps 1" in command
     assert "--frontres_checkpoint_interval 1" in command
@@ -147,20 +147,20 @@ def test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds() -> None:
     wrong = _run_preflight(
         "train",
         {"FRONTRES_G5_S4_BOUNDED": "1"},
-        bounds=("8", "1", "1"),
+        bounds=("16", "1", "1"),
     )
     assert wrong.returncode != 0
-    assert "fresh K8/M4 campaign requires NUM_ENVS=16" in wrong.stderr
+    assert "FRS-TRAIN-v022 K8/B8/M4 campaign requires NUM_ENVS=64" in wrong.stderr
 
 
-def test_strict_v11_resume_replaces_hsl_initializer() -> None:
+def test_strict_v022_resume_replaces_hsl_initializer() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         resume_path = Path(tmp) / "model_1.pt"
-        resume_path.write_text("semantic checkpoint-v16 fixture\n")
+        resume_path.write_text("semantic checkpoint-v17 fixture\n")
         result = _run_preflight(
             "train",
             {"FRONTRES_V015_RESUME_CHECKPOINT": str(resume_path)},
-            bounds=("8", "199", "1"),
+            bounds=("64", "199", "1"),
         )
         assert result.returncode == 0, result.stderr
         command = _command_line(result)
@@ -172,14 +172,14 @@ def test_strict_v11_resume_replaces_hsl_initializer() -> None:
         assert "--max_iterations 199" in command
 
 
-def test_strict_v11_resume_rejects_missing_checkpoint() -> None:
+def test_strict_v022_resume_rejects_missing_checkpoint() -> None:
     result = _run_preflight(
         "train",
         {"FRONTRES_V015_RESUME_CHECKPOINT": "/definitely/missing/model_1.pt"},
-        bounds=("8", "199", "1"),
+        bounds=("64", "199", "1"),
     )
     assert result.returncode != 0
-    assert "checkpoint-v16 resume checkpoint not found" in result.stderr
+    assert "checkpoint-v17 resume checkpoint not found" in result.stderr
 
 
 def test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel() -> None:
@@ -196,18 +196,8 @@ def test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel() -> Non
         for other_flag in SENTINEL_FLAGS.values():
             if other_flag != expected_flag:
                 assert other_flag not in command
-def test_stage3_train_launch_passes_explicit_fixed_split_lr_args() -> None:
-    result = _run_preflight(
-        "train",
-        extra_args=[
-            "--frontres_segment_ppo_schedule",
-            "fixed",
-            "--frontres_segment_actor_lr",
-            "3e-6",
-            "--frontres_segment_critic_lr",
-            "1e-5",
-        ],
-    )
+def test_stage3_train_launch_passes_v022_fixed_split_lr_args() -> None:
+    result = _run_preflight("train")
     assert result.returncode == 0, result.stderr
     command = _command_line(result)
     _probe("stage3_train_ppo_schedule_lr_args", command)
@@ -215,7 +205,8 @@ def test_stage3_train_launch_passes_explicit_fixed_split_lr_args() -> None:
     assert "--frontres_segment_live_update_loop_only" not in command
     assert "--frontres_segment_live_single_update_only" not in command
     assert "--frontres_segment_ppo_schedule fixed" in command
-    assert "--frontres_segment_actor_lr 3e-6" in command
+    assert "--frontres_segment_actor_lr_init 3e-7" in command
+    assert "--frontres_segment_actor_lr 1e-6" in command
     assert "--frontres_segment_critic_lr 1e-5" in command
 
 
@@ -274,19 +265,19 @@ def test_stage3_launch_rejects_retired_optimizer_modes() -> None:
     for mode in ("single_update", "update_loop"):
         result = _run_preflight(mode)
         assert result.returncode == 4
-        assert "FRS-PPO-v009 rejects retired optimizer-writing Stage 3 mode" in result.stderr
+        assert "FRS-PPO-v010 rejects retired optimizer-writing Stage 3 mode" in result.stderr
         assert "Command: " not in result.stdout
 
 
 if __name__ == "__main__":
     test_stage3_train_launch_preflight_builds_femr_command()
-    test_g5_s4_bounded_launch_freezes_16_1_1_and_audit()
+    test_g5_s4_bounded_launch_freezes_64_1_1_and_audit()
     test_stage3_train_launch_accepts_explicit_checkpoint_interval()
     test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds()
-    test_strict_v11_resume_replaces_hsl_initializer()
-    test_strict_v11_resume_rejects_missing_checkpoint()
+    test_strict_v022_resume_replaces_hsl_initializer()
+    test_strict_v022_resume_rejects_missing_checkpoint()
     test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel()
-    test_stage3_train_launch_passes_explicit_fixed_split_lr_args()
+    test_stage3_train_launch_passes_v022_fixed_split_lr_args()
     test_stage3_launch_rejects_retired_optimizer_modes()
     test_stage3_launch_rejects_legacy_local_evaluation_modes()
     test_stage3_launch_builds_active_v018_policy_quality_command()

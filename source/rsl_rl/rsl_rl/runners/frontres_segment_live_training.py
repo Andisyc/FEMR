@@ -614,7 +614,7 @@ def run_frontres_segment_live_training_loop(
                     "[FrontRES K-Stage Handoff] "
                     f"status=RESTART_REQUIRED checkpoint={checkpoint_path} "
                     f"next_k={transition.active_k} next_m={transition.active_m} "
-                    f"next_num_envs={4 * int(transition.active_m)} "
+                    f"next_num_envs={16 * int(transition.active_m)} "
                     f"absolute_iteration={runner.current_learning_iteration}",
                     flush=True,
                 )

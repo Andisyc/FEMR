@@ -28,5 +28,7 @@ fi
 
 export FRONTRES_GMT_CHECKPOINT="${GMT_CHECKPOINT}"
 export PYTHONPATH="${FEMR_ROOT}/source/rsl_rl${PYTHONPATH:+:${PYTHONPATH}}"
+"${PYTHON_BIN}" \
+  "${FEMR_ROOT}/source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_launch_command_contract.py"
 exec "${PYTHON_BIN}" \
   "${FEMR_ROOT}/source/rsl_rl/rsl_rl/tests/frontres_v022_global_simplified_formal_test.py"

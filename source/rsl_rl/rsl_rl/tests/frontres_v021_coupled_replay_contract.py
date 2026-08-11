@@ -154,15 +154,18 @@ def test_current_dr_interval_overrides_stored_class_label() -> None:
     )
 
 
-def test_replay_v2_roundtrip_rejects_single_score_schema() -> None:
+def test_replay_v3_roundtrip_rejects_legacy_schema() -> None:
     owner = FrontRESOuterScenarioReplay(global_frac=1.0, replay_frac=0.0, review_frac=0.0, seed=17)
     plan = _plan(owner, "tx-roundtrip")
     keys = tuple(_key(selection, suffix=str(index)) for index, selection in enumerate(plan.selections))
     candidate = owner.stage(
         plan,
         keys=keys,
-        actor_advantages=torch.tensor([1.0, 2.0, 3.0, 4.0, -4.0, -2.0, 0.0, 2.0]),
-        source_index=torch.tensor([0] * 4 + [1] * 4),
+        actor_advantages=torch.tensor(
+            [1.0, 2.0, 3.0, 4.0, -4.0, -2.0, 0.0, 2.0]
+            + [float(source) for source in range(2, 8) for _ in range(4)]
+        ),
+        source_index=torch.arange(8).repeat_interleave(4),
         policy_snapshot_id="pi-roundtrip",
         active_m=4,
     )
@@ -170,11 +173,11 @@ def test_replay_v2_roundtrip_rejects_single_score_schema() -> None:
     state = owner.state_dict()
     restored = FrontRESOuterScenarioReplay(global_frac=1.0, replay_frac=0.0, review_frac=0.0, seed=99)
     restored.load_state_dict(state)
-    assert restored.state_dict()["schema"] == "frontres-outer-scenario-replay-v2"
+    assert restored.state_dict()["schema"] == "frontres-outer-scenario-replay-v3"
     assert tuple(record.to_state() for record in restored.records) == state["records"]
 
     legacy = dict(state)
-    legacy["schema"] = "frontres-outer-scenario-replay-v1"
+    legacy["schema"] = "frontres-outer-scenario-replay-v2"
     legacy_record = dict(legacy["records"][0])
     legacy_record["score_by_k"] = legacy_record.pop("critic_calibration_score_by_k")
     legacy_record.pop("repair_spread_score_by_k")
@@ -192,7 +195,7 @@ def test_replay_v2_roundtrip_rejects_single_score_schema() -> None:
 def main() -> None:
     test_phase_scores_are_independent_hand_computed_values()
     test_current_dr_interval_overrides_stored_class_label()
-    test_replay_v2_roundtrip_rejects_single_score_schema()
+    test_replay_v3_roundtrip_rejects_legacy_schema()
     print("frontres_v021_coupled_replay_contract: PASS")
 
 

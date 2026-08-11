@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic TEST-16 contracts for strict checkpoint-v16 persistence."""
+"""Deterministic TEST-16 contracts for strict checkpoint-v17 persistence."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def _runner(layout, policy_base, *, iteration: int, gmt_checkpoint_path: Path):
         [
             {
                 "params": list(policy.residual_actor.parameters()),
-                "lr": 3.0e-6,
+                "lr": 3.0e-7,
                 "frontres_role": "actor",
                 "frontres_step_count": 0,
             },
@@ -86,9 +86,12 @@ def _runner(layout, policy_base, *, iteration: int, gmt_checkpoint_path: Path):
             },
         ]
     )
-    runner.alg.frontres_method_contract_id = "FRS-METHOD-v022"
-    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v009"
-    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v021"
+    runner.alg.frontres_method_contract_id = "FRS-METHOD-v023"
+    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v010"
+    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v022"
+    runner.alg.actor_learning_rate = 3.0e-7
+    runner.alg.critic_learning_rate = 1.0e-5
+    runner.alg.frontres_segment_actor_joint_lr = 1.0e-6
     runner.alg.frontres_critic_value_kind = "state_value"
     runner.alg.frontres_critic_input_dim = 449
     runner.alg.frontres_critic_action_conditioned = False
@@ -127,17 +130,18 @@ def _receipt(checkpointing, *, training_iteration: int) -> dict[str, object]:
         committed_update_iteration=training_iteration,
         max_horizon_k=32,
     )
-    receipt["method_contract_id"] = "FRS-METHOD-v022"
+    receipt["method_contract_id"] = "FRS-METHOD-v023"
     receipt["gain_contract_id"] = "FRS-GAIN-v008"
-    receipt["optimization_contract_id"] = "FRS-PPO-v009"
-    receipt["training_contract_id"] = "FRS-TRAIN-v021"
+    receipt["optimization_contract_id"] = "FRS-PPO-v010"
+    receipt["training_contract_id"] = "FRS-TRAIN-v022"
     receipt["scalar_target_id"] = "symmetric-log-recovery-aware-utility-v1"
     receipt["active_m"] = 4
-    receipt["expected_policy_row_count"] = 8
-    receipt["collected_policy_attempt_count"] = 8
-    receipt["valid_policy_row_count"] = 8
-    receipt["policy_row_count"] = 8
-    receipt["role_row_count"] = 16
+    receipt["selected_segment_count"] = 8
+    receipt["expected_policy_row_count"] = 32
+    receipt["collected_policy_attempt_count"] = 32
+    receipt["valid_policy_row_count"] = 32
+    receipt["policy_row_count"] = 32
+    receipt["role_row_count"] = 64
     receipt["curriculum_fingerprint"] = _schedule_fingerprint(ACTIVE_SCHEDULE)
     receipt["k_stage_index"] = identity.stage_index
     receipt["active_k"] = identity.active_k
@@ -156,7 +160,7 @@ def _expect_error(call, text: str) -> None:
     except RuntimeError as exc:
         assert text.lower() in str(exc).lower(), str(exc)
         return
-    raise AssertionError("expected checkpoint-v16 rejection")
+    raise AssertionError("expected checkpoint-v17 rejection")
 
 
 def _prime_outer_replay(runner) -> None:
@@ -167,7 +171,7 @@ def _prime_outer_replay(runner) -> None:
             schedule=runner.alg.frontres_segment_k_curriculum,
             committed_update_iteration=0,
         ),
-        num_segments=2,
+        num_segments=64,
         eligible=lambda _segment_id: True,
         global_family=lambda _segment_id: "local_rp",
     )
@@ -190,16 +194,16 @@ def _prime_outer_replay(runner) -> None:
     candidate = owner.stage(
         plan,
         keys=keys,
-        actor_advantages=torch.tensor([0.5] * 4 + [-0.25] * 4),
-        source_index=torch.tensor([0] * 4 + [1] * 4),
+        actor_advantages=torch.tensor([float(source) for source in range(8) for _ in range(4)]),
+        source_index=torch.arange(8).repeat_interleave(4),
         policy_snapshot_id="policy-checkpoint-v16",
         active_m=4,
     )
     owner.commit(
         candidate,
         receipt={
-            "method_contract_id": "FRS-METHOD-v022",
-            "training_contract_id": "FRS-TRAIN-v021",
+            "method_contract_id": "FRS-METHOD-v023",
+            "training_contract_id": "FRS-TRAIN-v022",
             "transaction_id": plan.transaction_id,
             "policy_snapshot_id": "policy-checkpoint-v16",
             "optimizer_step_delta": 1,
@@ -231,10 +235,10 @@ def main() -> None:
 
         payload = torch.load(path, weights_only=False)
         identity = payload["frontres_v015_checkpoint_identity"]
-        assert identity["format"] == "frontres-v021-checkpoint-v16"
-        assert identity["method_contract_id"] == "FRS-METHOD-v022"
-        assert identity["optimization_contract_id"] == "FRS-PPO-v009"
-        assert identity["training_contract_id"] == "FRS-TRAIN-v021"
+        assert identity["format"] == "frontres-v022-checkpoint-v17"
+        assert identity["method_contract_id"] == "FRS-METHOD-v023"
+        assert identity["optimization_contract_id"] == "FRS-PPO-v010"
+        assert identity["training_contract_id"] == "FRS-TRAIN-v022"
         assert identity["outer_replay_schema_id"] == FRONTRES_OUTER_REPLAY_SCHEMA
         assert identity["return_utility"] == {
             "identity": "symmetric-log-gain-g0-1-v1",
@@ -268,9 +272,9 @@ def main() -> None:
         assert payload["privileged_obs_norm_state_dict"]["_var"][0, 0].item() == 0.0
         assert payload["privileged_obs_norm_state_dict"]["_std"][0, 0].item() == 0.0
         active_quality_identity = checkpointing.inspect_frontres_quality_checkpoint(path, route="policy")
-        assert active_quality_identity.format == "frontres-v021-checkpoint-v16"
-        assert active_quality_identity.ppo_contract_id == "FRS-PPO-v009"
-        assert active_quality_identity.training_contract_id == "FRS-TRAIN-v021"
+        assert active_quality_identity.format == "frontres-v022-checkpoint-v17"
+        assert active_quality_identity.ppo_contract_id == "FRS-PPO-v010"
+        assert active_quality_identity.training_contract_id == "FRS-TRAIN-v022"
 
         fresh = _runner(layout, policy_base, iteration=0, gmt_checkpoint_path=gmt_path)
         checkpointing.load_runner(fresh, str(path), load_optimizer=True)
@@ -279,7 +283,7 @@ def main() -> None:
         for name, value in critic_state.items():
             torch.testing.assert_close(fresh.alg.policy.critic.state_dict()[name], value)
         assert fresh.alg.frontres_critic_value_normalizer_state == source.alg.frontres_critic_value_normalizer_state
-        assert len(fresh._frontres_outer_scenario_replay.records) == 2
+        assert len(fresh._frontres_outer_scenario_replay.records) == 8
         assert torch.equal(
             fresh._frontres_outer_scenario_replay.generator.get_state(),
             source._frontres_outer_scenario_replay.generator.get_state(),
@@ -438,7 +442,7 @@ def main() -> None:
         assert not tuple(root.glob("atomic.pt.tmp-*"))
 
     assert checkpointing._V015_HSL_CHECKPOINT_FORMAT == "frontres-v017-hsl-proposal-v2"
-    print("frontres_v016_checkpoint_contract: v16 dual-score replay round-trip and legacy reject", flush=True)
+    print("frontres_v016_checkpoint_contract: v17 replay-v3 round-trip and legacy reject", flush=True)
 
 
 if __name__ == "__main__":

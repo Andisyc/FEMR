@@ -39,7 +39,7 @@ K = 8
 
 
 def test_baseline_capture_projects_only_authoritative_segment_rows() -> None:
-    authoritative = torch.tensor([1, 6])
+    authoritative = torch.arange(8)
     step_count = 0
     capture_count = 0
 
@@ -67,15 +67,15 @@ def test_baseline_capture_projects_only_authoritative_segment_rows() -> None:
         assert selected_rows.tolist() == authoritative.tolist()
         row_values = selected_rows.float()
         return FrontRESV017ExecutionFrame(
-            joint_pos=row_values[:, None].expand(2, 29).clone(),
-            root_pos=torch.zeros(2, 3),
-            root_quat=torch.nn.functional.one_hot(torch.zeros(2, dtype=torch.long), num_classes=4).float(),
-            key_body_pos=torch.zeros(2, 3, 3),
-            root_lin_vel=torch.zeros(2, 3),
-            root_ang_vel=torch.zeros(2, 3),
-            foot_pos=torch.zeros(2, 2, 3),
-            expected_support=torch.ones(2, 2),
-            contact=torch.ones(2, 2),
+            joint_pos=row_values[:, None].expand(8, 29).clone(),
+            root_pos=torch.zeros(8, 3),
+            root_quat=torch.nn.functional.one_hot(torch.zeros(8, dtype=torch.long), num_classes=4).float(),
+            key_body_pos=torch.zeros(8, 3, 3),
+            root_lin_vel=torch.zeros(8, 3),
+            root_ang_vel=torch.zeros(8, 3),
+            foot_pos=torch.zeros(8, 2, 3),
+            expected_support=torch.ones(8, 2),
+            contact=torch.ones(8, 2),
             zmp_margin=row_values.clone(),
         )
 
@@ -103,8 +103,8 @@ def test_baseline_capture_projects_only_authoritative_segment_rows() -> None:
         one_action.capture_frontres_v017_execution_frame = original_capture
     assert step_count == 3
     assert capture_count == 2
-    assert tuple(trajectory.joint_pos.shape) == (2, 2, 29)
-    assert tuple(support.shape) == (2, 2, 2)
+    assert tuple(trajectory.joint_pos.shape) == (2, 8, 29)
+    assert tuple(support.shape) == (2, 8, 2)
 
 
 def _trajectory(joint: float, *, foot: float, zmp: float) -> FrontRESExecutedKTrajectory:
@@ -172,12 +172,11 @@ def _attempt(source: int, trial: int, joint: float) -> FrontRESRepairAttemptEvid
 
 def _sealed() -> FrontRESSealedRecoveryAwareGainBatch:
     result = FrontRESSealedRecoveryAwareGainBatch(
-        baselines=(_baseline(0), _baseline(1)),
-        attempts=(
-            _attempt(0, 0, 0.0435),
-            _attempt(0, 1, 0.06525),
-            _attempt(1, 0, 0.0435),
-            _attempt(1, 1, 0.06525),
+        baselines=tuple(_baseline(source) for source in range(8)),
+        attempts=tuple(
+            _attempt(source, trial, 0.0435 if trial == 0 else 0.06525)
+            for source in range(8)
+            for trial in range(2)
         ),
         active_m=2,
     )
@@ -205,8 +204,8 @@ def test_v017_sealed_gain_to_grouped_scalar_ppo() -> None:
     storage = build_frontres_v017_grouped_candidate_storage(
         sealed,
         gain,
-        motion_ids=("motion-a", "motion-a", "motion-b", "motion-b"),
-        start_frames=torch.tensor([4, 4, 8, 8]),
+        motion_ids=tuple(f"motion-{source}" for source in range(8) for _ in range(2)),
+        start_frames=torch.tensor([4 * (source + 1) for source in range(8) for _ in range(2)]),
         intent_q29_provenance="deployment_noisy_q29",
         intent_q29_source="motion_internal_q29",
     )
@@ -225,10 +224,10 @@ def test_v017_sealed_gain_to_grouped_scalar_ppo() -> None:
     )
     torch.testing.assert_close(torch.tensor(result.utility_returns), expected_utility)
     assert result.return_utility_id == "symmetric-log-gain-g0-1-v1"
-    assert result.valid_count == 4
-    assert result.grouped_segment_count == 2
-    assert result.grouped_attempt_count == 4
-    assert all(abs(value - 0.25) < 1.0e-7 for value in result.grouped_attempt_mass_shares)
+    assert result.valid_count == 16
+    assert result.grouped_segment_count == 8
+    assert result.grouped_attempt_count == 16
+    assert all(abs(value - 0.0625) < 1.0e-7 for value in result.grouped_attempt_mass_shares)
 
     report = build_frontres_v017_local_evaluation_report(sealed, gain)
     report.validate()
@@ -239,11 +238,11 @@ def test_v017_sealed_gain_to_grouped_scalar_ppo() -> None:
     assert report.physics_channel_repaired == tuple(tuple(float(item) for item in row) for row in gain.physics_channel_repaired.tolist())
     assert report.cost_free_score == tuple(float(value) for value in gain.cost_free_score.tolist())
     assert report.beta == 0.02
-    assert report.clean_execution_count == (1, 1)
-    assert report.noisy_execution_count == (1, 1)
+    assert report.clean_execution_count == (1,) * 8
+    assert report.noisy_execution_count == (1,) * 8
     assert all(all(not value for value in row) for row in report.contact_violation_repair_steps)
     assert all(all(value for value in row) for row in report.zmp_applicable_repair_steps)
-    assert report.sustained_lean_repair == (False, False, False, False)
+    assert report.sustained_lean_repair == (False,) * 16
 
 
 def test_v017_evaluation_contact_zmp_lean_and_unplanned_cases_are_hand_checkable() -> None:
@@ -324,7 +323,7 @@ def test_v017_evaluation_preserves_support_foot_na_without_zero_fill() -> None:
         sealed.to_gain_input(),
         config=FrontRESRecoveryAwareGainConfig(),
     )
-    flight_rows = torch.tensor([1, 3])
+    flight_rows = torch.arange(1, 16, 2)
     support_noisy = gain.support_foot_drift_noisy.clone()
     support_repaired = gain.support_foot_drift_repaired.clone()
     physics_noisy = gain.physics_channel_noisy.clone()
@@ -343,8 +342,8 @@ def test_v017_evaluation_preserves_support_foot_na_without_zero_fill() -> None:
             physics_channel_repaired=physics_repaired,
         ),
     )
-    assert report.support_foot_drift_noisy[1::2] == (None, None)
-    assert report.support_foot_drift_repaired[1::2] == (None, None)
+    assert report.support_foot_drift_noisy[1::2] == (None,) * 8
+    assert report.support_foot_drift_repaired[1::2] == (None,) * 8
     assert report.physics_channel_noisy[1][1] is None
     assert report.physics_channel_repaired[3][1] is None
 

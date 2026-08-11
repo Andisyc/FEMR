@@ -37,7 +37,7 @@ def _run_failing_contract_preflight(mode: str = "train") -> subprocess.Completed
                 str(SCRIPT),
                 str(checkpoint),
                 str(motion_path),
-                "16",
+                "64",
                 "1",
                 "1",
                 mode,

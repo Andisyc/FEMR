@@ -198,7 +198,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
     if (
         len(critic_targets) != row_count
         or len(actor_advantages) != row_count
-        or len(segment_targets) != 2
+        or len(segment_targets) != selected_segments
         or len(raw_returns) != row_count
         or len(utility_returns) != row_count
         or not all(
@@ -212,7 +212,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         or critic_targets != tuple(float(value) for value in getattr(ppo, "critic_value_targets", ()))
         or actor_advantages != tuple(float(value) for value in getattr(ppo, "actor_advantages", ()))
     ):
-        raise RuntimeError("TRAIN-v021 telemetry has malformed raw/utility/target/advantage rows")
+        raise RuntimeError("TRAIN-v022 telemetry has malformed raw/utility/target/advantage rows")
     required_v016_fields = {
         "actor_observation_dim",
         "critic_observation_dim",
@@ -304,15 +304,15 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
     outer_staleness = tuple(int(value) for value in outer_replay.get("staleness", ()))
     if (
         int(outer_replay.get("state_delta", -1)) != 1
-        or len(outer_sources) != 2
+        or len(outer_sources) != selected_segments
         or any(source not in {"global", "replay", "review"} for source in outer_sources)
-        or len(outer_key_digests) != 2
-        or len(set(outer_key_digests)) != 2
+        or len(outer_key_digests) != selected_segments
+        or len(set(outer_key_digests)) != selected_segments
         or any(len(value) != 64 for value in outer_key_digests)
-        or len(outer_seeds) != 2
+        or len(outer_seeds) != selected_segments
         or any(value < 0 for value in outer_seeds)
         or any(
-            len(values) != 2 or not all(math.isfinite(value) for value in values)
+            len(values) != selected_segments or not all(math.isfinite(value) for value in values)
             for values in (
                 outer_utility_means,
                 outer_old_value_means,
@@ -322,12 +322,12 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
             )
         )
         or outer_score_kind not in {"critic_calibration", "repair_spread"}
-        or len(outer_visit_counts) != 2
+        or len(outer_visit_counts) != selected_segments
         or any(value <= 0 for value in outer_visit_counts)
-        or len(outer_staleness) != 2
+        or len(outer_staleness) != selected_segments
         or any(value != 0 for value in outer_staleness)
     ):
-        raise RuntimeError("TRAIN-v021 telemetry has malformed outer replay commit evidence")
+        raise RuntimeError("TRAIN-v022 telemetry has malformed outer replay commit evidence")
     source_index = tuple(int(value) for value in diagnostics.get("source_index", ()))
     for source in range(8):
         source_advantages = tuple(

@@ -238,7 +238,11 @@ class FrontRESUnified:
             )
         else:
             actor_lr = self._require_positive_finite_lr(learning_rate, name="learning_rate")
-            critic_lr = None
+            critic_lr = (
+                self._require_positive_finite_lr(critic_learning_rate, name="critic_learning_rate")
+                if frontres_formal_transaction_enabled
+                else None
+            )
             trainable_params = self._collect_trainable_params(policy)
         optimizer_type = FrontRESTrackedAdam if frontres_formal_transaction_enabled else optim.Adam
         self.optimizer = optimizer_type(trainable_params, lr=actor_lr)

@@ -1,0 +1,86 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v022-LAUNCH-DEBUG-FIX-1",
+  "mode": "debug-fix",
+  "profiles": ["standard", "research-ml"],
+  "verdict": "DEBUG_FIX_PASS",
+  "scope": {
+    "requested": ["restore the formal v022 launch boundary without moving test behavior into production and inspect the affected path for further failures"],
+    "preserved": ["run_stage3 to train.py to gym.make to runner production route", "B8/M4 exact-one PPO semantics", "Actor LR 3e-7 to 1e-6 and Critic LR 1e-5", "two-Segment held-out evaluation identity"],
+    "forbidden": ["test-only production flags", "second training configuration owner", "Gain or PPO method changes", "long training or simulator rerun"]
+  },
+  "identities": {
+    "project": "FEMR",
+    "design": "FRS-METHOD-v023",
+    "contract": "FRS-TRAIN-v022",
+    "checkout": "d1e1fb7526d6163c83e0e5b95b8fab624de51470+v022-launch-debug-fix-working-tree",
+    "review_object": "frontres_segment_transaction.py@f80e0e9cb2f10244bff75643fe4e6ae1bd97b901afd8d61c9cfa7ae272c6da1c"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "debug-fix and affected-path construction review"},
+    "source_edits": {"status": "approved", "scope": "formal launch repair and one-shot affected-path regression", "receipt": "user-request-2026-08-12-execute-runtime-debug-and-code-review"},
+    "report_write": {"status": "approved", "scope": "debug-fix review receipt", "receipt": "user-request-2026-08-12-execute-runtime-debug-and-code-review"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_transaction.py",
+    "content_hash": "sha256:f80e0e9cb2f10244bff75643fe4e6ae1bd97b901afd8d61c9cfa7ae272c6da1c",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "active repository engineering discipline"
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "the formal training Plan remains the strict B8 lifecycle owner; held-out evaluation uses the existing sealed grouped metadata owner"},
+    {"name": "public-interface", "disposition": "pass", "evidence": "the official shell and train.py route is unchanged; the simplified entry now executes the existing launch contract before CPU evidence"},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "evaluation no longer depends on the B8 formal-training Plan and no production owner depends on a test module"},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "transaction exact-one, replay commit, checkpoint-v17 roundtrip and failed-commit zero-mutation contracts pass"},
+    {"name": "change-surface", "disposition": "pass", "evidence": "production edits correct stale v021/B2 constants at their existing owners; no wrapper, service hierarchy or configuration fork was added"},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "the 57-target active suite and launcher-integrated Global Simplified test pass; official simulator evidence remains explicitly unclaimed"},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "B8 source_index 0 through 7, M4 rows, eight targets and 64 role rows are asserted through transaction and telemetry"},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "Actor loss weight remains one, Actor LR carries the ramp, Critic LR remains 1e-5 and exact-one grouped update tests pass"},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "checkpoint-v17 LR and replay-v3 state roundtrip passes while two-Segment held-out evaluation retains its independent cardinality"}
+  ],
+  "findings": [
+    {
+      "finding_id": "CRE-FRS-V022-001",
+      "severity": "P1",
+      "status": "resolved",
+      "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_transaction.py:237",
+      "evidence": [
+        {"kind": "test", "locator": "frontres_v015_transaction_route_contract.py", "observation": "the active B8 request initially failed because the formal Plan still required source_index {0,1}; it now completes 32 attempts and one update"},
+        {"kind": "test", "locator": "frontres_segment_all_contract_suite.py", "observation": "all 57 active contract targets pass after transaction, telemetry, checkpoint and handoff cardinalities were aligned"},
+        {"kind": "trace", "locator": "FRS_TRAIN_V022_K8_B8_M4_BOUNDED_OFFICIAL_20260811.log", "observation": "the prior server attempt emitted no transaction receipt and repeatedly reported CUDA in a bad state"}
+      ],
+      "named_diagnostic": "Pinch Point",
+      "responsibility_at_risk": "the formal transaction owner must enforce the active B8 identity consistently through downstream telemetry and persistence",
+      "preserved_behavior": "PPO, Gain, Actor/Critic networks, Replay scoring and official simulator composition remain unchanged",
+      "smallest_safe_change": "replace stale B2 cardinalities at existing semantic owners and migrate their direct contract fixtures",
+      "required_tests": ["frontres_segment_stage3_launch_command_contract.py", "frontres_v015_transaction_route_contract.py", "frontres_v016_checkpoint_contract.py", "frontres_segment_all_contract_suite.py", "run_frontres_v022_global_simplified_formal_test.sh"],
+      "stop_condition": "do not claim formal runtime success until one fresh bounded official transaction emits an exact-one receipt"
+    },
+    {
+      "finding_id": "CRE-FRS-V022-002",
+      "severity": "P1",
+      "status": "resolved",
+      "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py:1684",
+      "evidence": [
+        {"kind": "test", "locator": "frontres_local_scenario_kernel_contract.py", "observation": "two-Segment held-out evaluation failed when it borrowed the strict B8 training Plan and passes with sealed grouped metadata"}
+      ],
+      "named_diagnostic": "Service Layer",
+      "responsibility_at_risk": "held-out evaluation must seal row identity without acquiring the formal training transaction lifecycle",
+      "preserved_behavior": "two held-out Segments, M4, K8/K16, read-only policy state and atomic report semantics are unchanged",
+      "smallest_safe_change": "reuse the existing immutable grouped-candidate carrier and expose its derived source count and exact M",
+      "required_tests": ["frontres_local_scenario_kernel_contract.py", "frontres_v018_policy_quality_eval_contract.py", "frontres_segment_all_contract_suite.py"],
+      "stop_condition": "training Plan remains strict B8 and evaluation remains exactly two held-out Segments"
+    }
+  ],
+  "residual_risks": ["the repaired checkout has not completed a fresh bounded official simulator transaction; the prior attempt ended on a server CUDA bad-state condition before any formal receipt"],
+  "blockers": [],
+  "claims": {"maintainability": "reviewed", "semantic_correctness": "not-claimed", "module_correctness": "not-claimed", "runtime_root_cause": "not-claimed", "formal_route": "not-claimed", "policy_quality": "not-claimed"},
+  "dependencies": []
+}

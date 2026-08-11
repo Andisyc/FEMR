@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic TEST-15 contracts for FRS-PPO-v009."""
+"""Deterministic TEST-15 contracts for FRS-PPO-v010 B8/M4 state values."""
 
 from __future__ import annotations
 
@@ -43,28 +43,30 @@ def _metadata(
     *,
     shared_local_segment_id: bool = False,
 ) -> FrontRESV015GroupedCandidateMetadata:
-    segment_ids = [10, 10, 10, 10, 10, 10] if shared_local_segment_id else [10, 10, 10, 11, 11, 11]
+    source_index = torch.arange(8).repeat_interleave(4)
+    trial_index = torch.arange(4).repeat(8)
+    segment_ids = torch.full((32,), 10) if shared_local_segment_id else 10 + source_index
     values = {
-        "motion_ids": ("motion-a",) * 3 + ("motion-b",) * 3,
-        "segment_ids": torch.tensor(segment_ids),
-        "source_index": torch.tensor([0, 0, 0, 1, 1, 1]),
-        "trial_index": torch.tensor([0, 1, 2, 0, 1, 2]),
-        "noisy_segment_hashes": ("ha",) * 3 + ("hb",) * 3,
-        "scenario_ids": ("sa",) * 3 + ("sb",) * 3,
-        "x_t_identities": ("xa",) * 3 + ("xb",) * 3,
+        "motion_ids": tuple(f"motion-{source}" for source in source_index.tolist()),
+        "segment_ids": segment_ids,
+        "source_index": source_index,
+        "trial_index": trial_index,
+        "noisy_segment_hashes": tuple(f"hash-{source}" for source in source_index.tolist()),
+        "scenario_ids": tuple(f"scenario-{source}" for source in source_index.tolist()),
+        "x_t_identities": tuple(f"x-{source}" for source in source_index.tolist()),
     }
     indices = [int(value) for value in order.tolist()]
     return FrontRESV015GroupedCandidateMetadata(
         transaction_id="tx-v006",
         policy_snapshot_id="pi-old-v006",
         motion_ids=tuple(values["motion_ids"][index] for index in indices),
-        start_frames=torch.tensor([4, 4, 4, 8, 8, 8])[order],
+        start_frames=(4 * (source_index + 1))[order],
         segment_ids=values["segment_ids"][order],
         source_index=values["source_index"][order],
         trial_index=values["trial_index"][order],
-        horizon_k=torch.full((6,), 16)[order],
-        evidence_valid_step_count=torch.full((6,), 16)[order],
-        trial_role=("policy",) * 6,
+        horizon_k=torch.full((32,), 16)[order],
+        evidence_valid_step_count=torch.full((32,), 16)[order],
+        trial_role=("policy",) * 32,
         noisy_segment_hashes=tuple(values["noisy_segment_hashes"][index] for index in indices),
         scenario_ids=tuple(values["scenario_ids"][index] for index in indices),
         x_t_identities=tuple(values["x_t_identities"][index] for index in indices),
@@ -78,31 +80,31 @@ def _batch(
     *,
     shared_local_segment_id: bool = False,
 ) -> FrontRESSegmentPPOBatch:
-    order = torch.arange(6) if order is None else order
-    observations = torch.tensor([[1.0, 0.0]] * 3 + [[0.0, 1.0]] * 3)
-    privileged = torch.zeros(6, 449)
-    privileged[:3, 0] = 1.0
-    privileged[3:, 1] = 1.0
-    returns = torch.tensor([1.0, 2.0, 3.0, -1.0, -2.0, -3.0])
+    order = torch.arange(32) if order is None else order
+    source_index = torch.arange(8).repeat_interleave(4)
+    observations = torch.stack((source_index.float() + 1.0, torch.ones(32)), dim=-1)
+    privileged = torch.zeros(32, 449)
+    privileged[torch.arange(32), source_index] = 1.0
+    base_returns = torch.tensor([1.0, 2.0, 3.0, 4.0]).repeat(8)
+    signs = torch.where(source_index % 2 == 0, 1.0, -1.0)
+    returns = signs * base_returns
     utility = torch.sign(returns) * torch.log1p(torch.abs(returns))
-    old_values = torch.tensor([0.5, 0.5, 0.5, -0.5, -0.5, -0.5])
-    segment_ids = torch.tensor(
-        [10, 10, 10, 10, 10, 10] if shared_local_segment_id else [10, 10, 10, 11, 11, 11]
-    )
+    old_values = 0.5 * signs
+    segment_ids = torch.full((32,), 10) if shared_local_segment_id else 10 + source_index
     return FrontRESSegmentPPOBatch(
         observations=observations[order],
         privileged_observations=privileged[order],
-        actions=torch.zeros(6, 6)[order],
-        old_log_probs=torch.zeros(6)[order],
+        actions=torch.zeros(32, 6)[order],
+        old_log_probs=torch.zeros(32)[order],
         old_values=old_values[order],
         returns=returns[order],
         advantages=(utility - old_values)[order],
-        valid_mask=torch.ones(6, dtype=torch.bool)[order],
+        valid_mask=torch.ones(32, dtype=torch.bool)[order],
         segment_ids=segment_ids[order],
-        old_means=torch.zeros(6, 6)[order],
-        old_sigmas=torch.ones(6, 6)[order],
+        old_means=torch.zeros(32, 6)[order],
+        old_sigmas=torch.ones(32, 6)[order],
         transaction_metadata=_metadata(order, shared_local_segment_id=shared_local_segment_id),
-        transaction_row_indices=torch.arange(6),
+        transaction_row_indices=torch.arange(32),
     )
 
 
@@ -127,18 +129,22 @@ def _expect_error(call, text: str) -> None:
 def test_segment_mean_target_and_permutation() -> None:
     policy = _Policy()
     result = compute_frontres_segment_ppo_loss(policy, _batch(), _cfg())
-    utility = torch.log1p(torch.tensor([1.0, 2.0, 3.0]))
+    utility = torch.log1p(torch.tensor([1.0, 2.0, 3.0, 4.0]))
     target = float(utility.mean())
-    expected_targets = (target, target, target, -target, -target, -target)
+    expected_targets = tuple(
+        target if source % 2 == 0 else -target
+        for source in range(8)
+        for _ in range(4)
+    )
     torch.testing.assert_close(torch.tensor(result.critic_value_targets), torch.tensor(expected_targets))
-    torch.testing.assert_close(torch.tensor(result.critic_segment_target_means), torch.tensor((target, -target)))
-    expected_advantages = torch.tensor(
-        [utility[0] - 0.5, utility[1] - 0.5, utility[2] - 0.5,
-         -utility[0] + 0.5, -utility[1] + 0.5, -utility[2] + 0.5]
+    expected_segment_targets = torch.tensor([target if source % 2 == 0 else -target for source in range(8)])
+    torch.testing.assert_close(torch.tensor(result.critic_segment_target_means), expected_segment_targets)
+    expected_advantages = torch.cat(
+        tuple((utility - 0.5) if source % 2 == 0 else (-utility + 0.5) for source in range(8))
     )
     torch.testing.assert_close(torch.tensor(result.actor_advantages), expected_advantages)
 
-    order = torch.tensor([4, 0, 5, 2, 3, 1])
+    order = torch.arange(31, -1, -1)
     permuted = compute_frontres_segment_ppo_loss(policy, _batch(order), _cfg())
     expected = torch.tensor(result.critic_value_targets)[order]
     torch.testing.assert_close(torch.tensor(permuted.critic_value_targets), expected)

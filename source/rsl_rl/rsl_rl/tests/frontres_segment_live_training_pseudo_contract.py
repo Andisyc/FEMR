@@ -578,7 +578,7 @@ def test_formal_k_stage_boundary_saves_then_requires_new_env_width() -> None:
 
     live_training_module._save_live_checkpoint = save_checkpoint
     try:
-        runner, calls = _formal_stage_runner(iteration=1999, num_envs=8)
+        runner, calls = _formal_stage_runner(iteration=1999, num_envs=32)
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
             run_frontres_segment_live_training_loop(runner, num_learning_iterations=2)
@@ -586,23 +586,23 @@ def test_formal_k_stage_boundary_saves_then_requires_new_env_width() -> None:
         assert runner.current_learning_iteration == 2000
         assert saved == ["/tmp/frontres-stage/model_2000.pt"]
         assert "status=RESTART_REQUIRED" in buffer.getvalue()
-        assert "next_k=16 next_m=3 next_num_envs=12" in buffer.getvalue()
+        assert "next_k=16 next_m=3 next_num_envs=48" in buffer.getvalue()
 
-        resumed, resumed_calls = _formal_stage_runner(iteration=2000, num_envs=12)
+        resumed, resumed_calls = _formal_stage_runner(iteration=2000, num_envs=48)
         run_frontres_segment_live_training_loop(resumed, num_learning_iterations=1)
         assert resumed_calls == [2000]
         assert resumed.current_learning_iteration == 2001
 
-        k16_runner, k16_calls = _formal_stage_runner(iteration=3499, num_envs=12)
+        k16_runner, k16_calls = _formal_stage_runner(iteration=3499, num_envs=48)
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
             run_frontres_segment_live_training_loop(k16_runner, num_learning_iterations=2)
         assert k16_calls == [3499]
         assert k16_runner.current_learning_iteration == 3500
         assert saved[-1] == "/tmp/frontres-stage/model_3500.pt"
-        assert "next_k=32 next_m=4 next_num_envs=16" in buffer.getvalue()
+        assert "next_k=32 next_m=4 next_num_envs=64" in buffer.getvalue()
 
-        k32_runner, k32_calls = _formal_stage_runner(iteration=3500, num_envs=16)
+        k32_runner, k32_calls = _formal_stage_runner(iteration=3500, num_envs=64)
         run_frontres_segment_live_training_loop(k32_runner, num_learning_iterations=1)
         assert k32_calls == [3500]
         assert k32_runner.current_learning_iteration == 3501
@@ -625,7 +625,7 @@ def test_formal_k_stage_handoff_rejects_missing_checkpoint_owner() -> None:
     live_training_module._require_v015_committed_result = lambda _runner, result: result
     live_training_module._print_v015_formal_train_summary = lambda *_args, **_kwargs: None
     try:
-        runner, calls = _formal_stage_runner(iteration=3499, num_envs=12, log_dir=None)
+        runner, calls = _formal_stage_runner(iteration=3499, num_envs=48, log_dir=None)
         try:
             run_frontres_segment_live_training_loop(runner, num_learning_iterations=2)
         except RuntimeError as exc:

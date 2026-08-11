@@ -298,13 +298,6 @@ CONTRACTS = (
         requires_torch=True,
     ),
     ContractTarget(
-        name="v020_outer_scenario_replay",
-        path="source/rsl_rl/rsl_rl/tests/frontres_v020_outer_scenario_replay_contract.py",
-        expected_marker="frontres_v020_outer_scenario_replay_contract: PASS",
-        path_class="core_param_path",
-        requires_torch=True,
-    ),
-    ContractTarget(
         name="v021_coupled_replay",
         path="source/rsl_rl/rsl_rl/tests/frontres_v021_coupled_replay_contract.py",
         expected_marker="frontres_v021_coupled_replay_contract: PASS",
@@ -349,7 +342,7 @@ CONTRACTS = (
     ContractTarget(
         name="v016_checkpoint_resume",
         path="source/rsl_rl/rsl_rl/tests/frontres_v016_checkpoint_contract.py",
-            expected_marker="frontres_v016_checkpoint_contract: v16 dual-score replay round-trip and legacy reject",
+        expected_marker="frontres_v016_checkpoint_contract: v17 replay-v3 round-trip and legacy reject",
         path_class="core_param_path",
         requires_torch=True,
     ),

@@ -520,7 +520,7 @@ def frontres_segment_warmup_phase(
             actor_learning_rate=FRONTRES_V022_ACTOR_LR_JOINT,
         )
     # B3: AUDIT-WARMUP-01 截获 PPO loss weighting 实际消费的 phase.
-    # Historical critic_only/actor_ramp labels are forbidden by TRAIN-v021.
+    # Historical critic_only/actor_ramp labels are forbidden by TRAIN-v022.
     emit_formal_runtime_probe(
         "AUDIT-WARMUP-01",
         iteration=iteration,

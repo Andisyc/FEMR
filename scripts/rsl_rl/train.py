@@ -912,7 +912,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     # B1: 在 Composition Root 拒绝旧 optimizer owner, 产出唯一 active Stage-3 route.
     if stage == "stage3_segment_hrl" and (live_single_update_arg or live_update_loop_arg):
         raise ValueError(
-            "FRS-PPO-v009 rejects retired Stage-3 single_update/update_loop modes; "
+            "FRS-PPO-v010 rejects retired Stage-3 single_update/update_loop modes; "
             "use the sealed formal train route"
         )
     legacy_local_evaluation_modes = tuple(

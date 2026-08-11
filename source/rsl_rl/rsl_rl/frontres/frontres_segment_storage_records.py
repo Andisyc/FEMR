@@ -111,6 +111,17 @@ class FrontRESV015GroupedCandidateMetadata:
     def batch_size(self) -> int:
         return int(self.segment_ids.numel())
 
+    @property
+    def selected_segment_count(self) -> int:
+        return int(torch.unique(self.source_index).numel())
+
+    @property
+    def active_m(self) -> int:
+        counts = torch.bincount(self.source_index, minlength=self.selected_segment_count)
+        if counts.numel() == 0 or int(torch.unique(counts).numel()) != 1:
+            raise ValueError("sealed grouped candidate metadata requires one exact M across all sources")
+        return int(counts[0].item())
+
     def validate(self) -> None:
         """Reject partial, mixed, privileged, or mutated v015 candidate metadata."""
 

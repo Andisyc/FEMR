@@ -40,7 +40,7 @@ def _run_contract_preflight(mode: str = "train") -> subprocess.CompletedProcess[
                 str(SCRIPT),
                 str(checkpoint),
                 str(motion_path),
-                "16",
+                "64",
                 "1",
                 "1",
                 mode,
@@ -99,7 +99,7 @@ def test_retired_optimizer_modes_fail_closed_before_command_construction() -> No
     for mode in ("single_update", "update_loop"):
         result = _run_contract_preflight(mode)
         assert result.returncode == 4
-        assert "FRS-PPO-v009 rejects retired optimizer-writing Stage 3 mode" in result.stderr
+        assert "FRS-PPO-v010 rejects retired optimizer-writing Stage 3 mode" in result.stderr
         assert "[FrontRES Stage3 startup preflight] PASS" not in result.stdout
         assert "Command: " not in result.stdout
 

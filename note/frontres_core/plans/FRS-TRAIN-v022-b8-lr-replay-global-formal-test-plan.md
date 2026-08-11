@@ -1,7 +1,9 @@
 # FRS-TRAIN-v022 B8/LR/Replay One-Shot Engineering Plan
 
-Status: TEST-23E passed on the aligned CPU alternate path; bounded official K8 transaction pending
-Date: 2026-08-11
+Status: TEST-23E and the 57-target active offline suite pass; the first bounded
+official attempt failed before a transaction on unhealthy CUDA state, so one
+fresh bounded official K8 transaction remains pending
+Date: 2026-08-12
 Contracts: FRS-METHOD-v023 / FRS-GAIN-v008 / FRS-PPO-v010 / FRS-TRAIN-v022
 Terminal outcome: current Global Simplified Formal Test passed; publish one
 user-run bounded official K8/B8/M4 command, but do not launch long training
@@ -93,11 +95,17 @@ IsaacLab runtime evidence. The current aligned source passed locally with
 PASS, but predates the `linear-coupled-v1` schedule correction and is therefore
 stale for exact current-schedule identity.
 
-Human status: the user executed the Global Simplified Formal Test and supplied
-its server log. The user now authorizes document closeout and requests the
-single bounded official K8 command; long training remains unauthorized.
+Runtime status: the user executed the first bounded official command. Isaac Sim
+started and the v022 preset/configuration was applied, but GPU foundation
+reported CUDA in a bad state and the process ended before any formal
+transaction. The subsequent offline sweep repaired stale B2 assumptions in the
+B8 training Plan, telemetry, checkpoint inspection and K-stage handoff, while
+keeping two-Segment held-out evaluation separate. The active suite now passes
+57/57 and the launcher-integrated TEST-23E passes. This is still not a successful
+official simulator transaction; long training remains unauthorized.
 
 ## Stop condition
 
-Stop after updating the evidence documents and publishing one bounded official
-K8/B8/M4 simulator command. Do not launch that transaction or long training.
+Stop after offline closure. The next runtime action is one fresh bounded
+official K8/B8/M4 simulator command after code sync and healthy CUDA startup.
+Do not launch long training.

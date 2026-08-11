@@ -1,7 +1,7 @@
 {
   "schema": "frontres-global-simplified-formal-test-v1",
-  "status": "PASS_OFFLINE_CHAIN",
-  "date": "2026-08-11",
+  "status": "PASS_OFFLINE_CHAIN_OFFICIAL_RUNTIME_PENDING",
+  "date": "2026-08-12",
   "contracts": {
     "method": "FRS-METHOD-v023",
     "gain": "FRS-GAIN-v008",
@@ -43,10 +43,10 @@
     "status": "PASS",
     "path_class": "ALTERNATE-PATH",
     "evidence_class": "OFFLINE-CHAIN",
-    "base_checkout": "adcaf6799e7bf9d4c2e3fe9c0923d9d7dc34d4ac",
+    "base_checkout": "d1e1fb7526d6163c83e0e5b95b8fab624de51470",
     "current_test_source_sha256": "d5111a6f071cd4df79ec3da0a511ab12a6288f6c949100092bee37a1fc331b7d",
     "production_replay_owner_sha256": "696e5b5a5f9b842882dbffcddc3bcb2c8dd3a3122d3938a05e78c76e526e491e",
-    "launcher_sha256": "ce9c53ee526d304233dc7150e0381d71542fbcfe927319a318f88d892df01a77",
+    "launcher_sha256": "7b98e843f2e24bbfd61b57ee5b600bd1f7adee470c04dab6a6d7cad996330948",
     "current_local_rerun": {
       "command": "bash run/run_frontres_v022_global_simplified_formal_test.sh",
       "exit_code": 0,
@@ -59,6 +59,30 @@
       "freshness": "STALE_FOR_CURRENT_DR_RULE",
       "reason": "captured before the test schedule was aligned to linear-coupled-v1"
     },
+    "official_attempt": {
+      "path": "FRS_TRAIN_V022_K8_B8_M4_BOUNDED_OFFICIAL_20260811.log",
+      "sha256": "aa0fe6388d1db13e366f28e1d754336097c92493a1be45a7646948af1dbdebf3",
+      "status": "FAILED_BEFORE_FORMAL_TRANSACTION",
+      "observed": [
+        "Isaac Sim started",
+        "FRS-TRAIN-v022 preset and split LR configuration applied",
+        "GPU foundation repeatedly reported CUDA being in bad state",
+        "no formal transaction or optimizer receipt was emitted"
+      ],
+      "does_not_prove": "the repaired checkout has executed through gym construction or one formal simulator transaction"
+    },
+    "offline_regression": {
+      "active_contract_targets": 57,
+      "failed_targets": 0,
+      "launcher_contract_in_test_entry": true,
+      "repaired_boundaries": [
+        "B8 formal transaction source identity",
+        "B8 target and outer replay telemetry cardinality",
+        "checkpoint-v17 LR and replay-v3 inspection",
+        "K-stage 16*M handoff width",
+        "two-Segment held-out evaluation isolation"
+      ]
+    },
     "proves": [
       "current CPU alternate path completes 32 K8/B8/M4 transactions",
       "production model, PPO, optimizer and Replay owners execute with synthetic simulator evidence",
@@ -70,6 +94,6 @@
       "Replay capacity expansion or replacement",
       "policy quality or long-training admission"
     ],
-    "next_gate": "one bounded official K8/B8/M4 simulator transaction"
+    "next_gate": "sync the repaired checkout, confirm healthy CUDA startup, then run one bounded official K8/B8/M4 simulator transaction"
   }
 }

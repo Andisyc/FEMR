@@ -1,0 +1,225 @@
+[DEBUG] Registered SIGUSR1 stack dump. Use: kill -USR1 <pid>
+[Train] Launching Isaac Sim: device=cuda:0, headless=True, enable_cameras=False
+[Warning] [simulation_app.simulation_app] Modules: ['omni.kit_app'] were loaded before SimulationApp was started and might not be loaded correctly.
+[Warning] [simulation_app.simulation_app] Please check to make sure no extra omniverse or pxr modules are imported before the call to SimulationApp(...)
+Loading user config located at: '/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/omni/data/Kit/Isaac-Sim/4.5/user.config.json'
+[Info] [carb] Logging to file: /hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/omni/logs/Kit/Isaac-Sim/4.5/kit_20260811_154956.log
+2026-08-11 15:49:56 [0ms] [Warning] [omni.kit.app.plugin] No crash reporter present, dumps uploading isn't available.
+2026-08-11 15:49:56 [3ms] [Warning] [omni.ext.plugin] [ext: rendering_modes] Extensions config 'extension.toml' doesn't exist '/home/yuxuancheng/IsaacLab_mosaic/apps/rendering_modes' or '/home/yuxuancheng/IsaacLab_mosaic/apps/rendering_modes/config'
+2026-08-11 15:49:56 [202ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-08-11 15:49:56 [318ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+2026-08-11 15:49:57 [582ms] [Warning] [omni.datastore] OmniHub is inaccessible
+2026-08-11 15:49:57 [759ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+2026-08-11 15:50:02 [5,636ms] [Warning] [carb.cudainterop.plugin] CUDA_VISIBLE_DEVICES environment variable is set.
+2026-08-11 15:50:02 [5,636ms] [Warning] [carb.cudainterop.plugin] Note CUDA device enumeration and Omniverse device enumeration are different.
+2026-08-11 15:50:02 [5,636ms] [Warning] [carb.cudainterop.plugin] Setting CUDA_VISIBLE_DEVICES can lead to undesired behavior or crashes.
+2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,638ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:02 [5,639ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 550.90.12     | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA RTX A6000                 | Yes: 0 |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 37c231e9.. |
+|     |                                  |        |     |            | 4f        |            |
+|---------------------------------------------------------------------------------------------|
+| 1   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | e2892e08.. |
+|     |                                  |        |     |            | 50        |            |
+|---------------------------------------------------------------------------------------------|
+| 2   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 8040cd6e.. |
+|     |                                  |        |     |            | 53        |            |
+|---------------------------------------------------------------------------------------------|
+| 3   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 54fe3201.. |
+|     |                                  |        |     |            | 57        |            |
+|---------------------------------------------------------------------------------------------|
+| 4   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 97eb4793.. |
+|     |                                  |        |     |            | 9c        |            |
+|---------------------------------------------------------------------------------------------|
+| 5   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |    [INFO][AppLauncher]: Using device: cuda:0
+[INFO][AppLauncher]: Loading experience file: /home/yuxuancheng/IsaacLab_mosaic/apps/isaaclab.python.headless.kit
+[Train] Isaac Sim ready.
+[INFO]: Parsing configuration from: <class 'whole_body_tracking.tasks.tracking.config.g1.flat_env_cfg.G1FlatFrontRESFinetuneEnvCfg'>
+[INFO]: Parsing configuration from: whole_body_tracking.tasks.tracking.config.g1.agents.rsl_rl_mosaic_cfg:G1FlatFrontRESUnifiedRunnerCfg
+[AUDIT-PERTURB-01] specialist_mode=rp perturbation_channels=rp dr_scale=1.25 max_horizon_k=64
+[FrontRES Stage] Applied preset: stage3_segment_hrl
+[FrontRES Stage] experiment=g1_flat_frontres_stage3_segment_hrl, objective=segment_replay_hrl, segment_replay=True, segment_live=True, segment_sentinel=False, v015_local_sentinel=False, segment_probe=False, segment_storage=False, segment_single_update=False, segment_update_loop=False, segment_train=True, segment_update_steps=1, segment_critic_warmup=200, segment_actor_warmup=500, critic_value_norm=ema-target-std-nonamplifying-v1, critic_value_norm_decay=0.9, critic_value_norm_floor=1.0, formal_runtime_audit=True, segment_k=8, k_curriculum=((8, 4, 200, 500, 1300, 'lower-k8', 0.5, 'linear-coupled-v1', 700, 2.381), (16, 4, 300, 300, 900, 'lower-k16', 0.6, 'linear-coupled-v1', 600, 2.381), (32, 4, 400, 300, 625, 'lower-k32', 0.7, 'linear-coupled-v1', 700, 2.381)), future_offsets=(1, 2), segment_shard_cache_size=8, max_iterations=1, supervised_warmup=0, is_full_resume=False
+[FrontRES Stage3 Segment HRL] ppo_schedule_override schedule=fixed
+[FrontRES Stage3 Segment HRL] split_lr actor_lr_init=3e-07 actor_lr_joint=1e-06 critic_learning_rate=1e-05 schedule=fixed
+[FrontRES Stage3 Segment HRL] motion_loader_cfg has_load_cap=True has_shard_flag=True applied={'motion_dataset_shard_across_gpus': False, 'motion_dataset_load_cap': None, 'motion_dataset_log_shard_info': True}
+[INFO] FrontRES perturbation alignment: rp (root_tilt=0.5/0.08, iid_rp=0.4/0.08; xy/yaw/z/joint disabled)
+[INFO] PhysX GPU capacities prepared for 64 envs: contact=8388608, patch=1966080, pairs=16777216
+                              |        |     |            | 2230      | 3b41bb25.. |
+|     |                                  |        |     |            | 9d        |            |
+|---------------------------------------------------------------------------------------------|
+| 6   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 95c55dc8.. |
+|     |                                  |        |     |            | a0        |            |
+|---------------------------------------------------------------------------------------------|
+| 7   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 64bd5306.. |
+|     |                                  |        |     |            | a4        |            |
+|=============================================================================================|
+| OS: 24.04.1 LTS (Noble Numbat) ubuntu, Version: 24.04.1, Kernel: 6.8.0-134-generic
+| Processor: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+| Cores: 32 | Logical Cores: 64
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 515613 | Free Memory: 440377
+| Total Page/Swap (MB): 8191 | Free Page/Swap: 0
+|---------------------------------------------------------------------------------------------|
+2026-08-11 15:50:03 [6,787ms] [Warning] [gpu.foundation.plugin] IOMMU is enabled.
+2026-08-11 15:50:03 [6,787ms] [Warning] [gpu.foundation.plugin] Detected IOMMU is enabled. Running CUDA peer-to-peer bandwidth and latency validation.
+Unidirectional P2P=Enabled Bandwidth (P2P Writes) Matrix (GB/s)
+   D\D     0 
+     0 670.60 
+P2P=Enabled Latency (P2P Writes) Matrix (us)
+   GPU     0 
+     0   1.66 
+
+   CPU     0 
+     0   2.62 
+2026-08-11 15:50:05 [9,358ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 15:50:05 [9,358ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 15:50:05 [9,361ms] [Error] [gpu.foundation.plugin] DriverShaderCacheManager::init() called without a shutdown()!
+2026-08-11 15:50:06 [9,493ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,493ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:06 [9,493ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,493ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:06 [9,493ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,493ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,494ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-11 15:50:06 [9,495ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 550.90.12     | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA RTX A6000                 | Yes: 0 |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 37c231e9.. |
+|     |                                  |        |     |            | 4f        |            |
+|---------------------------------------------------------------------------------------------|
+| 1   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | e2892e08.. |
+|     |                                  |        |     |            | 50        |            |
+|---------------------------------------------------------------------------------------------|
+| 2   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 8040cd6e.. |
+|     |                                  |        |     |            | 53        |            |
+|---------------------------------------------------------------------------------------------|
+| 3   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 54fe3201.. |
+|     |                                  |        |     |            | 57        |            |
+|---------------------------------------------------------------------------------------------|
+| 4   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 97eb4793.. |
+|     |                                  |        |     |            | 9c        |            |
+|---------------------------------------------------------------------------------------------|
+| 5   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 3b41bb25.. |
+|     |                                  |        |     |            | 9d        |            |
+|---------------------------------------------------------------------------------------------|
+| 6   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 95c55dc8.. |
+|     |                                  |        |     |            | a0        |            |
+|---------------------------------------------------------------------------------------------|
+| 7   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 64bd5306.. |
+|     |                                  |        |     |            | a4        |            |
+|=============================================================================================|
+| OS: 24.04.1 LTS (Noble Numbat) ubuntu, Version: 24.04.1, Kernel: 6.8.0-134-generic
+| Processor: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+| Cores: 32 | Logical Cores: 64
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 515613 | Free Memory: 440043
+| Total Page/Swap (MB): 8191 | Free Page/Swap: 0
+|---------------------------------------------------------------------------------------------|
+Unidirectional P2P=Enabled Bandwidth (P2P Writes) Matrix (GB/s)
+   D\D     0 
+     0 625.00 
+P2P=Enabled Latency (P2P Writes) Matrix (us)
+   GPU     0 
+     0   1.73 
+
+   CPU     0 
+     0   3.85 
+2026-08-11 15:50:07 [11,282ms] [Warning] [gpu.foundation.plugin] IOMMU is enabled.
+2026-08-11 15:50:07 [11,282ms] [Warning] [gpu.foundation.plugin] Detected IOMMU is enabled. Running CUDA peer-to-peer bandwidth and latency validation.
+Unidirectional P2P=Enabled Bandwidth (P2P Writes) Matrix (GB/s)
+   D\D     0 
+     0 621.52 
+P2P=Enabled Latency (P2P Writes) Matrix (us)
+   GPU     0 
+     0   1.66 
+
+   CPU     0 
+     0   3.82 
+2026-08-11 15:50:08 [11,582ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 15:50:08 [11,582ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 15:50:08 [11,596ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 15:50:08 [11,596ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 15:50:08 [11,604ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 15:50:08 [11,604ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 15:50:08 [11,615ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 15:50:08 [11,615ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 15:50:08 [11,617ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 15:50:08 [11,617ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 15:50:08 [11,618ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-08-11 15:50:08 [11,618ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-08-11 15:50:08 [12,080ms] [Warning] [omni.graph.visualization.nodes._impl.extension] No Viewport Window to add omni.graph.visualization.nodes-2.1.1 scene to

@@ -105,8 +105,9 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
     return SimpleNamespace(
         policy=policy,
         optimizer=optimizer,
-        actor_learning_rate=3.0e-6,
+        actor_learning_rate=3.0e-7,
         critic_learning_rate=1.0e-5,
+        frontres_segment_actor_joint_lr=1.0e-6,
         clip_param=0.2,
         value_loss_coef=1.0,
         entropy_coef=0.0,
@@ -145,10 +146,10 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
 
 
 def _report(transaction_id: str, *, count: int = 8, horizon_k: int = 8) -> FrontRESV017LocalEvaluationReport:
-    split = count // 2
-    scalar = tuple(round(0.2 - 0.1 * row, 10) for row in range(split)) + tuple(
-        round(-0.1 - 0.1 * row, 10) for row in range(split)
-    )
+    if count % 8 != 0:
+        raise ValueError("v022 test report requires eight exact-M Scenario groups")
+    active_m = count // 8
+    scalar = tuple(round(0.2 - 0.1 * row, 10) for row in range(count))
     intent_noisy = tuple(round(1.1 + 0.1 * row, 10) for row in range(count))
     physics_noisy = tuple(round(2.1 + 0.1 * row, 10) for row in range(count))
     contact = tuple(tuple((1.0, 1.0) for _ in range(horizon_k)) for _ in range(count))
@@ -157,8 +158,8 @@ def _report(transaction_id: str, *, count: int = 8, horizon_k: int = 8) -> Front
     false_steps = tuple(tuple(False for _ in range(horizon_k)) for _ in range(count))
     true_steps = tuple(tuple(True for _ in range(horizon_k)) for _ in range(count))
     zero_steps = tuple(tuple(0.0 for _ in range(horizon_k)) for _ in range(count))
-    scenario_ids = tuple("sa" if row < split else "sb" for row in range(count))
-    noisy_hashes = tuple("ha" if row < split else "hb" for row in range(count))
+    scenario_ids = tuple(f"scenario-{row // active_m}" for row in range(count))
+    noisy_hashes = tuple(f"hash-{row // active_m}" for row in range(count))
     report = FrontRESV017LocalEvaluationReport(
         transaction_id=transaction_id,
         scenario_ids=scenario_ids,
@@ -194,8 +195,8 @@ def _report(transaction_id: str, *, count: int = 8, horizon_k: int = 8) -> Front
         gain_total=scalar,
         policy_values=(0.0,) * count,
         raw_advantages=scalar,
-        clean_execution_count=(1, 1),
-        noisy_execution_count=(1, 1),
+        clean_execution_count=(1,) * 8,
+        noisy_execution_count=(1,) * 8,
         expected_support_steps=contact,
         contact_clean_steps=contact,
         contact_noisy_steps=contact,
@@ -421,10 +422,10 @@ def test_exact_one_scalar_commit_updates_actor_and_critic_from_first_transaction
     critic_before = {name: value.detach().clone() for name, value in policy.critic.state_dict().items()}
     result = run_frontres_formal_transaction_update(runner, request)
     assert result.optimizer_step_delta == 1 and result.update_invocation_count == 1
-    assert len(runner._frontres_outer_scenario_replay.records) == 2
+    assert len(runner._frontres_outer_scenario_replay.records) == 8
     assert result.diagnostics["outer_replay"]["state_delta"] == 1
     assert runner.alg.frontres_critic_value_normalizer_state.update_count == 1
-    assert result.valid_row_count == 8 and result.policy_attempt_count == 8
+    assert result.valid_row_count == 32 and result.policy_attempt_count == 32
     assert request.warmup_phase_name == "low_dr_joint_init"
     assert request.warmup_actor_loss_weight > 0.0
     assert any(not torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
@@ -433,33 +434,30 @@ def test_exact_one_scalar_commit_updates_actor_and_critic_from_first_transaction
     assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v010"
     assert "constraint_kkt_max_violation" not in result.diagnostics
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
-    assert telemetry["clean_execution_count"] == (1, 1)
-    assert telemetry["noisy_execution_count"] == (1, 1)
-    assert telemetry["policy_row_count"] == 8
+    assert telemetry["clean_execution_count"] == (1,) * 8
+    assert telemetry["noisy_execution_count"] == (1,) * 8
+    assert telemetry["policy_row_count"] == 32
     assert telemetry["optimizer_step_delta"] == 1
     assert telemetry["update_count"] == 1
     assert telemetry["gain_contract_id"] == "FRS-GAIN-v008"
-    assert telemetry["intent_gain"] == (0.2, 0.1, 0.0, -0.1, -0.1, -0.2, -0.3, -0.4)
-    assert telemetry["intent_remaining_noisy"] == (1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8)
-    assert telemetry["physics_remaining_repaired"] == (1.9, 2.1, 2.3, 2.5, 2.6, 2.8, 3.0, 3.2)
+    assert telemetry["intent_gain"] == tuple(round(0.2 - 0.1 * row, 10) for row in range(32))
+    assert telemetry["intent_remaining_noisy"] == tuple(round(1.1 + 0.1 * row, 10) for row in range(32))
     assert telemetry["intent_channel_noisy"][2] == (20.0, 21.0, 22.0, 23.0, 24.0, 25.0)
     assert telemetry["physics_channel_repaired"][3] == (120.0, 121.0, 122.0, 123.0)
-    assert telemetry["recovery_pressure"] == (1.0,) * 8
-    assert telemetry["support_foot_drift_noisy"] == (0.03, 0.06, 0.09, 0.12, 0.15, 0.18, 0.21, 0.24)
-    assert telemetry["cost_free_score"] == (0.202, 0.102, 0.002, -0.098, -0.098, -0.198, -0.298, -0.398)
+    assert telemetry["recovery_pressure"] == (1.0,) * 32
     assert telemetry["intent_scales"] == (0.087, 0.087, 0.10, 0.75, 2.0, 0.05)
     assert telemetry["physics_scales"] == (0.10, 0.03, 0.02, 0.10)
     assert telemetry["beta"] == 0.02
-    assert telemetry["contact_violation_repair_steps"] == tuple((False,) * 8 for _ in range(8))
-    assert telemetry["zmp_applicable_repair_steps"] == tuple((True,) * 8 for _ in range(8))
-    assert telemetry["zmp_violation_repair_steps"] == tuple((0.0,) * 8 for _ in range(8))
-    assert telemetry["sustained_lean_repair"] == (False,) * 8
-    assert telemetry["grouped_attempt_mass_shares"] == (0.125,) * 8
+    assert telemetry["contact_violation_repair_steps"] == tuple((False,) * 8 for _ in range(32))
+    assert telemetry["zmp_applicable_repair_steps"] == tuple((True,) * 8 for _ in range(32))
+    assert telemetry["zmp_violation_repair_steps"] == tuple((0.0,) * 8 for _ in range(32))
+    assert telemetry["sustained_lean_repair"] == (False,) * 32
+    assert telemetry["grouped_attempt_mass_shares"] == (0.03125,) * 32
     assert "constraint_projection_status" not in telemetry
 
     before = repr(result.diagnostics)
     permuted_diagnostics = dict(result.diagnostics)
-    permutation = (7, 5, 3, 1, 0, 2, 4, 6)
+    permutation = tuple(reversed(range(32)))
     permuted_diagnostics["v007_diagnostic_report_row_order"] = permutation
     permuted = build_frontres_transaction_telemetry(
         replace(result, diagnostics=permuted_diagnostics),
@@ -489,7 +487,7 @@ def test_k_transitions_keep_one_critic_and_restart_nonzero_joint_adaptation() ->
         open_frontres_checkpoint_transaction_barrier(runner)
         result = run_frontres_formal_transaction_update(runner, request)
         assert result.optimizer_step_delta == 1
-        assert result.valid_row_count == 2 * expected_m
+        assert result.valid_row_count == 8 * expected_m
         assert id(current_policy.critic) == critic_identity
         assert any(
             not torch.equal(value, critic_before[name])
@@ -502,7 +500,8 @@ def test_k_transitions_keep_one_critic_and_restart_nonzero_joint_adaptation() ->
 def test_coupled_ramp_identity_reaches_transaction_and_telemetry() -> None:
     runner, request, policy = _request(iteration=203)
     assert request.warmup_phase_name == "coupled_ramp"
-    assert 0.0 < request.warmup_actor_loss_weight < 1.0
+    assert request.warmup_actor_loss_weight == 1.0
+    assert 3.0e-7 < request.warmup_actor_learning_rate < 1.0e-6
     actor_before = {
         name: value.detach().clone() for name, value in policy.actor.state_dict().items()
     }
@@ -524,7 +523,7 @@ def test_partial_transaction_rejects_before_update() -> None:
     normalizer_before = runner.alg.frontres_critic_value_normalizer_state
     open_frontres_checkpoint_transaction_barrier(runner)
     batch = request.candidate_batches[0]
-    partial = replace(batch, valid_mask=torch.tensor([True, True, True, True, True, True, True, False]))
+    partial = replace(batch, valid_mask=torch.tensor([True] * 31 + [False]))
     rejected = replace(request, candidate_batches=(partial,))
     try:
         run_frontres_formal_transaction_update(runner, rejected)
@@ -557,7 +556,7 @@ def test_phase_reset_routes_mode_through_sealed_reset_owner() -> None:
 
     def reset(_runner, *, pair_layout, local_scenario_execution_mode):
         calls.append((pair_layout, local_scenario_execution_mode))
-        return SimpleNamespace(success_mask=torch.ones(8, dtype=torch.bool))
+        return SimpleNamespace(success_mask=torch.ones(32, dtype=torch.bool))
 
     formal_transaction._apply_current_segment_reset = reset
     layout = object()

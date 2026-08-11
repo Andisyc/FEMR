@@ -31,6 +31,7 @@ from rsl_rl.frontres.frontres_segment_planning import (
     FrontRESSegmentRolloutEvidence,
     FrontRESSegmentSample,
 )
+from rsl_rl.frontres.frontres_segment_storage_records import FrontRESV015GroupedCandidateMetadata
 from rsl_rl.frontres.frontres_segment_sampler import (
     FrontRESSegmentSampler,
 )
@@ -1678,11 +1679,12 @@ def prepare_frontres_policy_quality_fixed_k_m4_batch(
     if len(intent_provenance) != 1 or len(intent_source) != 1:
         raise RuntimeError("EVAL-v004 requires one deployment q29 provenance owner")
 
-    # B3: 冻结 policy/scenario/attempt identity, 产出正式 collector 的公共 transaction plan.
+    # B3: Seal evaluation rows without borrowing the B8 formal-training lifecycle owner.
     snapshot = capture_frontres_frozen_policy_snapshot(runner, transaction_id=transaction_id)
     batch_specs = tuple(getattr(batch, "specs", ()) or ())
-    plan = FrontRESFormalTransactionPlan(
-        snapshot=snapshot,
+    plan = FrontRESV015GroupedCandidateMetadata(
+        transaction_id=snapshot.transaction_id,
+        policy_snapshot_id=snapshot.policy_snapshot_id,
         motion_ids=tuple(str(getattr(spec, "motion_id", "")) for spec in batch_specs),
         start_frames=torch.tensor(
             [int(getattr(spec, "start_frame", -1)) for spec in batch_specs],
@@ -1693,13 +1695,14 @@ def prepare_frontres_policy_quality_fixed_k_m4_batch(
         source_index=source_index,
         trial_index=trial_index,
         horizon_k=horizon_k,
+        evidence_valid_step_count=horizon_k,
+        trial_role=("policy",) * repair_rows,
         scenario_ids=scenario_ids,
         noisy_segment_hashes=hashes,
         x_t_identities=x_t,
         intent_q29_provenance=next(iter(intent_provenance)),
         intent_q29_source=next(iter(intent_source)),
     )
-    plan.validate()
     return SimpleNamespace(sample=sample, batch=batch, plan=plan)
 
 _print_evidence_probe = print_frontres_sampler_evidence_probe

@@ -652,6 +652,11 @@ def _inspect_frontres_v015_policy_quality_payload(
         committed_update_iteration=iteration,
         max_horizon_k=max((int(row[0]) for row in schedule), default=0) if isinstance(schedule, (tuple, list)) else 0,
     )
+    committed_phase = resolve_frontres_k_stage_identity(
+        schedule=schedule if isinstance(schedule, (tuple, list)) else (),
+        committed_update_iteration=max(0, iteration - 1),
+        max_horizon_k=max((int(row[0]) for row in schedule), default=0) if isinstance(schedule, (tuple, list)) else 0,
+    ).phase
     expected_payload = {
         "schedule": frontres_k_stage_schedule_tuple(schedule),
         "schedule_fingerprint": expected.schedule_fingerprint,
@@ -668,12 +673,15 @@ def _inspect_frontres_v015_policy_quality_payload(
         "phase": expected.phase.name,
         "phase_iteration": expected.phase.phase_iteration,
         "actor_loss_weight": expected.phase.actor_loss_weight,
+        "actor_learning_rate": expected.phase.actor_learning_rate,
+        "committed_actor_learning_rate": 3.0e-7 if iteration == 0 else committed_phase.actor_learning_rate,
+        "committed_critic_learning_rate": 1.0e-5,
         "dr_stage_fingerprint": expected.dr_stage_fingerprint,
         "dr_progress": expected.dr_progress,
         "d_cap": expected.d_cap,
     }
     if dict(curriculum) != expected_payload:
-        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v015 curriculum identity")
+        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v022 curriculum identity")
     transaction = identity.get("transaction")
     if not isinstance(transaction, Mapping) or str(transaction.get("state", "")) not in {"idle", "committed"}:
         raise RuntimeError("quality policy rejects partial or malformed transaction identity")

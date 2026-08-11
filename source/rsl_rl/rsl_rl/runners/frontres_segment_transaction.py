@@ -172,7 +172,7 @@ class FrontRESFormalTransactionPlan:
     def active_m(self) -> int:
         counts = torch.bincount(self.source_index, minlength=self.selected_segment_count)
         if counts.numel() == 0 or int(torch.unique(counts).numel()) != 1:
-            raise ValueError("FRS-TRAIN-v011 formal transaction requires one exact M across both Segments")
+            raise ValueError("FRS-TRAIN-v022 formal transaction requires one exact M across all Scenarios")
         return int(counts[0].item())
 
     def _row_identity(self, row: int) -> tuple[str, int, int, int, str, str, str]:
@@ -234,11 +234,12 @@ class FrontRESFormalTransactionPlan:
                 raise ValueError("v015 formal transaction plan has duplicate source/trial attempts")
             seen_attempts.add(key)
             source_rows.setdefault(source, []).append(row)
-        if len(source_rows) != FRONTRES_V011_SELECTED_SEGMENT_COUNT or sorted(source_rows) != [0, 1]:
-            raise ValueError("FRS-TRAIN-v011 formal transaction plan requires source_index exactly {0,1}")
+        expected_sources = list(range(FRONTRES_V011_SELECTED_SEGMENT_COUNT))
+        if len(source_rows) != FRONTRES_V011_SELECTED_SEGMENT_COUNT or sorted(source_rows) != expected_sources:
+            raise ValueError("FRS-TRAIN-v022 formal transaction plan requires source_index exactly {0,...,7}")
         attempt_counts = {len(rows) for rows in source_rows.values()}
         if len(attempt_counts) != 1 or next(iter(attempt_counts)) < 2:
-            raise ValueError("FRS-TRAIN-v011 formal transaction plan requires one exact M>=2 across both Segments")
+            raise ValueError("FRS-TRAIN-v022 formal transaction plan requires one exact M>=2 across all Scenarios")
         for source, rows in source_rows.items():
             expected_trials = list(range(len(rows)))
             observed_trials = sorted(int(self.trial_index[row].item()) for row in rows)
