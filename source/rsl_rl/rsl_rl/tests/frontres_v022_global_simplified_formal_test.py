@@ -165,17 +165,18 @@ def _one_transaction(
         old_log_probs = model.get_actions_log_prob(sealed_actions).detach().clone()
         old_values_by_scenario = model.evaluate(critic_features).reshape(-1).detach().clone()
     old_values = old_values_by_scenario.repeat_interleave(4)
-    trial = torch.arange(4, dtype=torch.float32).repeat(8)
+    source_index = torch.arange(8, dtype=torch.long).repeat_interleave(4)
+    trial_index = torch.arange(4, dtype=torch.long).repeat(8)
+    scenario_value = source_index.to(dtype=torch.float32)
+    trial_value = trial_index.to(dtype=torch.float32)
     raw_gain = (
-        0.35 * rows[:, 0]
-        - 0.08 * trial
+        0.35 * scenario_value
+        - 0.08 * trial_value
         - 0.04 * sealed_actions.square().sum(dim=1)
-        + 0.12 * torch.sin(trial + transaction)
+        + 0.12 * torch.sin(trial_value + transaction)
     )
     utility = frontres_symmetric_log_utility(raw_gain)
     advantage = utility - old_values
-    source_index = torch.arange(8, dtype=torch.long).repeat_interleave(4)
-    trial_index = torch.arange(4, dtype=torch.long).repeat(8)
     segment_ids = source_index.clone()
     metadata = FrontRESV015GroupedCandidateMetadata(
         transaction_id=plan.transaction_id,
