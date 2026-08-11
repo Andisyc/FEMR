@@ -1,9 +1,10 @@
 # FRS-TRAIN-v022 B8/LR/Replay One-Shot Engineering Plan
 
-Status: active
+Status: TEST-23E passed on the aligned CPU alternate path; bounded official K8 transaction pending
 Date: 2026-08-11
 Contracts: FRS-METHOD-v023 / FRS-GAIN-v008 / FRS-PPO-v010 / FRS-TRAIN-v022
-Terminal outcome: test-ready implementation and one user-run command; no test or training launched
+Terminal outcome: current Global Simplified Formal Test passed; publish one
+user-run bounded official K8/B8/M4 command, but do not launch long training
 
 ## Engineering boundary record
 
@@ -35,8 +36,9 @@ test-only loss/target/replay implementations, or automatic server/long run.
 3. Implement replay-v3 active/archive capacity, quotas, slot schedule,
    visit-gated expansion and replacement.
 4. Implement checkpoint-v17, telemetry, CLI/config and strict rejection.
-5. Add one production-owner Global Simplified Formal Test and manifests; stop
-   before execution so the user runs the supplied command.
+5. Add and execute one production-owner Global Simplified Formal Test, record
+   its alternate-path evidence limits, then stop before the official simulator
+   transaction so the user runs the supplied command.
 
 ## Confirmed Module Test Cards
 
@@ -74,18 +76,28 @@ Boundary: dedicated bounded entry using the production FrontRES model, PPO,
 optimizer and Replay owners, with only simulator evidence replaced. K8/B8/M4
 and raw-Gain boundary->symlog->PPO->Adam->Replay are retained. This test does not
 by itself prove IsaacLab entrypoint wiring; that remains the subsequent bounded
-official transaction gate. Test pool ladder is 8->16->24, 32 transactions use phases 4/4/24,
-tx8 saves, tx9 resumes through the simplified persistence carrier, and one final
-invalid transaction proves zero mutation. Production checkpoint-v17 readback is
-reserved for the subsequent bounded official transaction.
+official transaction gate. The test uses the production capacity ladder
+64->128->256, 32 transactions and phases 4/4/24. Its K8 DR schedule uses
+`linear-coupled-v1` with `advance_updates=8`. Transaction 8 saves and transaction
+9 resumes through the simplified persistence carrier; one final invalid
+transaction proves zero mutation. Because 32 transactions do not fill capacity
+64, this run proves replay consumption and capacity bounds, not capacity
+expansion or replacement. Production checkpoint-v17 readback is reserved for
+the subsequent bounded official transaction.
 Any K16/K32/K64 transition, fake semantic owner or more than 33 transaction
 attempts falsifies the test.
 
-Human status: confirmed by the user's 2026-08-11 instruction to plan and execute
-the previously reviewed Global Simplified Formal Test up to, but not including,
-test execution.
+Evidence classification: `ALTERNATE-PATH / OFFLINE-CHAIN`, not official
+IsaacLab runtime evidence. The current aligned source passed locally with
+`transactions=32 K=8 B=8 M=4`. The pulled server `log.txt` also terminates in
+PASS, but predates the `linear-coupled-v1` schedule correction and is therefore
+stale for exact current-schedule identity.
+
+Human status: the user executed the Global Simplified Formal Test and supplied
+its server log. The user now authorizes document closeout and requests the
+single bounded official K8 command; long training remains unauthorized.
 
 ## Stop condition
 
-Stop with one command after code, manifests and static review are ready. Do not
-run module tests, the global formal test, simulator, server transaction or long training.
+Stop after updating the evidence documents and publishing one bounded official
+K8/B8/M4 simulator command. Do not launch that transaction or long training.

@@ -42,7 +42,7 @@ from rsl_rl.frontres.frontres_policy_evaluation import FrontRESSegmentLivePolicy
 
 
 SCHEDULE = (
-    (8, 4, 4, 4, 24, "lower-k8", 0.5, "linear-joint-v1", 24, 2.381),
+    (8, 4, 4, 4, 24, "lower-k8", 0.5, "linear-coupled-v1", 8, 2.381),
 )
 METHOD_ID = "FRS-METHOD-v023"
 TRAIN_ID = "FRS-TRAIN-v022"

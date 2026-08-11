@@ -1,6 +1,6 @@
 {
   "schema": "frontres-global-simplified-formal-test-v1",
-  "status": "READY_NOT_RUN",
+  "status": "PASS_OFFLINE_CHAIN",
   "date": "2026-08-11",
   "contracts": {
     "method": "FRS-METHOD-v023",
@@ -17,8 +17,10 @@
     "attempts_per_scenario": 4,
     "transactions": 32,
     "phase_transactions": [4, 4, 24],
-    "test_capacity_ladder": [8, 16, 24],
-    "production_capacity_ladder": [64, 128, 256]
+    "test_capacity_ladder": [64, 128, 256],
+    "production_capacity_ladder": [64, 128, 256],
+    "dr_advance_rule": "linear-coupled-v1",
+    "dr_advance_updates": 8
   },
   "preserved": [
     "production FrontRESActorCritic architecture and frozen GMT artifact",
@@ -33,9 +35,41 @@
   "required_receipts": [
     "Actor LR 3e-7 to 1e-6 with Critic LR 1e-5",
     "32 exact-one optimizer updates",
-    "B8/M4 replay slot and capacity evidence",
+    "B8/M4 replay consumption and active-count capacity-bound evidence",
     "transaction 8 simplified save and exact resume",
     "final invalid commit leaves Replay state unchanged"
   ],
-  "result": null
+  "result": {
+    "status": "PASS",
+    "path_class": "ALTERNATE-PATH",
+    "evidence_class": "OFFLINE-CHAIN",
+    "base_checkout": "adcaf6799e7bf9d4c2e3fe9c0923d9d7dc34d4ac",
+    "current_test_source_sha256": "d5111a6f071cd4df79ec3da0a511ab12a6288f6c949100092bee37a1fc331b7d",
+    "production_replay_owner_sha256": "696e5b5a5f9b842882dbffcddc3bcb2c8dd3a3122d3938a05e78c76e526e491e",
+    "launcher_sha256": "ce9c53ee526d304233dc7150e0381d71542fbcfe927319a318f88d892df01a77",
+    "current_local_rerun": {
+      "command": "bash run/run_frontres_v022_global_simplified_formal_test.sh",
+      "exit_code": 0,
+      "terminal_line": "frontres_v022_global_simplified_formal_test: PASS transactions=32 K=8 B=8 M=4"
+    },
+    "server_raw_log": {
+      "path": "log.txt",
+      "sha256": "f8f3119397fa074789b24e932d316fc05a758f7664c999ffa3e734f3e7e9660a",
+      "terminal_line": "frontres_v022_global_simplified_formal_test: PASS transactions=32 K=8 B=8 M=4",
+      "freshness": "STALE_FOR_CURRENT_DR_RULE",
+      "reason": "captured before the test schedule was aligned to linear-coupled-v1"
+    },
+    "proves": [
+      "current CPU alternate path completes 32 K8/B8/M4 transactions",
+      "production model, PPO, optimizer and Replay owners execute with synthetic simulator evidence",
+      "simplified save/resume and invalid-commit zero-mutation checks pass"
+    ],
+    "does_not_prove": [
+      "IsaacLab official entrypoint wiring",
+      "official checkpoint-v17 readback",
+      "Replay capacity expansion or replacement",
+      "policy quality or long-training admission"
+    ],
+    "next_gate": "one bounded official K8/B8/M4 simulator transaction"
+  }
 }

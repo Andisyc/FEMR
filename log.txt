@@ -1,52 +1,134 @@
-Traceback (most recent call last):
-  File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1754, in <module>
-    main()
-  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 104, in wrapper
-    hydra_main()
-  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/main.py", line 94, in decorated_main
-    _run_hydra(
-  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 394, in _run_hydra
-    _run_app(
-  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 457, in _run_app
-    run_and_report(
-  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 223, in run_and_report
-    raise ex
-  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 220, in run_and_report
-    return func()
-  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 458, in <lambda>
-    lambda: hydra.run(
-  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/hydra.py", line 132, in run
-    _ = ret.return_value
-  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/core/utils.py", line 260, in return_value
-    raise self._return_value
-  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/core/utils.py", line 186, in run_job
-    ret.return_value = task_function(task_cfg)
-  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
-    func(env_cfg, agent_cfg, *args, **kwargs)
-  File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1738, in main
-    runner.learn_frontres_segment_live(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 713, in learn_frontres_segment_live
-    run_frontres_segment_live_training_loop(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", line 2649, in run_frontres_segment_live_training_loop
-    result = runner.run_frontres_v015_formal_training_transaction(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 687, in run_frontres_v015_formal_training_transaction
-    return run_frontres_v015_formal_training_update_loop_helper(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 195, in run_frontres_v015_formal_training_update_loop
-    return run_frontres_v015_formal_transaction_update_loop(runner)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 149, in run_frontres_v015_formal_transaction_update_loop
-    request = provider()
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 181, in provider
-    return build_frontres_v015_formal_training_request(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4247, in build_frontres_v015_formal_training_request
-    return _build_frontres_v015_local_transaction_request(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4143, in _build_frontres_v015_local_transaction_request
-    candidate_evidence = collect_frontres_v015_gain_return_priority_evidence(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3611, in collect_frontres_v015_gain_return_priority_evidence
-    one_action = collect_frontres_v015_one_action_k_evidence(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3491, in collect_frontres_v015_one_action_k_evidence
-    physics_frame = _capture_physics_frame(runner, pair_layout)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 5011, in _capture_physics_frame
-    zmp_pair = _contact_wrench_zmp_pair(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 5336, in _contact_wrench_zmp_pair
-    raise RuntimeError(
-RuntimeError: Noisy loaded support is missing a finite raw contact-wrench resultant; branch_rows=[3]
+(mosaic) yuxuancheng@baode:/hdd0/yuxuancheng/FEMR$ FRONTRES_PYTHON="$(command -v python)" bash run/run_frontres_v022_global_simplified_formal_test.sh
+[ResidualActorCritic] Loading GMT policy from: /hdd0/yuxuancheng/FEMR/model/model_27000.pt
+[ResidualActorCritic] GMT architecture: actor_input=770, critic_input=289, actions=29
+Actor MLP: Sequential(
+  (0): Linear(in_features=770, out_features=1024, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=1024, out_features=1024, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=1024, out_features=512, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=512, out_features=256, bias=True)
+  (7): ELU(alpha=1.0)
+  (8): Linear(in_features=256, out_features=29, bias=True)
+)
+Critic MLP: Sequential(
+  (0): Linear(in_features=289, out_features=1024, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=1024, out_features=1024, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=1024, out_features=512, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=512, out_features=256, bias=True)
+  (7): ELU(alpha=1.0)
+  (8): Linear(in_features=256, out_features=1, bias=True)
+)
+[ResidualActorCritic] GMT policy frozen (all parameters require_grad=False)
+[ResidualActorCritic] GMT observation normalizer loaded (dim=770) and frozen
+[ResidualActorCritic] Residual last layer weight norm: 0.032478 (gain=0.01)
+[FrontEndResidualActorCritic] FrontRES output: 6 task-space dims [Δpos(3)+Δrpy(3)] — no Δq patching
+[FrontEndResidualActorCritic] FrontRES network: Sequential(
+  (0): Linear(in_features=158, out_features=512, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=512, out_features=256, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=256, out_features=128, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=128, out_features=6, bias=True)
+) (input_dim=158, output_dim=6)
+[ResidualActorCritic] Critic MLP: Sequential(
+  (0): Linear(in_features=449, out_features=1024, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=1024, out_features=1024, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=1024, out_features=512, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=512, out_features=256, bias=True)
+  (7): ELU(alpha=1.0)
+  (8): Linear(in_features=256, out_features=1, bias=True)
+)
+[ResidualActorCritic] Created composed actor for ONNX export
+[FrontRESActorCritic] Observation layout: 928D = 158D FrontRES-only prefix + 770D GMT-compatible suffix. GMT consumes the suffix only; no zero padding.
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[ResidualActorCritic] Loading GMT policy from: /hdd0/yuxuancheng/FEMR/model/model_27000.pt
+[ResidualActorCritic] GMT architecture: actor_input=770, critic_input=289, actions=29
+Actor MLP: Sequential(
+  (0): Linear(in_features=770, out_features=1024, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=1024, out_features=1024, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=1024, out_features=512, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=512, out_features=256, bias=True)
+  (7): ELU(alpha=1.0)
+  (8): Linear(in_features=256, out_features=29, bias=True)
+)
+Critic MLP: Sequential(
+  (0): Linear(in_features=289, out_features=1024, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=1024, out_features=1024, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=1024, out_features=512, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=512, out_features=256, bias=True)
+  (7): ELU(alpha=1.0)
+  (8): Linear(in_features=256, out_features=1, bias=True)
+)
+[ResidualActorCritic] GMT policy frozen (all parameters require_grad=False)
+[ResidualActorCritic] GMT observation normalizer loaded (dim=770) and frozen
+[ResidualActorCritic] Residual last layer weight norm: 0.033500 (gain=0.01)
+[FrontEndResidualActorCritic] FrontRES output: 6 task-space dims [Δpos(3)+Δrpy(3)] — no Δq patching
+[FrontEndResidualActorCritic] FrontRES network: Sequential(
+  (0): Linear(in_features=158, out_features=512, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=512, out_features=256, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=256, out_features=128, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=128, out_features=6, bias=True)
+) (input_dim=158, output_dim=6)
+[ResidualActorCritic] Critic MLP: Sequential(
+  (0): Linear(in_features=449, out_features=1024, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=1024, out_features=1024, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=1024, out_features=512, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=512, out_features=256, bias=True)
+  (7): ELU(alpha=1.0)
+  (8): Linear(in_features=256, out_features=1, bias=True)
+)
+[ResidualActorCritic] Created composed actor for ONNX export
+[FrontRESActorCritic] Observation layout: 928D = 158D FrontRES-only prefix + 770D GMT-compatible suffix. GMT consumes the suffix only; no zero padding.
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+frontres_v022_global_simplified_formal_test: PASS transactions=32 K=8 B=8 M=4
