@@ -89,9 +89,9 @@ class _TrackingAdam(torch.optim.Adam):
 
 
 SCHEDULE = (
-    (8, 4, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
-    (16, 4, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
-    (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-joint-v1", 625, 2.381),
+    (8, 4, 200, 500, 1300, "lower-k8", 0.5, "linear-coupled-v1", 700, 2.381),
+    (16, 4, 300, 300, 900, "lower-k16", 0.6, "linear-coupled-v1", 600, 2.381),
+    (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-coupled-v1", 700, 2.381),
 )
 
 
@@ -130,10 +130,10 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
         frontres_segment_live_train_enabled=False,
         frontres_segment_live_update_loop_only=False,
         frontres_segment_live_single_update_only=False,
-        frontres_method_contract_id="FRS-METHOD-v021",
+        frontres_method_contract_id="FRS-METHOD-v022",
         frontres_gain_contract_id="FRS-GAIN-v008",
-        frontres_optimization_contract_id="FRS-PPO-v008",
-        frontres_training_contract_id="FRS-TRAIN-v020",
+        frontres_optimization_contract_id="FRS-PPO-v009",
+        frontres_training_contract_id="FRS-TRAIN-v021",
         frontres_scalar_target_id="symmetric-log-recovery-aware-utility-v1",
         frontres_physics_schema_id="clean-anchored-contact-zmp-survival-v1",
         frontres_grouped_schema_id="grouped-all-attempt-scalar-v1",
@@ -262,14 +262,10 @@ def _request(
         runner._frontres_outer_scenario_replay = outer_replay
     outer_plan = outer_replay.plan(
         transaction_id=transaction_id,
-        active_k=identity.active_k,
+        curriculum=identity,
         num_segments=12,
         eligible=lambda segment_id: segment_id in {10, 11},
-        global_descriptor=lambda segment_id, _seed: (
-            "local_rp",
-            0.1 if segment_id == 10 else 0.4,
-            "easy" if segment_id == 10 else "hard",
-        ),
+        global_family=lambda _segment_id: "local_rp",
     )
     source = torch.tensor([0] * identity.active_m + [1] * identity.active_m)
     trial = torch.tensor(list(range(identity.active_m)) * 2)
@@ -419,7 +415,7 @@ def _prime_actor_optimizer_history(runner: SimpleNamespace) -> tuple[torch.nn.Pa
     return actor_parameters
 
 
-def test_exact_one_scalar_commit_and_critic_only() -> None:
+def test_exact_one_scalar_commit_updates_actor_and_critic_from_first_transaction() -> None:
     runner, request, policy = _request()
     open_frontres_checkpoint_transaction_barrier(runner)
     actor_before = {name: value.detach().clone() for name, value in policy.actor.state_dict().items()}
@@ -430,10 +426,12 @@ def test_exact_one_scalar_commit_and_critic_only() -> None:
     assert result.diagnostics["outer_replay"]["state_delta"] == 1
     assert runner.alg.frontres_critic_value_normalizer_state.update_count == 1
     assert result.valid_row_count == 8 and result.policy_attempt_count == 8
-    assert all(torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
+    assert request.warmup_phase_name == "low_dr_joint_init"
+    assert request.warmup_actor_loss_weight > 0.0
+    assert any(not torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
     assert any(not torch.equal(value, critic_before[name]) for name, value in policy.critic.state_dict().items())
     assert result.diagnostics["gain_contract_id"] == "FRS-GAIN-v008"
-    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v008"
+    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v009"
     assert "constraint_kkt_max_violation" not in result.diagnostics
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
     assert telemetry["clean_execution_count"] == (1, 1)
@@ -473,7 +471,7 @@ def test_exact_one_scalar_commit_and_critic_only() -> None:
     assert repr(result.diagnostics) == before
 
 
-def test_k_transitions_keep_one_critic_and_preserve_frozen_actor_optimizer_state() -> None:
+def test_k_transitions_keep_one_critic_and_restart_nonzero_joint_adaptation() -> None:
     runner, _unused, policy = _request(iteration=0)
     actor_parameters = _prime_actor_optimizer_history(runner)
     actor_state = {id(parameter): parameter.detach().clone() for parameter in actor_parameters}
@@ -483,8 +481,8 @@ def test_k_transitions_keep_one_critic_and_preserve_frozen_actor_optimizer_state
     for iteration, expected_k, expected_m in ((2000, 16, 4), (3500, 32, 4)):
         runner, request, current_policy = _request(iteration=iteration, runner=runner)
         assert id(current_policy.critic) == critic_identity
-        assert request.warmup_phase_name == "critic_only"
-        assert request.warmup_actor_loss_weight == 0.0
+        assert request.warmup_phase_name == "low_dr_joint_init"
+        assert request.warmup_actor_loss_weight > 0.0
         assert request.active_k == expected_k and request.active_m == expected_m
         critic_before = {
             name: value.detach().clone() for name, value in current_policy.critic.state_dict().items()
@@ -498,29 +496,27 @@ def test_k_transitions_keep_one_critic_and_preserve_frozen_actor_optimizer_state
             not torch.equal(value, critic_before[name])
             for name, value in current_policy.critic.state_dict().items()
         )
-        for parameter in actor_parameters:
-            assert torch.equal(parameter, actor_state[id(parameter)])
-        _assert_optimizer_state_equal(runner.alg.optimizer, actor_parameters, actor_optimizer_state)
+        assert any(not torch.equal(parameter, actor_state[id(parameter)]) for parameter in actor_parameters)
         reset_frontres_checkpoint_transaction(runner)
 
 
-def test_actor_ramp_identity_reaches_transaction_and_telemetry() -> None:
+def test_coupled_ramp_identity_reaches_transaction_and_telemetry() -> None:
     runner, request, policy = _request(iteration=203)
-    assert request.warmup_phase_name == "actor_ramp"
+    assert request.warmup_phase_name == "coupled_ramp"
     assert 0.0 < request.warmup_actor_loss_weight < 1.0
     actor_before = {
         name: value.detach().clone() for name, value in policy.actor.state_dict().items()
     }
     open_frontres_checkpoint_transaction_barrier(runner)
     result = run_frontres_formal_transaction_update(runner, request)
-    assert result.diagnostics["warmup_phase"] == "actor_ramp"
+    assert result.diagnostics["warmup_phase"] == "coupled_ramp"
     assert result.diagnostics["actor_loss_weight"] == request.warmup_actor_loss_weight
     assert any(
         not torch.equal(value, actor_before[name])
         for name, value in policy.actor.state_dict().items()
     )
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
-    assert telemetry["warmup_phase"] == "actor_ramp"
+    assert telemetry["warmup_phase"] == "coupled_ramp"
     assert telemetry["actor_loss_weight"] == request.warmup_actor_loss_weight
 
 
@@ -587,13 +583,13 @@ def test_phase_reset_routes_mode_through_sealed_reset_owner() -> None:
 def main() -> None:
     torch.manual_seed(0)
     test_formal_request_owns_the_grouped_ppo_batch_dependency()
-    test_exact_one_scalar_commit_and_critic_only()
-    test_k_transitions_keep_one_critic_and_preserve_frozen_actor_optimizer_state()
-    test_actor_ramp_identity_reaches_transaction_and_telemetry()
+    test_exact_one_scalar_commit_updates_actor_and_critic_from_first_transaction()
+    test_k_transitions_keep_one_critic_and_restart_nonzero_joint_adaptation()
+    test_coupled_ramp_identity_reaches_transaction_and_telemetry()
     test_partial_transaction_rejects_before_update()
     test_value_normalizer_iteration_mismatch_rejects_before_update()
     test_phase_reset_routes_mode_through_sealed_reset_owner()
-    print("frontres_v015_transaction_route_contract: v020 outer replay exact-one ok", flush=True)
+    print("frontres_v015_transaction_route_contract: v021 coupled outer replay exact-one ok", flush=True)
 
 
 if __name__ == "__main__":

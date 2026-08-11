@@ -1,0 +1,50 @@
+{
+  "schema_version": "workflow-governance/v1",
+  "governance_id": "WFG-FRS-TRAIN-v021-MODULE-TESTING-20260811",
+  "lifecycle_phase": "engineering-ready",
+  "target_phase": "module-testing",
+  "admission": "TRANSITION-ADMITTED",
+  "scope": {
+    "requested": ["execute confirmed TRAIN-v021 Module Test Cards"],
+    "preserved": ["active v021 semantic boundaries and user dirty worktree"],
+    "forbidden": ["simulator evidence as module correctness", "long training", "policy-quality claim"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11",
+    "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004",
+    "checkout": "ca7c3a737c6f46c38885b1e3ae313392f6c2266d+v021-working-tree-20260811",
+    "entrypoint": "run_stage3.sh->run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl",
+    "effective_config": "fixed-splitlr-3e-6-1e-5-k8m4-linear-coupled-v1",
+    "checkpoint": "fresh-HSL-v2->frontres-v021-checkpoint-v16"
+  },
+  "authority": {
+    "semantic": {"status": "approved", "scope": "confirmed TRAIN-v021 Test Cards", "receipt": "user-confirmed-design-and-one-shot-execution-20260811"},
+    "local_reversible": {"status": "approved", "scope": "module test implementation and execution", "receipt": "user-one-shot-execution-20260811"},
+    "git_actions": {"status": "not-requested", "scope": "no stage commit push"},
+    "external_operations": {"status": "not-requested", "scope": "offline local tests only"},
+    "bounded_live": {"status": "not-requested", "scope": "not part of module-testing transition"},
+    "long_run": {"status": "not-requested", "scope": "training remains user-controlled"},
+    "destructive": {"status": "not-required", "scope": "no destructive action"}
+  },
+  "artifacts": [
+    {
+      "kind": "contract", "artifact_id": "FRS-TRAIN-v021-CONTRACT-SET",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/README.md",
+      "lifecycle": "current", "status": "active", "content_hash": "sha256:05a8276df6210127f3d2a78fee0dbfc7dda17df8395ff11abb24a173478fcef7", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11", "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004"}
+    },
+    {
+      "kind": "module-test-cards", "artifact_id": "FRS-TRAIN-v021-TEST-CARDS",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/plans/FRS-TRAIN-v021-low-dr-coupled-replay-one-shot-engineering-plan.md",
+      "lifecycle": "current", "status": "confirmed", "content_hash": "sha256:05eb3ae5def09577e9dccb71e3a93e4e0314fc2babf480897042e7624037cc82", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11", "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004", "checkout": "ca7c3a737c6f46c38885b1e3ae313392f6c2266d+v021-working-tree-20260811"}
+    }
+  ],
+  "dependencies": [],
+  "design_review": {"semantic_change": true, "status": "confirmed", "mapping_complete": true, "receipt": "TRAIN-v021 active Contract and confirmed Test Cards"},
+  "open_boundaries": [],
+  "invalidations": [],
+  "recovery": {},
+  "closeout": {}
+}

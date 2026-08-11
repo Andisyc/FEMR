@@ -11,7 +11,7 @@ CACHE="${CACHE_DIR:-${DATA_ROOT}/AMASS_G1Segment}"
 MANIFEST="${POLICY_QUALITY_MANIFEST:-${ROOT}/note/testing/manifests/frontres_v018_policy_quality_k16_m4_v1.json}"
 RESULT="${POLICY_QUALITY_RESULT:-${ROOT}/log/FRS_EVAL_V004_V018_MODEL2000_K16_M4_GPU${GPU}.json}"
 LOG="${LOG_PATH:-${ROOT}/log/FRS_EVAL_V004_V018_MODEL2000_K16_M4_GPU${GPU}.log}"
-SCHEDULE="8:4:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381,16:4:300:300:900:lower-k16:0.6:linear-joint-v1:900:2.381,32:4:400:300:625:lower-k32:0.7:linear-joint-v1:625:2.381"
+SCHEDULE="8:4:200:500:1300:lower-k8:0.5:linear-coupled-v1:700:2.381,16:4:300:300:900:lower-k16:0.6:linear-coupled-v1:600:2.381,32:4:400:300:625:lower-k32:0.7:linear-coupled-v1:700:2.381"
 
 for artifact in "${HSL}" "${POLICY}" "${MANIFEST}"; do
   [[ -s "${artifact}" ]] || { echo "missing artifact: ${artifact}" >&2; exit 2; }

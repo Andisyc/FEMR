@@ -446,7 +446,7 @@ def _build_outer_replay_perturbation_plan(
     n = int(getattr(batch, "batch_size", int(batch.segment_ids.numel())))
     source_index = _source_index_for_batch(batch, n=n, device=batch.segment_ids.device)
     if set(source_index.detach().cpu().tolist()) != {0, 1}:
-        raise ValueError("TRAIN-v020 outer replay requires exactly two source identities")
+        raise ValueError("TRAIN-v021 outer replay requires exactly two source identities")
     selections = plan.selections
     source_strength = torch.tensor(
         [selection.perturbation_strength for selection in selections],
@@ -1307,17 +1307,12 @@ def _prepare_frontres_v015_local_transaction_batch(
         horizon_k=curriculum.active_k,
         intent_horizon=max(future_offsets),
     )
-    def global_descriptor(_segment_id: int, perturbation_seed: int) -> tuple[str, float, str]:
-        sample = sample_frontres_v013_dr_strength(curriculum, sample_key=int(perturbation_seed))
-        canonical_strength = float(torch.tensor(sample.strength, dtype=torch.float32).item())
-        return "local_rp", canonical_strength, str(sample.class_name)
-
     outer_replay_plan = outer_replay.plan(
         transaction_id=transaction_id,
-        active_k=curriculum.active_k,
+        curriculum=curriculum,
         num_segments=int(getattr(sampler, "num_segments", 0) or 0),
         eligible=candidate_is_eligible,
-        global_descriptor=global_descriptor,
+        global_family=lambda _segment_id: "local_rp",
     )
     base_sample = _outer_replay_base_sample(
         outer_replay_plan,

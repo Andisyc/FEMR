@@ -1,8 +1,8 @@
 ---
 contract_id: FRS-METHOD-v021
-status: active
+status: superseded
 effective_date: 2026-08-10
-updated_date: 2026-08-10
+updated_date: 2026-08-11
 supersedes: FRS-METHOD-v020
 scope: Recovery-Aware exact-M FrontRES training with committed outer prioritized sealed-Scenario replay
 ---

@@ -18,10 +18,35 @@ from rsl_rl.frontres.frontres_outer_scenario_replay import (
     FrontRESScenarioKey,
     isolated_frontres_perturbation_rng,
 )
+from rsl_rl.frontres.frontres_segment_warmup import FrontRESKStageSpec, resolve_frontres_k_stage_identity
 
 
-def _descriptor(segment_id: int, seed: int) -> tuple[str, float, str]:
-    return "local_rp", 0.5 + 0.01 * segment_id, f"class-{seed % 3}"
+def _identity(active_k: int = 8):
+    schedule = (
+        FrontRESKStageSpec(
+            active_k,
+            4,
+            2,
+            2,
+            2,
+            f"low-k{active_k}",
+            0.5,
+            "linear-coupled-v1",
+            4,
+            1.1,
+        ),
+    )
+    return resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=0)
+
+
+def _plan(owner, transaction_id: str, *, active_k: int = 8, num_segments: int = 64, eligible=None):
+    return owner.plan(
+        transaction_id=transaction_id,
+        curriculum=_identity(active_k),
+        num_segments=num_segments,
+        eligible=eligible or (lambda _segment_id: True),
+        global_family=lambda _segment_id: "local_rp",
+    )
 
 
 def _key(selection, *, suffix: str) -> FrontRESScenarioKey:
@@ -42,8 +67,8 @@ def _key(selection, *, suffix: str) -> FrontRESScenarioKey:
 
 def _receipt(plan, *, policy_snapshot_id: str) -> dict[str, object]:
     return {
-        "method_contract_id": "FRS-METHOD-v021",
-        "training_contract_id": "FRS-TRAIN-v020",
+        "method_contract_id": "FRS-METHOD-v022",
+        "training_contract_id": "FRS-TRAIN-v021",
         "transaction_id": plan.transaction_id,
         "policy_snapshot_id": policy_snapshot_id,
         "optimizer_step_delta": 1,
@@ -64,13 +89,7 @@ def test_seeded_identity_and_rng_isolation() -> None:
     assert not torch.equal(first, different)
 
     owner = FrontRESOuterScenarioReplay(global_frac=1.0, replay_frac=0.0, review_frac=0.0, seed=3)
-    plan = owner.plan(
-        transaction_id="tx-identity",
-        active_k=8,
-        num_segments=20,
-        eligible=lambda segment_id: segment_id % 2 == 0,
-        global_descriptor=_descriptor,
-    )
+    plan = _plan(owner, "tx-identity", num_segments=20, eligible=lambda segment_id: segment_id % 2 == 0)
     key = _key(plan.selections[0], suffix="same")
     assert key.digest == FrontRESScenarioKey.from_state(key.to_state()).digest
     assert key.digest != replace(key, perturbation_seed=key.perturbation_seed + 1).digest
@@ -78,13 +97,7 @@ def test_seeded_identity_and_rng_isolation() -> None:
 
 def test_negative_advantage_priority_and_committed_only_mutation() -> None:
     owner = FrontRESOuterScenarioReplay(global_frac=1.0, replay_frac=0.0, review_frac=0.0, seed=5)
-    plan = owner.plan(
-        transaction_id="tx-negative",
-        active_k=8,
-        num_segments=32,
-        eligible=lambda _segment_id: True,
-        global_descriptor=_descriptor,
-    )
+    plan = _plan(owner, "tx-negative", num_segments=32)
     keys = tuple(_key(selection, suffix=str(index)) for index, selection in enumerate(plan.selections))
     advantages = torch.tensor([-4.0, -2.0, -1.0, -3.0, -8.0, -6.0, -2.0, -4.0])
     source_index = torch.tensor([0, 0, 0, 0, 1, 1, 1, 1])
@@ -96,7 +109,8 @@ def test_negative_advantage_priority_and_committed_only_mutation() -> None:
         policy_snapshot_id="pi-negative",
         active_m=4,
     )
-    assert candidate.learning_values == (2.5, 5.0)
+    assert candidate.critic_calibration_values == (2.5, 5.0)
+    assert candidate.repair_spread_values == (1.0, 2.0)
     before = owner.state_dict()
     try:
         owner.commit(candidate, receipt={**_receipt(plan, policy_snapshot_id="wrong"), "policy_snapshot_id": "wrong"})
@@ -129,13 +143,7 @@ def test_negative_advantage_priority_and_committed_only_mutation() -> None:
 
 def test_replay_selection_k_isolation_and_key_counterexample() -> None:
     seed_owner = FrontRESOuterScenarioReplay(global_frac=1.0, replay_frac=0.0, review_frac=0.0, seed=11)
-    seed_plan = seed_owner.plan(
-        transaction_id="tx-seed",
-        active_k=8,
-        num_segments=64,
-        eligible=lambda _segment_id: True,
-        global_descriptor=_descriptor,
-    )
+    seed_plan = _plan(seed_owner, "tx-seed")
     seed_keys = tuple(_key(selection, suffix=str(index)) for index, selection in enumerate(seed_plan.selections))
     seed_candidate = seed_owner.stage(
         seed_plan,
@@ -148,17 +156,12 @@ def test_replay_selection_k_isolation_and_key_counterexample() -> None:
     seed_owner.commit(seed_candidate, receipt=_receipt(seed_plan, policy_snapshot_id="pi-seed"))
 
     state = seed_owner.state_dict()
-    replay_owner = FrontRESOuterScenarioReplay(global_frac=0.0, replay_frac=1.0, review_frac=0.0, seed=0)
+    replay_owner = FrontRESOuterScenarioReplay(global_frac=0.0, replay_frac=1.0, review_frac=0.0, seed=2)
     replay_state = dict(state)
     replay_state["fractions"] = (0.0, 1.0, 0.0)
+    replay_state["generator_state"] = replay_owner.state_dict()["generator_state"]
     replay_owner.load_state_dict(replay_state)
-    replay_plan = replay_owner.plan(
-        transaction_id="tx-replay",
-        active_k=8,
-        num_segments=64,
-        eligible=lambda _segment_id: True,
-        global_descriptor=_descriptor,
-    )
+    replay_plan = _plan(replay_owner, "tx-replay")
     assert tuple(selection.source for selection in replay_plan.selections) == ("replay", "replay")
     replay_keys = tuple(
         next(record.key for record in replay_owner.records if record.key.digest == selection.replay_key_digest)
@@ -179,25 +182,13 @@ def test_replay_selection_k_isolation_and_key_counterexample() -> None:
     else:
         raise AssertionError("changed replay key must fail")
 
-    k16_plan = replay_owner.plan(
-        transaction_id="tx-k16",
-        active_k=16,
-        num_segments=64,
-        eligible=lambda _segment_id: True,
-        global_descriptor=_descriptor,
-    )
+    k16_plan = _plan(replay_owner, "tx-k16", active_k=16)
     assert tuple(selection.source for selection in k16_plan.selections) == ("global", "global")
 
 
 def test_strict_persistence_roundtrip() -> None:
     owner = FrontRESOuterScenarioReplay(global_frac=1.0, replay_frac=0.0, review_frac=0.0, seed=17)
-    plan = owner.plan(
-        transaction_id="tx-persist",
-        active_k=8,
-        num_segments=40,
-        eligible=lambda _segment_id: True,
-        global_descriptor=_descriptor,
-    )
+    plan = _plan(owner, "tx-persist", num_segments=40)
     keys = tuple(_key(selection, suffix=str(index)) for index, selection in enumerate(plan.selections))
     candidate = owner.stage(
         plan,

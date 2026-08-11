@@ -28,12 +28,12 @@ class FrontRESValueNormalizerState:
     def validate(self) -> "FrontRESValueNormalizerState":
         values = (float(self.mean), float(self.second_moment))
         if not all(math.isfinite(value) for value in values):
-            raise FloatingPointError("FRS-PPO-v008 value-normalizer state must be finite")
+            raise FloatingPointError("FRS-PPO-v009 value-normalizer state must be finite")
         tolerance = 1.0e-12 * max(1.0, abs(self.second_moment), self.mean**2)
         if self.second_moment < 0.0 or self.second_moment + tolerance < self.mean**2:
-            raise ValueError("FRS-PPO-v008 value-normalizer second moment is inconsistent with its mean")
+            raise ValueError("FRS-PPO-v009 value-normalizer second moment is inconsistent with its mean")
         if not isinstance(self.update_count, int) or isinstance(self.update_count, bool) or self.update_count < 0:
-            raise ValueError("FRS-PPO-v008 value-normalizer update_count must be a non-negative integer")
+            raise ValueError("FRS-PPO-v009 value-normalizer update_count must be a non-negative integer")
         return self
 
     def state_dict(self) -> dict[str, float | int | str]:
@@ -53,9 +53,9 @@ class FrontRESValueNormalizerState:
             "second_moment",
             "update_count",
         }:
-            raise ValueError("FRS-PPO-v008 value-normalizer state has an incompatible schema")
+            raise ValueError("FRS-PPO-v009 value-normalizer state has an incompatible schema")
         if payload.get("normalization_id") != FRONTRES_VALUE_NORMALIZATION_ID:
-            raise ValueError("FRS-PPO-v008 value-normalizer identity mismatch")
+            raise ValueError("FRS-PPO-v009 value-normalizer identity mismatch")
         try:
             state = cls(
                 mean=float(payload["mean"]),
@@ -63,7 +63,7 @@ class FrontRESValueNormalizerState:
                 update_count=payload["update_count"],
             )
         except (TypeError, ValueError, OverflowError) as exc:
-            raise ValueError("FRS-PPO-v008 value-normalizer state contains invalid values") from exc
+            raise ValueError("FRS-PPO-v009 value-normalizer state contains invalid values") from exc
         return state.validate()
 
 
@@ -86,18 +86,18 @@ def preview_frontres_v007_value_normalization(
     """Preview one non-amplifying EMA scale without mutating training state."""
 
     if not isinstance(segment_targets, torch.Tensor) or segment_targets.ndim != 1 or segment_targets.numel() != 2:
-        raise ValueError("FRS-PPO-v008 value normalization requires exactly two Segment targets")
+        raise ValueError("FRS-PPO-v009 value normalization requires exactly two Segment targets")
     if not bool(torch.isfinite(segment_targets).all().item()):
-        raise FloatingPointError("FRS-PPO-v008 value normalization requires finite Segment targets")
+        raise FloatingPointError("FRS-PPO-v009 value normalization requires finite Segment targets")
     if not isinstance(state, FrontRESValueNormalizerState):
-        raise TypeError("FRS-PPO-v008 value normalization requires an immutable normalizer state")
+        raise TypeError("FRS-PPO-v009 value normalization requires an immutable normalizer state")
     state.validate()
     decay = float(decay)
     scale_floor = float(scale_floor)
     if not math.isfinite(decay) or not 0.0 <= decay < 1.0:
-        raise ValueError("FRS-PPO-v008 value-normalizer decay must be finite in [0,1)")
+        raise ValueError("FRS-PPO-v009 value-normalizer decay must be finite in [0,1)")
     if not math.isfinite(scale_floor) or scale_floor < 1.0:
-        raise ValueError("FRS-PPO-v008 value-normalizer scale floor must be finite and at least one")
+        raise ValueError("FRS-PPO-v009 value-normalizer scale floor must be finite and at least one")
 
     values = segment_targets.detach().to(device="cpu", dtype=torch.float64)
     batch_mean = float(values.mean().item())
@@ -113,7 +113,7 @@ def preview_frontres_v007_value_normalization(
         update_count=state.update_count + 1,
     ).validate()
     if not math.isfinite(scale) or scale < 1.0:
-        raise FloatingPointError("FRS-PPO-v008 produced an invalid Critic target scale")
+        raise FloatingPointError("FRS-PPO-v009 produced an invalid Critic target scale")
     return FrontRESValueNormalizerUpdate(
         previous=state,
         candidate=candidate,

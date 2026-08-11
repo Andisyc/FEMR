@@ -20,7 +20,8 @@ FRONTRES_V011_K_M_SCHEDULE = (
 FRONTRES_V013_DR_CURRICULUM_SCHEMA_ID = "nested-k-dr-four-class-v1"
 FRONTRES_V013_DR_CLASS_WEIGHTS = (0.20, 0.30, 0.40, 0.10)
 FRONTRES_V013_DR_CLASS_BOUNDARIES = (0.25, 0.70, 1.00, 1.10)
-FRONTRES_V013_DR_ADVANCE_RULE_ID = "linear-joint-v1"
+FRONTRES_V013_DR_CLASS_NAMES = ("easy", "medium", "hard", "broken")
+FRONTRES_V013_DR_ADVANCE_RULE_ID = "linear-coupled-v1"
 
 
 @dataclass(frozen=True)
@@ -206,7 +207,7 @@ def require_frontres_v011_campaign_schedule(
     normalized = normalize_frontres_k_stage_schedule(schedule, max_horizon_k=32)
     if frontres_k_stage_schedule_tuple(normalized) != FRONTRES_V011_K_M_SCHEDULE:
         raise ValueError(
-            "FRS-TRAIN-v020 requires the frozen K8/M4 -> K16/M4 -> K32/M4 campaign schedule"
+            "FRS-TRAIN-v021 requires the frozen K8/M4 -> K16/M4 -> K32/M4 campaign schedule"
         )
     return normalized
 
@@ -236,7 +237,7 @@ def require_frontres_v013_campaign_schedule(
 
     normalized = normalize_frontres_k_stage_schedule(schedule, max_horizon_k=32)
     if tuple((s.horizon_k, s.attempts_m, s.critic_only_iterations, s.actor_warmup_iterations, s.joint_iterations) for s in normalized) != FRONTRES_V011_K_M_SCHEDULE:
-        raise ValueError("FRS-TRAIN-v020 requires the frozen K8/M4 -> K16/M4 -> K32/M4 schedule")
+        raise ValueError("FRS-TRAIN-v021 requires the frozen K8/M4 -> K16/M4 -> K32/M4 schedule")
     for row, spec in enumerate(normalized):
         if not isinstance(spec.dr_start_distribution_id, str) or not spec.dr_start_distribution_id.strip():
             raise ValueError(f"TRAIN-v013 stage {row} requires an explicit start_distribution_id")
@@ -253,15 +254,17 @@ def require_frontres_v013_campaign_schedule(
             )
         if isinstance(spec.dr_advance_updates, bool) or not isinstance(spec.dr_advance_updates, int) or spec.dr_advance_updates <= 0:
             raise ValueError(f"TRAIN-v013 stage {row} requires positive explicit advance_updates")
+        coupled_updates = int(spec.critic_only_iterations) + int(spec.actor_warmup_iterations)
+        if int(spec.dr_advance_updates) != coupled_updates:
+            raise ValueError(
+                f"FRS-TRAIN-v021 stage {row} requires DR advance_updates to equal "
+                f"joint-init plus coupled-ramp updates ({coupled_updates})"
+            )
     return normalized
 
 
 def _frontres_v013_dr_progress(spec: FrontRESKStageSpec, stage_iteration: int) -> float:
-    joint_progress = max(
-        0,
-        int(stage_iteration) - int(spec.critic_only_iterations) - int(spec.actor_warmup_iterations),
-    )
-    return min(1.0, joint_progress / float(spec.dr_advance_updates))
+    return min(1.0, max(0, int(stage_iteration)) / float(spec.dr_advance_updates))
 
 
 def sample_frontres_v013_dr_strength(
@@ -280,24 +283,71 @@ def sample_frontres_v013_dr_strength(
     within_u = int.from_bytes(digest[8:16], "big") / float(2**64)
     cumulative = (0.20, 0.50, 0.90, 1.00)
     class_index = next(index for index, upper in enumerate(cumulative) if class_u < upper)
-    names = ("easy", "medium", "hard", "broken")
+    class_name = FRONTRES_V013_DR_CLASS_NAMES[class_index]
     cap = float(identity.d_cap)
-    ceiling = float(identity.dr_reference_ceiling)
-    bounds = ((0.0, 0.25 * cap), (0.25 * cap, 0.70 * cap), (0.70 * cap, cap), (cap, min(1.10 * cap, ceiling)))
-    low, high = bounds[class_index]
+    low, high, _low_inclusive, _high_inclusive = frontres_v021_dr_class_interval(
+        identity,
+        class_name=class_name,
+    )
     if high <= low:
         raise RuntimeError("TRAIN-v013 broken-tail support collapsed at the configured reference ceiling")
     strength = low + within_u * (high - low)
     if class_index == 3 and strength <= cap:
         strength = math.nextafter(cap, high)
     return FrontRESDRStrengthSample(
-        class_name=names[class_index],
+        class_name=class_name,
         class_index=class_index,
         strength=float(strength),
         d_cap=cap,
         dr_progress=float(identity.dr_progress),
         dr_stage_fingerprint=str(identity.dr_stage_fingerprint),
     )
+
+
+def frontres_v021_dr_class_interval(
+    identity: FrontRESKStageIdentity,
+    *,
+    class_name: str,
+) -> tuple[float, float, bool, bool]:
+    """Return the current absolute interval for one relative DR class."""
+
+    name = str(class_name)
+    if name not in FRONTRES_V013_DR_CLASS_NAMES:
+        raise ValueError(f"unknown TRAIN-v021 DR class {name!r}")
+    cap = float(identity.d_cap)
+    ceiling = float(identity.dr_reference_ceiling)
+    if not math.isfinite(cap) or cap <= 0.0 or not math.isfinite(ceiling) or ceiling <= cap:
+        raise ValueError("TRAIN-v021 DR interval requires finite positive cap below its ceiling")
+    intervals = {
+        "easy": (0.0, 0.25 * cap, True, False),
+        "medium": (0.25 * cap, 0.70 * cap, True, False),
+        "hard": (0.70 * cap, cap, True, True),
+        "broken": (cap, min(1.10 * cap, ceiling), False, True),
+    }
+    low, high, low_inclusive, high_inclusive = intervals[name]
+    if high <= low:
+        raise RuntimeError("TRAIN-v021 DR class interval collapsed at the configured ceiling")
+    return float(low), float(high), bool(low_inclusive), bool(high_inclusive)
+
+
+def frontres_v021_dr_strength_in_class(
+    identity: FrontRESKStageIdentity,
+    *,
+    class_name: str,
+    strength: float,
+) -> bool:
+    """Check absolute strength against the current class interval."""
+
+    value = float(strength)
+    if not math.isfinite(value):
+        return False
+    low, high, low_inclusive, high_inclusive = frontres_v021_dr_class_interval(
+        identity,
+        class_name=class_name,
+    )
+    lower_ok = value >= low if low_inclusive else value > low
+    upper_ok = value <= high if high_inclusive else value < high
+    return bool(lower_ok and upper_ok)
 
 
 def resolve_frontres_k_stage_identity(
@@ -406,7 +456,7 @@ def frontres_segment_warmup_phase(
     critic_warmup_iterations: int,
     actor_warmup_iterations: int,
 ) -> FrontRESSegmentWarmupPhase:
-    """把持久 Stage 3 iteration 映射为 critic-only/actor-ramp/joint phase.
+    """Map persisted Stage-3 progress to coupled Actor/Critic phases.
 
     函数名说明:
         `frontres_segment_warmup_phase` 是纯 phase scheduler, 只计算 actor loss
@@ -417,8 +467,9 @@ def frontres_segment_warmup_phase(
         下游: PPO update 使用 `actor_loss_weight`, critic 始终保持可训练.
 
     语义:
-        critic-only 先建立 value baseline, actor ramp 再平滑开放 policy gradient,
-        最后进入 joint PPO, 防止初始梯度冲毁 HSL actor.
+        Actor and Critic update together from the first low-DR transaction.
+        One monotonic weight spans joint initiation and coupled ramp before
+        entering full joint optimization.
     """
 
     iteration = max(0, int(iteration))
@@ -426,32 +477,35 @@ def frontres_segment_warmup_phase(
     actor_warmup_iterations = max(0, int(actor_warmup_iterations))
 
     # B1: 读取 persisted Stage 3 iteration 和 immutable warmup boundaries.
-    # B2: 唯一选择 critic-only, actor-ramp 或 joint phase.
-    if iteration < critic_warmup_iterations:
+    # B2: Select one coupled phase and one strictly nonzero warmup weight.
+    coupled_updates = critic_warmup_iterations + actor_warmup_iterations
+    if coupled_updates <= 0:
         phase = FrontRESSegmentWarmupPhase(
-            name="critic_only",
+            name="joint",
             phase_iteration=iteration,
-            actor_loss_weight=0.0,
+            actor_loss_weight=1.0,
+        )
+    elif iteration < coupled_updates:
+        weight = float(iteration + 1) / float(coupled_updates)
+        if iteration < critic_warmup_iterations:
+            name = "low_dr_joint_init"
+            phase_iteration = iteration
+        else:
+            name = "coupled_ramp"
+            phase_iteration = iteration - critic_warmup_iterations
+        phase = FrontRESSegmentWarmupPhase(
+            name=name,
+            phase_iteration=phase_iteration,
+            actor_loss_weight=min(1.0, weight),
         )
     else:
-        actor_iteration = iteration - critic_warmup_iterations
-        if actor_iteration < actor_warmup_iterations:
-            weight = float(actor_iteration + 1) / float(actor_warmup_iterations)
-            phase = FrontRESSegmentWarmupPhase(
-                name="actor_ramp",
-                phase_iteration=actor_iteration,
-                actor_loss_weight=max(0.0, min(1.0, weight)),
-            )
-        else:
-            phase = FrontRESSegmentWarmupPhase(
-                name="joint",
-                phase_iteration=max(0, actor_iteration - actor_warmup_iterations),
-                actor_loss_weight=1.0,
-            )
+        phase = FrontRESSegmentWarmupPhase(
+            name="joint",
+            phase_iteration=iteration - coupled_updates,
+            actor_loss_weight=1.0,
+        )
     # B3: AUDIT-WARMUP-01 截获 PPO loss weighting 实际消费的 phase.
-    # Historical result: E68/E69 used the retired actor_warmup label. The active
-    # TRAIN-v015 identity is actor_ramp with the same persisted schedule weight.
-    # phase_iter=20, actor_weight=0.042, 没有重启 warmup schedule.
+    # Historical critic_only/actor_ramp labels are forbidden by TRAIN-v021.
     emit_formal_runtime_probe(
         "AUDIT-WARMUP-01",
         iteration=iteration,
@@ -476,6 +530,8 @@ __all__ = [
     "frontres_k_stage_schedule_fingerprint",
     "frontres_k_stage_schedule_tuple",
     "frontres_segment_warmup_phase",
+    "frontres_v021_dr_class_interval",
+    "frontres_v021_dr_strength_in_class",
     "normalize_frontres_k_stage_schedule",
     "parse_frontres_k_stage_schedule",
     "require_frontres_v011_campaign_schedule",

@@ -66,8 +66,38 @@ if ((await page.title()) !== "02 FrontRES Design Inspector") {
 if (await page.frameLocator("iframe").locator('rect[role="button"]').count() !== 10) {
  throw new Error("Design Inspector must preserve ten design-point buttons");
 }
+const warmupButton = page.frameLocator("iframe").getByRole("button", {
+ name: "查看 Actor & Critic Warmup 的 Inspector 卡片",
+});
+if (await warmupButton.count() !== 1) {
+ throw new Error("Actor & Critic Warmup button is missing or ambiguous");
+}
+await warmupButton.click();
+const warmupText = (await page.frameLocator("iframe").locator("svg").textContent()).replace(/\s+/g, "");
+for (const required of [
+ "低DR下不设置Critic-only",
+ "Actor/Critic同时更新",
+ "w_actor单调缓慢升至1",
+ "不能resumeTRAIN-v020checkpoint-v15",
+]) {
+ if (!warmupText.includes(required)) {
+  throw new Error(`Actor & Critic Warmup card missing visible text: ${required}`);
+ }
+}
 await page.screenshot({ path: "/tmp/frontres_design_inspector_desktop.png", fullPage: true });
 
+await page.setViewportSize({ width: 390, height: 844 });
+await page.reload({ waitUntil: "networkidle" });
+const mobileWarmupButton = page.frameLocator("iframe").getByRole("button", {
+ name: "查看 Actor & Critic Warmup 的 Inspector 卡片",
+});
+await mobileWarmupButton.click();
+if (await page.frameLocator("iframe").locator('rect[role="button"]').count() !== 10) {
+ throw new Error("mobile Design Inspector lost design-point buttons");
+}
+await page.screenshot({ path: "/tmp/frontres_design_inspector_mobile.png", fullPage: true });
+
+await page.setViewportSize({ width: 1440, height: 1000 });
 await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
 const atlasOrder = (await page.locator("section.grid strong").allTextContents()).slice(0, 5);
 const expectedAtlasOrder = [

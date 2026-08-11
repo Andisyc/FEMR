@@ -33,7 +33,7 @@ def _run_contract_preflight(mode: str = "train") -> subprocess.CompletedProcess[
         env["FRONTRES_STAGE3_RUN_CONTRACTS"] = "1"
         env["FRONTRES_STAGE3_CONTRACT_SUITE"] = str(suite_stub)
         env["FRONTRES_STAGE3_CONTRACT_PYTHON"] = sys.executable
-        env["FRONTRES_V015_K_CURRICULUM"] = "8:4:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381,16:4:300:300:900:lower-k16:0.6:linear-joint-v1:900:2.381,32:4:400:300:625:lower-k32:0.7:linear-joint-v1:625:2.381"
+        env["FRONTRES_V015_K_CURRICULUM"] = "8:4:200:500:1300:lower-k8:0.5:linear-coupled-v1:700:2.381,16:4:300:300:900:lower-k16:0.6:linear-coupled-v1:600:2.381,32:4:400:300:625:lower-k32:0.7:linear-coupled-v1:700:2.381"
         return subprocess.run(
             [
                 "bash",
@@ -99,7 +99,7 @@ def test_retired_optimizer_modes_fail_closed_before_command_construction() -> No
     for mode in ("single_update", "update_loop"):
         result = _run_contract_preflight(mode)
         assert result.returncode == 4
-        assert "FRS-PPO-v008 rejects retired optimizer-writing Stage 3 mode" in result.stderr
+        assert "FRS-PPO-v009 rejects retired optimizer-writing Stage 3 mode" in result.stderr
         assert "[FrontRES Stage3 startup preflight] PASS" not in result.stdout
         assert "Command: " not in result.stdout
 

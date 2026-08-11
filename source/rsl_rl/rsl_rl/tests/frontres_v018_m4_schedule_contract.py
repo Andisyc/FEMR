@@ -21,9 +21,9 @@ spec.loader.exec_module(module)
 
 
 SCHEDULE = (
-    "8:4:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381,"
-    "16:4:300:300:900:lower-k16:0.6:linear-joint-v1:900:2.381,"
-    "32:4:400:300:625:lower-k32:0.7:linear-joint-v1:625:2.381"
+    "8:4:200:500:1300:lower-k8:0.5:linear-coupled-v1:700:2.381,"
+    "16:4:300:300:900:lower-k16:0.6:linear-coupled-v1:600:2.381,"
+    "32:4:400:300:625:lower-k32:0.7:linear-coupled-v1:700:2.381"
 )
 
 

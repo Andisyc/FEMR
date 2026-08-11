@@ -35,7 +35,7 @@ def _run_preflight(
         env["FRONTRES_STAGE_PREFLIGHT_ONLY"] = "1"
         env["FRONTRES_STAGE3_RUN_CONTRACTS"] = "0"
         env["FRONTRES_SPECIALIST_MODE"] = "rp"
-        env["FRONTRES_V015_K_CURRICULUM"] = "8:4:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381,16:4:300:300:900:lower-k16:0.6:linear-joint-v1:900:2.381,32:4:400:300:625:lower-k32:0.7:linear-joint-v1:625:2.381"
+        env["FRONTRES_V015_K_CURRICULUM"] = "8:4:200:500:1300:lower-k8:0.5:linear-coupled-v1:700:2.381,16:4:300:300:900:lower-k16:0.6:linear-coupled-v1:600:2.381,32:4:400:300:625:lower-k32:0.7:linear-coupled-v1:700:2.381"
         if env_overrides:
             env.update(env_overrides)
         cmd = [
@@ -92,7 +92,7 @@ def test_stage3_train_launch_preflight_builds_femr_command() -> None:
     assert "--frontres_stage stage3_segment_hrl" in command
     assert "--frontres_v015_hsl_initializer_checkpoint" in command
     assert "--frontres_v015_future_offsets 1\\,2" in command
-    assert "--frontres_segment_k_curriculum 8:4:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381" in command
+    assert "--frontres_segment_k_curriculum 8:4:200:500:1300:lower-k8:0.5:linear-coupled-v1:700:2.381" in command
     assert "--resume_student_checkpoint" not in command
     assert "--is_full_resume" not in command
     assert "--resume " not in command
@@ -156,7 +156,7 @@ def test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds() -> None:
 def test_strict_v11_resume_replaces_hsl_initializer() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         resume_path = Path(tmp) / "model_1.pt"
-        resume_path.write_text("semantic checkpoint-v15 fixture\n")
+        resume_path.write_text("semantic checkpoint-v16 fixture\n")
         result = _run_preflight(
             "train",
             {"FRONTRES_V015_RESUME_CHECKPOINT": str(resume_path)},
@@ -179,7 +179,7 @@ def test_strict_v11_resume_rejects_missing_checkpoint() -> None:
         bounds=("8", "199", "1"),
     )
     assert result.returncode != 0
-    assert "checkpoint-v15 resume checkpoint not found" in result.stderr
+    assert "checkpoint-v16 resume checkpoint not found" in result.stderr
 
 
 def test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel() -> None:
@@ -274,7 +274,7 @@ def test_stage3_launch_rejects_retired_optimizer_modes() -> None:
     for mode in ("single_update", "update_loop"):
         result = _run_preflight(mode)
         assert result.returncode == 4
-        assert "FRS-PPO-v008 rejects retired optimizer-writing Stage 3 mode" in result.stderr
+        assert "FRS-PPO-v009 rejects retired optimizer-writing Stage 3 mode" in result.stderr
         assert "Command: " not in result.stdout
 
 

@@ -1,0 +1,58 @@
+{
+  "schema_version": "workflow-governance/v1",
+  "governance_id": "WFG-FRS-TRAIN-v021-FORMAL-AUDIT-20260811",
+  "lifecycle_phase": "module-testing",
+  "target_phase": "formal-audit",
+  "admission": "TRANSITION-ADMITTED",
+  "scope": {
+    "requested": ["admit current MODULE-CORRECT evidence to formal audit"],
+    "preserved": ["module and formal-route evidence remain independent"],
+    "forbidden": ["module pass as live proof", "long training", "policy-quality claim"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11",
+    "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004",
+    "checkout": "ca7c3a737c6f46c38885b1e3ae313392f6c2266d+v021-working-tree-20260811",
+    "entrypoint": "run_stage3.sh->run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl",
+    "effective_config": "fixed-splitlr-3e-6-1e-5-k8m4-linear-coupled-v1",
+    "checkpoint": "fresh-HSL-v2->frontres-v021-checkpoint-v16"
+  },
+  "authority": {
+    "semantic": {"status": "approved", "scope": "confirmed active Contract", "receipt": "user-confirmed-design-20260811"},
+    "local_reversible": {"status": "approved", "scope": "formal offline audit", "receipt": "user-one-shot-execution-20260811"},
+    "git_actions": {"status": "not-requested", "scope": "no stage commit push"},
+    "external_operations": {"status": "not-requested", "scope": "offline formal audit only"},
+    "bounded_live": {"status": "not-requested", "scope": "separate next transition"},
+    "long_run": {"status": "not-requested", "scope": "training remains user-controlled"},
+    "destructive": {"status": "not-required", "scope": "no destructive action"}
+  },
+  "artifacts": [
+    {
+      "kind": "contract", "artifact_id": "FRS-TRAIN-v021-CONTRACT-SET",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/README.md",
+      "lifecycle": "current", "status": "active", "content_hash": "sha256:05a8276df6210127f3d2a78fee0dbfc7dda17df8395ff11abb24a173478fcef7", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11", "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004"}
+    },
+    {
+      "kind": "module-test-manifest", "artifact_id": "FRS-TRAIN-v021-MODULE-ALIGNMENT",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/testing/manifests/frontres_train_v021_module_alignment.json",
+      "lifecycle": "current", "status": "confirmed", "content_hash": "sha256:2cc1647b46a77a9c6ec26f3c0b35cf36d05d23aeac69b2b52ddbad98b6af43ea", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11", "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004", "checkout": "ca7c3a737c6f46c38885b1e3ae313392f6c2266d+v021-working-tree-20260811"}
+    }
+  ],
+  "dependencies": [
+    {
+      "kind": "module-alignment-test", "status": "MODULE-CORRECT", "schema_version": "1",
+      "manifest_path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/testing/manifests/frontres_train_v021_module_alignment.json",
+      "manifest_hash": "sha256:2cc1647b46a77a9c6ec26f3c0b35cf36d05d23aeac69b2b52ddbad98b6af43ea", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11", "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004", "checkout": "ca7c3a737c6f46c38885b1e3ae313392f6c2266d+v021-working-tree-20260811", "entrypoint": "run_stage3.sh->run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl", "effective_config": "fixed-splitlr-3e-6-1e-5-k8m4-linear-coupled-v1", "checkpoint": "fresh-HSL-v2->frontres-v021-checkpoint-v16"},
+      "validation": {"command": "validate_module_test_manifest.py frontres_train_v021_module_alignment.json", "exit_code": 0, "identity": "ADMITTED-OFFLINE", "current": true}
+    }
+  ],
+  "design_review": {"semantic_change": true, "status": "confirmed", "mapping_complete": true, "receipt": "active Contract and MODULE-CORRECT receipt"},
+  "open_boundaries": [],
+  "invalidations": [],
+  "recovery": {},
+  "closeout": {}
+}

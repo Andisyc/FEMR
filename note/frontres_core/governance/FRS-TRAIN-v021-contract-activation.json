@@ -1,0 +1,63 @@
+{
+  "schema_version": "workflow-governance/v1",
+  "governance_id": "WFG-FRS-TRAIN-v021-ACTIVATE-20260811",
+  "lifecycle_phase": "design-proposal",
+  "target_phase": "contract-active",
+  "admission": "DESIGN-CONFIRMED",
+  "scope": {
+    "requested": ["Activate the confirmed low-DR coupled Actor/Critic and phase-aware replay design"],
+    "preserved": ["158D Actor, 449D Critic, M4, Gain-v008, K8/16/32, split LR, exact-one update and frozen GMT"],
+    "forbidden": ["Critic-only warmup, foreign-DR replay, stale PPO rows, MOSAIC host changes and long training"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11",
+    "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004",
+    "checkout": "ca7c3a737c6f46c38885b1e3ae313392f6c2266d+authorized-dirty-worktree",
+    "entrypoint": "run_stage3.sh->run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl",
+    "effective_config": "TRAIN-v021-explicit-ten-field-coupled-K8M4-K16M4-K32M4",
+    "checkpoint": "fresh-HSL-v2->frontres-v021-checkpoint-v16"
+  },
+  "authority": {
+    "semantic": {"status": "approved", "scope": "Confirmed DP02/DP03/DP09 Design Inspector", "receipt": "User confirmed Design Inspector and authorized execution 2026-08-11"},
+    "local_reversible": {"status": "approved", "scope": "Local Contract and implementation work", "receipt": "User one-shot execution authorization 2026-08-11"},
+    "git_actions": {"status": "not-requested", "scope": "No stage, commit or push"},
+    "external_operations": {"status": "not-requested", "scope": "No server or network operation"},
+    "bounded_live": {"status": "not-requested", "scope": "No simulator transaction in this activation receipt"},
+    "long_run": {"status": "not-requested", "scope": "Training start remains under user control"},
+    "destructive": {"status": "not-required", "scope": "Only versioned active-to-history Contract migration"}
+  },
+  "artifacts": [
+    {
+      "kind": "concept-figure", "artifact_id": "FRS-CONCEPT-FIGURE-vCURRENT",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/architecture/concept/03_frontres_concept_tabs.data.json",
+      "lifecycle": "current", "status": "active", "content_hash": "sha256:87ca37d3362ce2426b31b76c2e48a171f35b909fde3f9fe89f76beb23897f9c1", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11"}
+    },
+    {
+      "kind": "design-inspector", "artifact_id": "FRS-DESIGN-INSPECTOR-vCURRENT",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/architecture/runtime/04_frontres_design_inspector.data.json",
+      "lifecycle": "current", "status": "confirmed", "content_hash": "sha256:26543d29fe4dce64dfb05408cfcd830494b81fb7e619433db6e1732ba23d3617", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11", "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004"}
+    },
+    {
+      "kind": "contract-proposal", "artifact_id": "FRS-METHOD-v022-PROPOSAL",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/plans/FRS-METHOD-v022-low-dr-coupled-replay-proposal.md",
+      "lifecycle": "volatile", "status": "proposal", "content_hash": "sha256:9dcbe61257d4702a77f53022bfc749fde5bc142d212427290ff6f6cce33f3799", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11", "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004"}
+    }
+  ],
+  "dependencies": [],
+  "design_review": {
+    "semantic_change": true,
+    "status": "confirmed",
+    "mapping_complete": true,
+    "receipt": "User confirmed Design Inspector and authorized one-shot execution 2026-08-11",
+    "proposal_hash": "sha256:9dcbe61257d4702a77f53022bfc749fde5bc142d212427290ff6f6cce33f3799",
+    "inspector_hash": "sha256:26543d29fe4dce64dfb05408cfcd830494b81fb7e619433db6e1732ba23d3617"
+  },
+  "open_boundaries": [],
+  "invalidations": [],
+  "recovery": {},
+  "closeout": {}
+}

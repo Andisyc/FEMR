@@ -93,7 +93,7 @@ def test_lazy_public_facade() -> None:
     before = set(sys.modules)
     interface_module = importlib.import_module("rsl_rl.frontres.frontres_interfaces")
     imported = set(sys.modules).difference(before)
-    assert interface_module.FRONTRES_CHECKPOINT_FORMAT == "frontres-v020-checkpoint-v15"
+    assert interface_module.FRONTRES_CHECKPOINT_FORMAT == "frontres-v021-checkpoint-v16"
     assert not any(name.startswith("isaaclab") for name in imported)
     facade = importlib.import_module("rsl_rl.frontres")
     assert "FrontRESActionCone" not in facade.__all__
@@ -158,8 +158,8 @@ class _FakeRequest:
             k_stage_index={8: 0, 16: 1, 32: 2}.get(active_k, 0),
             k_stage_iteration=0,
             training_iteration=0,
-            warmup_phase_name="critic_only",
-            warmup_actor_loss_weight=0.0,
+            warmup_phase_name="low_dr_joint_init",
+            warmup_actor_loss_weight=1.0 / 700.0,
             dr_stage_fingerprint="b" * 64,
             dr_progress=0.0,
             d_cap=0.5,
@@ -263,7 +263,7 @@ def test_schema_and_identity(interfaces) -> None:
     )
     ramp_view = replace(
         _FakeRequest(interfaces)._view,
-        warmup_phase_name="actor_ramp",
+        warmup_phase_name="coupled_ramp",
         warmup_actor_loss_weight=0.25,
     )
     ramp_view.validate()
@@ -273,14 +273,14 @@ def test_schema_and_identity(interfaces) -> None:
     )
 
     telemetry = {
-        "method_contract_id": "FRS-METHOD-v021",
+        "method_contract_id": "FRS-METHOD-v022",
         "gain_contract_id": "FRS-GAIN-v008",
-        "optimization_contract_id": "FRS-PPO-v008",
-        "training_contract_id": "FRS-TRAIN-v020",
+        "optimization_contract_id": "FRS-PPO-v009",
+        "training_contract_id": "FRS-TRAIN-v021",
         "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",
-        "checkpoint_format": "frontres-v020-checkpoint-v15",
+        "checkpoint_format": "frontres-v021-checkpoint-v16",
         "critic_value_kind": "state_value",
         "critic_input_dim": 449,
         "critic_support_context_id": "action-pre-support-plan-kmax32-v1",

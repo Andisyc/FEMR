@@ -18,14 +18,14 @@ from rsl_rl.frontres.frontres_return_utility import (
     FRONTRES_RETURN_UTILITY_SCALE,
 )
 
-FRONTRES_METHOD_CONTRACT_ID = "FRS-METHOD-v021"
+FRONTRES_METHOD_CONTRACT_ID = "FRS-METHOD-v022"
 FRONTRES_GAIN_CONTRACT_ID = "FRS-GAIN-v008"
-FRONTRES_OPTIMIZATION_CONTRACT_ID = "FRS-PPO-v008"
-FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v020"
+FRONTRES_OPTIMIZATION_CONTRACT_ID = "FRS-PPO-v009"
+FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v021"
 FRONTRES_SCALAR_TARGET_ID = "symmetric-log-recovery-aware-utility-v1"
 FRONTRES_PHYSICS_SCHEMA_ID = "clean-anchored-contact-zmp-survival-v1"
 FRONTRES_GROUPED_SCHEMA_ID = "grouped-all-attempt-scalar-v1"
-FRONTRES_CHECKPOINT_FORMAT = "frontres-v020-checkpoint-v15"
+FRONTRES_CHECKPOINT_FORMAT = "frontres-v021-checkpoint-v16"
 FRONTRES_DR_CURRICULUM_SCHEMA_ID = "nested-k-dr-four-class-v1"
 FRONTRES_CRITIC_VALUE_KIND = "state_value"
 FRONTRES_CRITIC_INPUT_DIM = 449
@@ -170,8 +170,8 @@ class FrontRESActiveTransactionRequestView:
         ):
             if isinstance(value, bool) or int(value) < 0:
                 raise ValueError(f"FrontRES request {name} must be a nonnegative integer")
-        if self.warmup_phase_name not in {"critic_only", "actor_ramp", "joint"}:
-            raise ValueError("FrontRES request has an invalid TRAIN-v018 phase")
+        if self.warmup_phase_name not in {"low_dr_joint_init", "coupled_ramp", "joint"}:
+            raise ValueError("FrontRES request has an invalid TRAIN-v021 phase")
         if not math.isfinite(float(self.warmup_actor_loss_weight)) or not 0.0 <= float(
             self.warmup_actor_loss_weight
         ) <= 1.0:
@@ -384,9 +384,9 @@ class FrontRESActiveTelemetryView:
         if self.optimizer_step_delta != 1 or self.update_count != 1:
             raise ValueError("FrontRES telemetry requires exact-one update identity")
         if self.actor_learning_rate != 3.0e-6 or self.critic_learning_rate != 1.0e-5:
-            raise ValueError("FRS-TRAIN-v020 telemetry requires Actor LR=3e-6 and Critic LR=1e-5")
+            raise ValueError("FRS-TRAIN-v021 telemetry requires Actor LR=3e-6 and Critic LR=1e-5")
         if self.actor_observation_dim != 158 or self.gmt_observation_dim != 770:
-            raise ValueError("FRS-TRAIN-v020 telemetry requires Actor/GMT dimensions 158/770")
+            raise ValueError("FRS-TRAIN-v021 telemetry requires Actor/GMT dimensions 158/770")
         gradient_values = (
             self.gradient_clip_max_norm,
             self.actor_gradient_post_clip_norm,
@@ -398,7 +398,7 @@ class FrontRESActiveTelemetryView:
             or self.actor_gradient_post_clip_norm > self.gradient_clip_max_norm + 1.0e-6
             or self.critic_gradient_post_clip_norm > self.gradient_clip_max_norm + 1.0e-6
         ):
-            raise ValueError("FRS-PPO-v008 telemetry has invalid separate gradient clipping facts")
+            raise ValueError("FRS-PPO-v009 telemetry has invalid separate gradient clipping facts")
         if (
             self.critic_value_normalization_id != FRONTRES_VALUE_NORMALIZATION_ID
             or self.critic_value_normalizer_decay != FRONTRES_VALUE_NORMALIZER_DECAY
@@ -408,7 +408,7 @@ class FrontRESActiveTelemetryView:
             or self.critic_value_normalizer_update_count_after
             != self.critic_value_normalizer_update_count_before + 1
         ):
-            raise ValueError("FRS-PPO-v008 telemetry has invalid Critic value-normalizer facts")
+            raise ValueError("FRS-PPO-v009 telemetry has invalid Critic value-normalizer facts")
 
 
 class FrontRESTransactionLifecyclePort(Protocol):

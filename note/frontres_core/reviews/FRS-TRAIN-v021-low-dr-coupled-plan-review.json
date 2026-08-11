@@ -1,0 +1,60 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v021-PLAN-20260811",
+  "mode": "plan",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "READY",
+  "scope": {
+    "requested": ["Review the TRAIN-v021 one-shot engineering plan before production edits"],
+    "preserved": ["158D Actor, 449D Critic, M4, Gain-v008, split LR, exact-one update and frozen GMT"],
+    "forbidden": ["MOSAIC host changes, duplicate semantic owners, silent fallback and long training"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11",
+    "contract": "FRS-METHOD-v022/FRS-PPO-v009/FRS-TRAIN-v021",
+    "checkout": "ca7c3a737c6f46c38885b1e3ae313392f6c2266d+authorized-dirty-worktree",
+    "review_object": "sha256:05eb3ae5def09577e9dccb71e3a93e4e0314fc2babf480897042e7624037cc82"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Plan maintainability review"},
+    "source_edits": {"status": "approved", "scope": "Authorized TRAIN-v021 local implementation", "receipt": "User one-shot execution authorization 2026-08-11"},
+    "report_write": {"status": "approved", "scope": "Persist plan review receipt", "receipt": "User requested code-review-expert 2026-08-11"}
+  },
+  "review_object": {
+    "kind": "plan",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/plans/FRS-TRAIN-v021-low-dr-coupled-replay-one-shot-engineering-plan.md",
+    "content_hash": "sha256:05eb3ae5def09577e9dccb71e3a93e4e0314fc2babf480897042e7624037cc82",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "Schedule, replay, orchestration and persistence retain one named owner each."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "Plan uses immutable schedule identity, replay plan/candidate and commit receipt boundaries."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "Runner adapters depend on deterministic owners; owners do not receive simulator objects."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "Preview, staged candidate, exact-one receipt, atomic commit and strict resume are explicit."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "Existing schedule and replay Pinch Points contain the semantic delta without a new abstraction."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "S1 owner, S2 official offline and S3 persistence proof are separated from policy quality."},
+    {"name": "proof-route", "disposition": "pass", "evidence": "TEST-22A-D cover owner, consumer, failure and persistence before the training command."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "Exact-M advantages remain detached row-aligned scheduler evidence; Actor/Critic inputs are unchanged."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "Only Actor loss weight changes; separate clipping and one Adam step remain explicit."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "Replay v2 and checkpoint-v16 strict roundtrip are required; evaluation remains read-only."}
+  ],
+  "findings": [],
+  "residual_risks": ["Implementation and official-route evidence remain unconfirmed until the planned TDD and audits run."],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}

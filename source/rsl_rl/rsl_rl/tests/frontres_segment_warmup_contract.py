@@ -101,33 +101,39 @@ def test_phase_boundaries_are_monotonic() -> None:
         for iteration in range(8)
     ]
     assert [phase.name for phase in phases] == [
-        "critic_only",
-        "critic_only",
-        "actor_ramp",
-        "actor_ramp",
-        "actor_ramp",
-        "actor_ramp",
+        "low_dr_joint_init",
+        "low_dr_joint_init",
+        "coupled_ramp",
+        "coupled_ramp",
+        "coupled_ramp",
+        "coupled_ramp",
         "joint",
         "joint",
     ]
     weights = [phase.actor_loss_weight for phase in phases]
-    assert weights[:2] == [0.0, 0.0]
-    assert weights[2:6] == [0.25, 0.5, 0.75, 1.0]
+    torch.testing.assert_close(torch.tensor(weights[:6]), torch.arange(1.0, 7.0) / 6.0)
     assert weights[6:] == [1.0, 1.0]
+    assert weights[0] > 0.0
     assert weights == sorted(weights)
 
 
-def test_critic_only_blocks_actor_and_std_gradients() -> None:
+def test_low_dr_joint_init_updates_actor_std_and_critic() -> None:
     policy = _ToyPolicy()
+    phase = frontres_segment_warmup_phase(
+        iteration=0,
+        critic_warmup_iterations=2,
+        actor_warmup_iterations=4,
+    )
     result = compute_frontres_segment_ppo_loss(
         policy,
         _batch(policy),
-        FrontRESSegmentPPOConfig(actor_loss_weight=0.0, entropy_coef=0.01),
+        FrontRESSegmentPPOConfig(actor_loss_weight=phase.actor_loss_weight, entropy_coef=0.01),
     )
     result.total_loss.backward()
-    assert result.actor_loss_weight == 0.0
-    assert _grad_norm(policy.actor.weight) == 0.0
-    assert _grad_norm(policy.log_std) == 0.0
+    assert phase.name == "low_dr_joint_init"
+    assert result.actor_loss_weight > 0.0
+    assert _grad_norm(policy.actor.weight) > 0.0
+    assert _grad_norm(policy.log_std) > 0.0
     assert _grad_norm(policy.critic.weight) > 0.0
 
 
@@ -155,16 +161,16 @@ def test_v011_k_m_stage_boundaries_and_repeated_critic_only() -> None:
         (0, 8, 2, 0), (0, 8, 2, 1), (0, 8, 2, 2), (0, 8, 2, 3),
         (0, 8, 2, 4), (0, 8, 2, 5), (1, 16, 3, 0)
     ]
-    assert identities[0].phase.name == "critic_only"
-    assert identities[6].phase.name == "critic_only"
-    assert identities[7].phase.name == "critic_only"
-    assert identities[9].phase.name == "actor_ramp"
+    assert identities[0].phase.name == "low_dr_joint_init"
+    assert identities[6].phase.name == "low_dr_joint_init"
+    assert identities[7].phase.name == "low_dr_joint_init"
+    assert identities[9].phase.name == "coupled_ramp"
     assert identities[11].phase.name == "joint"
     assert identities[12].stage_index == 2
     assert identities[12].active_k == 32
     assert identities[12].active_m == 4
-    assert identities[12].phase.name == "critic_only"
-    assert identities[13].phase.name == "actor_ramp"
+    assert identities[12].phase.name == "low_dr_joint_init"
+    assert identities[13].phase.name == "coupled_ramp"
     assert len({value.schedule_fingerprint for value in identities}) == 1
 
 
@@ -244,9 +250,9 @@ def test_v011_stage_transition_is_committed_boundary_only() -> None:
 
 def _v013_schedule_text() -> str:
     return (
-        "8:4:200:500:1300:lower-k8:0.50:linear-joint-v1:1300:2.381,"
-        "16:4:300:300:900:lower-k16:0.60:linear-joint-v1:900:2.381,"
-        "32:4:400:300:625:lower-k32:0.70:linear-joint-v1:625:2.381"
+        "8:4:200:500:1300:lower-k8:0.50:linear-coupled-v1:700:2.381,"
+        "16:4:300:300:900:lower-k16:0.60:linear-coupled-v1:600:2.381,"
+        "32:4:400:300:625:lower-k32:0.70:linear-coupled-v1:700:2.381"
     )
 
 
@@ -254,24 +260,33 @@ def test_v013_nested_dr_restart_and_committed_progress() -> None:
     schedule = require_frontres_v013_campaign_schedule(
         parse_frontres_k_stage_schedule(_v013_schedule_text(), max_horizon_k=32)
     )
-    at_k8_joint = resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=700)
-    assert at_k8_joint.active_k == 8
-    assert at_k8_joint.dr_progress == 0.0
-    assert at_k8_joint.d_cap == 0.50
-    later_k8 = resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=1350)
+    at_k8_start = resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=0)
+    assert at_k8_start.active_k == 8
+    assert at_k8_start.phase.name == "low_dr_joint_init"
+    assert at_k8_start.phase.actor_loss_weight > 0.0
+    assert at_k8_start.dr_progress == 0.0
+    assert at_k8_start.d_cap == 0.50
+    later_k8 = resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=350)
+    assert later_k8.phase.name == "coupled_ramp"
     assert abs(later_k8.dr_progress - 0.5) < 1.0e-12
     expected_half = 0.5 + 0.5 * (2.381 / 1.10 - 0.5)
     assert abs(later_k8.d_cap - expected_half) < 1.0e-12
+    at_k8_joint = resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=700)
+    assert at_k8_joint.phase.name == "joint"
+    assert at_k8_joint.phase.actor_loss_weight == 1.0
+    assert at_k8_joint.dr_progress == 1.0
+    assert abs(at_k8_joint.d_cap - 2.381 / 1.10) < 1.0e-12
     at_k16 = resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=2000)
     assert at_k16.active_k == 16 and at_k16.active_m == 4
-    assert at_k16.phase.name == "critic_only"
+    assert at_k16.phase.name == "low_dr_joint_init"
+    assert at_k16.phase.actor_loss_weight > 0.0
     assert at_k16.dr_progress == 0.0 and at_k16.d_cap == 0.60
     assert at_k16.dr_stage_fingerprint != at_k8_joint.dr_stage_fingerprint
 
 
 def test_v013_four_class_sampling_and_no_hidden_defaults() -> None:
     schedule = require_frontres_v013_campaign_schedule(parse_frontres_k_stage_schedule(_v013_schedule_text()))
-    identity = resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=1350)
+    identity = resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=350)
     counts = {"easy": 0, "medium": 0, "hard": 0, "broken": 0}
     for sample_key in range(10_000):
         sample = sample_frontres_v013_dr_strength(identity, sample_key=sample_key)
@@ -304,7 +319,7 @@ def test_v013_four_class_sampling_and_no_hidden_defaults() -> None:
 
 def main() -> None:
     test_phase_boundaries_are_monotonic()
-    test_critic_only_blocks_actor_and_std_gradients()
+    test_low_dr_joint_init_updates_actor_std_and_critic()
     test_actor_ramp_releases_actor_gradient()
     test_v011_k_m_stage_boundaries_and_repeated_critic_only()
     test_v011_schedule_is_deterministic_and_fail_closed()

@@ -1,19 +1,19 @@
 ---
-contract_id: FRS-PPO-v008
+contract_id: FRS-PPO-v009
 status: active
 effective_date: 2026-08-10
 updated_date: 2026-08-10
-supersedes: FRS-PPO-v007
-scope: grouped PPO with one shared symmetric-log utility for Actor and support-conditioned Critic, transform-before-M4 reduction, non-amplifying Critic loss scaling, separate clipping, and exact-one update
+supersedes: FRS-PPO-v008
+scope: unchanged grouped symlog PPO with a strictly nonzero low-DR coupled Actor/Critic warmup boundary
 ---
 
-# Grouped PPO With Shared Symmetric-Log Utility
+# Grouped PPO With Low-DR Coupled Actor/Critic Warmup
 
 ## Design Delta
 
-FRS-PPO-v007 established the non-amplifying Critic loss scale. TRAIN-v018 still
-showed rare raw `G_total` magnitudes dominating the value problem. FRS-PPO-v008
-therefore owns one stateless fixed mapping, shared by both learning branches:
+FRS-PPO-v008 established the stateless fixed mapping shared by both learning
+branches, transform-before-M4 reduction, non-amplifying Critic loss scaling,
+separate clipping and exact-one update:
 
 ```text
 U(G) = sign(G) * log1p(abs(G)), G0 = 1
@@ -138,18 +138,19 @@ scale normalization only; it is not a winner rule or a second reward.
 
 ## Warmup Weight Boundary
 
-FRS-TRAIN-v020 provides one actor-loss weight `w`:
+FRS-TRAIN-v021 provides one actor-loss weight `w`:
 
 ```text
-critic_only: w = 0
-actor_ramp:  0 < w < 1
-joint:       w = 1
+low_dr_joint_init: 0 < w < 1
+coupled_ramp:      0 < w <= 1
+joint:             w = 1
 ```
 
 The scalar actor gradient is multiplied by `w`; Critic learning remains active
-in every phase. During critic-only, actor/std parameters and their optimizer
-state must remain exactly unchanged. No projection or recovery direction is
-computed before applying the ramp.
+in every phase. Actor/std receive a nonzero gradient opportunity from the first
+valid committed transaction. No Critic-only phase, projection or recovery
+direction is permitted. The phase/weight changes gradient scale only; it does
+not change utility, exact-M target, advantage, grouped mass or update count.
 
 ## Transaction And Exact-One Update
 
@@ -202,7 +203,7 @@ diagnostics. Near-zero weights do not count as isolation.
 - raw and scaled value loss, normalization identity and finite scale;
 - committed/preview target mean, second moment and update count;
 - transaction/scenario/hash/policy snapshot identity and committed receipt;
-- `optimization_contract_id=FRS-PPO-v008`, state-value identity and no active projection schema.
+- `optimization_contract_id=FRS-PPO-v009`, state-value identity and no active projection schema.
 
 FRS-GAIN-v008 raw Intent and Physics diagnostics remain observable but read-only
 to this optimization owner.
@@ -212,13 +213,13 @@ to this optimization owner.
 Deterministic evidence must prove hand-computed grouped reduction, permutation
 invariance, sign preservation, K-row isolation, adverse-row retention,
 winner/priority isolation, shared-baseline ordering preservation, exact-M mean
-value target, separate clipping isolation, critic-only actor freeze,
+value target, separate clipping isolation, nonzero first-transaction Actor update,
 partial/mixed rejection, and exact-one optimizer update. Formal connectivity
 must prove every active row uses the same FRS-GAIN-v008 value.
 
 Stop if an old projection/KKT path builds a live graph, valid attempts are
 winner-filtered, Gain or priority changes row mass, mean-centering flips credit,
-K creates policy rows, critic-only mutates actor/std or their optimizer state,
+K creates policy rows, a valid first transaction leaves Actor/std unchanged,
 the Critic sees the 6D action, the value target is action-conditioned, one
 gradient family sets the other's clip coefficient, or one sealed transaction
 produces anything other than one optimizer call. Also stop if raw `V(s)`, raw

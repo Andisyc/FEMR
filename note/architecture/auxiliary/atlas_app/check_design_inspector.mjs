@@ -190,9 +190,9 @@ for (const requiredStep of [
 const expectedSegmentReplayHeadings = [
   "两层 Replay：内层估计，外层重访",
   "Replay 单位：同一个 sealed Scenario",
-  "保存规则：有效 Scenario 全部登记",
-  "学习价值：当前预测还差多少",
-  "池内选择：优先级排名加 staleness",
+  "保存规则：有效 Scenario 与两种分数分开登记",
+  "分阶段学习价值：先校准均值，再学 Repair 差异",
+  "DR 兼容池：先定当前难度类别，再选 Replay",
   "重放时机：每个 Transaction 开始时选择来源",
   "重放执行：当前策略重新生成 M4",
   "提交边界：成功后才更新 Replay 状态",
@@ -257,11 +257,13 @@ for (const required of [
 "不使用 winner-only、argmax 或 best-of-M 权重",
 "所有有效 Segment 始终保留非零 global 采样概率",
 "能够从缓存直接恢复 x_t 的 Segment 不因起始帧靠后而被降权",
-"mean_m |U(G_m)-V_old(s)|",
-"不再把负 Gain clamp 为零",
-"global 40%、replay 50%、review 10%",
-"按学习价值的排名进行概率采样",
-"增加 staleness 机会",
+ "E_V=|mean_m U(G_m)-V_old(s)|",
+ "E_A=mean_m |U(G_m)-mean_m U(G_m)|",
+ "两种分数不互相替代",
+ "global 40%、replay 50%、review 10%",
+ "Easy/Medium/Hard/Broken-tail=20/30/40/10",
+ "兼容池为空时",
+ "排名加 staleness",
 "旧 action、log-prob、return 与 advantage 绝不复用",
 "同一个 sealed artifact",
 "失败事务不改变池或 staleness",
@@ -274,15 +276,18 @@ for (const required of [
 "Critic input 为当前 289D privileged observation、同一 future Intent 58D 与动作前支撑上下文 102D，共 449D",
 "先分别计算 U(G_m)",
 "HSL 只初始化 proposal Actor",
-"Critic-only 保持 Actor 与固定 std 不变",
-"Actor-ramp 再逐步增加 Actor loss weight",
+"第一笔 committed Transaction 起 Actor 与 Critic 就同时更新",
+"0 < w_actor < 1；Actor/Critic 同时更新",
+"w_actor 单调缓慢升至 1",
 "EMA target std 只调节 Critic loss 梯度",
 "固定 symlog 先把 raw G_total 映射为 Actor/Critic 共同预测的 robust utility",
 "分别计算并裁剪各自的 gradient norm",
-"TRAIN-v020 使用 checkpoint-v15",
+"不能 resume TRAIN-v020 checkpoint-v15",
 "外层 Scenario Replay 的 key/score/staleness/RNG",
 "每个 K 都拥有一轮独立的 DR Curriculum",
-"降低 DR 后重新进入 critic-only",
+"Actor 与 Critic 从较小 Actor influence 开始共同适应",
+"从联合预热的第一笔 Transaction 起就按 Easy/Medium/Hard/Broken-tail=20/30/40/10 抽取四类",
+"Replay 只能从当前难度区间选择",
 "不再建立独立 Physics projection",
 ]) {
  if (!transactionText.includes(required)) throw new Error(`Transaction inspector missing exact fact: ${required}`);
@@ -290,13 +295,13 @@ for (const required of [
 const warmupDetails = cardsById.get("FRS-DP-09").details;
 const expectedWarmupHeadings = [
 "Critic 的职责：预测状态难度，不预测指定动作",
-"阶段轮次：每个 K 先校准 Critic，再逐步释放 Actor",
+"共同起步：低 DR 下不设置 Critic-only",
 "Critic 输入：347D 原状态 + 102D 动作前支撑条件",
 "Critic target：先逐 attempt 变换，再取 exact-M 平均",
-"Critic-only 与 Actor-ramp：参考线稳定后再释放 Actor",
+"分布跟随：Actor 与 Critic 共同适应",
 "固定 utility 与自适应 loss scale 分工",
 "独立梯度裁剪：Critic 误差不能压缩 Actor",
-"Recalibrate 与 checkpoint：新数值状态必须冷启动",
+"K 迁移与冷启动：保留能力，重启联合适应",
 ];
 if (warmupDetails.length !== expectedWarmupHeadings.length
  || warmupDetails.some((detail, index) => detail.heading !== expectedWarmupHeadings[index])) {
@@ -305,25 +310,21 @@ if (warmupDetails.length !== expectedWarmupHeadings.length
 const warmupText = JSON.stringify(warmupDetails);
 const warmupSchedule = warmupDetails[1].table;
 const expectedWarmupSchedule = [
- ["K8 / M4", "Critic-only", "200"],
- ["K8 / M4", "Actor-ramp", "500"],
- ["K8 / M4", "Joint Optimize", "1300"],
- ["K16 / M4", "Critic-only", "300"],
- ["K16 / M4", "Actor-ramp", "300"],
- ["K16 / M4", "Joint Optimize", "900"],
- ["K32 / M4", "Critic-only", "400"],
- ["K32 / M4", "Actor-ramp", "300"],
- ["K32 / M4", "Joint Optimize", "625"],
+ ["Low-DR Joint Initiation", "0 < w_actor < 1；Actor/Critic 同时更新", "较低且有明确信号"],
+ ["Coupled Ramp", "w_actor 单调缓慢升至 1；Actor/Critic 同时更新", "随同一 K 阶段逐步提高"],
+ ["Joint Optimize", "w_actor = 1；Actor/Critic 共同更新", "覆盖当前 K 的训练分布"],
 ];
 if (!warmupSchedule || JSON.stringify(warmupSchedule.rows) !== JSON.stringify(expectedWarmupSchedule)) {
- throw new Error("Actor & Critic Warmup must expose the active per-K Critic-only, Actor-ramp, and Joint iteration counts");
+ throw new Error("Actor & Critic Warmup must expose low-DR joint initiation, coupled ramp, and joint optimization");
 }
 for (const required of [
-"Critic-only → Actor-ramp → Joint Optimize",
+"不再冻结 Actor 让 Critic 单独拟合旧策略",
+"0 < w_actor < 1",
+"w_actor 单调缓慢升至 1",
 "Actor LR = 3e-6",
 "Critic LR = 1e-5",
 "同一个 Adam",
-"checkpoint-v15",
+"不能 resume TRAIN-v020 checkpoint-v15",
 "至少为 1",
 "EMA target std 只调节 Critic loss 梯度",
 "exact-one commit 后提交",
@@ -331,12 +332,22 @@ for (const required of [
 "6D Repair action 不进入 Critic",
 "449D Critic",
 "mean_m U(G_m)",
+"Low-DR Joint Initiation 与 Coupled Ramp 期间",
+"Joint Optimize 后",
+"Critic 仍在每笔 Transaction 持续更新",
 ]) {
  if (!warmupText.includes(required)) {
   throw new Error(`Actor & Critic Warmup missing phase/LR fact: ${required}`);
  }
 }
-for (const forbidden of ["M 只表示", "Multi-Critic", "checkpoint identity"]) {
+for (const forbidden of [
+ "M 只表示",
+ "Multi-Critic",
+ "checkpoint identity",
+ "Critic-only → Actor-ramp",
+ "Critic-only 保持 Actor",
+ "每个 K 先校准 Critic",
+]) {
  if (warmupText.includes(forbidden)) {
   throw new Error(`Actor & Critic Warmup must keep maintenance-only detail out of Atlas: ${forbidden}`);
  }
@@ -351,11 +362,11 @@ if (!viewer.includes('addText(String(index + 1), left + 22, rowY')) {
 }
 const conceptFigure = JSON.parse(fs.readFileSync(path.join(repoRoot, "note/architecture/concept/03_frontres_concept_tabs.data.json"), "utf8"));
 const warmupNode = conceptFigure.nodes.find((node) => node.id === "M-05");
-if (!warmupNode || warmupNode.summary !== "每次 K 增长先重新校准同一 Critic, 再释放 Actor") {
- throw new Error("Concept Figure must bind Critic recalibration to K growth rather than a K x M curriculum");
+if (!warmupNode || warmupNode.summary !== "低 DR 联合适应, 再提高 Actor 权重") {
+ throw new Error("Concept Figure must bind Actor/Critic joint adaptation to the lower-DR transition");
 }
-if (!conceptFigure.edges.some((edge) => edge.from === "M-06" && edge.to === "M-05" && edge.label === "换 K 后重校准")) {
- throw new Error("Concept Figure must preserve the K-step Curriculum to Critic recalibration interaction");
+if (!conceptFigure.edges.some((edge) => edge.from === "M-06" && edge.to === "M-05" && edge.label === "低 DR 共适应")) {
+ throw new Error("Concept Figure must preserve the K-step Curriculum to lower-DR joint-adaptation interaction");
 }
 if (viewer.includes('addText("设计索引"')) {
  throw new Error("Transaction inspector must not render the redundant 设计索引 label");

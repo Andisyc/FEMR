@@ -6,18 +6,19 @@ This registry is the only default entrypoint for FrontRES contracts.
 
 | Category | Active contract | Status |
 | --- | --- | --- |
-| Method | `active/method/FRS-METHOD-v021-outer-prioritized-scenario-replay.md` | active |
-| Training | `active/training/FRS-TRAIN-v020-outer-scenario-replay-cold-start.md` | active |
+| Method | `active/method/FRS-METHOD-v022-dr-compatible-phase-aware-scenario-replay.md` | active |
+| Training | `active/training/FRS-TRAIN-v021-low-dr-coupled-actor-critic-cold-start.md` | active |
 | Reward | `active/reward/FRS-GAIN-v008-recovery-aware-raw-evidence-utility-boundary.md` | active |
-| Optimization | `active/optimization/FRS-PPO-v008-symmetric-log-actor-critic-utility.md` | active |
+| Optimization | `active/optimization/FRS-PPO-v009-low-dr-coupled-actor-critic.md` | active |
 | Evaluation | `active/evaluation/FRS-EVAL-v004-clean-anchored-local-and-composition-evaluation.md` | active |
 | Engineering | `active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md` | active |
 
 ## Confirmed Design Rationale
 
-`../plans/FRS-METHOD-v021-outer-prioritized-scenario-replay-proposal.md` records
-the confirmed rationale for closing the outer Scenario Replay loop under
-`FRS-DP-02`. Active authority is the METHOD-v021/TRAIN-v020 pair above.
+`../plans/FRS-METHOD-v022-low-dr-coupled-replay-proposal.md` records the
+confirmed DP02/DP03/DP09 rationale for low-DR joint Actor/Critic adaptation,
+phase-aware replay scoring and current-DR-compatible selection. Active
+authority is METHOD-v022/PPO-v009/TRAIN-v021.
 
 ## Concept Figure Design Point Register
 
@@ -27,17 +28,17 @@ Concept Figure. Canonical names and block IDs come from
 
 | Design ID | Canonical human name | Active contract section | Figure block ID | Current code/evidence gap |
 | --- | --- | --- | --- | --- |
-| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v021` / `Stable Scenario Identity`; `FRS-TRAIN-v020` / `Formal Transaction` | `M-02` | K/DR semantics are unchanged; perturbation seed is now part of replay identity. |
-| `FRS-DP-01P` | Perturbation Probing | `FRS-TRAIN-v020` / `Fixed Training Schedule` | `M-12` | The campaign still configures the measured 2.381 boundary directly. |
-| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v021` / `Selection`; `FRS-PPO-v008` / `Grouped Equal-Mass Reduction`; `FRS-TRAIN-v020` / `Formal Transaction` | `SR-01` | Outer sealed-Scenario replay is active; implementation/formal evidence is pending this engineering unit. |
-| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v021` / `Admission And Priority`; `FRS-TRAIN-v020` / `Fixed Training Schedule` | `M-06` | K/DR timing is unchanged; checkpoint-v15 binds K-specific replay score. |
-| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v021` / `Preserved Boundaries`; `FRS-TRAIN-v020` / `Fixed Training Schedule` | `M-04` | Direct finite `[B,6]` action semantics are unchanged; action-conditioned Critic remains forbidden. |
-| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v021` / `Preserved Boundaries` | `M-10` | Frozen 770D GMT authority is unchanged. |
-| `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v021` / `Preserved Boundaries`; `FRS-GAIN-v008` / `Evidence Authority And Lifecycle`; `FRS-EVAL-v004` / `Local Clean/Noisy/Repair Evaluation` | `Q-PAIR` | Evaluation remains read-only and outer replay is training-only. |
-| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v008` / `Recovery-Aware Total Gain`; `FRS-PPO-v008` / `Scalar Actor And Critic Signal`; `FRS-EVAL-v004` / `Local Report` | `Q-01` | Raw Gain is preserved; fixed symlog utility is shared by Actor and Critic. |
-| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v020` / `Campaign Identity` | `M-03` | HSL-v2 remains Actor-only initialization; Critic, optimizer and replay state start fresh. |
-| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v020` / `Fixed Training Schedule`; `FRS-PPO-v008` / `Warmup Weight Boundary` | `M-05` | Phase counts/LRs remain; checkpoint-v15 requires fresh evidence. |
-| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v021` / `Preserved Boundaries`; `FRS-TRAIN-v020` / `Formal Transaction` | `M-11` | Actor remains 158D; Critic remains 449D and GMT remains 770D. |
+| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v022` / `Stable Scenario Identity`; `FRS-TRAIN-v021` / `Formal Transaction` | `M-02` | Seeded Scenario identity remains unchanged. |
+| `FRS-DP-01P` | Perturbation Probing | `FRS-TRAIN-v021` / `Coupled DR Curriculum` | `M-12` | The measured 2.381 ceiling remains fixed. |
+| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v022` / `Two Committed Scores`, `DR-Compatible Selection`; `FRS-PPO-v009` / `Grouped Equal-Mass Reduction` | `SR-01` | Dual score/replay-v2 implementation and formal evidence are pending this unit. |
+| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v022` / `DR-Compatible Selection`; `FRS-TRAIN-v021` / `Coupled DR Curriculum` | `M-06` | K-specific scores and current absolute DR intervals are authoritative. |
+| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v022` / `Preserved Boundaries`; `FRS-TRAIN-v021` / `Fixed Optimization` | `M-04` | Direct finite `[B,6]` action semantics are unchanged. |
+| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v022` / `Preserved Boundaries` | `M-10` | Frozen 770D GMT authority is unchanged. |
+| `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v022` / `Transaction And Persistence`; `FRS-GAIN-v008`; `FRS-EVAL-v004` | `Q-PAIR` | Evaluation remains read-only and replay remains training-only. |
+| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v008`; `FRS-PPO-v009` / `Scalar Actor And Critic Signal`; `FRS-EVAL-v004` | `Q-01` | Raw Gain and fixed symlog utility are unchanged. |
+| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v021` / `Campaign Identity` | `M-03` | HSL-v2 remains Actor-only initialization. |
+| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v021` / `Fixed K/M And Coupled Schedule`; `FRS-PPO-v009` / `Warmup Weight Boundary` | `M-05` | No Critic-only phase; checkpoint-v16 requires fresh evidence. |
+| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v022` / `Preserved Boundaries`; `FRS-TRAIN-v021` / `Formal Transaction` | `M-11` | Actor 158D, Critic 449D and GMT 770D remain. |
 
 ## Active Recovery-Aware Contract Migration
 
@@ -50,10 +51,10 @@ network, observations, M/K/DR, LR, Gain arithmetic and simulator are unchanged.
 The coordinated active semantic authority is now:
 
 ```text
-FRS-METHOD-v021
+FRS-METHOD-v022
 FRS-GAIN-v008
-FRS-PPO-v008
-FRS-TRAIN-v020
+FRS-PPO-v009
+FRS-TRAIN-v021
 FRS-EVAL-v004
 ```
 

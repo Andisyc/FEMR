@@ -24,9 +24,9 @@ def _expect_error(call, text: str) -> None:
 
 def main() -> None:
     runner, request, _policy = _request()
-    runner.alg.frontres_method_contract_id = "FRS-METHOD-v021"
-    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v008"
-    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v020"
+    runner.alg.frontres_method_contract_id = "FRS-METHOD-v022"
+    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v009"
+    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v021"
     runner.alg.frontres_return_utility_id = "symmetric-log-gain-g0-1-v1"
     runner.alg.frontres_return_utility_scale = 1.0
     runner.alg.max_grad_norm = 0.5
@@ -50,10 +50,10 @@ def main() -> None:
     open_frontres_checkpoint_transaction_barrier(runner)
     result = run_frontres_formal_transaction_update(runner, request)
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
-    assert telemetry["method_contract_id"] == "FRS-METHOD-v021"
-    assert telemetry["optimization_contract_id"] == "FRS-PPO-v008"
-    assert telemetry["training_contract_id"] == "FRS-TRAIN-v020"
-    assert telemetry["checkpoint_format"] == "frontres-v020-checkpoint-v15"
+    assert telemetry["method_contract_id"] == "FRS-METHOD-v022"
+    assert telemetry["optimization_contract_id"] == "FRS-PPO-v009"
+    assert telemetry["training_contract_id"] == "FRS-TRAIN-v021"
+    assert telemetry["checkpoint_format"] == "frontres-v021-checkpoint-v16"
     assert telemetry["outer_replay_state_delta"] == 1
     assert telemetry["outer_replay_sources"] == ("global", "global")
     assert len(telemetry["outer_replay_scenario_key_digests"]) == 2

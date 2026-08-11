@@ -32,9 +32,9 @@ assert spec.loader is not None
 spec.loader.exec_module(audit)
 
 SCHEDULE = (
-    (8, 4, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
-    (16, 4, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
-    (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-joint-v1", 625, 2.381),
+    (8, 4, 200, 500, 1300, "lower-k8", 0.5, "linear-coupled-v1", 700, 2.381),
+    (16, 4, 300, 300, 900, "lower-k16", 0.6, "linear-coupled-v1", 600, 2.381),
+    (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-coupled-v1", 700, 2.381),
 )
 
 
@@ -71,10 +71,10 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
         frontres_training_objective="segment_replay_hrl",
         frontres_segment_max_horizon_k=64,
         frontres_future_offsets=(1, 2),
-        frontres_method_contract_id="FRS-METHOD-v021",
+        frontres_method_contract_id="FRS-METHOD-v022",
         frontres_gain_contract_id="FRS-GAIN-v008",
-        frontres_optimization_contract_id="FRS-PPO-v008",
-        frontres_training_contract_id="FRS-TRAIN-v020",
+        frontres_optimization_contract_id="FRS-PPO-v009",
+        frontres_training_contract_id="FRS-TRAIN-v021",
         frontres_critic_value_kind="state_value",
         frontres_critic_input_dim=449,
         frontres_critic_support_context_id="action-pre-support-plan-kmax32-v1",
@@ -117,10 +117,10 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
 def _committed_receipt(*, transaction_id: str = "tx-v016") -> dict[str, object]:
     return {
         "transaction_id": transaction_id,
-        "method_contract_id": "FRS-METHOD-v021",
+        "method_contract_id": "FRS-METHOD-v022",
         "gain_contract_id": "FRS-GAIN-v008",
-        "optimization_contract_id": "FRS-PPO-v008",
-        "training_contract_id": "FRS-TRAIN-v020",
+        "optimization_contract_id": "FRS-PPO-v009",
+        "training_contract_id": "FRS-TRAIN-v021",
         "optimizer_step_delta": 1,
         "selected_segment_count": 2,
         "policy_row_count": 8,
@@ -135,7 +135,9 @@ def _outer_replay_telemetry() -> dict[str, object]:
         "outer_replay_state_delta": 1,
         "outer_replay_sources": ("global", "global"),
         "outer_replay_scenario_key_digests": ("a" * 64, "b" * 64),
-        "outer_replay_learning_values": (0.2, 0.1),
+        "outer_replay_score_kind": "critic_calibration",
+        "outer_replay_critic_calibration_values": (0.2, 0.1),
+        "outer_replay_repair_spread_values": (0.3, 0.4),
         "outer_replay_ema_scores": (0.2, 0.1),
         "outer_replay_pool_sizes": (2, 0),
     }
@@ -165,10 +167,10 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
         optimizer_step_delta=1,
         update_invocation_count=1,
         diagnostics={
-            "method_contract_id": "FRS-METHOD-v021",
+            "method_contract_id": "FRS-METHOD-v022",
             "gain_contract_id": "FRS-GAIN-v008",
-            "optimization_contract_id": "FRS-PPO-v008",
-            "training_contract_id": "FRS-TRAIN-v020",
+            "optimization_contract_id": "FRS-PPO-v009",
+            "training_contract_id": "FRS-TRAIN-v021",
             "critic_support_context_id": "action-pre-support-plan-kmax32-v1",
             "selected_segment_count": 2,
             "active_m": 4,
@@ -200,11 +202,11 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                     "update_count": 4,
                 },
                 "frontres_v015_checkpoint_identity": {
-                    "format": "frontres-v020-checkpoint-v15",
-                    "method_contract_id": "FRS-METHOD-v021",
+                    "format": "frontres-v021-checkpoint-v16",
+                    "method_contract_id": "FRS-METHOD-v022",
                     "gain_contract_id": "FRS-GAIN-v008",
-                    "optimization_contract_id": "FRS-PPO-v008",
-                    "training_contract_id": "FRS-TRAIN-v020",
+                    "optimization_contract_id": "FRS-PPO-v009",
+                    "training_contract_id": "FRS-TRAIN-v021",
                     "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
                     "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
                     "return_utility": {
@@ -248,9 +250,9 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                         "active_k": 8,
                         "stage_iteration": 0,
                         "absolute_iteration": 4,
-                        "phase": "critic_only",
+                        "phase": "low_dr_joint_init",
                         "phase_iteration": 0,
-                        "actor_loss_weight": 0.0,
+                        "actor_loss_weight": 1.0 / 700.0,
                     },
                     "normalizer": {"mode": "disabled"},
                     "transaction": {"state": "committed", "receipt": _committed_receipt()},
@@ -291,7 +293,7 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     assert "segment_voting_weights=count=2,head=(0.5, 0.5)" in transaction_line
     assert "attempt_voting_weights=count=8,head=(0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125)" in transaction_line
     assert "optimizer_step_delta=1" in transaction_line and "update_invocations=1" in transaction_line
-    assert "FRS-METHOD-v021/FRS-GAIN-v008/FRS-PPO-v008/FRS-TRAIN-v020" in transaction_line
+    assert "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021" in transaction_line
     assert "FRS-GAIN-v002" not in output and "shape=(2, 870)" not in output
     assert "lower-k8" in output and "active_k=8" in output
 
@@ -328,11 +330,11 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v013_curriculum() -> None:
             "update_count": 4,
         },
         "frontres_v015_checkpoint_identity": {
-            "format": "frontres-v020-checkpoint-v15",
-            "method_contract_id": "FRS-METHOD-v021",
+            "format": "frontres-v021-checkpoint-v16",
+            "method_contract_id": "FRS-METHOD-v022",
             "gain_contract_id": "FRS-GAIN-v008",
-            "optimization_contract_id": "FRS-PPO-v008",
-            "training_contract_id": "FRS-TRAIN-v020",
+            "optimization_contract_id": "FRS-PPO-v009",
+            "training_contract_id": "FRS-TRAIN-v021",
             "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
             "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
@@ -492,20 +494,21 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
         "critic_value_normalizer_scale_floor": 1.0,
         "critic_value_normalizer_update_count_before": 0,
         "critic_value_normalizer_update_count_after": 1,
-        "actor_gradient_pre_clip_norm": 0.0,
-        "actor_gradient_post_clip_norm": 0.0,
+        "actor_gradient_pre_clip_norm": 0.4,
+        "actor_gradient_post_clip_norm": 0.4,
         "actor_gradient_clip_coefficient": 1.0,
         "critic_gradient_pre_clip_norm": 1.0,
         "critic_gradient_post_clip_norm": 0.5,
         "critic_gradient_clip_coefficient": 0.5,
-        "actor_gradient_nonzero_parameter_count": 0,
+        "actor_gradient_nonzero_parameter_count": 4,
         "critic_gradient_nonzero_parameter_count": 10,
         "actor_learning_rate": 3.0e-6,
         "critic_learning_rate": 1.0e-5,
         "optimizer_step_delta": 1,
         "update_count": 1,
-        "warmup_phase": "critic_only",
-        "actor_std_parameter_delta": {"param_delta_max_abs": 0.0},
+        "warmup_phase": "low_dr_joint_init",
+        "k_stage_iteration": 0,
+        "actor_std_parameter_delta": {"param_delta_max_abs": 0.01},
         "critic_parameter_delta": {"param_delta_max_abs": 0.1},
     }
     stream = io.StringIO()
@@ -699,20 +702,21 @@ def test_phase_b_return_audit_reproduces_float32_reduction() -> None:
         "critic_value_normalizer_scale_floor": 1.0,
         "critic_value_normalizer_update_count_before": 0,
         "critic_value_normalizer_update_count_after": 1,
-        "actor_gradient_pre_clip_norm": 0.0,
-        "actor_gradient_post_clip_norm": 0.0,
+        "actor_gradient_pre_clip_norm": 0.4,
+        "actor_gradient_post_clip_norm": 0.4,
         "actor_gradient_clip_coefficient": 1.0,
         "critic_gradient_pre_clip_norm": 1.0,
         "critic_gradient_post_clip_norm": 0.5,
         "critic_gradient_clip_coefficient": 0.5,
-        "actor_gradient_nonzero_parameter_count": 0,
+        "actor_gradient_nonzero_parameter_count": 4,
         "critic_gradient_nonzero_parameter_count": 10,
         "actor_learning_rate": 3.0e-6,
         "critic_learning_rate": 1.0e-5,
         "optimizer_step_delta": 1,
         "update_count": 1,
-        "warmup_phase": "critic_only",
-        "actor_std_parameter_delta": {"param_delta_max_abs": 0.0},
+        "warmup_phase": "low_dr_joint_init",
+        "k_stage_iteration": 0,
+        "actor_std_parameter_delta": {"param_delta_max_abs": 0.01},
         "critic_parameter_delta": {"param_delta_max_abs": 0.1},
     }
     audit.print_phase_b_telemetry_audit(runner, telemetry=telemetry)
@@ -745,9 +749,9 @@ def test_active_k_audit_ids_exclude_legacy_state_driven_sampler() -> None:
 def test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow() -> None:
     runner = _runner()
     result = SimpleNamespace(
-        warmup_phase="critic_only",
+        warmup_phase="low_dr_joint_init",
         warmup_phase_iteration=0,
-        actor_loss_weight=0.0,
+        actor_loss_weight=1.0 / 700.0,
         valid_count=0,
         total_loss=torch.tensor(0.0),
         param_grad_norm=0.0,

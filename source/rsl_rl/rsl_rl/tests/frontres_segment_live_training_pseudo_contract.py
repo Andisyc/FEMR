@@ -534,9 +534,9 @@ def test_resume_progress_separates_absolute_and_local_iterations() -> None:
 def _formal_stage_runner(*, iteration: int, num_envs: int, log_dir: str | None = "/tmp/frontres-stage"):
     calls: list[int] = []
     schedule = (
-        (8, 2, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
-        (16, 3, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
-        (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-joint-v1", 625, 2.381),
+        (8, 2, 200, 500, 1300, "lower-k8", 0.5, "linear-coupled-v1", 700, 2.381),
+        (16, 3, 300, 300, 900, "lower-k16", 0.6, "linear-coupled-v1", 600, 2.381),
+        (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-coupled-v1", 700, 2.381),
     )
     runner = types.SimpleNamespace(
         _frontres_segment_replay_boundary=FakeBoundary(live_train_enabled=True),

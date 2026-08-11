@@ -367,7 +367,7 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     frontres_segment_advantage_normalization: str = "scale_only"
     """Segment PPO advantage mode; scale_only preserves the Gain sign by default."""
     frontres_gain_beta: float = 0.02
-    """FRS-GAIN-v008 raw full-6D repair-cost coefficient; checkpoint-v15 freezes this identity."""
+    """FRS-GAIN-v008 raw full-6D repair-cost coefficient; checkpoint-v16 freezes this identity."""
     frontres_segment_cache_dir: str = ""
     """Optional Stage 1 Segment cache directory used to initialize the Stage 3 Segment Replay dataset."""
     frontres_segment_shard_cache_size: int = 8

@@ -301,7 +301,7 @@ def test_single_update_captures_real_credit_tuple_before_optimizer() -> None:
     torch.testing.assert_close(storage_batch.advantages, before_advantages)
 
 
-def test_dp09_critic_only_phase_holds_actor_and_updates_critic() -> None:
+def test_dp09_low_dr_joint_init_updates_actor_and_critic() -> None:
     runner = FakeRunner()
     runner.alg.frontres_segment_critic_warmup_iterations = 2
     runner.alg.frontres_segment_actor_warmup_iterations = 4
@@ -310,13 +310,13 @@ def test_dp09_critic_only_phase_holds_actor_and_updates_critic() -> None:
 
     result = run_frontres_segment_single_update(runner, _storage_batch(torch.tensor([True, False])))
 
-    assert result.warmup_phase == "critic_only"
-    assert result.actor_loss_weight == 0.0
-    assert torch.equal(runner.alg.policy.actor.weight, before_actor)
+    assert result.warmup_phase == "low_dr_joint_init"
+    assert result.actor_loss_weight == 1.0 / 6.0
+    assert not torch.equal(runner.alg.policy.actor.weight, before_actor)
     assert not torch.equal(runner.alg.policy.critic.weight, before_critic)
 
 
-def test_dp09_actor_ramp_phase_uses_linear_actor_weight() -> None:
+def test_dp09_coupled_ramp_uses_continuous_actor_weight() -> None:
     runner = FakeRunner()
     runner.alg.frontres_segment_critic_warmup_iterations = 2
     runner.alg.frontres_segment_actor_warmup_iterations = 4
@@ -325,8 +325,8 @@ def test_dp09_actor_ramp_phase_uses_linear_actor_weight() -> None:
 
     result = run_frontres_segment_single_update(runner, _storage_batch(torch.tensor([True, False])))
 
-    assert result.warmup_phase == "actor_ramp"
-    assert result.actor_loss_weight == 0.25
+    assert result.warmup_phase == "coupled_ramp"
+    assert result.actor_loss_weight == 0.5
     assert not torch.equal(runner.alg.policy.actor.weight, before_actor)
 
 
@@ -629,8 +629,8 @@ def test_single_update_requires_separate_pre_and_post_ratio_diagnostics() -> Non
 if __name__ == "__main__":
     test_single_update_steps_optimizer_with_valid_segment()
     test_single_update_captures_real_credit_tuple_before_optimizer()
-    test_dp09_critic_only_phase_holds_actor_and_updates_critic()
-    test_dp09_actor_ramp_phase_uses_linear_actor_weight()
+    test_dp09_low_dr_joint_init_updates_actor_and_critic()
+    test_dp09_coupled_ramp_uses_continuous_actor_weight()
     test_segment_live_update_uses_scale_only_advantages_independent_of_base_ppo_flag()
     test_single_update_does_not_step_optimizer_without_valid_segments()
     test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl()

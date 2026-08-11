@@ -201,23 +201,23 @@ class FrontRESFormalTransactionRequest:
         if isinstance(self.active_k, bool) or int(self.active_k) <= 0:
             raise ValueError("v015 formal transaction active_k must be positive")
         if isinstance(self.active_m, bool) or int(self.active_m) < 2:
-            raise ValueError("FRS-TRAIN-v020 formal transaction active_m must be at least two")
+            raise ValueError("FRS-TRAIN-v021 formal transaction active_m must be at least two")
         if self.plan.active_m != int(self.active_m) or self.plan.selected_segment_count != 2:
-            raise ValueError("FRS-TRAIN-v020 formal transaction plan does not match exact two-Segment x M identity")
-        if self.warmup_phase_name not in {"critic_only", "actor_ramp", "joint"}:
-            raise ValueError("v015 formal transaction has an invalid warmup phase")
+            raise ValueError("FRS-TRAIN-v021 formal transaction plan does not match exact two-Segment x M identity")
+        if self.warmup_phase_name not in {"low_dr_joint_init", "coupled_ramp", "joint"}:
+            raise ValueError("FRS-TRAIN-v021 formal transaction has an invalid warmup phase")
         if not 0.0 <= float(self.warmup_actor_loss_weight) <= 1.0:
             raise ValueError("v015 formal transaction actor loss weight must be in [0,1]")
         if len(self.dr_stage_fingerprint) != 64:
-            raise ValueError("FRS-TRAIN-v020 formal transaction requires a sealed DR-stage fingerprint")
+            raise ValueError("FRS-TRAIN-v021 formal transaction requires a sealed DR-stage fingerprint")
         if not 0.0 <= float(self.dr_progress) <= 1.0 or not 0.0 < float(self.d_cap) <= 2.381:
-            raise ValueError("FRS-TRAIN-v020 formal transaction has invalid DR progress or d_cap")
+            raise ValueError("FRS-TRAIN-v021 formal transaction has invalid DR progress or d_cap")
         if len(self.dr_class_by_segment) != 2 or len(self.dr_strength_by_segment) != 2:
-            raise ValueError("FRS-TRAIN-v020 transaction requires one sealed DR class/strength per Segment")
+            raise ValueError("FRS-TRAIN-v021 transaction requires one sealed DR class/strength per Segment")
         if any(name not in {"easy", "medium", "hard", "broken"} for name in self.dr_class_by_segment):
-            raise ValueError("FRS-TRAIN-v020 transaction has an invalid DR class")
+            raise ValueError("FRS-TRAIN-v021 transaction has an invalid DR class")
         if any(not math.isfinite(float(value)) or float(value) < 0.0 for value in self.dr_strength_by_segment):
-            raise ValueError("FRS-TRAIN-v020 transaction has an invalid DR strength")
+            raise ValueError("FRS-TRAIN-v021 transaction has an invalid DR strength")
         horizon = self.plan.horizon_k.detach().to(device="cpu", dtype=torch.long)
         if not bool((horizon == int(self.active_k)).all().item()):
             raise ValueError("v015 formal transaction rejects mixed-K or active-K-mismatched plan rows")
@@ -341,10 +341,10 @@ def _commit_frontres_checkpoint_transaction(
     if state.get("state") != "sealed":
         raise RuntimeError("v015 formal transaction commit requires a sealed checkpoint barrier")
     receipt = {
-        "method_contract_id": "FRS-METHOD-v021",
+        "method_contract_id": "FRS-METHOD-v022",
         "gain_contract_id": "FRS-GAIN-v008",
-        "optimization_contract_id": "FRS-PPO-v008",
-        "training_contract_id": "FRS-TRAIN-v020",
+        "optimization_contract_id": "FRS-PPO-v009",
+        "training_contract_id": "FRS-TRAIN-v021",
         "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",

@@ -2,7 +2,7 @@
   "layout": "design_transaction_inspector",
   "defaultZoom": 0.8,
   "title": "FrontRES Design Inspector",
-  "subtitle": "FRS-METHOD-v021 active：exact-M 内层估计 + 跨 Transaction 外层优先 Scenario Replay",
+  "subtitle": "DP02/DP03/DP09 已由 METHOD-v022 / PPO-v009 / TRAIN-v021 实现；离线门禁通过，待一次 bounded official sentinel",
   "cards": [
     {
       "designId": "FRS-DP-01",
@@ -29,7 +29,7 @@
         },
         {
           "heading": "5. DR 与 K 的关系",
-          "text": "每个 K 都有自己的一轮 DR Curriculum：K8 从较低 DR 推进到较高 DR；切换 K16 后，DR 回到较低但仍有修复信号的水平，Critic 重新校准，再提高 DR；K32 同样重新开始。这里重置的是训练难度，不是 Actor、Critic 或已学能力。"
+          "text": "每个 K 都有自己的一轮 DR Curriculum：K8 从较低 DR 推进到较高 DR；切换 K16 后，DR 回到较低但仍有修复信号的水平，Actor 与 Critic 从较小 Actor influence 开始共同适应，再同步提高 DR 与 Actor influence；K32 同样重新开始。这里重置的是训练难度与 Actor influence，不是 Actor、Critic 或已学能力。"
         },
         {
           "heading": "6. Global Segment 选择",
@@ -61,7 +61,7 @@
       "blockId": "SR-01",
       "title": "Segment Replay",
       "color": "#47749f",
-      "responsibility": "内层 Replay 在一个 Transaction 中封存两个 Scenario 的 exact M 次尝试；外层 Replay 在后续 Transaction 中优先重访当前策略仍未学明白的同一 sealed Scenario。",
+      "responsibility": "内层 Replay 用 exact M=4 估计同一 Scenario；外层 Replay 在联合预热时校准 Critic 均值，之后寻找 Actor 仍需区分的 Repair，并始终服从当前 DR 区间。",
       "details": [
         {
           "heading": "两层 Replay：内层估计，外层重访",
@@ -72,20 +72,20 @@
           "text": "Replay 保存的不是裸 segment_id，而是 motion/frame、x_t、扰动类型、强度与 seed/artifact hash、noisy_segment_hash、K、future Intent 和 planned support 共同定义的 ScenarioKey。重新选择同一 segment_id 却重采样 DR，不算重放同一个 Critic 状态。"
         },
         {
-          "heading": "保存规则：有效 Scenario 全部登记",
-          "text": "每个完整、有限且成功提交的 Scenario 都进入 seen table；无效 reset、缺失证据或未完成 exact-M 的 Transaction 不得写入。高学习价值的进入 replay 候选，已经学会的进入低频 review，失败事务不改变池或 staleness。"
+          "heading": "保存规则：有效 Scenario 与两种分数分开登记",
+          "text": "每个完整、有限且成功提交的 Scenario 都进入 seen table。同一记录分别保存 Critic 均值校准误差与 Repair 间差异，不用一个数字冒充两种学习任务。无效 reset、缺失证据或未完成 exact-M 的 Transaction 不得写入。"
         },
         {
-          "heading": "学习价值：当前预测还差多少",
-          "text": "一个 Scenario 的学习价值取 exact M 次 mean_m |U(G_m)-V_old(s)|。它只决定以后多常回来，不改变 Gain、Critic target、Actor loss 或 PPO mass。正 Gain 和负 Gain 都可高价值；不再把负 Gain clamp 为零。"
+          "heading": "分阶段学习价值：先校准均值，再学 Repair 差异",
+          "text": "Low-DR Joint Initiation 与 Coupled Ramp 期间，Replay 按 E_V=|mean_m U(G_m)-V_old(s)| 优先重访 Critic 连 Scenario 均值都预测错的情境。进入 Joint Optimize 后，Replay 改按 E_A=mean_m |U(G_m)-mean_m U(G_m)| 寻找不同 Repair 结果差异明显、Actor 仍可学习选择的情境。两种分数不互相替代，且都只决定以后多常回来，不改变 Gain、Critic target、Actor loss 或 PPO mass。"
         },
         {
-          "heading": "池内选择：优先级排名加 staleness",
-          "text": "Replay pool 按学习价值的排名进行概率采样，并给长期未访问的 Scenario 增加 staleness 机会。最高分更容易被选中，但不会永久独占；已经学会的 Scenario 降低优先级，仍可由 review 检查是否遗忘。"
+          "heading": "DR 兼容池：先定当前难度类别，再选 Replay",
+          "text": "每个 Scenario slot 先按当前 d_cap 下的 Easy/Medium/Hard/Broken-tail=20/30/40/10 抽取难度类别，再从当前 K 且绝对强度落入该区间的历史 Scenario 中按当前阶段分数排名加 staleness 选择。历史 dr_class 标签不能绕过当前绝对强度边界；兼容池为空时，回退为当前类别的 global discovery。"
         },
         {
           "heading": "重放时机：每个 Transaction 开始时选择来源",
-          "text": "两个不同 Scenario 在 Transaction 打开前分别按 global 40%、replay 50%、review 10% 选择。global 发现新情境，replay 重访未学会情境，review 复查已学会或陈旧情境；对应池为空时回退 global。K 改变后使用该 K 自己的 priority，不能沿用旧 K 的分数。"
+          "text": "两个不同 Scenario 在 Transaction 打开前分别按 global 40%、replay 50%、review 10% 选择。global 发现当前 DR 区间的新情境，replay 按联合预热或 Joint Optimize 的当前分数重访，review 复查已学会或陈旧情境。K 改变后回到联合预热分数，不能沿用旧 K 或上一阶段的排名语义。"
         },
         {
           "heading": "重放执行：当前策略重新生成 M4",
@@ -93,7 +93,7 @@
         },
         {
           "heading": "提交边界：成功后才更新 Replay 状态",
-          "text": "封存 2 x M 条 policy row 后仍只执行一次 grouped scalar update。Replay score、seen/review membership、staleness 与 sampler RNG 只随成功的 exact-one Transaction receipt 原子提交并进入 checkpoint；partial、rejected 或 mixed Transaction 的 sampler delta 必须为零。"
+          "text": "封存 2 x M 条 policy row 后仍只执行一次 grouped scalar update。Critic 均值校准分数、Repair 差异分数、seen/review membership、staleness 与 sampler RNG 只随成功的 exact-one Transaction receipt 原子提交并进入新 checkpoint identity；失败事务不改变池或 staleness，partial、rejected 或 mixed Transaction 的 sampler delta 必须为零。"
         }
       ],
       "highlightSteps": ["select-segments", "seal-scenarios", "restore-xt", "sample-attempts", "seal-policy-rows", "grouped-update", "commit-state"],
@@ -136,7 +136,7 @@
         },
         {
           "heading": "双层 Curriculum：外层推进 K，内层重新推进 DR",
-          "text": "必须先完整封存当前 Transaction、执行 exact-one update 并提交训练状态，才能切换 K/M。每个 K 都拥有一轮独立的 DR Curriculum：K8 从较低 DR 逐步提高；切换到 K16 后，DR 回到较低但仍有明确修复信号的水平，冻结 Actor/std 并重新校准同一 Critic；校准后再提高 DR。K32 同理。这里重置的是 DR 训练难度，不是 Actor、Critic 或已学能力；2.381 仍只是最终参考上限，不是每个 K 的毕业条件。"
+          "text": "必须先完整封存当前 Transaction、执行 exact-one update 并提交训练状态，才能切换 K/M。每个 K 都拥有一轮独立的 DR Curriculum：从联合预热的第一笔 Transaction 起就按 Easy/Medium/Hard/Broken-tail=20/30/40/10 抽取四类，但四类的绝对强度都受当前较低 d_cap 限制，不等到预热结束才突然引入 Hard/Broken-tail。随后 d_cap 与 Actor influence 逐步提高；进入 Joint Optimize 后覆盖当前 K 的完整训练分布。切换 K16/K32 时保留 Actor/Critic，降低 d_cap，把 Actor weight 重置为较小非零值，并重新使用 Critic 均值校准 Replay。Replay 只能从当前难度区间选择，不能把 DR Curriculum 拖回早期强度；2.381 仍只是最终参考上限。"
         }
       ],
       "highlightSteps": ["resolve-km", "gmt-execute-k", "commit-state"],
@@ -315,27 +315,21 @@
       "blockId": "M-05",
       "title": "Actor & Critic Warmup",
       "color": "#725781",
-      "responsibility": "Critic 先学会判断当前 sealed state 的预期 Repair 得分，再逐步释放 Actor；它不接收 6D Action，也不直接判断哪个 Repair 更好。",
+      "responsibility": "Actor 与 Critic 从较低 DR 开始共同适应同一 Repair 分布，再缓慢提高 Actor influence 与 DR；Critic 不接收 6D Action，也不直接判断哪个 Repair 更好。",
       "details": [
         {
           "heading": "Critic 的职责：预测状态难度，不预测指定动作",
           "text": "Critic 保持 V(s)：Critic 不判断哪一个动作更好；它预测在当前 sealed state 下，从冻结 pi_old 采样一次 Repair 所能得到的期望 U(G_total)。同一 Segment 的 M 个 Repair 共享一个 baseline；每个动作自己的 utility 决定它高于还是低于参考线。raw G_total 仍用于物理审计；6D Repair action 不进入 Critic，因此不会变成 Q(s,a)。"
         },
         {
-          "heading": "阶段轮次：每个 K 先校准 Critic，再逐步释放 Actor",
-          "text": "每个 K 都执行 Critic-only → Actor-ramp → Joint Optimize。Critic-only 冻结 Actor/std；Actor-ramp 只逐步增加 Actor loss weight，Critic 继续更新；Joint Optimize 中 Actor 与 Critic 共同更新。轮次是 committed transaction 数，不是 simulator step 数。",
+          "heading": "共同起步：低 DR 下不设置 Critic-only",
+          "text": "每个 K 都从较低但仍有明确修复信号的 DR 分布开始。第一笔 committed Transaction 起 Actor 与 Critic 就同时更新；Actor loss weight 从严格大于 0 且小于 1 的较小值开始，不再冻结 Actor 让 Critic 单独拟合旧策略。pi_old 仍只在单个 Transaction 的采样与收集期间冻结，exact-one commit 后 Actor 与 Critic 才共同改变。",
           "table": {
-            "columns": ["K / M", "Phase", "Committed iterations"],
+            "columns": ["Phase", "Actor / Critic update", "DR"],
             "rows": [
-              ["K8 / M4", "Critic-only", "200"],
-              ["K8 / M4", "Actor-ramp", "500"],
-              ["K8 / M4", "Joint Optimize", "1300"],
-              ["K16 / M4", "Critic-only", "300"],
-              ["K16 / M4", "Actor-ramp", "300"],
-              ["K16 / M4", "Joint Optimize", "900"],
-              ["K32 / M4", "Critic-only", "400"],
-              ["K32 / M4", "Actor-ramp", "300"],
-              ["K32 / M4", "Joint Optimize", "625"]
+              ["Low-DR Joint Initiation", "0 < w_actor < 1；Actor/Critic 同时更新", "较低且有明确信号"],
+              ["Coupled Ramp", "w_actor 单调缓慢升至 1；Actor/Critic 同时更新", "随同一 K 阶段逐步提高"],
+              ["Joint Optimize", "w_actor = 1；Actor/Critic 共同更新", "覆盖当前 K 的训练分布"]
             ]
           }
         },
@@ -345,11 +339,11 @@
         },
         {
           "heading": "Critic target：先逐 attempt 变换，再取 exact-M 平均",
-          "text": "同一 Segment 的 exact M 个 Repair 都来自同一个 frozen pi_old 和同一个 sealed state。先分别计算 U(G_m)，Critic 再以 mean_m U(G_m) 为目标；Actor 使用每个 attempt 的 U(G_m)-V_old(s)。禁止先平均 raw G 再取 symlog，因为非线性下两者不是同一对象。"
+          "text": "同一 Segment 的 exact M 个 Repair 都来自同一个 frozen pi_old 和同一个 sealed state。先分别计算 U(G_m)，Critic 再以 mean_m U(G_m) 为目标；Actor 使用每个 attempt 的 U(G_m)-V_old(s)。Low-DR Joint Initiation 与 Coupled Ramp 期间，外层 Replay 使用均值校准误差；Joint Optimize 后才使用 Repair 间差异。两者只调度未来 Scenario，不改这个 target 或 Actor credit。禁止先平均 raw G 再取 symlog。"
         },
         {
-          "heading": "Critic-only 与 Actor-ramp：参考线稳定后再释放 Actor",
-          "text": "HSL 只初始化 proposal Actor，Stage 3 的 449D Critic 从头初始化。Critic-only 保持 Actor 与固定 std 不变；Actor-ramp 再逐步增加 Actor loss weight。Actor 改变后，Critic 继续更新，因为 frozen pi_old 所代表的 Repair 分布也会随 Transaction 改变。"
+          "heading": "分布跟随：Actor 与 Critic 共同适应",
+          "text": "HSL 只初始化 proposal Actor，Stage 3 的 449D Critic 从头初始化。联合预热从第一笔 Transaction 就使用当前低 d_cap 下的四类相对难度；较小但非零的 Actor loss weight 允许 Actor 缓慢改变，Critic 同时跟随当前 pi_old。Coupled Ramp 中 Actor influence 与 d_cap 缓慢提高；当 Actor weight 达到 1 并进入 Joint Optimize 时，联合预热结束，但 Critic 仍在每笔 Transaction 持续更新。禁止先冻结 Actor 训练 V(s | pi_frozen)。"
         },
         {
           "heading": "固定 utility 与自适应 loss scale 分工",
@@ -360,8 +354,8 @@
           "text": "Actor 与 Critic 已经是两个不重叠的 parameter group，因此分别计算并裁剪各自的 gradient norm，阈值都保持 0.5；随后仍由同一个 Adam 执行 exactly one step。自适应尺度先改善 Critic 数值条件，独立裁剪仍作为最后保护。Critic gradient 再大也不能改变 Actor 的裁剪比例。Actor LR = 3e-6，Critic LR = 1e-5，schedule 仍为 fixed。"
         },
         {
-          "heading": "Recalibrate 与 checkpoint：新数值状态必须冷启动",
-          "text": "K 增长时仍保留同一 Critic，降低 DR 后重新进入 critic-only。TRAIN-v020 使用 checkpoint-v15，并保存 utility identity、G0=1、449D normalizer、EMA moments、committed count，以及外层 Scenario Replay 的 key/score/staleness/RNG；旧训练 checkpoint 不能 resume。HSL-v2 仍只初始化 158D Actor。EVAL-v004 可只读加载历史 checkpoint-v14，全程零训练写入。"
+          "heading": "K 迁移与冷启动：保留能力，重启联合适应",
+          "text": "K 增长时保留同一 Actor、Critic 与兼容优化状态，降低 DR，并把 Actor loss weight 重置为较小但非零值；不冻结 Actor，也不重新初始化 Critic。该 schedule 改变训练与 checkpoint 身份，未来激活的训练必须从 HSL-v2 冷启动，不能 resume TRAIN-v020 checkpoint-v15；外层 Scenario Replay 的 key/score/staleness/RNG、utility、449D normalizer 与 exact-one commit 的持久化边界保持。"
         }
       ],
       "highlightSteps": ["resolve-km", "grouped-update", "commit-state"],
@@ -398,14 +392,14 @@
       {
         "id": "resolve-km",
         "phase": "pre",
-        "label": "确定 K/M 与训练阶段",
-        "detail": "沿已确认的 K/M curriculum 选择 critic-only、actor-ramp 或 joint"
+        "label": "确定 K/M 与联合适应阶段",
+        "detail": "每个 K 从 low-DR joint initiation 进入 coupled ramp，再进入 joint optimize；Actor/Critic 全程共同更新"
       },
       {
         "id": "select-segments",
         "phase": "collection",
         "label": "选择两个 Segment",
-        "detail": "每个 Transaction 从 global/replay/review 选择两个不同 sealed Scenario；Replay 只重访同一 ScenarioKey"
+        "detail": "先抽当前 DR 类别，再从 global/replay/review 选两个不同 Scenario；联合预热排 Critic 均值误差，Joint Optimize 排 Repair 差异"
       },
       {
         "id": "seal-scenarios",
@@ -465,7 +459,7 @@
         "id": "commit-state",
         "phase": "update",
         "label": "提交 checkpoint 与训练阶段状态",
-        "detail": "只有已提交的 Transaction 才推进 absolute iteration、K/M 进度及 seen/priority/staleness Replay 状态"
+        "detail": "只有已提交的 Transaction 才推进 absolute iteration、K/M/DR 进度及两种 Replay score、seen/review/staleness/RNG 状态"
       }
     ]
   }

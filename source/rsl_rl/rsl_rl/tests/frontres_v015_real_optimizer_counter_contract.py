@@ -74,9 +74,9 @@ def _build_algorithm(module, *, formal: bool, overrides=None):
             lambda_supervised=0.0,
             lambda_supervised_min=0.0,
             frontres_segment_k_curriculum=(
-                (8, 2, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
-                (16, 3, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
-                (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-joint-v1", 625, 2.381),
+    (8, 2, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
+    (16, 3, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
+    (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-joint-v1", 625, 2.381),
             ),
         )
     kwargs.update(dict(overrides or {}))

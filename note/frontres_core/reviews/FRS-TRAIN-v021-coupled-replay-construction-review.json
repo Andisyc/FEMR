@@ -1,0 +1,80 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v021-CONSTRUCTION",
+  "mode": "construction",
+  "profiles": ["standard", "research-ml"],
+  "verdict": "CONSTRUCTION_PASS",
+  "scope": {
+    "requested": ["replace Critic-only warmup with low-DR coupled Actor/Critic adaptation and phase-aware DR-compatible outer replay"],
+    "preserved": ["158D Actor", "449D state-value Critic", "full-6D action", "M4", "FRS-GAIN-v008", "symlog utility", "split LR", "exact-one update", "frozen GMT"],
+    "forbidden": ["MOSAIC host changes", "Q(s,a)", "second optimizer", "stale PPO rows", "old checkpoint resume", "long-training or policy-quality claims"]
+  },
+  "identities": {
+    "project": "FEMR",
+    "design": "FRS-METHOD-v022",
+    "contract": "FRS-TRAIN-v021",
+    "checkout": "ca7c3a737c6f46c38885b1e3ae313392f6c2266d+v021-working-tree-20260811",
+    "review_object": "frontres-v021-production-surface@1090fe58752bff0568a1f5c2941406dca8f05478067f64166c5163046e811220"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "construction inspection"},
+    "source_edits": {"status": "approved", "scope": "user-authorized TRAIN-v021 one-shot implementation", "receipt": "user-request-2026-08-11-execute-to-training-preflight"},
+    "report_write": {"status": "approved", "scope": "construction review receipt", "receipt": "user-request-2026-08-11-execute-to-training-preflight"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_outer_scenario_replay.py",
+    "content_hash": "sha256:1090fe58752bff0568a1f5c2941406dca8f05478067f64166c5163046e811220",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "active repository engineering discipline"
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "warmup owner computes phase/DR; replay owner computes scheduler scores; PPO and checkpoint ownership remain separate"},
+    {"name": "public-interface", "disposition": "pass", "evidence": "replay plan now receives one immutable curriculum identity instead of duplicated K/class facts"},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "sampler supplies Scenario family while replay owner supplies class strength and source selection"},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "dual score maps and RNG mutate only after matching exact-one receipt and persist through schema v2"},
+    {"name": "change-surface", "disposition": "pass", "evidence": "legacy field names retained at config boundary; no network, simulator, Gain or MOSAIC changes"},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "E_V and E_A are detached scheduler telemetry and never enter PPO mass or loss"},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "E_V and E_A derive from sealed pre-update per-attempt utility advantages grouped by source"},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "first valid transaction requires nonzero Actor/std and Critic deltas with separate clips and one Adam step"},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "checkpoint-v16 restores exact optimizer, normalizers, curriculum and replay-v2 state; v15 rejects pre-mutation"}
+  ],
+  "findings": [
+    {
+      "finding_id": "CRE-FRS-v021-001",
+      "severity": "P1",
+      "status": "resolved",
+      "location": "source/rsl_rl/rsl_rl/runners/frontres_formal_runtime_audit.py",
+      "evidence": [{"kind": "diff", "locator": "print_phase_b_telemetry_audit outer replay fields", "observation": "the final audit still consumed removed single-score telemetry and would reject the official v021 transaction"}],
+      "named_diagnostic": "Shotgun Surgery",
+      "responsibility_at_risk": "final runtime audit of phase-aware replay evidence",
+      "preserved_behavior": "fail-closed B07 audit with exact-one, split clipping and replay evidence",
+      "smallest_safe_change": "consume score_kind, E_V, E_A and active EMA directly and verify score kind against phase",
+      "required_tests": ["frontres_formal_runtime_audit_contract.py", "frontres_segment_all_contract_suite.py"],
+      "stop_condition": "B07 accepts valid coupled telemetry and rejects inconsistent clip or score identity"
+    },
+    {
+      "finding_id": "CRE-FRS-v021-002",
+      "severity": "P2",
+      "status": "resolved",
+      "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py",
+      "evidence": [{"kind": "diff", "locator": "frontres_segment_warmup_phase actor_loss_weight", "observation": "a machine-epsilon max obscured the exact hand-computable positive schedule even though iteration+1 already guarantees positivity"}],
+      "named_diagnostic": "Speculative Generality",
+      "responsibility_at_risk": "exact coupled Actor weight mapping",
+      "preserved_behavior": "strictly nonzero monotonic Actor weight",
+      "smallest_safe_change": "return min(1, (iteration+1)/Nw) directly",
+      "required_tests": ["frontres_segment_warmup_contract.py"],
+      "stop_condition": "boundary weights remain exact and all warmup tests pass"
+    }
+  ],
+  "residual_risks": ["the server simulator and exact HSL artifact still require one bounded official transaction before long-training admission", "policy quality and Critic calibration are intentionally unclaimed"],
+  "blockers": [],
+  "claims": {"maintainability": "reviewed", "semantic_correctness": "not-claimed", "module_correctness": "not-claimed", "runtime_root_cause": "not-claimed", "formal_route": "not-claimed", "policy_quality": "not-claimed"},
+  "dependencies": []
+}

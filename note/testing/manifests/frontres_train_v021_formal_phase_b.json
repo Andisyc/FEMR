@@ -1,0 +1,142 @@
+{
+  "schema_version": "formal-runtime-audit/v2",
+  "audit_id": "FRA-FRS-TRAIN-v021-PHASE-B",
+  "identities": {
+    "design": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021",
+    "checkout": "ca7c3a737c6f46c38885b1e3ae313392f6c2266d+v021-working-tree-20260811",
+    "entrypoint": "run_stage3.sh:stage3_segment_hrl:train",
+    "effective_config": "fixed-splitlr-3e-6-1e-5-k8m4-coupled-dr-392e1802d4681f226ac1d5ddcaa8f34d9bd44bde52d22d587968b6d9f6d869fb",
+    "checkpoint": "cold-start:frontres-v017-hsl-proposal-v2:/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt"
+  },
+  "module_admission": {
+    "status": "MODULE-CORRECT",
+    "manifest_path": "note/testing/manifests/frontres_train_v021_module_alignment.json",
+    "manifest_hash": "sha256:2cc1647b46a77a9c6ec26f3c0b35cf36d05d23aeac69b2b52ddbad98b6af43ea",
+    "current": true
+  },
+  "offline_gaps": [],
+  "route_edges": [
+    {
+      "edge_id": "EDGE-V021-CONFIG-TO-SCHEDULE",
+      "design_id": "FRS-DP-09",
+      "producer": "run_stage3.sh and scripts/rsl_rl/train.py Stage-3 arguments",
+      "carrier": "FrontRESUnified effective K/M/DR schedule and split-LR identity",
+      "consumer": "resolve_frontres_k_stage_identity at formal transaction construction",
+      "required_level": "R1",
+      "observed_level": "R1",
+      "evidence": {
+        "path_class": "official-entry",
+        "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_entrypoint_pseudo_contract.py",
+        "exit_code": 0,
+        "identity_receipt": "formal Stage-3 preset selects TRAIN-v021 linear-coupled schedule and exact-one route",
+        "effect_receipt": "effective config reaches live-train formal owner with no legacy optimizer branch",
+        "current": true
+      }
+    },
+    {
+      "edge_id": "EDGE-V021-SCENARIO-TO-COMMIT",
+      "design_id": "FRS-DP-02",
+      "producer": "FrontRESOuterScenarioReplay phase-aware plan and staged dual scores",
+      "carrier": "FrontRESFormalTransactionRequest and grouped two-Scenario x M4 PPO batch",
+      "consumer": "one split-Adam update followed by matching replay commit receipt",
+      "required_level": "R1",
+      "observed_level": "R1",
+      "evidence": {
+        "path_class": "official-entry",
+        "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_transaction_route_contract.py",
+        "exit_code": 0,
+        "identity_receipt": "FRS-METHOD-v022/FRS-PPO-v009/FRS-TRAIN-v021 two-Scenario M4 receipt",
+        "effect_receipt": "Actor/std and Critic change on first valid transaction; optimizer and replay state each advance once",
+        "current": true
+      }
+    },
+    {
+      "edge_id": "EDGE-V021-COMMIT-TO-CHECKPOINT",
+      "design_id": "FRS-DP-09",
+      "producer": "committed optimizer, normalizer, curriculum and replay-v2 state",
+      "carrier": "frontres-v021-checkpoint-v16 atomic artifact",
+      "consumer": "strict load and reconstructed first consumer",
+      "required_level": "R2",
+      "observed_level": "R2",
+      "evidence": {
+        "path_class": "official-entry",
+        "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v016_checkpoint_contract.py",
+        "exit_code": 0,
+        "identity_receipt": "checkpoint-v16 active contracts, schedule, groups and replay-v2 identity",
+        "effect_receipt": "loaded Actor/Critic/normalizers/optimizer/curriculum/replay RNG equal saved owners",
+        "persistence_receipt": "AUDIT-B08 atomic readback plus strict v15 and malformed pre-mutation rejection",
+        "current": true
+      }
+    }
+  ],
+  "design_probes": [
+    {
+      "probe_id": "PROBE-V021-REPLAY",
+      "design_id": "FRS-DP-02",
+      "design_claim": "a committed high-value Scenario can be selected again only when its K, current absolute DR interval and phase-selected score are compatible",
+      "necessary_capability": "commit one Scenario record and observe historical replay selection in a later transaction plan",
+      "minimal_case": "commit two asymmetric K8 records, then construct one later K8 plan whose drawn classes match those records",
+      "path_class": "bounded-test-rig",
+      "preserved_production_owners": ["FrontRESOuterScenarioReplay.plan", "FrontRESOuterScenarioReplay.stage", "FrontRESOuterScenarioReplay.commit"],
+      "simplifications": ["two Scenario records", "two transaction horizons", "deterministic torch generator"],
+      "correspondence_receipt": "the rig calls production plan/stage/commit/state owners and supplies only deterministic Scenario keys and advantages",
+      "falsifier": "the later plan uses only global records, crosses K/DR class, or ranks with the wrong phase score",
+      "success_witness": "the later plan selects historical replay records with unchanged ScenarioKey digests and compatible current classes",
+      "construction_status": "ready",
+      "uncertainties": [],
+      "status": "passed",
+      "minimum_horizon": {"unit": "transactions", "required": 2, "observed": 2},
+      "required_effect_observations": 1,
+      "observed_effect_observations": 1,
+      "evidence_receipt": "frontres_v020_outer_scenario_replay_contract.py replay-selection identity case plus frontres_v021_coupled_replay_contract.py phase/DR discriminators",
+      "current": true
+    },
+    {
+      "probe_id": "PROBE-V021-FIRST-COUPLED-LIVE",
+      "design_id": "FRS-DP-09",
+      "design_claim": "the official simulator route starts at low DR and applies the first small nonzero Actor/std update together with one Critic update",
+      "necessary_capability": "one real complete two-Scenario x M4 transaction reaches both parameter groups, dual-score replay commit and checkpoint-v16 readback",
+      "minimal_case": "one K8/M4 committed official transaction from the frozen HSL-v2 proposal",
+      "path_class": "official-entry",
+      "preserved_production_owners": ["run_stage3.sh", "IsaacLab Segment rollout", "run_frontres_formal_transaction_update", "save_runner"],
+      "simplifications": ["16 environments", "one committed transaction", "K8 only", "bounded sentinel output"],
+      "falsifier": "wrong phase or DR cap, zero Actor/std delta, zero Critic delta, wrong score kind, non-finite evidence, non-exact-one commit or checkpoint-v16 readback failure",
+      "success_witness": "AUDIT-B01/B07/B08 show low_dr_joint_init, actor weight 1/700, d_cap 0.5, positive Actor/std and Critic deltas, critic_calibration score selection, exact-one and v16 readback",
+      "construction_status": "ready",
+      "uncertainties": [],
+      "status": "live-required",
+      "live_unknown_id": "LIVE-V021-1",
+      "minimum_horizon": {"unit": "committed-transactions", "required": 1, "observed": 0},
+      "required_effect_observations": 1,
+      "observed_effect_observations": 0,
+      "current": true
+    }
+  ],
+  "live_only_unknowns": [
+    {
+      "id": "LIVE-V021-1",
+      "status": "open",
+      "fact": "the current server simulator and frozen HSL-v2 artifact complete one official low-DR coupled Actor/Critic transaction with phase-aware replay telemetry and checkpoint-v16 readback",
+      "why_offline_impossible": "IsaacLab physics, the server GPU environment and the exact server HSL artifact cannot be faithfully replaced without destroying the claimed runtime fact",
+      "falsifier": "any identity/finite/phase/DR/group-delta/score-kind/exact-one/checkpoint invariant fails",
+      "cost": "16 environments, K8/M4, one committed transaction",
+      "stop_condition": "stop immediately after the first committed receipt and checkpoint-v16 readback, or at the first invariant failure",
+      "bounded_command": "CUDA_VISIBLE_DEVICES=7 FEMR_ROOT=/hdd0/yuxuancheng/FEMR FEMR_DATA_ROOT=/hdd0/yuxuancheng CACHE_DIR=/hdd0/yuxuancheng/AMASS_G1Segment LOG_PATH=/hdd0/yuxuancheng/FEMR/log/FRS_TRAIN_V021_LOW_DR_COUPLED_SENTINEL.log RUN_NAME=FRS_TRAIN_V021_LOW_DR_COUPLED_SENTINEL FRONTRES_G5_S4_BOUNDED=1 FRONTRES_CHECKPOINT_INTERVAL=1 FRONTRES_SEGMENT_PPO_SCHEDULE=fixed FRONTRES_SEGMENT_ACTOR_LR=3e-6 FRONTRES_SEGMENT_CRITIC_LR=1e-5 FRONTRES_V015_K_CURRICULUM='8:4:200:500:1300:lower-k8:0.5:linear-coupled-v1:700:2.381,16:4:300:300:900:lower-k16:0.6:linear-coupled-v1:600:2.381,32:4:400:300:625:lower-k32:0.7:linear-coupled-v1:700:2.381' bash run_stage3.sh /hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt /hdd0/yuxuancheng/AMASS_G1NPZ_Final 16 1 1 train",
+      "output_path": "/hdd0/yuxuancheng/FEMR/log/FRS_TRAIN_V021_LOW_DR_COUPLED_SENTINEL.log",
+      "zero_write_boundary": "only the declared sentinel log, one bounded Stage-3 output directory and one checkpoint-v16 artifact"
+    }
+  ],
+  "live_attempts": [
+    {
+      "attempt_id": "ATTEMPT-V021-1",
+      "ordinal": 1,
+      "status": "planned",
+      "bounded_command": "CUDA_VISIBLE_DEVICES=7 FRONTRES_G5_S4_BOUNDED=1 bash run_stage3.sh <HSL-v2-full-path> <AMASS-full-path> 16 1 1 train"
+    }
+  ],
+  "claims": [
+    {"kind": "formal-integration", "evidence_level": "R1"},
+    {"kind": "formal-persistence", "evidence_level": "R2"}
+  ],
+  "admission": "PHASE_B_READY"
+}

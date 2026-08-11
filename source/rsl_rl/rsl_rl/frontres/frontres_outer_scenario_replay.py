@@ -10,8 +10,13 @@ from typing import Any, Callable, Iterator, Mapping, Sequence
 
 import torch
 
+from rsl_rl.frontres.frontres_segment_warmup import (
+    FrontRESKStageIdentity,
+    frontres_v021_dr_strength_in_class,
+    sample_frontres_v013_dr_strength,
+)
 
-FRONTRES_OUTER_REPLAY_SCHEMA = "frontres-outer-scenario-replay-v1"
+FRONTRES_OUTER_REPLAY_SCHEMA = "frontres-outer-scenario-replay-v2"
 FRONTRES_OUTER_REPLAY_EMA_DECAY = 0.8
 
 
@@ -137,7 +142,8 @@ class FrontRESScenarioKey:
 class FrontRESScenarioReplayRecord:
     key: FrontRESScenarioKey
     dr_class: str
-    score_by_k: tuple[tuple[int, float], ...]
+    critic_calibration_score_by_k: tuple[tuple[int, float], ...]
+    repair_spread_score_by_k: tuple[tuple[int, float], ...]
     staleness: int
     visit_count: int
     last_transaction_id: str
@@ -150,30 +156,55 @@ class FrontRESScenarioReplayRecord:
             raise ValueError("staleness must be nonnegative")
         if isinstance(self.visit_count, bool) or int(self.visit_count) <= 0:
             raise ValueError("visit_count must be positive")
-        keys = tuple(int(k) for k, _value in self.score_by_k)
-        if keys != tuple(sorted(set(keys))) or any(k <= 0 for k in keys):
-            raise ValueError("score_by_k must use ordered unique positive K values")
-        if any(not math.isfinite(float(value)) or float(value) < 0.0 for _k, value in self.score_by_k):
-            raise ValueError("score_by_k values must be finite and nonnegative")
+        for name, values in (
+            ("critic_calibration_score_by_k", self.critic_calibration_score_by_k),
+            ("repair_spread_score_by_k", self.repair_spread_score_by_k),
+        ):
+            keys = tuple(int(k) for k, _value in values)
+            if keys != tuple(sorted(set(keys))) or any(k <= 0 for k in keys):
+                raise ValueError(f"{name} must use ordered unique positive K values")
+            if any(not math.isfinite(float(value)) or float(value) < 0.0 for _k, value in values):
+                raise ValueError(f"{name} values must be finite and nonnegative")
+        if tuple(k for k, _ in self.critic_calibration_score_by_k) != tuple(
+            k for k, _ in self.repair_spread_score_by_k
+        ):
+            raise ValueError("TRAIN-v021 replay score maps must contain identical K identities")
 
-    def score_for_k(self, horizon_k: int) -> float | None:
-        return dict(self.score_by_k).get(int(horizon_k))
+    def score_for_k(self, horizon_k: int, *, score_kind: str = "critic_calibration") -> float | None:
+        if score_kind == "critic_calibration":
+            values = self.critic_calibration_score_by_k
+        elif score_kind == "repair_spread":
+            values = self.repair_spread_score_by_k
+        else:
+            raise ValueError(f"unknown TRAIN-v021 replay score kind {score_kind!r}")
+        return dict(values).get(int(horizon_k))
 
-    def with_visit(self, *, horizon_k: int, learning_value: float, transaction_id: str) -> "FrontRESScenarioReplayRecord":
+    def with_visit(
+        self,
+        *,
+        horizon_k: int,
+        critic_calibration_value: float,
+        repair_spread_value: float,
+        transaction_id: str,
+    ) -> "FrontRESScenarioReplayRecord":
         self.validate()
-        if not math.isfinite(float(learning_value)) or float(learning_value) < 0.0:
-            raise ValueError("learning_value must be finite and nonnegative")
-        scores = dict(self.score_by_k)
-        previous = scores.get(int(horizon_k))
-        scores[int(horizon_k)] = (
-            float(learning_value)
-            if previous is None
-            else FRONTRES_OUTER_REPLAY_EMA_DECAY * float(previous)
-            + (1.0 - FRONTRES_OUTER_REPLAY_EMA_DECAY) * float(learning_value)
-        )
+        values = (float(critic_calibration_value), float(repair_spread_value))
+        if any(not math.isfinite(value) or value < 0.0 for value in values):
+            raise ValueError("TRAIN-v021 replay values must be finite and nonnegative")
+        calibration_scores = dict(self.critic_calibration_score_by_k)
+        repair_scores = dict(self.repair_spread_score_by_k)
+        for scores, value in zip((calibration_scores, repair_scores), values, strict=True):
+            previous = scores.get(int(horizon_k))
+            scores[int(horizon_k)] = (
+                value
+                if previous is None
+                else FRONTRES_OUTER_REPLAY_EMA_DECAY * float(previous)
+                + (1.0 - FRONTRES_OUTER_REPLAY_EMA_DECAY) * value
+            )
         result = replace(
             self,
-            score_by_k=tuple(sorted(scores.items())),
+            critic_calibration_score_by_k=tuple(sorted(calibration_scores.items())),
+            repair_spread_score_by_k=tuple(sorted(repair_scores.items())),
             staleness=0,
             visit_count=int(self.visit_count) + 1,
             last_transaction_id=_require_nonempty("transaction_id", transaction_id),
@@ -186,7 +217,12 @@ class FrontRESScenarioReplayRecord:
         return {
             "key": self.key.to_state(),
             "dr_class": self.dr_class,
-            "score_by_k": tuple((int(k), float(value)) for k, value in self.score_by_k),
+            "critic_calibration_score_by_k": tuple(
+                (int(k), float(value)) for k, value in self.critic_calibration_score_by_k
+            ),
+            "repair_spread_score_by_k": tuple(
+                (int(k), float(value)) for k, value in self.repair_spread_score_by_k
+            ),
             "staleness": int(self.staleness),
             "visit_count": int(self.visit_count),
             "last_transaction_id": self.last_transaction_id,
@@ -194,13 +230,26 @@ class FrontRESScenarioReplayRecord:
 
     @classmethod
     def from_state(cls, state: Mapping[str, Any]) -> "FrontRESScenarioReplayRecord":
-        expected = {"key", "dr_class", "score_by_k", "staleness", "visit_count", "last_transaction_id"}
+        expected = {
+            "key",
+            "dr_class",
+            "critic_calibration_score_by_k",
+            "repair_spread_score_by_k",
+            "staleness",
+            "visit_count",
+            "last_transaction_id",
+        }
         if not isinstance(state, Mapping) or set(state) != expected:
             raise ValueError("Scenario replay record has incompatible fields")
         result = cls(
             key=FrontRESScenarioKey.from_state(state["key"]),
             dr_class=str(state["dr_class"]),
-            score_by_k=tuple((int(k), float(value)) for k, value in state["score_by_k"]),
+            critic_calibration_score_by_k=tuple(
+                (int(k), float(value)) for k, value in state["critic_calibration_score_by_k"]
+            ),
+            repair_spread_score_by_k=tuple(
+                (int(k), float(value)) for k, value in state["repair_spread_score_by_k"]
+            ),
             staleness=int(state["staleness"]),
             visit_count=int(state["visit_count"]),
             last_transaction_id=str(state["last_transaction_id"]),
@@ -241,18 +290,40 @@ class FrontRESOuterReplaySelection:
 @dataclass(frozen=True)
 class FrontRESOuterReplayPlan:
     transaction_id: str
-    active_k: int
+    curriculum: FrontRESKStageIdentity
     selections: tuple[FrontRESOuterReplaySelection, ...]
     generator_state_before: torch.Tensor
     generator_state_after: torch.Tensor
     record_state_digest: str
 
+    @property
+    def active_k(self) -> int:
+        return int(self.curriculum.active_k)
+
+    @property
+    def phase_name(self) -> str:
+        return str(self.curriculum.phase.name)
+
+    @property
+    def score_kind(self) -> str:
+        return "repair_spread" if self.phase_name == "joint" else "critic_calibration"
+
     def validate(self) -> None:
         _require_nonempty("transaction_id", self.transaction_id)
+        if not isinstance(self.curriculum, FrontRESKStageIdentity):
+            raise TypeError("outer replay plan requires one immutable TRAIN-v021 curriculum identity")
+        if self.phase_name not in {"low_dr_joint_init", "coupled_ramp", "joint"}:
+            raise ValueError("outer replay plan has an incompatible TRAIN-v021 phase")
         if int(self.active_k) <= 0 or len(self.selections) != 2:
             raise ValueError("outer replay plan requires positive K and exactly two selections")
         for selection in self.selections:
             selection.validate()
+            if not frontres_v021_dr_strength_in_class(
+                self.curriculum,
+                class_name=selection.dr_class,
+                strength=selection.perturbation_strength,
+            ):
+                raise ValueError("outer replay selection lies outside its current absolute DR interval")
         if len({selection.segment_id for selection in self.selections}) != 2:
             raise ValueError("outer replay plan requires two distinct Segment sources")
         for value in (self.generator_state_before, self.generator_state_after):
@@ -267,17 +338,22 @@ class FrontRESOuterReplayCandidate:
     policy_snapshot_id: str
     plan: FrontRESOuterReplayPlan
     records: tuple[FrontRESScenarioReplayRecord, ...]
-    learning_values: tuple[float, float]
+    critic_calibration_values: tuple[float, float]
+    repair_spread_values: tuple[float, float]
 
     def validate(self) -> None:
         self.plan.validate()
         if self.transaction_id != self.plan.transaction_id:
             raise ValueError("candidate transaction differs from its selection plan")
         _require_nonempty("policy_snapshot_id", self.policy_snapshot_id)
-        if len(self.learning_values) != 2 or any(
-            not math.isfinite(float(value)) or float(value) < 0.0 for value in self.learning_values
+        for name, values in (
+            ("critic_calibration_values", self.critic_calibration_values),
+            ("repair_spread_values", self.repair_spread_values),
         ):
-            raise ValueError("candidate requires two finite nonnegative learning values")
+            if len(values) != 2 or any(
+                not math.isfinite(float(value)) or float(value) < 0.0 for value in values
+            ):
+                raise ValueError(f"candidate requires two finite nonnegative {name}")
         digests = []
         for record in self.records:
             record.validate()
@@ -336,16 +412,38 @@ class FrontRESOuterScenarioReplay:
             return "replay"
         return "review"
 
-    def _pool(self, source: str, *, active_k: int, excluded_segments: set[int]) -> list[FrontRESScenarioReplayRecord]:
+    def _pool(
+        self,
+        source: str,
+        *,
+        curriculum: FrontRESKStageIdentity,
+        dr_class: str,
+        score_kind: str,
+        excluded_segments: set[int],
+    ) -> list[FrontRESScenarioReplayRecord]:
         rows = [
             record
             for record in self.records
-            if record.key.segment_id not in excluded_segments and record.score_for_k(active_k) is not None
+            if record.key.segment_id not in excluded_segments
+            and record.score_for_k(curriculum.active_k, score_kind=score_kind) is not None
+            and frontres_v021_dr_strength_in_class(
+                curriculum,
+                class_name=dr_class,
+                strength=record.key.perturbation_strength,
+            )
         ]
         if source == "replay":
-            return [record for record in rows if float(record.score_for_k(active_k)) >= self.min_replay_score]
+            return [
+                record
+                for record in rows
+                if float(record.score_for_k(curriculum.active_k, score_kind=score_kind)) >= self.min_replay_score
+            ]
         if source == "review":
-            return [record for record in rows if float(record.score_for_k(active_k)) < self.min_replay_score]
+            return [
+                record
+                for record in rows
+                if float(record.score_for_k(curriculum.active_k, score_kind=score_kind)) < self.min_replay_score
+            ]
         return []
 
     def _sample_record(
@@ -354,9 +452,13 @@ class FrontRESOuterScenarioReplay:
         *,
         source: str,
         active_k: int,
+        score_kind: str,
         generator: torch.Generator,
     ) -> FrontRESScenarioReplayRecord:
-        ordered = sorted(pool, key=lambda record: (float(record.score_for_k(active_k)), record.key.digest))
+        ordered = sorted(
+            pool,
+            key=lambda record: (float(record.score_for_k(active_k, score_kind=score_kind)), record.key.digest),
+        )
         count = len(ordered)
         score_rank = {record.key.digest: (index + 1) / count for index, record in enumerate(ordered)}
         max_staleness = max(1, max(record.staleness for record in ordered))
@@ -392,27 +494,39 @@ class FrontRESOuterScenarioReplay:
         self,
         *,
         transaction_id: str,
-        active_k: int,
+        curriculum: FrontRESKStageIdentity,
         num_segments: int,
         eligible: Callable[[int], bool],
-        global_descriptor: Callable[[int, int], tuple[str, float, str]],
+        global_family: Callable[[int], str],
     ) -> FrontRESOuterReplayPlan:
         _require_nonempty("transaction_id", transaction_id)
-        if not callable(eligible) or not callable(global_descriptor):
-            raise TypeError("outer replay plan requires eligible and global_descriptor callables")
+        if not isinstance(curriculum, FrontRESKStageIdentity):
+            raise TypeError("outer replay plan requires a TRAIN-v021 curriculum identity")
+        if not callable(eligible) or not callable(global_family):
+            raise TypeError("outer replay plan requires eligible and global_family callables")
+        score_kind = "repair_spread" if curriculum.phase.name == "joint" else "critic_calibration"
         before = self.generator.get_state().detach().cpu().clone()
         generator = self._copy_generator(before)
         selected: list[FrontRESOuterReplaySelection] = []
         excluded_segments: set[int] = set()
         seen_segments = {record.key.segment_id for record in self.records}
         for _slot in range(2):
+            dr_sample_key = int(torch.randint(0, 2**31 - 1, (1,), generator=generator).item())
+            dr_sample = sample_frontres_v013_dr_strength(curriculum, sample_key=dr_sample_key)
             requested_source = self._choose_source(generator)
-            pool = self._pool(requested_source, active_k=int(active_k), excluded_segments=excluded_segments)
+            pool = self._pool(
+                requested_source,
+                curriculum=curriculum,
+                dr_class=dr_sample.class_name,
+                score_kind=score_kind,
+                excluded_segments=excluded_segments,
+            )
             if pool:
                 record = self._sample_record(
                     pool,
                     source=requested_source,
-                    active_k=int(active_k),
+                    active_k=int(curriculum.active_k),
+                    score_kind=score_kind,
                     generator=generator,
                 )
                 selection = FrontRESOuterReplaySelection(
@@ -421,9 +535,9 @@ class FrontRESOuterScenarioReplay:
                     perturbation_seed=record.key.perturbation_seed,
                     perturbation_family=record.key.perturbation_family,
                     perturbation_strength=record.key.perturbation_strength,
-                    dr_class=record.dr_class,
+                    dr_class=dr_sample.class_name,
                     replay_key_digest=record.key.digest,
-                    score=float(record.score_for_k(active_k)),
+                    score=float(record.score_for_k(curriculum.active_k, score_kind=score_kind)),
                     staleness=record.staleness,
                 )
             else:
@@ -435,14 +549,14 @@ class FrontRESOuterScenarioReplay:
                     seen_segments=seen_segments,
                 )
                 perturbation_seed = int(torch.randint(0, 2**31 - 1, (1,), generator=generator).item())
-                family, strength, dr_class = global_descriptor(segment_id, perturbation_seed)
+                family = _require_nonempty("perturbation_family", global_family(segment_id))
                 selection = FrontRESOuterReplaySelection(
                     source="global",
                     segment_id=segment_id,
                     perturbation_seed=perturbation_seed,
-                    perturbation_family=str(family),
-                    perturbation_strength=float(strength),
-                    dr_class=str(dr_class),
+                    perturbation_family=family,
+                    perturbation_strength=float(torch.tensor(dr_sample.strength, dtype=torch.float32).item()),
+                    dr_class=str(dr_sample.class_name),
                     replay_key_digest=None,
                     score=0.0,
                     staleness=0,
@@ -452,7 +566,7 @@ class FrontRESOuterScenarioReplay:
             excluded_segments.add(selection.segment_id)
         result = FrontRESOuterReplayPlan(
             transaction_id=str(transaction_id),
-            active_k=int(active_k),
+            curriculum=curriculum,
             selections=tuple(selected),
             generator_state_before=before,
             generator_state_after=generator.get_state().detach().cpu().clone(),
@@ -484,12 +598,24 @@ class FrontRESOuterScenarioReplay:
             raise ValueError("outer replay stage requires exact two-Scenario x M advantages")
         if not bool(torch.isfinite(advantages).all()) or set(sources.tolist()) != {0, 1}:
             raise ValueError("outer replay stage requires finite row-aligned source evidence")
-        learning_values = tuple(float(advantages[sources == index].abs().mean().item()) for index in range(2))
         if any(int((sources == index).sum().item()) != int(active_m) for index in range(2)):
             raise ValueError("outer replay stage requires exact M rows for each Scenario")
+        grouped = tuple(advantages[sources == index] for index in range(2))
+        critic_calibration_values = tuple(float(group.mean().abs().item()) for group in grouped)
+        repair_spread_values = tuple(
+            float((group - group.mean()).abs().mean().item()) for group in grouped
+        )
 
         records = {digest: replace(record, staleness=record.staleness + 1) for digest, record in self._records.items()}
-        for index, (selection, key, learning_value) in enumerate(zip(plan.selections, keys, learning_values, strict=True)):
+        for index, (selection, key, calibration_value, spread_value) in enumerate(
+            zip(
+                plan.selections,
+                keys,
+                critic_calibration_values,
+                repair_spread_values,
+                strict=True,
+            )
+        ):
             key.validate()
             if (
                 key.segment_id != selection.segment_id
@@ -505,7 +631,8 @@ class FrontRESOuterScenarioReplay:
                 record = FrontRESScenarioReplayRecord(
                     key=key,
                     dr_class=selection.dr_class,
-                    score_by_k=((int(plan.active_k), float(learning_value)),),
+                    critic_calibration_score_by_k=((int(plan.active_k), float(calibration_value)),),
+                    repair_spread_score_by_k=((int(plan.active_k), float(spread_value)),),
                     staleness=0,
                     visit_count=1,
                     last_transaction_id=plan.transaction_id,
@@ -513,7 +640,8 @@ class FrontRESOuterScenarioReplay:
             else:
                 record = existing.with_visit(
                     horizon_k=plan.active_k,
-                    learning_value=learning_value,
+                    critic_calibration_value=calibration_value,
+                    repair_spread_value=spread_value,
                     transaction_id=plan.transaction_id,
                 )
             record.validate()
@@ -523,7 +651,8 @@ class FrontRESOuterScenarioReplay:
             policy_snapshot_id=_require_nonempty("policy_snapshot_id", policy_snapshot_id),
             plan=plan,
             records=tuple(records[key] for key in sorted(records)),
-            learning_values=learning_values,
+            critic_calibration_values=critic_calibration_values,
+            repair_spread_values=repair_spread_values,
         )
         candidate.validate()
         self._copy_generator(plan.generator_state_after)
@@ -532,8 +661,8 @@ class FrontRESOuterScenarioReplay:
     def commit(self, candidate: FrontRESOuterReplayCandidate, *, receipt: Mapping[str, Any]) -> dict[str, Any]:
         candidate.validate()
         expected = {
-            "method_contract_id": "FRS-METHOD-v021",
-            "training_contract_id": "FRS-TRAIN-v020",
+            "method_contract_id": "FRS-METHOD-v022",
+            "training_contract_id": "FRS-TRAIN-v021",
             "transaction_id": candidate.transaction_id,
             "policy_snapshot_id": candidate.policy_snapshot_id,
             "optimizer_step_delta": 1,
@@ -565,21 +694,34 @@ class FrontRESOuterScenarioReplay:
         self._records = new_records
         self.generator.set_state(generator.get_state())
         self._last_commit = dict(expected)
-        stats = self.stats(active_k=candidate.plan.active_k)
+        stats = self.stats(active_k=candidate.plan.active_k, score_kind=candidate.plan.score_kind)
         return {
             "transaction_id": candidate.transaction_id,
             "state_delta": 1,
-            "learning_values": candidate.learning_values,
+            "score_kind": candidate.plan.score_kind,
+            "critic_calibration_values": candidate.critic_calibration_values,
+            "repair_spread_values": candidate.repair_spread_values,
             "record_count": stats["record_count"],
             "replay_pool_size": stats["replay_pool_size"],
             "review_pool_size": stats["review_pool_size"],
-            "ema_scores": tuple(float(record.score_for_k(candidate.plan.active_k)) for record in selected_records),
+            "ema_scores": tuple(
+                float(record.score_for_k(candidate.plan.active_k, score_kind=candidate.plan.score_kind))
+                for record in selected_records
+            ),
+            "critic_calibration_ema": tuple(
+                float(record.score_for_k(candidate.plan.active_k, score_kind="critic_calibration"))
+                for record in selected_records
+            ),
+            "repair_spread_ema": tuple(
+                float(record.score_for_k(candidate.plan.active_k, score_kind="repair_spread"))
+                for record in selected_records
+            ),
             "visit_counts": tuple(record.visit_count for record in selected_records),
             "staleness": tuple(record.staleness for record in selected_records),
         }
 
-    def stats(self, *, active_k: int) -> dict[str, int | float]:
-        scores = [record.score_for_k(active_k) for record in self.records]
+    def stats(self, *, active_k: int, score_kind: str = "critic_calibration") -> dict[str, int | float]:
+        scores = [record.score_for_k(active_k, score_kind=score_kind) for record in self.records]
         active_scores = [float(value) for value in scores if value is not None]
         return {
             "record_count": len(self._records),

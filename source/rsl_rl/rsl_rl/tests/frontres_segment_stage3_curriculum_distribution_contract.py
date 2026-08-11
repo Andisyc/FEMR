@@ -21,9 +21,9 @@ spec.loader.exec_module(module)
 
 
 SCHEDULE_TEXT = (
-    "8:4:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381,"
-    "16:4:300:300:900:lower-k16:0.6:linear-joint-v1:900:2.381,"
-    "32:4:400:300:625:lower-k32:0.7:linear-joint-v1:625:2.381"
+    "8:4:200:500:1300:lower-k8:0.5:linear-coupled-v1:700:2.381,"
+    "16:4:300:300:900:lower-k16:0.6:linear-coupled-v1:600:2.381,"
+    "32:4:400:300:625:lower-k32:0.7:linear-coupled-v1:700:2.381"
 )
 
 
@@ -57,7 +57,8 @@ def test_commit_only_restart_and_no_feedback_surface() -> None:
     before = module.resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=1999)
     switched = module.resolve_frontres_k_stage_identity(schedule=schedule, committed_update_iteration=2000)
     assert before.active_k == 8 and switched.active_k == 16
-    assert switched.phase.name == "critic_only" and switched.phase.actor_loss_weight == 0.0
+    assert switched.phase.name == "low_dr_joint_init"
+    assert switched.phase.actor_loss_weight == 1.0 / 600.0
     assert switched.dr_progress == 0.0 and switched.d_cap == 0.6
     first = module.sample_frontres_v013_dr_strength(switched, sample_key=17)
     second = module.sample_frontres_v013_dr_strength(switched, sample_key=17)

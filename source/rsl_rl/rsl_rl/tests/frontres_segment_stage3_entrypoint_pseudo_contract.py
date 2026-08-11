@@ -240,7 +240,7 @@ def _args(**overrides) -> SimpleNamespace:
         "frontres_segment_live_update_steps": 6,
         "frontres_segment_critic_warmup_iterations": 200,
         "frontres_segment_actor_warmup_iterations": 500,
-        "frontres_segment_k_curriculum": "8:4:200:500:1300:lower-k8:0.5:linear-joint-v1:1300:2.381,16:4:300:300:900:lower-k16:0.6:linear-joint-v1:900:2.381,32:4:400:300:625:lower-k32:0.7:linear-joint-v1:625:2.381",
+        "frontres_segment_k_curriculum": "8:4:200:500:1300:lower-k8:0.5:linear-coupled-v1:700:2.381,16:4:300:300:900:lower-k16:0.6:linear-coupled-v1:600:2.381,32:4:400:300:625:lower-k32:0.7:linear-coupled-v1:700:2.381",
         "frontres_formal_runtime_audit": False,
         "frontres_v015_future_offsets": "1,2",
         "frontres_v015_hsl_initializer_checkpoint": "/tmp/frontres-v017-hsl-proposal-v2.pt",
@@ -306,9 +306,9 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
     assert alg.frontres_segment_critic_warmup_iterations == 200
     assert alg.frontres_segment_actor_warmup_iterations == 500
     assert alg.frontres_segment_k_curriculum == (
-        (8, 4, 200, 500, 1300, "lower-k8", 0.5, "linear-joint-v1", 1300, 2.381),
-        (16, 4, 300, 300, 900, "lower-k16", 0.6, "linear-joint-v1", 900, 2.381),
-        (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-joint-v1", 625, 2.381),
+        (8, 4, 200, 500, 1300, "lower-k8", 0.5, "linear-coupled-v1", 700, 2.381),
+        (16, 4, 300, 300, 900, "lower-k16", 0.6, "linear-coupled-v1", 600, 2.381),
+        (32, 4, 400, 300, 625, "lower-k32", 0.7, "linear-coupled-v1", 700, 2.381),
     )
     assert alg.frontres_formal_runtime_audit is True
     assert alg.frontres_hsl_init_enabled is False
@@ -420,7 +420,7 @@ def test_retired_optimizer_flags_reject_before_stage3_config_mutation() -> None:
         try:
             _apply_frontres_stage_preset(agent_cfg, _args(**{field: True}))
         except ValueError as exc:
-            assert "FRS-PPO-v008 rejects retired Stage-3" in str(exc)
+            assert "FRS-PPO-v009 rejects retired Stage-3" in str(exc)
         else:
             raise AssertionError(f"retired Stage-3 flag must reject: {field}")
         assert vars(agent_cfg.algorithm) == before
@@ -454,7 +454,7 @@ def test_stage3_ppo_schedule_rejects_adaptive() -> None:
     except ValueError as exc:
         assert "schedule must be fixed" in str(exc)
     else:
-        raise AssertionError("FRS-TRAIN-v020 must reject adaptive Stage-3 scheduling")
+        raise AssertionError("FRS-TRAIN-v021 must reject adaptive Stage-3 scheduling")
 
 
 def test_stage3_ppo_schedule_override_rejects_non_stage3() -> None:
@@ -507,7 +507,7 @@ def test_stage3_split_lr_override_rejects_shared_and_partial_inputs() -> None:
         _probe_exception("rejects_non_positive_ppo_lr", exc)
         assert "rejects --frontres_segment_ppo_lr" in str(exc)
     else:
-        raise AssertionError("FRS-TRAIN-v020 must reject the shared LR option")
+        raise AssertionError("FRS-TRAIN-v021 must reject the shared LR option")
     try:
         _apply_frontres_segment_split_lr_override(
             agent_cfg,
@@ -516,7 +516,7 @@ def test_stage3_split_lr_override_rejects_shared_and_partial_inputs() -> None:
     except ValueError as exc:
         assert "together" in str(exc)
     else:
-        raise AssertionError("FRS-TRAIN-v020 must reject a partial split-LR override")
+        raise AssertionError("FRS-TRAIN-v021 must reject a partial split-LR override")
 
 
 def test_stage3_rejects_multiple_live_sentinel_modes() -> None:

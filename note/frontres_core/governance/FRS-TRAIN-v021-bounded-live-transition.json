@@ -1,0 +1,63 @@
+{
+  "schema_version": "workflow-governance/v1",
+  "governance_id": "WFG-FRS-TRAIN-v021-BOUNDED-LIVE-20260811",
+  "lifecycle_phase": "formal-audit",
+  "target_phase": "bounded-live",
+  "admission": "BOUNDED-LIVE-AUTHORIZED",
+  "scope": {
+    "requested": ["prepare exactly one bounded official TRAIN-v021 sentinel before training"],
+    "preserved": ["one transaction cost bound", "user control of server execution and long training"],
+    "forbidden": ["automatic long training", "polling", "retry loop", "policy-quality claim"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11",
+    "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004",
+    "checkout": "ca7c3a737c6f46c38885b1e3ae313392f6c2266d+v021-working-tree-20260811",
+    "entrypoint": "run_stage3.sh->run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl",
+    "effective_config": "fixed-splitlr-3e-6-1e-5-k8m4-linear-coupled-v1",
+    "checkpoint": "cold-start:frontres-v017-hsl-proposal-v2:/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt"
+  },
+  "authority": {
+    "semantic": {"status": "approved", "scope": "active TRAIN-v021 Contract", "receipt": "user-confirmed-design-20260811"},
+    "local_reversible": {"status": "approved", "scope": "completed offline closure", "receipt": "user-one-shot-execution-20260811"},
+    "git_actions": {"status": "not-requested", "scope": "user will synchronize code"},
+    "external_operations": {"status": "not-requested", "scope": "assistant does not operate server in this transition"},
+    "bounded_live": {"status": "approved", "scope": "one K8/M4 transaction, one checkpoint-v16 readback, then stop", "receipt": "user-requested-execution-to-training-preflight-20260811"},
+    "long_run": {"status": "not-requested", "scope": "requires separate user decision after sentinel evidence"},
+    "destructive": {"status": "not-required", "scope": "no destructive action"}
+  },
+  "artifacts": [
+    {
+      "kind": "contract", "artifact_id": "FRS-TRAIN-v021-CONTRACT-SET",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/README.md",
+      "lifecycle": "current", "status": "active", "content_hash": "sha256:05a8276df6210127f3d2a78fee0dbfc7dda17df8395ff11abb24a173478fcef7", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11", "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004"}
+    },
+    {
+      "kind": "formal-audit-manifest", "artifact_id": "FRA-FRS-TRAIN-v021-PHASE-B",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/testing/manifests/frontres_train_v021_formal_phase_b.json",
+      "lifecycle": "current", "status": "confirmed", "content_hash": "sha256:080a02544110193abe079e4bde71081b0ef7929cd9b23739a99722b712b89ad2", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11", "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004", "checkout": "ca7c3a737c6f46c38885b1e3ae313392f6c2266d+v021-working-tree-20260811"}
+    }
+  ],
+  "dependencies": [
+    {
+      "kind": "module-alignment-test", "status": "MODULE-CORRECT", "schema_version": "1",
+      "manifest_path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/testing/manifests/frontres_train_v021_module_alignment.json", "manifest_hash": "sha256:2cc1647b46a77a9c6ec26f3c0b35cf36d05d23aeac69b2b52ddbad98b6af43ea", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11", "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004", "checkout": "ca7c3a737c6f46c38885b1e3ae313392f6c2266d+v021-working-tree-20260811", "entrypoint": "run_stage3.sh->run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl", "effective_config": "fixed-splitlr-3e-6-1e-5-k8m4-linear-coupled-v1", "checkpoint": "cold-start:frontres-v017-hsl-proposal-v2:/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt"},
+      "validation": {"command": "validate_module_test_manifest.py frontres_train_v021_module_alignment.json", "exit_code": 0, "identity": "ADMITTED-OFFLINE", "current": true}
+    },
+    {
+      "kind": "formal-runtime-audit", "status": "PHASE_B_READY", "schema_version": "formal-runtime-audit/v2",
+      "manifest_path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/testing/manifests/frontres_train_v021_formal_phase_b.json", "manifest_hash": "sha256:080a02544110193abe079e4bde71081b0ef7929cd9b23739a99722b712b89ad2", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-03+FRS-DP-09@2026-08-11", "contract": "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021/FRS-EVAL-v004", "checkout": "ca7c3a737c6f46c38885b1e3ae313392f6c2266d+v021-working-tree-20260811", "entrypoint": "run_stage3.sh->run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl", "effective_config": "fixed-splitlr-3e-6-1e-5-k8m4-linear-coupled-v1", "checkpoint": "cold-start:frontres-v017-hsl-proposal-v2:/hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt"},
+      "validation": {"command": "validate_formal_audit_manifest.py frontres_train_v021_formal_phase_b.json --target phase-b", "exit_code": 0, "identity": "FRA-FRS-TRAIN-v021-PHASE-B", "current": true}
+    }
+  ],
+  "design_review": {"semantic_change": true, "status": "confirmed", "mapping_complete": true, "receipt": "active Contract, MODULE-CORRECT and PHASE_B_READY"},
+  "open_boundaries": [],
+  "invalidations": [],
+  "recovery": {},
+  "closeout": {}
+}

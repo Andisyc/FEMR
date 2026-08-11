@@ -1,8 +1,8 @@
 ---
 contract_id: FRS-TRAIN-v020
-status: active
+status: superseded
 effective_date: 2026-08-10
-updated_date: 2026-08-10
+updated_date: 2026-08-11
 supersedes: FRS-TRAIN-v019
 scope: Fresh HSL-v2 Stage-3 campaign with M4, fixed split LR, outer prioritized sealed-Scenario replay and checkpoint-v15
 ---
