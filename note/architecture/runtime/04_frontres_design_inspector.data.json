@@ -2,7 +2,7 @@
   "layout": "design_transaction_inspector",
   "defaultZoom": 0.8,
   "title": "FrontRES Design Inspector",
-  "subtitle": "DP02/DP09 已激活 METHOD-v024 / PPO-v011 / TRAIN-v023；正式路径离线审计后停在 bounded K8 训练前",
+  "subtitle": "DP02/DP09 已激活 METHOD-v025 / PPO-v012 / TRAIN-v024；外层 Replay 只选 Scenario，Critic target 只读当前 M4",
   "cards": [
     {
       "designId": "FRS-DP-01",
@@ -61,35 +61,27 @@
       "blockId": "SR-01",
       "title": "Segment Replay",
       "color": "#47749f",
-      "responsibility": "内层 M4 提供当前策略访问证据；外层 Replay 在同一 Scenario 与兼容策略窗口内累计稳健期望 utility，并只按超出均值置信区间的可学习误差重访。",
+      "responsibility": "外层 Replay 只选择值得由当前 Actor 重新执行的 sealed Scenario；Critic 每次只学习本 Transaction 的当前 M4 均值，不累计旧策略 utility。",
       "details": [
         {
-          "heading": "两层 Replay：内层估计，外层重访",
-          "text": "同一个 frozen pi_old 下，对八个不同 Scenario 分别收集 exact M=4 次 Repair。当前 M4 utility 先进入 Replay 的候选统计窗口，再产出八个稳健 Critic target；Actor 仍只使用本次 32 个 attempt 的 advantage，整笔仍只有一次 grouped update。"
+          "heading": "两层职责：当前 M4 估计，外层 Scenario 重访",
+          "text": "外层 Replay 先选八个 sealed Scenario；每个被选中的 Scenario 都必须由当前 frozen pi_old 重新执行 exact M=4 次 Repair。当前 4 个 utility 的算术均值直接形成 Critic target；Actor 只使用本次 32 个 attempt 的 advantage，整笔仍只有一次 grouped update。"
         },
         {
           "heading": "Replay 单位：同一个 sealed Scenario",
           "text": "Replay 保存的不是裸 segment_id，而是 motion/frame、x_t、扰动类型、强度与 seed/artifact hash、noisy_segment_hash、K、future Intent 和 planned support 共同定义的 ScenarioKey。重新选择同一 segment_id 却重采样 DR，不算重放同一个 Critic 状态。"
         },
         {
-          "heading": "四种不确定性分开保存",
-          "text": "每个完整、有限且成功提交的 Scenario/K 窗口保存兼容样本数 N、稳健均值 mu_hat、rollout outcome variance、均值标准误与 95% 半区间、策略锚点和窗口重置数。Critic 可学习均值误差、随机 outcome variance、有限样本置信度和 Actor 漂移不能由一个 E_V 数字代替。"
+          "heading": "旧结果不作为训练样本",
+          "text": "Replay 只持久化 ScenarioKey、当前 K 的最新 E_V/E_A priority、lifetime committed visit、staleness、active/archive/capacity、RNG 和 receipt。旧 visit 的 utility、policy mean/sigma、KL、窗口均值和 reset 不再保存，也不能进入 Critic target、normalizer 或 Actor loss。"
         },
         {
-          "heading": "校准价值：只追逐置信区间外的误差",
-          "text": "Replay 先用兼容历史加当前 M4 得到 mu_hat 与 h95，再令 E_V_learn=max(|V_old(s)-mu_hat|-h95,0)。高 variance 只表示均值更不确定，不会直接成为高优先级；Low-DR 与 Coupled Ramp 仍使用 6 个 E_V slot，Joint 仍保留 2 个。E_A 继续只表示本次 Repair 间差异。"
-        },
-        {
-          "heading": "稳健均值仍然预测期望值",
-          "text": "mu_hat 使用兼容窗口全部 utility 的 20% 对称 winsorized mean；少于 5 个样本时退化为普通均值，因此首个 M4 target 不变。它降低极端值支配但仍以 expected symlog utility 为科学对象，不改成中位数、最大值、最小值、分位数或风险价值。"
-        },
-        {
-          "heading": "策略兼容：固定锚点，禁止链式漂移",
-          "text": "每个窗口保存创建时同一 Scenario 的 6D diagonal-Gaussian pi_old mean/sigma。新访问与锚点的 symmetric KL 不超过 0.02 才累计；否则显式从当前 M4 重建窗口。不能按 transaction 年龄冒充兼容，也不能只比较相邻访问而把很老的策略链式带入。"
+          "heading": "当前校准价值：只追逐当前 M4 置信区间外的误差",
+          "text": "只用当前 M4 计算 target、sample variance、SE 与 h95，再令 E_V=max(|V_old(s)-target|-h95,0)。variance 只修正 Replay priority，不改变 target。Low-DR 与 Coupled Ramp 仍使用 6 个 E_V slot，Joint 仍保留 2 个；E_A 也只表示本次 Repair 间差异。"
         },
         {
           "heading": "DR 兼容池：先定当前难度类别，再选 Replay",
-          "text": "每个 Scenario slot 先按当前 d_cap 下的 Easy/Medium/Hard/Broken-tail=20/30/40/10 抽取难度类别，再从当前 K 且绝对强度落入该区间的历史 Scenario 中按当前阶段分数排名加 staleness 选择。历史 dr_class 标签不能绕过当前绝对强度边界；兼容池为空时，回退为当前类别的 global discovery。"
+          "text": "每个 Scenario slot 先按当前 d_cap 下的 Easy/Medium/Hard/Broken-tail=20/30/40/10 抽取难度类别，再从当前 K 且绝对强度落入该区间的 Scenario 中按最新 current-policy priority 加 staleness 选择。历史 dr_class 标签不能绕过当前绝对强度边界；池为空时回退为当前类别的 global discovery。"
         },
         {
           "heading": "重放时机：B8 固定 slot curriculum",
@@ -97,11 +89,11 @@
         },
         {
           "heading": "有界 active pool：先重复，再扩张",
-          "text": "每个 K 的 archive 可以增长，但可采样 active pool 只按 64→128→256 扩张。所有 active Scenario 必须在当前 policy-compatible window 内至少获得 4 次 committed visit，且当前 K 已进入 full-DR Joint Optimize 后，才允许扩张；策略不兼容触发窗口重置后，该 Scenario 的容量成熟度回到 1 次，lifetime visit 只保留为诊断。该门负责有界 evidence acquisition，不要求随机性高的 Scenario 无限缩小置信区间。active pool 维持四类 20/30/40/10 quota。"
+          "text": "每个 K 的 archive 可以增长，但可采样 active pool 只按 64→128→256 扩张。所有 active Scenario 必须在当前 K 至少获得 4 次 committed fresh-M4 visit，且当前 K 已进入 full-DR Joint Optimize 后才允许扩张。每次 visit 都代表一次真实的当前 Actor 重执行；没有兼容窗口或 reset。active pool 维持四类 20/30/40/10 quota。"
         },
         {
           "heading": "提交边界：成功后才更新 Replay 状态",
-          "text": "当前 M4 先形成 Replay candidate 与八个 target，PPO 消费 target 后仍只执行一次 grouped scalar update。窗口统计、E_V/E_A、membership、capacity、visit、staleness 与 RNG 只随成功 receipt 原子提交并进入 checkpoint-v18/replay-v4；失败、partial、rejected 或 mixed Transaction 的 delta 必须为零。"
+          "text": "当前 M4 先形成 Replay candidate 与八个 target，PPO 消费 target 后仍只执行一次 grouped scalar update。最新 E_V/E_A、membership、capacity、visit、staleness 与 RNG 只随成功 receipt 原子提交并进入 checkpoint-v19/replay-v5；失败、partial、rejected 或 mixed Transaction 的 delta 必须为零。"
         }
       ],
       "highlightSteps": ["select-segments", "seal-scenarios", "restore-xt", "sample-attempts", "seal-policy-rows", "grouped-update", "commit-state"],
@@ -323,7 +315,7 @@
       "blockId": "M-05",
       "title": "Actor & Critic Warmup",
       "color": "#725781",
-      "responsibility": "Actor 与 Critic 从较低 DR 共同适应；Actor 继续使用当前 M4 advantage，Critic 每笔读取 B8 个 Replay 候选窗口的稳健期望 utility target。",
+      "responsibility": "Actor 与 Critic 从较低 DR 共同适应；Actor 使用当前 M4 advantage，Critic 每笔只读取 B8 个当前 exact-M4 平均 utility target。",
       "details": [
         {
           "heading": "Critic 的职责：预测状态难度，不预测指定动作",
@@ -346,8 +338,8 @@
           "text": "Critic 保留 289D privileged observation 与同源 Noisy q29[t+1:t+2] 58D，再增加当前实际 Contact 2D、左右脚载荷比例 2D、当前 ZMP 是否适用及 margin 2D、最多 32 步计划支撑 64D 和显式 valid mask 32D，共 449D。当前量都在 Repair action 前读取；计划支撑来自 sealed Clean-GMT continuation，只供训练期 Critic 判断状态难度。6D Repair action、Repair 后 Contact/ZMP/survival、G_total 与 evaluator 结果禁止进入。"
         },
         {
-          "heading": "Critic target：兼容窗口稳健均值",
-          "text": "每笔 Transaction 包含八个不同 sealed state，每个 state 的当前 exact M4 都来自同一个 frozen pi_old。先逐 attempt 计算 U(G_m)，再把当前 M4 与该 Scenario/K 的兼容已提交 utility 合并为稳健期望均值，Critic 得到 8 个 target；Actor 仍只得到当前 32 个 U(G_m)-V_old(s) credit。禁止把历史 utility、动作或 advantage 放入 Actor loss。"
+          "heading": "Critic target：当前 exact-M4 均值",
+          "text": "每笔 Transaction 包含八个不同 sealed state，每个 state 的当前 exact M4 都来自同一个 frozen pi_old。先逐 attempt 计算 U(G_m)，再对本次四个 utility 求算术均值得到 8 个 Critic target；Actor 仍只得到当前 32 个 U(G_m)-V_old(s) credit。任何历史 utility、动作、log probability 或 advantage 都禁止进入当前训练。"
         },
         {
           "heading": "分布跟随：Actor 与 Critic 共同适应",
@@ -355,7 +347,7 @@
         },
         {
           "heading": "固定 utility 与自适应 loss scale 分工",
-          "text": "固定 symlog 先把 raw G_total 映射为 Actor/Critic 共同预测的 utility；Replay 的 winsorized mean 仍估计该 utility 的期望。随后已有 EMA target std 只调节 Critic loss 梯度且至少为 1。三者都不让 Critic 看 6D Action；Replay 窗口与 normalizer 候选只在 exact-one commit 后提交。"
+          "text": "固定 symlog 先把 raw G_total 映射为 Actor/Critic 共同预测的 utility；当前 M4 算术均值提供 Critic target。已有 EMA target std 只调节 Critic loss 梯度且至少为 1。三者都不让 Critic看 6D Action；Replay 最新 priority 与 normalizer 候选只在 exact-one commit 后提交。"
         },
         {
           "heading": "真实 LR 与独立梯度裁剪",
@@ -363,7 +355,7 @@
         },
         {
           "heading": "K 迁移与冷启动：保留能力，重启联合适应",
-          "text": "K 增长时保留同一 Actor、Critic 与优化状态，降低 DR，并把 Actor group LR 重置为 3e-7；不冻结 Actor，也不重新初始化 Critic。Replay 统计按 K 隔离，新 K 的 active pool 从 64 开始。该 schedule 使用 checkpoint-v18/replay-v4，必须从 HSL-v2 冷启动，不能 resume checkpoint-v17 或更早版本。"
+          "text": "K 增长时保留同一 Actor、Critic 与优化状态，降低 DR，并把 Actor group LR 重置为 3e-7；不冻结 Actor，也不重新初始化 Critic。Replay priority 与 visits 按 K 隔离，新 K 的 active pool 从 64 开始。该 schedule 使用 checkpoint-v19/replay-v5，必须从 HSL-v2 冷启动，不能 resume checkpoint-v18 或更早版本。"
         }
       ],
       "highlightSteps": ["resolve-km", "grouped-update", "commit-state"],
@@ -461,7 +453,7 @@
         "id": "grouped-update",
         "phase": "update",
         "label": "完整封存后执行一次 grouped update",
-        "detail": "每个当前 attempt 用 U(G_total) 减本 Scenario 共享 V(s)；Critic 拟合八个兼容窗口稳健均值 target；安装真实 Actor group LR 后分别裁剪并 exact-one step"
+        "detail": "每个当前 attempt 用 U(G_total) 减本 Scenario 共享 V(s)；Critic 拟合八个当前 exact-M4 均值 target；安装真实 Actor group LR 后分别裁剪并 exact-one step"
       },
       {
         "id": "commit-state",

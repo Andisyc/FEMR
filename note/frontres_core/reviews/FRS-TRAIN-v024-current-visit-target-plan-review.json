@@ -1,0 +1,55 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v024-PLAN-20260812",
+  "mode": "plan",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml", "removal"],
+  "verdict": "READY",
+  "scope": {
+    "requested": ["Remove cross-visit numerical Experience Replay while retaining fresh Scenario scheduling"],
+    "preserved": ["158D Actor, 449D state-value Critic, full-6D action, Gain-v008, B8/M4, K/DR, split LR, exact-one Adam and frozen GMT"],
+    "forbidden": ["M16, historical Actor rows, Q(s,a), variance-head Critic, MOSAIC host changes, simplified training route, server execution and long training"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-02+FRS-DP-09@2026-08-12-current-visit",
+    "contract": "FRS-METHOD-v025/FRS-GAIN-v008/FRS-PPO-v012/FRS-TRAIN-v024/FRS-EVAL-v006",
+    "checkout": "6336d119c34ac57f63e786d06ddc6106b89d5df0+v024-authorized-dirty-worktree-20260812",
+    "review_object": "sha256:c9a585a2155810deb2993f4be524a198ea3f63e69ad8e406b00f5b77690149f7"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Current-visit Engineering Plan maintainability review"},
+    "source_edits": {"status": "approved", "scope": "Authorized TRAIN-v024 local implementation", "receipt": "User requested one-shot design and execution on 2026-08-12"},
+    "report_write": {"status": "approved", "scope": "Persist plan review receipt", "receipt": "User explicitly requested workflow-governance and code-review-expert workflow"}
+  },
+  "review_object": {
+    "kind": "plan",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/plans/FRS-TRAIN-v024-current-visit-target-one-shot-engineering-plan.md",
+    "content_hash": "sha256:c9a585a2155810deb2993f4be524a198ea3f63e69ad8e406b00f5b77690149f7",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "Active FrontRES engineering discipline"
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "Replay owns Scenario selection and latest priorities; current transaction rows own the Critic target; PPO only consumes a checked carrier."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "The existing plan-stage-commit candidate remains the only Replay interface; no wrapper or second route is added."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "Replay remains deterministic domain code and neither imports PPO, runner, simulator nor checkpoint owners."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "Replay persists selection state only; stage is preview and matching exact-one receipt is the sole commit boundary."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "The change deletes one obsolete utility-window object and updates its existing direct consumers and persistence identity."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Production-boundary offline evidence stops at one live-only official K8 transaction and makes no policy-quality claim."},
+    {"name": "proof-route", "disposition": "pass", "evidence": "TEST-25A--25D cover current target, uncertainty priority, no-outcome persistence, PPO equality guard and exact-one rollback."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "Only 32 current symlog utilities produce eight current M4 means and 32 current Actor advantages."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "Actor and Critic retain separate groups and clipping before one Adam step."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "checkpoint-v19/replay-v5 rejects v18/v4; future EVAL-v006 remains read-only work after a v19 checkpoint exists."},
+    {"name": "removal-reachability", "disposition": "pass", "evidence": "Utility window, policy anchor/KL/reset, compatible counters, target aggregation and all active consumers are removed; only negative legacy assertions remain."}
+  ],
+  "findings": [],
+  "residual_risks": ["One official bounded IsaacLab K8/B8/M4 transaction is still required to prove real current-policy collection before training."],
+  "blockers": [],
+  "claims": {"maintainability": "reviewed", "semantic_correctness": "not-claimed", "module_correctness": "not-claimed", "runtime_root_cause": "not-claimed", "formal_route": "not-claimed", "policy_quality": "not-claimed"},
+  "dependencies": []
+}

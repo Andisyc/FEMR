@@ -1,6 +1,6 @@
 # FEMR Current Test Control Board
 
-Updated: 2026-08-08
+Updated: 2026-08-12
 
 This is a current-state view, not a chronological test log. Dated command
 evidence belongs in evidence ledgers.
@@ -24,23 +24,23 @@ The human-confirmed Module Test Atlas is the current authority for admission to
 formal-runtime audit.
 
 ```text
-18 cards retained; TEST-05/15/16/18 changed under active TRAIN-v016
-18 passed / 0 partial / 0 blocked; changed cards human-confirmed before execution
-formal-runtime-audit Phase A: TRAIN-v016 CONFIRMED on 2026-08-08
-formal-runtime-audit Phase B: B01-B08 runtime-confirmed on server commit b74efd7
-long training: NOT AUTHORIZED
+26 cards current; TEST-25A--25D cover METHOD-v025/PPO-v012/TRAIN-v024
+26 passed / 0 partial / 0 blocked; current-visit cards human-confirmed before execution
+formal offline route: 58/58 contracts plus strict checkpoint-v19/replay-v5 PASS
+formal live boundary: one official K8/B8/M4 transaction REQUIRED
+long training and policy-quality claims: NOT AUTHORIZED
 ```
 
-All 18 cards retain the human-confirmed module baseline at E-FI-110; direct
-full-6D action deltas and identity rejection are closed at E-FI-114.
-E-FI-109's prior Phase A result remains separate historical execution evidence;
-it is not inferred from the module PASS. The old v012 result remains historical
-only.
+The retained 22 cards remain regression context. TEST-25A--25D are the active
+semantic delta: no cross-visit numerical target replay, fresh current Actor M4
+for every selected Scenario, current-only Critic target and exact-one atomic
+commit. Offline module PASS does not prove the real simulator or policy quality.
 
 ## Current Baseline
 
 | Surface | Current evidence | Status | Limitation |
 | --- | --- | --- | --- |
+| TRAIN-v024 current-visit Replay | TEST-25A--25D, design sentinel, 58/58 aggregate, checkpoint-v19/replay-v5 | covered S0-S3 | Real current-policy collection and physical evidence remain one bounded S4 K8 transaction. |
 | TRAIN-v016 bounded formal route | `AUDIT-B01..B08` each once, zero traceback, one exact optimizer step, checkpoint-v11 strict readback, 2026-08-08 | runtime-confirmed S4 for K8/M2 connectivity and persistence | Does not prove Critic calibration, actor-ramp/joint behavior, K16/K32 transitions or policy quality. |
 | Historical v013 Segment aggregate suite | 59/59 contract markers, 2026-07-19 | historical offline evidence for fixed-65D-tape lifecycle, command/reset/H connectivity, and Atlas anchors | Does not prove v015 local scenario, q29 intent, or frozen-FEMR Clean-continuation semantics. |
 | Historical Survival Gain v002 suite | Gain owner, connectivity, live probe/training/sequence/diagnostic/sampler contracts, 2026-07-17 | historical | Does not prove v015 q29 intent, two-role, or frozen-FEMR Clean-continuation semantics. |

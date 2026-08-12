@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
+from dataclasses import dataclass
 import hashlib
 import math
 from types import SimpleNamespace
@@ -43,6 +44,7 @@ from rsl_rl.frontres.frontres_segment_warmup import (
 )
 from rsl_rl.runners.frontres_formal_runtime_audit import print_sampler_audit
 from rsl_rl.runners.frontres_segment_runner_boundary import frontres_runner_cfg_get as _runner_cfg_get
+from rsl_rl.runners.frontres_segment_runtime_types import frontres_outer_scenario_replay
 from rsl_rl.runners.frontres_segment_sampler_reporting import (
     build_live_sampler_evidence,
     frontres_sampler_detail_log_enabled,
@@ -447,7 +449,7 @@ def _build_outer_replay_perturbation_plan(
     n = int(getattr(batch, "batch_size", int(batch.segment_ids.numel())))
     source_index = _source_index_for_batch(batch, n=n, device=batch.segment_ids.device)
     if set(source_index.detach().cpu().tolist()) != set(range(8)):
-        raise ValueError("TRAIN-v023 outer replay requires exactly eight source identities")
+        raise ValueError("TRAIN-v024 outer replay requires exactly eight source identities")
     selections = plan.selections
     source_strength = torch.tensor(
         [selection.perturbation_strength for selection in selections],
@@ -1104,14 +1106,14 @@ def _sample_frontres_v015_transaction_sources(
     max_horizon_k: int,
     candidate_is_eligible: Callable[[int], bool] | None = None,
 ) -> FrontRESSegmentSample:
-    """Select exactly S distinct sources; TRAIN-v023 owns B8/M4, not sampler state."""
+    """Select exactly S distinct sources; TRAIN-v024 owns B8/M4, not sampler state."""
 
     if int(selected_segment_count) != FRONTRES_V011_SELECTED_SEGMENT_COUNT:
-        raise RuntimeError("FRS-TRAIN-v023 requires exactly eight selected Scenario sources")
+        raise RuntimeError("FRS-TRAIN-v024 requires exactly eight selected Scenario sources")
     max_draws = 64
     num_segments = int(getattr(sampler, "num_segments", 0) or 0)
     if 0 < num_segments < selected_segment_count:
-        raise RuntimeError("FRS-TRAIN-v023 requires at least eight valid Scenario sources")
+        raise RuntimeError("FRS-TRAIN-v024 requires at least eight valid Scenario sources")
 
     candidates: list[FrontRESSegmentSample] = []
     candidate_ids: set[int] = set()
@@ -1251,11 +1253,33 @@ def _outer_replay_scenario_keys(
     return tuple(result)
 
 
+@dataclass(frozen=True)
+class FrontRESPreparedLocalTransaction:
+    """Typed carrier from Scenario selection/materialization to formal collection."""
+
+    sample: FrontRESSegmentSample
+    batch: Any
+    plan: FrontRESFormalTransactionPlan
+    outer_replay_plan: FrontRESOuterReplayPlan
+    outer_replay_scenario_keys: tuple[FrontRESScenarioKey, ...]
+
+    def validate(self) -> None:
+        if self.batch is None or self.plan is None:
+            raise ValueError("prepared FrontRES transaction requires batch and frozen plan")
+        self.outer_replay_plan.validate()
+        if len(self.outer_replay_scenario_keys) != FRONTRES_V011_SELECTED_SEGMENT_COUNT:
+            raise ValueError("prepared FrontRES transaction requires eight Scenario keys")
+        for key in self.outer_replay_scenario_keys:
+            key.validate()
+        if self.outer_replay_plan.transaction_id != self.plan.transaction_id:
+            raise ValueError("prepared FrontRES transaction lost its transaction identity")
+
+
 def _prepare_frontres_v015_local_transaction_batch(
     runner: Any,
     *,
     route: str,
-) -> SimpleNamespace:
+) -> FrontRESPreparedLocalTransaction:
     """Select and seal one complete v015 local transaction before reset.
 
     Status: active v015 selection owner for the bounded sentinel and ordinary
@@ -1266,8 +1290,8 @@ def _prepare_frontres_v015_local_transaction_batch(
 
     alg = getattr(runner, "alg", None)
     sampler = getattr(runner, "_frontres_segment_sampler", None)
-    outer_replay = getattr(runner, "_frontres_outer_scenario_replay", None)
-    if alg is None or sampler is None or not isinstance(outer_replay, FrontRESOuterScenarioReplay):
+    outer_replay = frontres_outer_scenario_replay(runner)
+    if alg is None or sampler is None:
         raise RuntimeError("v015 local transaction requires initialized algorithm and segment sampler owners")
     if route not in {"sentinel", "training"}:
         raise ValueError(f"unknown v015 local transaction route={route!r}")
@@ -1292,7 +1316,7 @@ def _prepare_frontres_v015_local_transaction_batch(
     required_env_count = 2 * expected_repair_rows
     if env_count != required_env_count:
         raise RuntimeError(
-            "FRS-TRAIN-v023 environment width must equal 2*B8*M4 Repair/Noisy rows: "
+            "FRS-TRAIN-v024 environment width must equal 2*B8*M4 Repair/Noisy rows: "
             f"active_m={curriculum.active_m} required={required_env_count} observed={env_count}"
         )
     repair_rows = env_count // 2
@@ -1324,7 +1348,7 @@ def _prepare_frontres_v015_local_transaction_batch(
     if int(base_ids.numel()) != FRONTRES_V011_SELECTED_SEGMENT_COUNT or int(
         torch.unique(base_ids).numel()
     ) != FRONTRES_V011_SELECTED_SEGMENT_COUNT:
-        raise RuntimeError("FRS-TRAIN-v023 local transaction requires exactly eight distinct Scenario sources")
+        raise RuntimeError("FRS-TRAIN-v024 local transaction requires exactly eight distinct Scenario sources")
     snapshot = capture_frontres_frozen_policy_snapshot(runner, transaction_id=transaction_id)
     frozen_plan = sampler.plan_frozen_policy_transaction(
         base_ids,
@@ -1407,22 +1431,24 @@ def _prepare_frontres_v015_local_transaction_batch(
         intent_q29_source=next(iter(intent_source)),
     )
     plan.validate()
-    return SimpleNamespace(
+    result = FrontRESPreparedLocalTransaction(
         sample=expanded_sample,
         batch=batch,
         plan=plan,
         outer_replay_plan=outer_replay_plan,
         outer_replay_scenario_keys=scenario_keys,
     )
+    result.validate()
+    return result
 
 
-def prepare_frontres_v015_local_sentinel_batch(runner: Any) -> SimpleNamespace:
+def prepare_frontres_v015_local_sentinel_batch(runner: Any) -> FrontRESPreparedLocalTransaction:
     """Prepare the explicit bounded sentinel transaction."""
 
     return _prepare_frontres_v015_local_transaction_batch(runner, route="sentinel")
 
 
-def prepare_frontres_v015_formal_training_batch(runner: Any) -> SimpleNamespace:
+def prepare_frontres_v015_formal_training_batch(runner: Any) -> FrontRESPreparedLocalTransaction:
     """Prepare one complete ordinary Stage-3 transaction without legacy rows."""
 
     return _prepare_frontres_v015_local_transaction_batch(runner, route="training")

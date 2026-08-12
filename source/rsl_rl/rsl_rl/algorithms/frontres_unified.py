@@ -297,10 +297,10 @@ class FrontRESUnified:
         self.frontres_segment_live_update_loop_only = bool(frontres_segment_live_update_loop_only)
         self.frontres_segment_live_train_enabled = bool(frontres_segment_live_train_enabled)
         self.frontres_formal_transaction_enabled = bool(frontres_formal_transaction_enabled)
-        self.frontres_method_contract_id = "FRS-METHOD-v024"
+        self.frontres_method_contract_id = "FRS-METHOD-v025"
         self.frontres_gain_contract_id = "FRS-GAIN-v008"
-        self.frontres_optimization_contract_id = "FRS-PPO-v011"
-        self.frontres_training_contract_id = "FRS-TRAIN-v023"
+        self.frontres_optimization_contract_id = "FRS-PPO-v012"
+        self.frontres_training_contract_id = "FRS-TRAIN-v024"
         self.frontres_dr_curriculum_schema_id = "nested-k-dr-four-class-v1"
         self.frontres_scalar_target_id = "symmetric-log-recovery-aware-utility-v1"
         self.frontres_physics_schema_id = "clean-anchored-contact-zmp-survival-v1"
@@ -308,7 +308,7 @@ class FrontRESUnified:
         self.frontres_critic_value_kind = "state_value"
         self.frontres_critic_input_dim = 449
         self.frontres_critic_action_conditioned = False
-        self.frontres_critic_target_id = "scenario-compatible-robust-mean-symlog-v1"
+        self.frontres_critic_target_id = "scenario-current-exact-m4-mean-symlog-v1"
         self.frontres_return_utility_id = "symmetric-log-gain-g0-1-v1"
         self.frontres_return_utility_scale = 1.0
         self.frontres_critic_support_context_id = "action-pre-support-plan-kmax32-v1"
@@ -338,7 +338,7 @@ class FrontRESUnified:
             or self.frontres_segment_actor_joint_lr != 1.0e-6
             or self.critic_learning_rate != 1.0e-5
         ):
-            raise ValueError("FRS-TRAIN-v023 requires Actor LR curriculum 3e-7 -> 1e-6")
+            raise ValueError("FRS-TRAIN-v024 requires Actor LR curriculum 3e-7 -> 1e-6")
         self.frontres_segment_k_curriculum = tuple(tuple(row) for row in frontres_segment_k_curriculum)
         self.frontres_segment_k_curriculum_fingerprint = ""
         if self.frontres_segment_k_curriculum:

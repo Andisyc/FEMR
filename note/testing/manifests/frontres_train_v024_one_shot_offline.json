@@ -1,0 +1,74 @@
+{
+  "schema_version": "one-shot-execution/v1",
+  "unit_id": "OSE-FRS-TRAIN-v024-CURRENT-VISIT-OFFLINE",
+  "closure_mode": "engineering",
+  "terminal_outcome": "replace cross-visit numerical Replay with current Actor M4 targets, close all local evidence, and stop at the single official bounded K8 fact",
+  "scope": {
+    "requested": ["design and execute the current-visit Replay correction in one local engineering unit"],
+    "preserved": ["Actor/Critic/GMT 158/449/770", "full-6D action", "Gain-v008", "B8/M4", "K/DR", "split LR", "exact-one Adam"],
+    "forbidden": ["M16", "historical Actor rows or utility targets", "MOSAIC mutation", "simplified simulator route", "automatic server retries", "long training"]
+  },
+  "identities": {
+    "design": "FRS-METHOD-v025/FRS-GAIN-v008/FRS-PPO-v012/FRS-TRAIN-v024",
+    "checkout": "6336d119c34ac57f63e786d06ddc6106b89d5df0+v024-authorized-dirty-worktree-20260812",
+    "entrypoint": "run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl",
+    "effective_config": "current-exact-m4-target-B8-M4-splitlr-low-dr-coupled-v1",
+    "checkpoint": "fresh-HSL-v2->frontres-v024-checkpoint-v19/replay-v5"
+  },
+  "authority": {
+    "local_reversible": {"status": "approved", "scope": "Contracts, implementation, tests, review and offline audit"},
+    "git_actions": {"status": "not-requested", "scope": "No stage, commit, push or pull"},
+    "external_operations": {"status": "not-requested", "scope": "No server, simulator, transfer or network action"},
+    "bounded_live": {"status": "not-requested", "scope": "One separately controlled official K8 transaction remains"},
+    "long_run": {"status": "not-requested", "scope": "No long training"},
+    "destructive": {"status": "not-required", "scope": "Only versioned active Contracts moved to their history locations"}
+  },
+  "causal_closure": {
+    "required": true,
+    "status": "LOCALIZED",
+    "owner_or_invariant": "FrontRESOuterScenarioReplay schedules fresh Scenario reruns; current exact-M4 rows are the only Critic target owner",
+    "evidence_ref": "note/testing/manifests/frontres_train_v024_module_alignment.json",
+    "falsifier": "Any prior utility changes a current target or any selected Scenario reaches PPO without current M4 evidence"
+  },
+  "dependencies": [
+    {
+      "kind": "module-alignment-test",
+      "status": "MODULE-CORRECT",
+      "schema_version": "1",
+      "manifest_path": "frontres_train_v024_module_alignment.json",
+      "manifest_hash": "sha256:36635d2451047f455fb24219f53cda5626f381eafbdc038560c4b0c7918c7205",
+      "current": true,
+      "identities": {"design": "FRS-METHOD-v025/FRS-GAIN-v008/FRS-PPO-v012/FRS-TRAIN-v024", "checkout": "6336d119c34ac57f63e786d06ddc6106b89d5df0+v024-authorized-dirty-worktree-20260812", "entrypoint": "run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl", "effective_config": "current-exact-m4-target-B8-M4-splitlr-low-dr-coupled-v1", "checkpoint": "fresh-HSL-v2->frontres-v024-checkpoint-v19/replay-v5"},
+      "validation": {"command": "validate_module_test_manifest.py frontres_train_v024_module_alignment.json", "exit_code": 0, "identity": "ADMITTED-OFFLINE", "current": true}
+    },
+    {
+      "kind": "formal-runtime-audit",
+      "status": "LIVE_REQUIRED",
+      "schema_version": "formal-runtime-audit/v3",
+      "manifest_path": "frontres_train_v024_formal_live_required.json",
+      "manifest_hash": "sha256:912924df830bd3c1ca1ef54caabc24b6c62b40bf6596d03a72532478d3555fa8",
+      "current": true,
+      "identities": {"design": "FRS-METHOD-v025/FRS-GAIN-v008/FRS-PPO-v012/FRS-TRAIN-v024", "checkout": "6336d119c34ac57f63e786d06ddc6106b89d5df0+v024-authorized-dirty-worktree-20260812", "entrypoint": "run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl", "effective_config": "current-exact-m4-target-B8-M4-splitlr-low-dr-coupled-v1", "checkpoint": "fresh-HSL-v2->frontres-v024-checkpoint-v19/replay-v5"},
+      "validation": {"command": "validate_formal_audit_manifest.py frontres_train_v024_formal_live_required.json --target live-required", "exit_code": 0, "identity": "LIVE_REQUIRED", "current": true}
+    }
+  ],
+  "offline_gaps": [],
+  "next_action": {
+    "class": "bounded-live",
+    "description": "After the user synchronizes this checkout, run exactly one official K8/B8/M4 current-visit transaction and stop.",
+    "reversible": true,
+    "costly": true,
+    "externally_visible": true,
+    "destroys_evidence": false,
+    "decision_boundary": {
+      "kind": "permission",
+      "reason": "Server synchronization and GPU execution were not authorized in this local task and require the user's controlled environment.",
+      "question": "Authorize the single bounded official K8 transaction after synchronization?"
+    }
+  },
+  "live_only_unknowns": [
+    {"id": "LIVE-V024-1", "status": "open", "fact": "The official IsaacLab collector reruns all eight selected Scenarios with current Actor M4 before one v024 update.", "why_offline_impossible": "Requires server CUDA, IsaacLab, Stage-1 cache and HSL-v2 artifact.", "falsifier": "Any selected Scenario lacks four current outcomes or target/current-M4/step/Replay/checkpoint identity fails."}
+  ],
+  "attempts": [],
+  "admission": "STOP_FOR_HUMAN"
+}

@@ -336,7 +336,7 @@ def install_frontres_v006_scalar_gradients(
     actor_parameters, critic_parameters = _frontres_scalar_parameter_partition(
         policy,
         optimizer_parameters,
-        contract_id="FRS-PPO-v011",
+        contract_id="FRS-PPO-v012",
     )
     max_norm = float(max_grad_norm)
     if not math.isfinite(max_norm) or max_norm <= 0.0:
@@ -527,16 +527,16 @@ def _build_frontres_v006_segment_value_targets(
         or privileged.requires_grad
         or not bool(torch.isfinite(privileged).all().item())
     ):
-        raise ValueError("FRS-PPO-v011 requires detached finite Critic observations with shape [B,449]")
+        raise ValueError("FRS-PPO-v012 requires detached finite Critic observations with shape [B,449]")
     selected_sources = rows.source_index[valid]
     segment_keys_tensor = torch.unique(selected_sources, sorted=True)
     if int(segment_keys_tensor.numel()) != 8:
-        raise ValueError("FRS-PPO-v011 requires exactly eight Scenario state groups")
+        raise ValueError("FRS-PPO-v012 requires exactly eight Scenario state groups")
     if target_means_by_source is not None and not torch.equal(
         segment_keys_tensor,
         torch.arange(8, device=segment_keys_tensor.device, dtype=segment_keys_tensor.dtype),
     ):
-        raise ValueError("FRS-PPO-v011 robust targets require source identities 0..7")
+        raise ValueError("FRS-PPO-v012 current M4 targets require source identities 0..7")
     selected_returns = (
         batch.returns[valid].detach() if selected_target_returns is None else selected_target_returns.detach()
     )
@@ -555,19 +555,21 @@ def _build_frontres_v006_segment_value_targets(
     external_targets: torch.Tensor | None = None
     if target_means_by_source is not None:
         if len(target_means_by_source) != 8:
-            raise ValueError("FRS-PPO-v011 requires exactly eight Replay-owned Scenario targets")
+            raise ValueError("FRS-PPO-v012 requires exactly eight current Scenario targets")
         external_targets = selected_returns.new_tensor(target_means_by_source)
         if not bool(torch.isfinite(external_targets).all().item()):
-            raise ValueError("FRS-PPO-v011 requires finite Replay-owned Scenario targets")
+            raise ValueError("FRS-PPO-v012 requires finite current Scenario targets")
     expected_m: int | None = None
     for segment_key_tensor in segment_keys_tensor:
         segment_key = int(segment_key_tensor.item())
         local_rows = torch.nonzero(selected_sources == segment_key, as_tuple=False).reshape(-1)
         count = int(local_rows.numel())
+        if external_targets is not None and count != 4:
+            raise ValueError("FRS-PPO-v012 current Scenario targets require exact M4 rows")
         if expected_m is None:
             expected_m = count
         if count < 2 or count != expected_m:
-            raise ValueError("FRS-PPO-v011 requires the same exact-M count for all eight Scenarios")
+            raise ValueError("FRS-PPO-v012 requires the same exact-M count for all eight Scenarios")
         expected_trials = torch.arange(count, device=selected_trials.device, dtype=torch.long)
         if not torch.equal(torch.sort(selected_trials[local_rows]).values, expected_trials):
             raise ValueError("FRS-PPO-v009 requires unique trial_index=0..M-1 within each Segment")
@@ -585,11 +587,15 @@ def _build_frontres_v006_segment_value_targets(
             raise ValueError("FRS-PPO-v009 requires one shared old value within each Segment")
 
         # B2: 仅对该 Segment 的 exact-M realized returns 求均值, 产出一个 state-value target.
-        target = (
-            selected_returns[local_rows].mean()
-            if external_targets is None
-            else external_targets[segment_key]
-        )
+        current_mean = selected_returns[local_rows].mean()
+        if external_targets is not None and not torch.isclose(
+            external_targets[segment_key],
+            current_mean,
+            rtol=0.0,
+            atol=1.0e-6,
+        ):
+            raise ValueError("FRS-PPO-v012 external target must equal its current exact-M4 mean")
+        target = current_mean if external_targets is None else external_targets[segment_key]
         if not bool(torch.isfinite(target).item()):
             raise FloatingPointError("FRS-PPO-v009 produced a non-finite Segment value target")
         row_targets[local_rows] = target
@@ -667,19 +673,19 @@ def compute_frontres_segment_ppo_loss(
         "per-attempt-return-v005",
         "segment-exact-m-mean-v1",
         "segment-exact-m-mean-symlog-v1",
-        "scenario-compatible-robust-mean-symlog-v1",
+        "scenario-current-exact-m4-mean-symlog-v1",
     }:
         raise ValueError(f"unsupported FrontRES Critic target identity: {critic_target_id!r}")
     segment_mean_target_ids = {
         "segment-exact-m-mean-v1",
         "segment-exact-m-mean-symlog-v1",
-        "scenario-compatible-robust-mean-symlog-v1",
+        "scenario-current-exact-m4-mean-symlog-v1",
     }
-    robust_target_id = "scenario-compatible-robust-mean-symlog-v1"
-    if critic_target_id == robust_target_id and cfg.critic_target_means_by_source is None:
-        raise ValueError("FRS-PPO-v011 robust Scenario target requires Replay-owned target means")
-    if critic_target_id != robust_target_id and cfg.critic_target_means_by_source is not None:
-        raise ValueError("Replay-owned target means are valid only for FRS-PPO-v011 robust targets")
+    current_target_id = "scenario-current-exact-m4-mean-symlog-v1"
+    if critic_target_id == current_target_id and cfg.critic_target_means_by_source is None:
+        raise ValueError("FRS-PPO-v012 current Scenario target requires current M4 means")
+    if critic_target_id != current_target_id and cfg.critic_target_means_by_source is not None:
+        raise ValueError("external target means are valid only for FRS-PPO-v012 current M4 targets")
     if critic_target_id in segment_mean_target_ids and normalization_mode != "grouped_scale_only":
         raise ValueError("FRS-PPO-v009 Segment mean target requires grouped_scale_only transaction rows")
     transaction_rows: _FrontRESSegmentPPOTransactionRows | None = None
@@ -723,7 +729,7 @@ def compute_frontres_segment_ppo_loss(
     return_utility_id = "none"
     if critic_target_id in {
         "segment-exact-m-mean-symlog-v1",
-        "scenario-compatible-robust-mean-symlog-v1",
+        "scenario-current-exact-m4-mean-symlog-v1",
     }:
         utility_returns = frontres_symmetric_log_utility(raw_returns)
         expected_advantages = utility_returns - old_value

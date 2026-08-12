@@ -150,13 +150,13 @@ def test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds() -> None:
         bounds=("16", "1", "1"),
     )
     assert wrong.returncode != 0
-    assert "FRS-TRAIN-v023 K8/B8/M4 campaign requires NUM_ENVS=64" in wrong.stderr
+    assert "FRS-TRAIN-v024 K8/B8/M4 campaign requires NUM_ENVS=64" in wrong.stderr
 
 
 def test_strict_v023_resume_replaces_hsl_initializer() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         resume_path = Path(tmp) / "model_1.pt"
-        resume_path.write_text("semantic checkpoint-v18 fixture\n")
+        resume_path.write_text("semantic checkpoint-v19 fixture\n")
         result = _run_preflight(
             "train",
             {"FRONTRES_V015_RESUME_CHECKPOINT": str(resume_path)},
@@ -179,7 +179,7 @@ def test_strict_v023_resume_rejects_missing_checkpoint() -> None:
         bounds=("64", "199", "1"),
     )
     assert result.returncode != 0
-    assert "checkpoint-v18 resume checkpoint not found" in result.stderr
+    assert "checkpoint-v19 resume checkpoint not found" in result.stderr
 
 
 def test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel() -> None:
@@ -265,7 +265,7 @@ def test_stage3_launch_rejects_retired_optimizer_modes() -> None:
     for mode in ("single_update", "update_loop"):
         result = _run_preflight(mode)
         assert result.returncode == 4
-        assert "FRS-PPO-v011 rejects retired optimizer-writing Stage 3 mode" in result.stderr
+        assert "FRS-PPO-v012 rejects retired optimizer-writing Stage 3 mode" in result.stderr
         assert "Command: " not in result.stdout
 
 

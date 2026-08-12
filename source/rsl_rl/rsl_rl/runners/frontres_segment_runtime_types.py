@@ -25,6 +25,7 @@ import torch
 
 from rsl_rl.frontres.frontres_outer_scenario_replay import (
     FrontRESOuterReplayPlan,
+    FrontRESOuterScenarioReplay,
     FrontRESScenarioKey,
 )
 from rsl_rl.runners.frontres_stage3_engine import frontres_stage3_transaction_aggregate
@@ -56,6 +57,21 @@ class FrontRESSegmentLiveObservations:
     privileged_obs: torch.Tensor
     teacher_obs: torch.Tensor
     ref_vel_estimator_obs: torch.Tensor | None
+
+
+def frontres_outer_scenario_replay(
+    runner: Any,
+    *,
+    required: bool = True,
+) -> FrontRESOuterScenarioReplay | None:
+    """Return the one runner-owned Replay aggregate through a validated boundary."""
+
+    owner = getattr(runner, "_frontres_outer_scenario_replay", None)
+    if owner is None and not required:
+        return None
+    if not isinstance(owner, FrontRESOuterScenarioReplay):
+        raise RuntimeError("FrontRES Stage-3 requires one initialized outer Scenario Replay owner")
+    return owner
 
 
 @dataclass(frozen=True)
@@ -204,13 +220,13 @@ class FrontRESFormalTransactionRequest:
         if isinstance(self.active_m, bool) or int(self.active_m) < 2:
             raise ValueError("FRS-TRAIN-v021 formal transaction active_m must be at least two")
         if self.plan.active_m != int(self.active_m) or self.plan.selected_segment_count != 8:
-            raise ValueError("FRS-TRAIN-v023 formal transaction plan does not match exact B8 x M identity")
+            raise ValueError("FRS-TRAIN-v024 formal transaction plan does not match exact B8 x M identity")
         if self.warmup_phase_name not in {"low_dr_joint_init", "coupled_ramp", "joint"}:
             raise ValueError("FRS-TRAIN-v021 formal transaction has an invalid warmup phase")
         if float(self.warmup_actor_loss_weight) != 1.0:
-            raise ValueError("FRS-TRAIN-v023 formal transaction actor loss weight must remain one")
+            raise ValueError("FRS-TRAIN-v024 formal transaction actor loss weight must remain one")
         if not 3.0e-7 <= float(self.warmup_actor_learning_rate) <= 1.0e-6:
-            raise ValueError("FRS-TRAIN-v023 formal transaction Actor LR must be in [3e-7,1e-6]")
+            raise ValueError("FRS-TRAIN-v024 formal transaction Actor LR must be in [3e-7,1e-6]")
         if len(self.dr_stage_fingerprint) != 64:
             raise ValueError("FRS-TRAIN-v021 formal transaction requires a sealed DR-stage fingerprint")
         if not 0.0 <= float(self.dr_progress) <= 1.0 or not 0.0 < float(self.d_cap) <= 2.381:
@@ -345,10 +361,10 @@ def _commit_frontres_checkpoint_transaction(
     if state.get("state") != "sealed":
         raise RuntimeError("v015 formal transaction commit requires a sealed checkpoint barrier")
     receipt = {
-        "method_contract_id": "FRS-METHOD-v024",
+        "method_contract_id": "FRS-METHOD-v025",
         "gain_contract_id": "FRS-GAIN-v008",
-        "optimization_contract_id": "FRS-PPO-v011",
-        "training_contract_id": "FRS-TRAIN-v023",
+        "optimization_contract_id": "FRS-PPO-v012",
+        "training_contract_id": "FRS-TRAIN-v024",
         "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",

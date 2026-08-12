@@ -1,6 +1,6 @@
 ---
 contract_id: FRS-PPO-v011
-status: active
+status: superseded
 effective_date: 2026-08-12
 updated_date: 2026-08-12
 supersedes: FRS-PPO-v010

@@ -52,11 +52,14 @@ for (const required of [
 
 const expectedModuleIds = repoMap.runtimeOrder;
 const cardModuleIds = atlas.cards.map((card) => card.blockId);
-const outerReplayModuleIds = ["MOD-OUTER-IDENTITY", "MOD-OUTER-SELECTION", "MOD-OUTER-COMMIT", "MOD-OUTER-PERSISTENCE"];
+const outerReplayModuleIds = [
+ "MOD-OUTER-IDENTITY", "MOD-OUTER-SELECTION", "MOD-OUTER-COMMIT", "MOD-OUTER-PERSISTENCE",
+ "MOD-OUTER-TARGET", "MOD-OUTER-PRIORITY", "MOD-OUTER-LIFECYCLE", "MOD-CURRENT-VISIT-UOW",
+];
 if (atlas.cards.length !== expectedModuleIds.length + outerReplayModuleIds.length
  || new Set(cardModuleIds).size !== atlas.cards.length
  || expectedModuleIds.some((id) => !cardModuleIds.includes(id))) {
- throw new Error(`Module Test Atlas must cover all ${expectedModuleIds.length} runtime modules plus four outer replay boundaries exactly once`);
+ throw new Error(`Module Test Atlas must cover all ${expectedModuleIds.length} runtime modules plus eight outer replay boundaries exactly once`);
 }
 if (outerReplayModuleIds.some((id) => !cardModuleIds.includes(id))) {
  throw new Error("Module Test Atlas is missing an outer replay boundary card");
@@ -68,7 +71,7 @@ for (const supportId of repoMap.supportOrder) {
 const requiredHeadings = ["要验证的设计规则", "伪样本测试"];
 const confirmedPendingCards = new Set();
 for (const card of atlas.cards) {
- if (!/^TEST-\d{2}$/.test(card.designId) || !card.title || !card.color) {
+ if (!/^TEST-\d{2}(?:[A-D])?$/.test(card.designId) || !card.title || !card.color) {
   throw new Error(`invalid test card identity for ${card.blockId}`);
  }
  if (card.highlightSteps.join(",") !== "purpose,oracle,cases") {
@@ -126,10 +129,10 @@ const counts = Object.fromEntries(
   atlas.cards.filter((card) => card.executionStatus === status).length,
  ])
 );
-if (counts.passed !== 22 || counts.partial !== 0 || counts.blocked !== 0 || counts["not-run"] !== 0) {
+if (counts.passed !== 26 || counts.partial !== 0 || counts.blocked !== 0 || counts["not-run"] !== 0) {
  throw new Error(`module execution count drift: ${JSON.stringify(counts)}`);
 }
-for (const token of ["22 passed"]) {
+for (const token of ["26 passed"]) {
  if (!atlas.subtitle.includes(token)) throw new Error(`Module Test Atlas subtitle missing ${token}`);
 }
 console.log(

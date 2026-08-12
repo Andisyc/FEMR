@@ -1,0 +1,81 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v024-CONSTRUCTION-20260812",
+  "mode": "construction",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml", "removal"],
+  "verdict": "CONSTRUCTION_PASS",
+  "scope": {
+    "requested": ["Construction review of current-visit Replay owner and its PPO/persistence consumers"],
+    "preserved": ["Current Actor B8/M4 collection, Actor credit, Gain, LR, K/DR, exact-one Unit of Work and frozen GMT"],
+    "forbidden": ["Historical numerical targets, silent migration, new abstraction hierarchy, simulator test rig and policy-quality claims"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-02+FRS-DP-09@2026-08-12-current-visit",
+    "contract": "FRS-METHOD-v025/FRS-GAIN-v008/FRS-PPO-v012/FRS-TRAIN-v024/FRS-EVAL-v006",
+    "checkout": "6336d119c34ac57f63e786d06ddc6106b89d5df0+v024-authorized-dirty-worktree-20260812",
+    "review_object": "sha256:00c06c458cff89c7c63e6cf8403a542b45d08fb35aa3e58ed2cc2f16b790d0f9"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Construction diff and owner-boundary review"},
+    "source_edits": {"status": "approved", "scope": "User-authorized TRAIN-v024 implementation and P0/P1 repair", "receipt": "User requested one-shot execution on 2026-08-12"},
+    "report_write": {"status": "approved", "scope": "Persist construction review receipt", "receipt": "User explicitly requested code-review-expert workflow"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_outer_scenario_replay.py",
+    "content_hash": "sha256:00c06c458cff89c7c63e6cf8403a542b45d08fb35aa3e58ed2cc2f16b790d0f9",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "Active FrontRES engineering discipline"
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "Replay stage owns current target and priority facts; PPO independently guards current-row equality; runner orchestrates only."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "Removed policy means/sigmas and compatibility fields reduce caller knowledge without adding another interface."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "No new dependency edge or private cross-layer access was introduced."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "Candidate preview, transaction rollback, exact-one Replay commit and strict v5 load preserve one Unit of Work."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "Semantic edits are confined to Replay, target consumer, telemetry, formal transaction and persistence owners."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Focused tests and 58-contract suite are offline evidence; real simulator remains unclaimed."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "Current M4 rows are grouped by source identity; external targets must equal those exact means."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "No Gain, Actor loss, group LR, clipping or optimizer-step semantics changed."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "v19/v5 state contains no historical outcomes and v18/v4 rejects before mutation."},
+    {"name": "removal-reachability", "disposition": "pass", "evidence": "Exact searches find no active utility-window, compatible-count, policy-anchor/KL/reset producer or consumer."}
+  ],
+  "findings": [
+    {
+      "finding_id": "CRE-FRS-v024-001",
+      "severity": "P1",
+      "status": "resolved",
+      "location": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py:_build_frontres_v006_segment_value_targets",
+      "evidence": [{"kind": "test", "locator": "frontres_v016_state_value_ppo_contract.py M2 controlled counterexample", "observation": "The public PPO consumer initially accepted eight two-row groups under the exact-M4 target identity."}],
+      "named_diagnostic": "Research ML/RL boundary",
+      "responsibility_at_risk": "Exact M4 Critic-target identity at the independent loss boundary",
+      "preserved_behavior": "Historical generic exact-M targets remain available only under their older target identities",
+      "smallest_safe_change": "Require count==4 whenever external current-Scenario targets are supplied under PPO-v012.",
+      "required_tests": ["frontres_v016_state_value_ppo_contract.py M2 reject", "frontres_segment_all_contract_suite.py"],
+      "stop_condition": "M2 fails with exact M4 identity while B8/M4 and all 58 Contract markers pass."
+    },
+    {
+      "finding_id": "CRE-FRS-v024-002",
+      "severity": "P3",
+      "status": "resolved",
+      "location": "source/rsl_rl/rsl_rl/frontres/frontres_outer_scenario_replay.py:FrontRESOuterScenarioReplay.stage",
+      "evidence": [{"kind": "source", "locator": "discarded _copy_generator return", "observation": "A no-op generator-copy call remained at the end of the preview path."}],
+      "named_diagnostic": "Dead Code",
+      "responsibility_at_risk": "Readable zero-write preview lifecycle",
+      "preserved_behavior": "Generator advances only inside matching commit",
+      "smallest_safe_change": "Delete the discarded call.",
+      "required_tests": ["frontres_v024_current_visit_replay_contract.py", "frontres_segment_all_contract_suite.py"],
+      "stop_condition": "Stage remains zero-write and receipt-gated commit advances RNG once."
+    }
+  ],
+  "residual_risks": ["Real current-policy Scenario materialization remains an S4 fact for one bounded official transaction."],
+  "blockers": [],
+  "claims": {"maintainability": "reviewed", "semantic_correctness": "not-claimed", "module_correctness": "not-claimed", "runtime_root_cause": "not-claimed", "formal_route": "not-claimed", "policy_quality": "not-claimed"},
+  "dependencies": []
+}

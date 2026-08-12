@@ -1,0 +1,117 @@
+{
+  "schema_version": "formal-runtime-audit/v3",
+  "audit_id": "FRA-FRS-TRAIN-v024-LIVE-REQUIRED-20260812",
+  "identities": {
+    "design": "FRS-METHOD-v025/FRS-PPO-v012/FRS-TRAIN-v024",
+    "checkout": "6336d119c34ac57f63e786d06ddc6106b89d5df0+v024-authorized-dirty-worktree-20260812",
+    "entrypoint": "run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl",
+    "effective_config": "K8/B8/M4; Actor LR 3e-7; Critic LR 1e-5; bounded one transaction; checkpoint-v19/replay-v5",
+    "checkpoint": "fresh-HSL-v2->frontres-v024-checkpoint-v19/replay-v5"
+  },
+  "module_admission": {
+    "status": "MODULE-CORRECT",
+    "manifest_path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/testing/manifests/frontres_train_v024_module_alignment.json",
+    "manifest_hash": "sha256:36635d2451047f455fb24219f53cda5626f381eafbdc038560c4b0c7918c7205",
+    "current": true
+  },
+  "offline_gaps": [],
+  "design_probes": [
+    {
+      "probe_id": "PROBE-v024-CURRENT-VISIT-EFFECT",
+      "design_id": "FRS-DP-02",
+      "design_claim": "A replayed Scenario is freshly evaluated and only its current M4 mean supervises the Critic.",
+      "necessary_capability": "Run repeated visits through production Replay stage/commit and enforce current-row equality at the production PPO consumer.",
+      "minimal_case": "First M4 [1,2,3,4], second M4 [9,9,9,9], second target exactly 9 with current Actor credit unchanged.",
+      "path_class": "official-entry",
+      "preserved_production_owners": ["FrontRESOuterScenarioReplay", "compute_frontres_segment_ppo_loss", "run_frontres_formal_transaction_update"],
+      "simplifications": ["CPU tensors replace simulator evidence only", "Production Replay, PPO, optimizer, rollback and persistence owners are unchanged"],
+      "falsifier": "Any prior utility changes the second target, or a stale target carrier reaches Critic loss.",
+      "success_witness": "TEST-25A--25D pass and the transaction produces eight current targets, 32 current advantages and one exact commit.",
+      "construction_status": "ready",
+      "uncertainties": [],
+      "status": "passed",
+      "minimum_horizon": {"unit": "same-Scenario current visits", "required": 2, "observed": 2},
+      "required_effect_observations": 2,
+      "observed_effect_observations": 2,
+      "evidence_receipt": "frontres_v024_current_visit_replay_contract PASS plus stale-target rejection and exact-one formal transaction PASS",
+      "current": true
+    },
+    {
+      "probe_id": "PROBE-v024-LIVE-CURRENT-RERUN",
+      "design_id": "FRS-DP-09",
+      "design_claim": "The official IsaacLab route materializes eight selected Scenarios and reruns each with current Actor M4 before one joint update.",
+      "necessary_capability": "Use real Stage-1 cache, HSL-v2, simulator collectors, production Replay/PPO, rollback and checkpoint writer.",
+      "minimal_case": "One fresh K8/B8/M4 transaction with 32 current Repair outcomes, eight current targets, one Actor/Critic Adam step, one Replay commit and one v19 checkpoint.",
+      "path_class": "official-entry",
+      "preserved_production_owners": ["Stage-3 official shell entrypoint", "IsaacLab current Scenario collector", "FrontRES formal transaction", "checkpoint-v19 writer"],
+      "simplifications": ["One K8 transaction only", "No K16, K32, monitoring loop or long campaign"],
+      "falsifier": "Any selected Scenario lacks four current attempts, target differs from current M4 mean, or identity, finite, step, Replay or checkpoint invariant fails.",
+      "success_witness": "One bounded log reports 32 current valid rows, eight exact current targets, optimizer_step_delta=1, Replay state_delta=1 and checkpoint-v19 readback.",
+      "construction_status": "ready",
+      "uncertainties": [],
+      "status": "live-required",
+      "live_unknown_id": "LIVE-v024-ONE-K8-CURRENT-VISIT-TRANSACTION",
+      "minimum_horizon": {"unit": "official simulator transactions", "required": 1, "observed": 0},
+      "required_effect_observations": 1,
+      "observed_effect_observations": 0
+    }
+  ],
+  "route_edges": [
+    {
+      "edge_id": "EDGE-v024-CURRENT-REPLAY-TO-PPO",
+      "design_id": "FRS-DP-02",
+      "producer": "FrontRESOuterScenarioReplay.stage",
+      "carrier": "FrontRESOuterReplayCandidate.critic_target_means",
+      "consumer": "compute_frontres_segment_ppo_loss",
+      "required_level": "R2",
+      "observed_level": "R2",
+      "evidence": {
+        "path_class": "official-entry",
+        "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_transaction_route_contract.py",
+        "exit_code": 0,
+        "identity_receipt": "FRS-METHOD-v025/FRS-PPO-v012/FRS-TRAIN-v024 with eight keyed current-M4 targets",
+        "effect_receipt": "32 current Actor rows, eight exact current targets, one Adam step, one Replay commit and full rollback counterexample",
+        "persistence_receipt": "checkpoint-v19/replay-v5 roundtrip and v18/v4 pre-mutation rejection",
+        "current": true
+      }
+    },
+    {
+      "edge_id": "EDGE-v024-OFFICIAL-CURRENT-RERUN",
+      "design_id": "FRS-DP-09",
+      "producer": "run/run_frontres_stage3_segment_hrl.sh through current Actor rollout collector",
+      "carrier": "current B8/M4 Repair evidence and checkpoint-v19 receipt",
+      "consumer": "TRAIN-v024 bounded-live admission",
+      "required_level": "R3",
+      "observed_level": "R2",
+      "evidence": {
+        "path_class": "official-entry",
+        "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py",
+        "exit_code": 0,
+        "identity_receipt": "58 of 58 Contract markers plus official launch and current collector wiring",
+        "effect_receipt": "Production formal transaction observes B8/M4 current rows, exact target guard and exact-one update",
+        "persistence_receipt": "checkpoint-v19 atomic save/readback and replay-v5 restoration",
+        "current": true
+      }
+    }
+  ],
+  "live_only_unknowns": [
+    {
+      "id": "LIVE-v024-ONE-K8-CURRENT-VISIT-TRANSACTION",
+      "status": "open",
+      "fact": "Real IsaacLab collection reruns each selected Scenario with current HSL-initialized Actor M4 and commits one current-target K8/B8/M4 transaction.",
+      "why_offline_impossible": "The local process does not contain the server IsaacLab lifecycle, Stage-1 cache, HSL artifact, CUDA execution or checkpoint filesystem.",
+      "falsifier": "The bounded log lacks 32 current rows, eight current-M4 target identities, optimizer_step_delta=1, Replay state_delta=1 or v19 atomic readback.",
+      "cost": "One GPU, 64 envs, K8, one training iteration and one update only.",
+      "stop_condition": "Process exits after the first transaction; stop at the first fail-closed invariant and do not continue to K16 or retry automatically.",
+      "bounded_command": "nohup env CUDA_VISIBLE_DEVICES=7 FEMR_ROOT=/hdd1/cyx/FEMR FEMR_DATA_ROOT=/hdd1/cyx CACHE_DIR=/hdd1/cyx/AMASS_G1Segment RUN_NAME=FRS_TRAIN_V024_CURRENT_VISIT_BOUNDED_OFFICIAL_20260812 FRONTRES_G5_S4_BOUNDED=1 FRONTRES_CHECKPOINT_INTERVAL=1 FRONTRES_SPECIALIST_MODE=rp FRONTRES_SEGMENT_ACTOR_LR_INIT=3e-7 FRONTRES_SEGMENT_ACTOR_LR=1e-6 FRONTRES_SEGMENT_CRITIC_LR=1e-5 FRONTRES_V015_K_CURRICULUM='8:4:200:500:1300:lower-k8:0.5:linear-coupled-v1:700:2.381,16:4:300:300:900:lower-k16:0.6:linear-coupled-v1:600:2.381,32:4:400:300:625:lower-k32:0.7:linear-coupled-v1:700:2.381' bash run/run_frontres_stage3_segment_hrl.sh /hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt /hdd1/cyx/AMASS_G1NPZ_Final 64 1 1 train > /hdd1/cyx/FEMR/log/FRS_TRAIN_V024_CURRENT_VISIT_BOUNDED_OFFICIAL_20260812.log 2>&1 < /dev/null &",
+      "output_path": "/hdd1/cyx/FEMR/log/FRS_TRAIN_V024_CURRENT_VISIT_BOUNDED_OFFICIAL_20260812.log",
+      "zero_write_boundary": "No pre-command training mutation; bounded execution may write only its named run directory, one transaction state and checkpoint-v19 artifacts."
+    }
+  ],
+  "live_attempts": [],
+  "claims": [
+    {"kind": "formal-integration", "evidence_level": "R2"},
+    {"kind": "formal-persistence", "evidence_level": "R2"}
+  ],
+  "admission": "LIVE_REQUIRED"
+}

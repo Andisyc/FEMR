@@ -26,8 +26,8 @@ await page.goto(
 );
 
 const designButtons = page.locator('rect[role="button"]');
-if ((await designButtons.count()) !== 8) {
-  throw new Error(`candidate Inspector must render 8 design buttons, got ${await designButtons.count()}`);
+if ((await designButtons.count()) !== 7) {
+  throw new Error(`candidate Inspector must render 7 design buttons, got ${await designButtons.count()}`);
 }
 
 const titles = [
@@ -36,7 +36,6 @@ const titles = [
   "Frozen Tracker",
   "Support Rollout",
   "Context Encoder",
-  "Latent Calibration",
   "Calibration Learning",
   "Frozen Query Execution",
 ];
@@ -61,10 +60,15 @@ for (const required of [
   if (!allText.includes(required)) throw new Error(`shared spine is missing: ${required}`);
 }
 
+await page.getByRole("button", { name: "查看 Calibration Learning 的 Inspector 卡片" }).click();
+if ((await page.locator("svg .katex").count()) !== 8) {
+  throw new Error(`Calibration Learning must render 8 LaTeX formulas, got ${await page.locator("svg .katex").count()}`);
+}
+
 await page.screenshot({ path: "/tmp/in_context_calibration_design_inspector_desktop.png", fullPage: true });
 await page.setViewportSize({ width: 390, height: 844 });
 await page.reload({ waitUntil: "networkidle" });
-if ((await page.locator('rect[role="button"]').count()) !== 8) {
+if ((await page.locator('rect[role="button"]').count()) !== 7) {
   throw new Error("mobile candidate Inspector lost design buttons");
 }
 await page.screenshot({ path: "/tmp/in_context_calibration_design_inspector_mobile.png", fullPage: true });
@@ -72,5 +76,5 @@ await page.screenshot({ path: "/tmp/in_context_calibration_design_inspector_mobi
 await browser.close();
 if (errors.length) throw new Error(`browser errors: ${errors.join(" | ")}`);
 console.log(
-  "candidate calibration Design Inspector visual: PASS cards=8 screenshots=/tmp/in_context_calibration_design_inspector_{desktop,mobile}.png",
+  "candidate calibration Design Inspector visual: PASS cards=7 screenshots=/tmp/in_context_calibration_design_inspector_{desktop,mobile}.png",
 );

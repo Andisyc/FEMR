@@ -131,10 +131,10 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
         frontres_segment_live_train_enabled=False,
         frontres_segment_live_update_loop_only=False,
         frontres_segment_live_single_update_only=False,
-        frontres_method_contract_id="FRS-METHOD-v024",
+        frontres_method_contract_id="FRS-METHOD-v025",
         frontres_gain_contract_id="FRS-GAIN-v008",
-        frontres_optimization_contract_id="FRS-PPO-v011",
-        frontres_training_contract_id="FRS-TRAIN-v023",
+        frontres_optimization_contract_id="FRS-PPO-v012",
+        frontres_training_contract_id="FRS-TRAIN-v024",
         frontres_scalar_target_id="symmetric-log-recovery-aware-utility-v1",
         frontres_physics_schema_id="clean-anchored-contact-zmp-survival-v1",
         frontres_grouped_schema_id="grouped-all-attempt-scalar-v1",
@@ -404,6 +404,58 @@ def _assert_optimizer_state_equal(
                 assert actual_value == expected_value
 
 
+def _assert_nested_state_equal(actual: object, expected: object) -> None:
+    if isinstance(expected, torch.Tensor):
+        assert isinstance(actual, torch.Tensor)
+        assert torch.equal(actual, expected)
+        return
+    if isinstance(expected, dict):
+        assert isinstance(actual, dict)
+        assert actual.keys() == expected.keys()
+        for key in expected:
+            _assert_nested_state_equal(actual[key], expected[key])
+        return
+    if isinstance(expected, (tuple, list)):
+        assert isinstance(actual, type(expected)) and len(actual) == len(expected)
+        for actual_value, expected_value in zip(actual, expected, strict=True):
+            _assert_nested_state_equal(actual_value, expected_value)
+        return
+    assert actual == expected
+
+
+def _capture_formal_transaction_state(runner: SimpleNamespace, policy: _Policy) -> dict[str, object]:
+    return {
+        "policy": {name: value.detach().clone() for name, value in policy.state_dict().items()},
+        "optimizer": copy.deepcopy(runner.alg.optimizer.state_dict()),
+        "replay": copy.deepcopy(runner._frontres_outer_scenario_replay.state_dict()),
+        "normalizer": runner.alg.frontres_critic_value_normalizer_state,
+        "learning_rate": (hasattr(runner.alg, "learning_rate"), getattr(runner.alg, "learning_rate", None)),
+        "actor_learning_rate": (
+            hasattr(runner.alg, "actor_learning_rate"),
+            getattr(runner.alg, "actor_learning_rate", None),
+        ),
+    }
+
+
+def _assert_formal_transaction_state_restored(
+    runner: SimpleNamespace,
+    policy: _Policy,
+    expected: dict[str, object],
+) -> None:
+    assert runner.alg.optimizer.frontres_step_count == 0
+    for name, value in policy.state_dict().items():
+        assert torch.equal(value, expected["policy"][name])
+    _assert_nested_state_equal(runner.alg.optimizer.state_dict(), expected["optimizer"])
+    _assert_nested_state_equal(runner._frontres_outer_scenario_replay.state_dict(), expected["replay"])
+    assert runner.alg.frontres_critic_value_normalizer_state == expected["normalizer"]
+    for name in ("learning_rate", "actor_learning_rate"):
+        present, value = expected[name]
+        assert hasattr(runner.alg, name) is present
+        if present:
+            assert getattr(runner.alg, name) == value
+    assert runner._frontres_checkpoint_transaction_state.as_dict() == {"state": "idle"}
+
+
 def _prime_actor_optimizer_history(runner: SimpleNamespace) -> tuple[torch.nn.Parameter, ...]:
     policy = runner.alg.policy
     actor_parameters = (*tuple(policy.actor.parameters()), policy.log_std)
@@ -431,7 +483,7 @@ def test_exact_one_scalar_commit_updates_actor_and_critic_from_first_transaction
     assert any(not torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
     assert any(not torch.equal(value, critic_before[name]) for name, value in policy.critic.state_dict().items())
     assert result.diagnostics["gain_contract_id"] == "FRS-GAIN-v008"
-    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v011"
+    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v012"
     assert "constraint_kkt_max_violation" not in result.diagnostics
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
     assert telemetry["clean_execution_count"] == (1,) * 8
@@ -550,6 +602,53 @@ def test_value_normalizer_iteration_mismatch_rejects_before_update() -> None:
         raise AssertionError("mismatched value-normalizer iteration must fail before optimizer update")
 
 
+def test_replay_commit_failure_rolls_back_the_whole_formal_transaction() -> None:
+    runner, request, policy = _request()
+    outer_replay = runner._frontres_outer_scenario_replay
+    before = _capture_formal_transaction_state(runner, policy)
+    original_commit = outer_replay.commit
+
+    def fail_commit(_candidate, *, receipt):
+        assert receipt["optimizer_step_delta"] == 1
+        raise RuntimeError("forced Replay commit failure")
+
+    outer_replay.commit = fail_commit
+    open_frontres_checkpoint_transaction_barrier(runner)
+    try:
+        run_frontres_formal_transaction_update(runner, request)
+    except RuntimeError as exc:
+        assert "forced Replay commit failure" in str(exc)
+    else:
+        raise AssertionError("post-step Replay failure must reject the transaction")
+    finally:
+        outer_replay.commit = original_commit
+    _assert_formal_transaction_state_restored(runner, policy, before)
+
+
+def test_post_commit_audit_failure_also_rolls_back_replay_and_optimizer() -> None:
+    runner, request, policy = _request()
+    outer_replay = runner._frontres_outer_scenario_replay
+    before = _capture_formal_transaction_state(runner, policy)
+    original_audit = formal_transaction.print_segment_replay_transaction_audit
+
+    def fail_audit(_runner, *, result):
+        assert result.optimizer_step_delta == 1
+        assert len(outer_replay.records) == 8
+        raise RuntimeError("forced post-commit audit failure")
+
+    formal_transaction.print_segment_replay_transaction_audit = fail_audit
+    open_frontres_checkpoint_transaction_barrier(runner)
+    try:
+        run_frontres_formal_transaction_update(runner, request)
+    except RuntimeError as exc:
+        assert "forced post-commit audit failure" in str(exc)
+    else:
+        raise AssertionError("post-commit audit failure must reject the transaction")
+    finally:
+        formal_transaction.print_segment_replay_transaction_audit = original_audit
+    _assert_formal_transaction_state_restored(runner, policy, before)
+
+
 def test_phase_reset_routes_mode_through_sealed_reset_owner() -> None:
     calls: list[tuple[object, str]] = []
     original = formal_transaction._apply_current_segment_reset
@@ -586,8 +685,10 @@ def main() -> None:
     test_coupled_ramp_identity_reaches_transaction_and_telemetry()
     test_partial_transaction_rejects_before_update()
     test_value_normalizer_iteration_mismatch_rejects_before_update()
+    test_replay_commit_failure_rolls_back_the_whole_formal_transaction()
+    test_post_commit_audit_failure_also_rolls_back_replay_and_optimizer()
     test_phase_reset_routes_mode_through_sealed_reset_owner()
-    print("frontres_v015_transaction_route_contract: v023 robust outer replay exact-one ok", flush=True)
+    print("frontres_v015_transaction_route_contract: v024 current-visit outer replay exact-one ok", flush=True)
 
 
 if __name__ == "__main__":

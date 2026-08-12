@@ -163,10 +163,10 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         raise RuntimeError("v017 telemetry requires one Clean and one Noisy execution per Segment")
 
     expected_ids = {
-        "method_contract_id": "FRS-METHOD-v024",
+        "method_contract_id": "FRS-METHOD-v025",
         "gain_contract_id": "FRS-GAIN-v008",
-        "optimization_contract_id": "FRS-PPO-v011",
-        "training_contract_id": "FRS-TRAIN-v023",
+        "optimization_contract_id": "FRS-PPO-v012",
+        "training_contract_id": "FRS-TRAIN-v024",
         "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -212,7 +212,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         or critic_targets != tuple(float(value) for value in getattr(ppo, "critic_value_targets", ()))
         or actor_advantages != tuple(float(value) for value in getattr(ppo, "actor_advantages", ()))
     ):
-        raise RuntimeError("TRAIN-v023 telemetry has malformed raw/utility/target/advantage rows")
+        raise RuntimeError("TRAIN-v024 telemetry has malformed raw/utility/target/advantage rows")
     required_v016_fields = {
         "actor_observation_dim",
         "critic_observation_dim",
@@ -247,7 +247,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         or str(diagnostics.get("critic_value_kind", "")) != "state_value"
         or diagnostics.get("critic_action_conditioned") is not False
         or str(diagnostics.get("critic_target_id", ""))
-        != "scenario-compatible-robust-mean-symlog-v1"
+        != "scenario-current-exact-m4-mean-symlog-v1"
         or str(diagnostics.get("return_utility_id", "")) != "symmetric-log-gain-g0-1-v1"
         or _finite(diagnostics, "return_utility_scale") != 1.0
         or str(diagnostics.get("critic_support_context_id", "")) != "action-pre-support-plan-kmax32-v1"
@@ -308,17 +308,8 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
     outer_confidence_half_widths = tuple(
         float(value) for value in outer_replay.get("confidence_half_widths", ())
     )
-    outer_compatible_sample_counts = tuple(
-        int(value) for value in outer_replay.get("compatible_sample_counts", ())
-    )
-    outer_compatible_visit_counts = tuple(
-        int(value) for value in outer_replay.get("compatible_visit_counts", ())
-    )
-    outer_policy_symmetric_kls = tuple(
-        float(value) for value in outer_replay.get("policy_symmetric_kls", ())
-    )
-    outer_policy_window_resets = tuple(
-        bool(value) for value in outer_replay.get("policy_window_resets", ())
+    outer_current_sample_counts = tuple(
+        int(value) for value in outer_replay.get("current_sample_counts", ())
     )
     outer_visit_counts = tuple(int(value) for value in outer_replay.get("visit_counts", ()))
     outer_staleness = tuple(int(value) for value in outer_replay.get("staleness", ()))
@@ -350,21 +341,16 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
                 outer_outcome_variances,
                 outer_standard_errors,
                 outer_confidence_half_widths,
-                outer_policy_symmetric_kls,
             )
         )
-        or len(outer_compatible_sample_counts) != selected_segments
-        or any(value <= 0 or value % active_m != 0 for value in outer_compatible_sample_counts)
-        or len(outer_compatible_visit_counts) != selected_segments
-        or any(value <= 0 for value in outer_compatible_visit_counts)
-        or len(outer_policy_window_resets) != selected_segments
+        or outer_current_sample_counts != (active_m,) * selected_segments
         or outer_score_kind not in {"critic_calibration", "repair_spread"}
         or len(outer_visit_counts) != selected_segments
         or any(value <= 0 for value in outer_visit_counts)
         or len(outer_staleness) != selected_segments
         or any(value != 0 for value in outer_staleness)
     ):
-        raise RuntimeError("TRAIN-v023 telemetry has malformed outer replay commit evidence")
+        raise RuntimeError("TRAIN-v024 telemetry has malformed outer replay commit evidence")
     source_index = tuple(int(value) for value in diagnostics.get("source_index", ()))
     for source in range(8):
         source_advantages = tuple(
@@ -382,15 +368,19 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         if not math.isclose(
             outer_target_means[source], segment_targets[source], rel_tol=1.0e-6, abs_tol=1.0e-6
         ):
-            raise RuntimeError("TRAIN-v023 Replay target differs from the PPO Critic target")
+            raise RuntimeError("TRAIN-v024 Replay target differs from the PPO Critic target")
         if not math.isclose(
             outer_current_means[source], outer_utility_means[source], rel_tol=1.0e-6, abs_tol=1.0e-6
         ):
-            raise RuntimeError("TRAIN-v023 Replay current utility mean differs from the current M4 evidence")
+            raise RuntimeError("TRAIN-v024 Replay current utility mean differs from the current M4 evidence")
+        if not math.isclose(
+            outer_target_means[source], outer_current_means[source], rel_tol=1.0e-6, abs_tol=1.0e-6
+        ):
+            raise RuntimeError("TRAIN-v024 Critic target must equal the current M4 mean")
         if not math.isclose(
             outer_critic_calibration_values[source], expected_calibration, rel_tol=1.0e-6, abs_tol=1.0e-6
         ):
-            raise RuntimeError("TRAIN-v023 Replay calibration score differs from excess robust-mean error")
+            raise RuntimeError("TRAIN-v024 Replay calibration score differs from current-M4 excess error")
         if not math.isclose(
             outer_repair_spread_values[source], expected_spread, rel_tol=1.0e-6, abs_tol=1.0e-6
         ):
@@ -513,10 +503,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         "outer_replay_outcome_variances": outer_outcome_variances,
         "outer_replay_standard_errors": outer_standard_errors,
         "outer_replay_confidence_half_widths": outer_confidence_half_widths,
-        "outer_replay_compatible_sample_counts": outer_compatible_sample_counts,
-        "outer_replay_compatible_visit_counts": outer_compatible_visit_counts,
-        "outer_replay_policy_symmetric_kls": outer_policy_symmetric_kls,
-        "outer_replay_policy_window_resets": outer_policy_window_resets,
+        "outer_replay_current_sample_counts": outer_current_sample_counts,
         "outer_replay_visit_counts": outer_visit_counts,
         "outer_replay_staleness": outer_staleness,
         "outer_replay_record_count": int(outer_replay.get("record_count", -1)),
@@ -530,7 +517,7 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
         **expected_ids,
     }
     if len(telemetry["dr_class_by_segment"]) != 8 or len(telemetry["dr_strength_by_segment"]) != 8:
-        raise RuntimeError("FRS-TRAIN-v023 telemetry requires eight sealed Segment DR class/strength values")
+        raise RuntimeError("FRS-TRAIN-v024 telemetry requires eight sealed Segment DR class/strength values")
     FrontRESActiveTelemetryView.from_mapping(telemetry)
     return telemetry
 
@@ -573,7 +560,7 @@ def require_frontres_committed_result(runner: Any, result: Any) -> dict[str, Any
             not float(actor_delta.get("param_delta_max_abs", 0.0)) > 0.0
             or not float(critic_delta.get("param_delta_max_abs", 0.0)) > 0.0
         ):
-            raise RuntimeError("FRS-TRAIN-v023 first coupled commit requires updated Actor/std and Critic")
+            raise RuntimeError("FRS-TRAIN-v024 first coupled commit requires updated Actor/std and Critic")
     # AUDIT-B02/B05/B06/B07: 最终 serializer 只读审计, 不反馈训练状态.
     from rsl_rl.runners.frontres_formal_runtime_audit import print_phase_b_telemetry_audit
 

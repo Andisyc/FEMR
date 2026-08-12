@@ -1,6 +1,6 @@
 # FEMR Current Impact Rules
 
-Updated: 2026-08-03
+Updated: 2026-08-12
 
 Report every change as:
 
@@ -13,6 +13,17 @@ An active contract or Design Inspector change invalidates the affected Module
 Test Card evidence until the unchanged card is rerun. A historical test may
 characterize retained code, but it cannot satisfy an active-generation card.
 A broad aggregate pass cannot replace an independent card oracle.
+
+## Critic Target Or Outer Replay Change
+
+Expand to: current Scenario materialization, current M4 utility rows, Replay
+stage/commit, Critic target carrier, Actor advantage separation, value
+normalizer, telemetry, capacity maturity and checkpoint/resume. Required: S1
+hand-computed current-M4 target and uncertainty priority, history-contamination
+counterexample, permutation and exact-one rollback; S2 official formal
+transaction; S3 strict current-schema roundtrip and legacy pre-mutation reject;
+S4 one bounded real collector transaction. Replay selection metadata may never
+become a second numerical target owner.
 
 ## Gain Component Or Scale Change
 

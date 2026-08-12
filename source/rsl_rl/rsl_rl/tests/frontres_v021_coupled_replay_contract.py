@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-# Historical replay-v3 evidence. Active replay-v4 coverage lives in
+# Historical replay-v3 evidence. Active replay-v5 coverage lives in
 # frontres_v023_robust_replay_contract.py.
 __test__ = False
 

@@ -1,6 +1,17 @@
 # FEMR Current Semantic Objects
 
-Updated: 2026-08-03
+Updated: 2026-08-12
+
+## Current-Visit Scenario Replay
+
+Outer Replay owns scheduling, not historical training samples. A selected
+ScenarioKey is rerun by the current frozen `pi_old` for exact M4 attempts before
+the update. The Critic target is the arithmetic mean of those four current
+symlog utilities; all four current utilities independently form Actor
+advantages. M4 variance/SE/h95 and current Critic excess error are selection
+diagnostics only. Persisted Replay state contains identity, latest priority,
+lifetime committed visits, staleness, pool/capacity, RNG and last receipt; it
+contains no historical utility, policy anchor, compatibility KL or reset.
 
 ## Observation Payload
 
@@ -134,8 +145,10 @@ Trial metadata and Gain diagnostics do not become new PPO action dimensions.
 ## Checkpoint State
 
 Checkpoint identity includes policy architecture, observation stats, action
-sigma, optimizer, Segment sampler, and any future persisted Gain scales. Load,
-resume, evaluation, and export must agree on ownership and dimensions.
+sigma, optimizer, Segment sampler, current target normalizer and Replay
+selection state. TRAIN-v024 uses checkpoint-v19/replay-v5; numerical historical
+outcomes are forbidden persistence. Load, resume, evaluation, and export must
+agree on ownership and dimensions.
 
 ## Evaluation Evidence
 

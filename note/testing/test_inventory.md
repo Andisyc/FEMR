@@ -1,6 +1,21 @@
 # FEMR Current Test Inventory
 
-Updated: 2026-08-08
+Updated: 2026-08-12
+
+## TRAIN-v024 Current-Visit Scenario Replay Offline Closure
+
+- TEST-25A--25D invoke the production Replay, PPO, formal transaction and
+  checkpoint boundaries. The controlled pre-fix case failed because `stage`
+  required historical policy-window inputs; the corrected owner passes.
+- Every selected Scenario is freshly rerun with current B8/M4 evidence. Critic
+  target is the row-aligned current exact-M4 symlog mean; persisted history
+  cannot change it, and PPO independently rejects a stale target carrier.
+- Replay-v5 persists selection state only. Current variance/SE/h95 adjust latest
+  priority, four lifetime fresh commits govern maturity, and v4 rejects before
+  mutation. Checkpoint-v19 roundtrip and transactional rollback pass.
+- Python compilation, the design contract sentinel, focused contracts and the
+  active aggregate pass `58/58`. This is S0--S3 evidence only; one real bounded
+  K8/B8/M4 IsaacLab transaction remains S4 and no policy quality is claimed.
 
 ## TRAIN-v016 Future-Conditioned State-Value Offline Closure
 
@@ -212,7 +227,8 @@ is excluded from active aggregation.
 
 | Test | Tier | Current ownership |
 | --- | --- | --- |
-| `frontres_segment_all_contract_suite.py` | active S0-S3 aggregate | Secondary 56-target regression runner. Its passing result does not replace independently answered Module Test Cards. |
+| `frontres_segment_all_contract_suite.py` | active S0-S3 aggregate | Secondary 58-target regression runner. Its passing result does not replace independently answered Module Test Cards. |
+| `frontres_v024_current_visit_replay_contract.py` | S1/S3 | Current-only M4 Critic target, current uncertainty priority, lifetime-visit maturity, replay-v5 no-outcome persistence, row permutation and zero-write legacy/receipt rejection. |
 | `frontres_v016_state_value_observation_contract.py` | S1/S2 | Exact shared future tail, 289+58=347 Critic state, preserved 158D Actor/770D GMT and malformed-input rejection. |
 | `frontres_v016_state_value_ppo_contract.py` | S1 | Per-source exact-M mean Critic target, unchanged per-attempt Actor advantages, repeated local Segment-id isolation and separate clip(0.5). |
 | `frontres_v016_checkpoint_contract.py` | S3 | Atomic checkpoint-v11 round-trip and pre-mutation v10/malformed rejection; HSL-v2 remains Actor-only. |

@@ -18,19 +18,19 @@ from rsl_rl.frontres.frontres_return_utility import (
     FRONTRES_RETURN_UTILITY_SCALE,
 )
 
-FRONTRES_METHOD_CONTRACT_ID = "FRS-METHOD-v024"
+FRONTRES_METHOD_CONTRACT_ID = "FRS-METHOD-v025"
 FRONTRES_GAIN_CONTRACT_ID = "FRS-GAIN-v008"
-FRONTRES_OPTIMIZATION_CONTRACT_ID = "FRS-PPO-v011"
-FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v023"
+FRONTRES_OPTIMIZATION_CONTRACT_ID = "FRS-PPO-v012"
+FRONTRES_TRAINING_CONTRACT_ID = "FRS-TRAIN-v024"
 FRONTRES_SCALAR_TARGET_ID = "symmetric-log-recovery-aware-utility-v1"
 FRONTRES_PHYSICS_SCHEMA_ID = "clean-anchored-contact-zmp-survival-v1"
 FRONTRES_GROUPED_SCHEMA_ID = "grouped-all-attempt-scalar-v1"
-FRONTRES_CHECKPOINT_FORMAT = "frontres-v023-checkpoint-v18"
+FRONTRES_CHECKPOINT_FORMAT = "frontres-v024-checkpoint-v19"
 FRONTRES_DR_CURRICULUM_SCHEMA_ID = "nested-k-dr-four-class-v1"
 FRONTRES_CRITIC_VALUE_KIND = "state_value"
 FRONTRES_CRITIC_INPUT_DIM = 449
 FRONTRES_CRITIC_ACTION_CONDITIONED = False
-FRONTRES_CRITIC_TARGET_ID = "scenario-compatible-robust-mean-symlog-v1"
+FRONTRES_CRITIC_TARGET_ID = "scenario-current-exact-m4-mean-symlog-v1"
 FRONTRES_CRITIC_SUPPORT_CONTEXT_ID = "action-pre-support-plan-kmax32-v1"
 FRONTRES_GRADIENT_CLIP_ID = "separate-actor-critic-v1"
 FRONTRES_GRADIENT_CLIP_MAX_NORM = 0.5
@@ -387,9 +387,9 @@ class FrontRESActiveTelemetryView:
         if self.optimizer_step_delta != 1 or self.update_count != 1:
             raise ValueError("FrontRES telemetry requires exact-one update identity")
         if not 3.0e-7 <= self.actor_learning_rate <= 1.0e-6 or self.critic_learning_rate != 1.0e-5:
-            raise ValueError("FRS-TRAIN-v023 telemetry requires Actor LR in [3e-7,1e-6] and Critic LR=1e-5")
+            raise ValueError("FRS-TRAIN-v024 telemetry requires Actor LR in [3e-7,1e-6] and Critic LR=1e-5")
         if self.actor_observation_dim != 158 or self.gmt_observation_dim != 770:
-            raise ValueError("FRS-TRAIN-v023 telemetry requires Actor/GMT dimensions 158/770")
+            raise ValueError("FRS-TRAIN-v024 telemetry requires Actor/GMT dimensions 158/770")
         gradient_values = (
             self.gradient_clip_max_norm,
             self.actor_gradient_post_clip_norm,
@@ -401,7 +401,7 @@ class FrontRESActiveTelemetryView:
             or self.actor_gradient_post_clip_norm > self.gradient_clip_max_norm + 1.0e-6
             or self.critic_gradient_post_clip_norm > self.gradient_clip_max_norm + 1.0e-6
         ):
-            raise ValueError("FRS-PPO-v011 telemetry has invalid separate gradient clipping facts")
+            raise ValueError("FRS-PPO-v012 telemetry has invalid separate gradient clipping facts")
         if (
             self.critic_value_normalization_id != FRONTRES_VALUE_NORMALIZATION_ID
             or self.critic_value_normalizer_decay != FRONTRES_VALUE_NORMALIZER_DECAY

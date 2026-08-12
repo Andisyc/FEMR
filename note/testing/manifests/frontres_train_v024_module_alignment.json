@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "design_identity": "FRS-METHOD-v025/FRS-GAIN-v008/FRS-PPO-v012/FRS-TRAIN-v024",
+  "checkout_identity": "6336d119c34ac57f63e786d06ddc6106b89d5df0+v024-authorized-dirty-worktree-20260812",
+  "modules": [
+    {
+      "id": "frontres-v024-current-visit-scenario-replay",
+      "owner": "rsl_rl.frontres.frontres_outer_scenario_replay.FrontRESOuterScenarioReplay",
+      "public_boundary": "plan plus stage plus commit plus state_dict/load_state_dict",
+      "card": {"status": "confirmed", "identity": "TEST-25A--25C-v024"},
+      "required": {"s_tiers": ["S1", "S3"], "case_families": ["C1", "C2", "C3", "C4", "C5"], "t_kinds": ["T-value", "T-transform", "T-dist", "T-role", "T-state", "T-permute", "T-persist", "T-update-order"]},
+      "cases": [
+        {
+          "id": "replay-c1-current-visit-target-only",
+          "case_family": "C1", "s_tier": "S1", "t_kinds": ["T-value", "T-transform"], "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["first current M4", "second current M4", "Critic target"], "units_and_axes": "one Scenario with [1,2,3,4] then [9,9,9,9] symlog utilities", "validity_semantics": "both visits are finite complete current M4"},
+          "oracle": {"kind": "hand-calculation", "independent_from_production": true},
+          "sensitivity": {"kind": "pre-fix", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v024_current_visit_replay_contract.py", "exit_code": 0, "identity": "second-target-exactly-nine-independent-of-first-visit"}
+        },
+        {
+          "id": "replay-c2-uncertainty-priority-not-target",
+          "case_family": "C2", "s_tier": "S1", "t_kinds": ["T-value", "T-dist"], "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["current sample variance", "standard error", "confidence half-width", "Critic excess error"], "units_and_axes": "two current M4 groups with controlled means and spreads", "validity_semantics": "finite M4 and finite old value"},
+          "oracle": {"kind": "hand-calculation", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v024_current_visit_replay_contract.py", "exit_code": 0, "identity": "variance-changes-priority-never-current-mean-target"}
+        },
+        {
+          "id": "replay-c3-exact-one-zero-write",
+          "case_family": "C3", "s_tier": "S1", "t_kinds": ["T-state", "T-update-order"], "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["staged candidate", "matching receipt", "wrong receipt", "duplicate receipt"], "units_and_axes": "one B8/M4 Replay transaction", "validity_semantics": "only one matching optimizer_step_delta=1 receipt is valid"},
+          "oracle": {"kind": "conservation-law", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v024_current_visit_replay_contract.py", "exit_code": 0, "identity": "wrong-and-duplicate-receipts-zero-write"}
+        },
+        {
+          "id": "replay-c4-lifetime-maturity-and-permutation",
+          "case_family": "C4", "s_tier": "S1", "t_kinds": ["T-role", "T-permute", "T-state"], "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["four fresh committed visits", "active capacity", "Scenario row identity"], "units_and_axes": "per-K active Scenario records and one permuted B8/M4 batch", "validity_semantics": "all visits are real reruns and every Scenario has four current rows"},
+          "oracle": {"kind": "metamorphic-relation", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v024_current_visit_replay_contract.py", "exit_code": 0, "identity": "four-lifetime-visits-open-capacity-and-keyed-permutation-is-invariant"}
+        },
+        {
+          "id": "replay-c5-v5-no-outcome-persistence",
+          "case_family": "C5", "s_tier": "S3", "t_kinds": ["T-persist", "T-state"], "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["replay-v5 state", "checkpoint-v19", "legacy replay-v4"], "units_and_axes": "Replay state dictionary and atomic checkpoint payload", "validity_semantics": "v5 contains selection state and no historical numerical outcome"},
+          "oracle": {"kind": "conservation-law", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "persistence-confirmed", "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v016_checkpoint_contract.py", "exit_code": 0, "identity": "checkpoint-v19-replay-v5-roundtrip-v18-v4-pre-mutation-reject"}
+        }
+      ],
+      "status": "MODULE-CORRECT"
+    },
+    {
+      "id": "frontres-v024-ppo-current-target-unit-of-work",
+      "owner": "rsl_rl.runners.frontres_segment_formal_transaction.run_frontres_formal_transaction_update",
+      "public_boundary": "current Replay candidate through compute_frontres_segment_ppo_loss and exact-one transaction commit",
+      "card": {"status": "confirmed", "identity": "TEST-25D-v024"},
+      "required": {"s_tiers": ["S1"], "case_families": ["C1", "C2", "C3", "C4"], "t_kinds": ["T-value", "T-role", "T-permute", "T-grad", "T-update-order", "T-state"]},
+      "cases": [
+        {
+          "id": "ppo-c1-current-target-and-current-actor-credit",
+          "case_family": "C1", "s_tier": "S1", "t_kinds": ["T-value", "T-role"], "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["eight current M4 means", "32 current utilities", "shared old values"], "units_and_axes": "B8 times M4 current policy rows", "validity_semantics": "complete finite current transaction"},
+          "oracle": {"kind": "hand-calculation", "independent_from_production": true},
+          "sensitivity": {"kind": "pre-fix", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v016_state_value_ppo_contract.py", "exit_code": 0, "identity": "eight-current-means-and-thirty-two-current-advantages"}
+        },
+        {
+          "id": "ppo-c2-keyed-row-permutation",
+          "case_family": "C2", "s_tier": "S1", "t_kinds": ["T-permute", "T-value"], "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["Scenario key", "source row", "expanded target"], "units_and_axes": "permutation of 32 B8/M4 rows", "validity_semantics": "source identity remains complete and unique by group"},
+          "oracle": {"kind": "metamorphic-relation", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v016_state_value_ppo_contract.py", "exit_code": 0, "identity": "keyed-current-target-permutation-invariant"}
+        },
+        {
+          "id": "ppo-c3-stale-target-and-failure-rollback",
+          "case_family": "C3", "s_tier": "S1", "t_kinds": ["T-value", "T-state", "T-update-order"], "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["stale external target", "current M4 rows", "optimizer", "normalizer", "Replay"], "units_and_axes": "one complete B8/M4 transaction with injected mismatch or post-step failure", "validity_semantics": "target must equal current grouped mean and all owners commit atomically"},
+          "oracle": {"kind": "conservation-law", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_transaction_route_contract.py", "exit_code": 0, "identity": "stale-target-reject-and-post-step-full-transaction-rollback"}
+        },
+        {
+          "id": "ppo-c4-exact-one-joint-update",
+          "case_family": "C4", "s_tier": "S1", "t_kinds": ["T-grad", "T-update-order", "T-role"], "invokes_production_public_boundary": true,
+          "fixture": {"semantic_roles": ["Actor group", "Critic group", "value normalizer", "Replay commit"], "units_and_axes": "one complete B8/M4 formal transaction", "validity_semantics": "separate finite gradients and one grouped Adam receipt"},
+          "oracle": {"kind": "conservation-law", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_transaction_route_contract.py", "exit_code": 0, "identity": "thirty-two-valid-rows-one-adam-one-replay-commit"}
+        }
+      ],
+      "status": "MODULE-CORRECT"
+    }
+  ]
+}

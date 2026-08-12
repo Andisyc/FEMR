@@ -87,13 +87,24 @@
       "blockId": "ICA-PLANNER",
       "title": "Frozen Planner",
       "color": "#47749f",
-      "responsibility": "保持任务 Intent 的唯一所有权，并为 Support 与 Query 提供目标 Motion。",
+      "responsibility": "始终决定机器人想做什么，为第一次和第二次 Rollout 提供目标 Motion。",
       "details": [
-        "Planner checkpoint 在训练和部署阶段均冻结。",
-        "Planner 输出定义想要实现的 Motion，而不是目标域的正确 Action。",
-        "Support token 中的目标 Motion 优先使用当次实际下发给 Tracker 的 Planner future。",
-        "预先保存的 clean rollout 可作为分析或对齐证据，但不默认成为部署必需输入。",
-        "Context 校准不得改变 Planner 的任务语义或生成新的 Intent。"
+        {
+          "heading": "1. Planner 始终冻结",
+          "text": "无论离线训练还是部署，Planner 参数都不更新。"
+        },
+        {
+          "heading": "2. Planner 只输出目标 Motion",
+          "text": "它描述机器人应该怎样运动；具体 Action 仍由 Tracker 生成。"
+        },
+        {
+          "heading": "3. 第一次 Rollout 记录当次 Planner 输出",
+          "text": "轨迹直接保存当时交给 Tracker 的目标 Motion，不需要额外提供预先保存的 clean rollout。"
+        },
+        {
+          "heading": "4. 校准不能改变 Intent",
+          "text": "Context 只能调整目标 Motion 的执行方式，不能修改 Planner 原本要求完成的任务。"
+        }
       ],
       "highlightSteps": [
         "freeze-source",
@@ -109,11 +120,26 @@
       "color": "#6c4d91",
       "responsibility": "保留成熟的 Motion-to-Action 逆映射；Tracker Encoder 与 Decoder 都不吸收目标条件。",
       "details": [
-        "Tracker Encoder 将当前历史与 Planner future 编码为 nominal motion latent z_t。",
-        "Tracker Decoder 根据当前历史和校准后的 latent 逐时刻输出 Action。",
-        "Encoder 与 Decoder 在所有离线 calibration episodes 中冻结。",
-        "部署时不执行梯度更新、优化器 step 或 normalizer 更新。",
-        "Tracker 仍是唯一 Action 生成器；Context 路径不能绕过 Decoder直接产生 Action。"
+        {
+          "heading": "1. Tracker Encoder 生成基础运动表示 z_t",
+          "text": "它根据当前状态、历史和 Planner 的目标 Motion，判断当前应当怎样执行。"
+        },
+        {
+          "heading": "2. Tracker Decoder 实时输出 Action",
+          "text": "Decoder 将基础运动表示 z_t 与 Context Encoder 输出的 Δz 组合，并在每个控制时刻生成 Action。"
+        },
+        {
+          "heading": "3. Encoder 和 Decoder 始终冻结",
+          "text": "训练 Context Encoder 时，Tracker 参数不更新，避免它直接记住各种缺陷。"
+        },
+        {
+          "heading": "4. 部署时不进行任何训练",
+          "text": "真机上不会更新参数、优化器或 normalizer，只进行前向计算。"
+        },
+        {
+          "heading": "5. Tracker 是唯一的 Action 生成器",
+          "text": "Context Encoder 只能提供低维 Δz，不能绕开 Decoder 直接输出 Action。"
+        }
       ],
       "highlightSteps": [
         "freeze-source",
@@ -129,12 +155,18 @@
       "color": "#a05e4f",
       "responsibility": "把第一次执行封存为可部署的目标—动作—实现响应时序证据，而不是正确修复标签。",
       "details": [
-        "每个时刻形成 token c_t = [Y_target,t, Y_realized,t, A_exec,t]；必要的 proprioceptive history 与有效 mask 随 token 保存。",
-        "Y_target 来自当次 Planner future；Y_realized 来自机器人实际状态；A_exec 是真实下发动作。",
-        "完整 Context 为按时间排列的 C = [c_0, …, c_T]，而不是无序样本集合。",
-        "三路信号必须使用同一时间基准，并显式处理控制延迟与 future-window 对齐。",
-        "Support 不包含缺陷参数、Teacher Action、Query Action 或人为构造的正确 Δz。",
-        "失败 rollout 证明某个 Action 实际产生了某段 Motion；它不证明该 Action 对原 Intent 最优。"
+        {
+          "heading": "1. 明确三类信息的来源",
+          "text": "Y_target 是 Planner 想让机器人做什么；Y_realized 是机器人实际做成什么；A_exec 是真正发送给机器人的动作。"
+        },
+        {
+          "heading": "2. 三路数据必须正确对齐",
+          "text": "某个 Action 的效果可能延迟若干帧才出现。因此要明确哪个 Action 对应后面的哪段 Motion，不能简单按相同帧号拼接。"
+        },
+        {
+          "heading": "3. Support 中不能包含答案",
+          "text": "不输入缺陷参数、Teacher Action、Query Action 或人为构造的正确 Δz，避免模型利用部署时不存在的信息。"
+        }
       ],
       "highlightSteps": [
         "collect-support",
@@ -149,12 +181,18 @@
       "color": "#3c7485",
       "responsibility": "一次读取完整 Support 序列，将条件相关的动作—响应变化压缩为一个低维 Δzξ。",
       "details": [
-        "Context Encoder 的输入是完整定长或带 mask 的变长时序 C，不是单个当前状态。",
-        "它保留 token 顺序与步态相位信息，不能只读取轨迹终点或一个横向偏差标量。",
-        "整段 Support 编码完成后只输出一个 condition-level Δzξ。",
-        "第二次 rollout 不再逐时刻重读旧 Support；同一个 Δzξ 被固定复用。",
-        "Context Encoder 可以较大，因为它跨大量仿真条件离线训练，部署时完全冻结。",
-        "若相同可见 Support 需要相反校准，增加 Encoder 容量不能解决不可辨识性。"
+        {
+          "heading": "1. 输入完整时序，而非单帧",
+          "text": "它读取第一次 Rollout 从开始到结束的轨迹。因为单个状态无法说明机器人为何逐渐偏离。"
+        },
+        {
+          "heading": "2. 整条轨迹只输出一个 Δz",
+          "text": "它不为每个时刻输出 Action，而是总结出一个代表当前执行条件的校准量。"
+        },
+        {
+          "heading": "3. 第二次 Rollout 固定复用 Δz",
+          "text": "第二次执行期间不再重复读取旧轨迹，也不动态修改 Δz。实时 Action 仍由 Tracker 输出。"
+        }
       ],
       "highlightSteps": [
         "seal-support",
@@ -164,39 +202,54 @@
       "chips": []
     },
     {
-      "designId": "ICA-DP-06",
-      "blockId": "ICA-LATENT",
-      "title": "Latent Calibration",
-      "color": "#377e67",
-      "responsibility": "以低维、低权限接口改变冻结 Tracker 的执行映射，同时保持 Planner Intent 与 Action 所有权不变。",
-      "details": [
-        "nominal latent z_t 与条件级 Δzξ 在受控接口处组合后交给冻结 Decoder。",
-        "Δzξ 的维度和范数受限，使其承担校准而不是编码完整新策略。",
-        "同一个 Δzξ 在一次 Query rollout 内保持固定；实时变化仍由 z_t 与当前 history 表达。",
-        "Context 路径不得直接加到最终 Action，也不得替代 Tracker Decoder。",
-        "当前候选仅确认需要受限 latent interface；具体是直接加法、投影基或低秩调制仍待后续原子设计审核。",
-        "若 FADA-style LoRA 可适配而该接口失败，说明低维校准作用位置或表达能力不足。"
-      ],
-      "highlightSteps": [
-        "encode-context",
-        "run-query",
-        "supervise-action"
-      ],
-      "chips": []
-    },
-    {
       "designId": "ICA-DP-07",
       "blockId": "ICA-LEARNING",
       "title": "Calibration Learning",
       "color": "#a75555",
-      "responsibility": "用同一隐藏条件下互不重叠的 Support–Query 逆动力学证据，只训练 Context Encoder。",
+      "responsibility": "用同一动力学条件下相互独立的 Support–Query Rollout，只训练 Context Encoder 学习可跨轨迹复用的校准量。",
       "details": [
-        "Support 产生 Δzξ；Query 提供新的 realized-future / executed-action 配对。",
-        "Query Action 不得进入 Support，否则模型可能复制动作而不是推断持久执行关系。",
-        "监督标签是实际产生 Query realized future 的 Executed Action，不是 clean Action、Teacher Action 或搜索得到的 Δz。",
-        "梯度可以经过冻结 Encoder 与 Decoder 的计算，但只允许更新 Context Encoder 参数。",
-        "不使用 task Reward、Privileged Teacher 或单条目标域轨迹上的在线训练。",
-        "训练跨多个条件、Intent 与 rollout；验证按完整 held-out condition 划分。"
+        {
+          "heading": "1. 按动力学条件构造 Episode",
+          "text": "每次采样一个固定的仿真动力学条件。它代表当前 Episode 中保持不变的机器人动力学。",
+          "latex": "\\xi \\sim p_{\\mathrm{train}}(\\xi)"
+        },
+        {
+          "heading": "2. 在相同条件下生成两条独立 Rollout",
+          "text": "Support Rollout 用于识别动力学变化；Query Rollout 用于监督校准结果。两条轨迹共享动力学条件，但使用不同初始状态、步态相位或噪声。",
+          "latex": "R_{\\mathrm{sup}},R_{\\mathrm{qry}} \\sim p(R\\mid\\xi),\\qquad R_{\\mathrm{sup}}\\neq R_{\\mathrm{qry}}"
+        },
+        {
+          "heading": "3. Support Rollout 生成校准量",
+          "text": "Context Encoder 读取完整 Support 时序，并将当前动力学条件的执行响应压缩成一个固定校准量。Support 可以包含自身的 Executed Action，但不能包含 Query Action。",
+          "latex": "\\Delta z_{\\xi}=A_{\\mathrm{ctx}}(S_{\\xi}),\\qquad S_{\\xi}=(Y_{\\mathrm{target}}^{s},Y_{\\mathrm{realized}}^{s},A_{\\mathrm{exec}}^{s})"
+        },
+        {
+          "heading": "4. Query Rollout 提供独立监督",
+          "text": "Query 不输入 Context Encoder。它提供因果匹配的 Realized Motion–Executed Action Pair：某段 Motion 实际由哪个 Action 产生，就用哪个 Action 作为标签。",
+          "latex": "Q_{\\xi}=(Y_{\\mathrm{realized}}^{q},A_{\\mathrm{exec}}^{q})"
+        },
+        {
+          "heading": "5. 冻结 Tracker 重建 Query Action",
+          "text": "Query 的目标、历史与 Realized Motion 经过冻结 Tracker。Decoder 使用 Support 推断出的校准量，在 Query 上预测 Executed Action。",
+          "latex": [
+            "z_q=E_{\\mathrm{Tracker}}(Y_{\\mathrm{realized}}^{q},\\mathrm{history}^{q})",
+            "\\hat A_q=D_{\\mathrm{Tracker}}(z_q+\\Delta z_{\\xi},\\mathrm{history}^{q})"
+          ]
+        },
+        {
+          "heading": "6. 使用 Executed Action 监督",
+          "text": "预测 Action 与 Query 中真正执行的 Action 计算均方误差。不使用 clean Action、Teacher Action、task Reward 或人为搜索得到的校准量真值。",
+          "latex": "\\mathcal{L}_{\\mathrm{cal}}=\\lVert\\hat A_q-A_{\\mathrm{exec}}^{q}\\rVert_2^2"
+        },
+        {
+          "heading": "7. 梯度经过冻结 Tracker，只更新 Context Encoder",
+          "text": "损失梯度经过冻结的 Tracker Encoder 和 Decoder 计算并传回校准量，但 Planner、Tracker Encoder 与 Tracker Decoder 均不更新；优化器只更新 Context Encoder。"
+        },
+        {
+          "heading": "8. 跨条件元训练，并在未见条件上评价",
+          "text": "在大量不同的仿真动力学条件下重复上述 Episode。验证与测试按完整动力学条件划分，使模型在训练阶段未见过的动力学条件下，仅根据一条 Support Rollout 生成校准量。",
+          "latex": "\\Xi_{\\mathrm{train}}\\cap\\Xi_{\\mathrm{test}}=\\varnothing"
+        }
       ],
       "highlightSteps": [
         "seal-query",

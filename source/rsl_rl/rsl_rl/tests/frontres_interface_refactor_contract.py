@@ -93,7 +93,7 @@ def test_lazy_public_facade() -> None:
     before = set(sys.modules)
     interface_module = importlib.import_module("rsl_rl.frontres.frontres_interfaces")
     imported = set(sys.modules).difference(before)
-    assert interface_module.FRONTRES_CHECKPOINT_FORMAT == "frontres-v023-checkpoint-v18"
+    assert interface_module.FRONTRES_CHECKPOINT_FORMAT == "frontres-v024-checkpoint-v19"
     assert not any(name.startswith("isaaclab") for name in imported)
     facade = importlib.import_module("rsl_rl.frontres")
     assert "FrontRESActionCone" not in facade.__all__
@@ -275,19 +275,19 @@ def test_schema_and_identity(interfaces) -> None:
     )
 
     telemetry = {
-        "method_contract_id": "FRS-METHOD-v024",
+        "method_contract_id": "FRS-METHOD-v025",
         "gain_contract_id": "FRS-GAIN-v008",
-        "optimization_contract_id": "FRS-PPO-v011",
-        "training_contract_id": "FRS-TRAIN-v023",
+        "optimization_contract_id": "FRS-PPO-v012",
+        "training_contract_id": "FRS-TRAIN-v024",
         "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",
-        "checkpoint_format": "frontres-v023-checkpoint-v18",
+        "checkpoint_format": "frontres-v024-checkpoint-v19",
         "critic_value_kind": "state_value",
         "critic_input_dim": 449,
         "critic_support_context_id": "action-pre-support-plan-kmax32-v1",
         "critic_action_conditioned": False,
-        "critic_target_id": "scenario-compatible-robust-mean-symlog-v1",
+        "critic_target_id": "scenario-current-exact-m4-mean-symlog-v1",
         "gradient_clip_identity": "separate-actor-critic-v1",
         "transaction_id": "tx-interface",
         "active_k": 8,

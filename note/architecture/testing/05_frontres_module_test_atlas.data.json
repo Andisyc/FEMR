@@ -1,6 +1,6 @@
 {
   "title": "FrontRES Module Test Atlas",
-  "subtitle": "TRAIN-v020/checkpoint-v15：22 passed；外层 Scenario Replay 离线合同通过；official bounded transaction 待执行",
+  "subtitle": "TRAIN-v024/checkpoint-v19：26 passed；current-visit Scenario Replay 离线合同通过；official bounded K8 transaction 待执行",
   "humanStatus": "confirmed",
   "layout": "module_test_inspector",
   "defaultZoom": 0.8,
@@ -1465,6 +1465,86 @@
           ["修改 schema 或 fraction", "严格拒绝", "配置身份封存"],
           ["checkpoint-v14 尝试 training resume", "拒绝", "旧池不能猜测迁移"],
           ["checkpoint-v14 进入 Evaluation-only", "只读加载 Actor/Critic，零 replay 写入", "历史评价兼容与训练隔离"]
+        ]}}
+      ]
+    },
+    {
+      "designId": "TEST-25A",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "PASS：同一 Scenario 第二次访问的 Critic target 严格等于第二次当前 M4 均值；第一次访问的 utility 不进入 target。",
+      "blockId": "MOD-OUTER-TARGET",
+      "title": "Current-Visit Critic Target",
+      "color": "#47749f",
+      "highlightSteps": ["purpose", "oracle", "cases"],
+      "details": [
+        {"heading": "要验证的设计规则", "text": "外层 Replay 只选择 Scenario；每次选择都由当前 Actor 重跑 M4，Critic 只学习本次 M4 symlog utility 均值。"},
+        {"heading": "伪样本测试", "text": "同一 Scenario 连续提交两次不同 M4，并改变历史元数据。", "table": {"columns": ["伪样本", "正确结果", "证明什么"], "rows": [
+          ["第一次 M4=[1,2,3,4]，第二次 M4=[9,9,9,9]", "第二次 target=9", "历史 outcome 不污染当前 target"],
+          ["只改变已保存的旧 priority/visit", "当前 target 不变", "调度状态不是监督标签"],
+          ["target 与当前行对齐均值不等", "PPO 边界拒绝", "旧 target 不能绕过 Replay 进入 Critic"],
+          ["当前 M4 内含 NaN", "Replay stage 在生成 candidate 前拒绝", "缺失或坏 evidence 不会变成标签"],
+          ["只重排同一 Scenario 的四个 attempts", "target 不变", "M4 均值不依赖 attempt 顺序"]
+        ]}}
+      ]
+    },
+    {
+      "designId": "TEST-25B",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "PASS：当前 M4 variance/SE/h95 只修正 E_V Replay priority，Critic target 始终是普通 M4 均值。",
+      "blockId": "MOD-OUTER-PRIORITY",
+      "title": "Current-Visit Uncertainty Priority",
+      "color": "#47749f",
+      "highlightSteps": ["purpose", "oracle", "cases"],
+      "details": [
+        {"heading": "要验证的设计规则", "text": "M4 outcome uncertainty 用来判断 Critic 误差是否超过噪声，并只影响下一次 Scenario 选择优先级。"},
+        {"heading": "伪样本测试", "text": "手算 mean、sample variance、SE、h95 与 excess error。", "table": {"columns": ["伪样本", "正确结果", "证明什么"], "rows": [
+          ["高方差但均值相同的 M4", "target 相同，E_V 可不同", "target 与 priority 分权"],
+          ["改变 Critic value", "只改变 E_V，不改变 target", "Critic 预测不反写标签"],
+          ["重排 M4", "mean/variance/E_V 不变", "attempt 顺序不携带语义"],
+          ["四个 utility 完全相同", "variance=SE=h95=0", "确定性样本不会伪造不确定性"],
+          ["value 与 target 误差小于 h95", "E_V=0", "噪声区间内误差不被当作校准失败"]
+        ]}}
+      ]
+    },
+    {
+      "designId": "TEST-25C",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "PASS：replay-v5 仅保存 Scenario 调度状态；四次 fresh committed visits 开放 breadth，v4 与错误 receipt 在写入前拒绝。",
+      "blockId": "MOD-OUTER-LIFECYCLE",
+      "title": "Scenario Replay Lifecycle",
+      "color": "#47749f",
+      "highlightSteps": ["purpose", "oracle", "cases"],
+      "details": [
+        {"heading": "要验证的设计规则", "text": "Replay 保存 Scenario 身份、latest priority、visit、staleness、pool/RNG/receipt；不保存 utility window、policy anchor、KL 或 reset。"},
+        {"heading": "伪样本测试", "text": "提交、重复提交、容量成熟和 v4 加载分别验证。", "table": {"columns": ["伪样本", "正确结果", "证明什么"], "rows": [
+          ["同 K 每个 active Scenario 四次 fresh commit", "允许容量扩张", "maturity 统计真实重跑次数"],
+          ["错误或重复 receipt", "Replay state 零变化", "exact-one Unit of Work"],
+          ["加载 replay-v4 或包含历史 outcome schema", "任何 restore 前拒绝", "旧 Experience Replay 不会迁移"],
+          ["只执行 plan/stage 不 commit", "records、capacity、RNG 均不变", "preview 是零写入边界"],
+          ["保存再加载 replay-v5", "key/priority/visit/staleness/pool/RNG/receipt 相同", "仅调度状态严格 round-trip"]
+        ]}}
+      ]
+    },
+    {
+      "designId": "TEST-25D",
+      "humanStatus": "confirmed",
+      "executionStatus": "passed",
+      "executionSummary": "PASS：B8×M4 当前 evidence 产生八个 target 和 32 个当前 Actor advantages；一次 Adam、一次 Replay commit，失败全事务回滚。",
+      "blockId": "MOD-CURRENT-VISIT-UOW",
+      "title": "Current-Visit PPO Unit Of Work",
+      "color": "#47749f",
+      "highlightSteps": ["purpose", "oracle", "cases"],
+      "details": [
+        {"heading": "要验证的设计规则", "text": "一个正式事务必须先由当前 pi_old 完成八个 Scenario 的 M4，再让 Critic 和 Actor 共同执行一次 grouped Adam。"},
+        {"heading": "伪样本测试", "text": "32 行按八个 Scenario 分组，并在不同提交边界注入失败。", "table": {"columns": ["伪样本", "正确结果", "证明什么"], "rows": [
+          ["B8×M4 当前 utility", "8 个 current-M4 targets 与 32 个 U(G)-V_old advantages", "Critic 与 Actor 使用同一当前 evidence"],
+          ["Scenario 行重排但 identity 保持", "target/loss 等价", "按身份对齐而非位置猜测"],
+          ["optimizer 后 commit 失败", "optimizer、normalizer、Replay 全回滚", "exact-one 原子事务"],
+          ["每个 Scenario 只有 M2 但声明 PPO-v012", "PPO 公开边界拒绝", "exact-M4 身份不能被直接调用绕过"],
+          ["一个 Scenario 缺行或 target 非有限", "optimizer step 前拒绝", "partial evidence 不会产生部分更新"]
         ]}}
       ]
     }
