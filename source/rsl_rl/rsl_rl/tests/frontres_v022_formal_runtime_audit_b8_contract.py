@@ -47,6 +47,57 @@ def _runner() -> SimpleNamespace:
     )
 
 
+def _route_runner(*, current_learning_iteration: int) -> SimpleNamespace:
+    runner = _runner()
+    actor = nn.Linear(158, 6)
+    critic = nn.Linear(449, 1)
+    runner.alg.policy = SimpleNamespace(
+        gmt_policy=runner.alg.policy.gmt_policy,
+        residual_actor=actor,
+        critic=critic,
+    )
+    runner.alg.frontres_training_objective = "segment_replay_hrl"
+    runner.alg.frontres_future_offsets = (1, 2)
+    runner.alg.frontres_method_contract_id = "FRS-METHOD-v025"
+    runner.alg.frontres_gain_contract_id = "FRS-GAIN-v008"
+    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v012"
+    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v024"
+    runner.alg.frontres_critic_value_normalization = "ema-target-std-nonamplifying-v1"
+    runner.alg.frontres_critic_value_normalizer_decay = 0.9
+    runner.alg.frontres_critic_value_normalizer_scale_floor = 1.0
+    runner.alg.frontres_critic_value_normalizer_state = audit.FrontRESValueNormalizerState(
+        update_count=current_learning_iteration,
+    )
+    runner.alg.optimizer = torch.optim.Adam(
+        [
+            {"params": actor.parameters(), "lr": 3.0e-7, "frontres_role": "actor"},
+            {"params": critic.parameters(), "lr": 1.0e-5, "frontres_role": "critic"},
+        ]
+    )
+    runner.cfg = {
+        "frontres_specialist_mode": "rp",
+        "frontres_perturbation_channels": "rp",
+        "dr_scale_init": 1.25,
+    }
+    runner._frontres_segment_replay_boundary = SimpleNamespace(
+        live_train_enabled=True,
+        live_sentinel_only=False,
+        live_probe_only=False,
+        live_storage_write_only=False,
+        live_single_update_only=False,
+        live_update_loop_only=False,
+        offline_eval_only=False,
+        sequence_offline_eval_only=False,
+    )
+    runner._frontres_last_loaded_checkpoint_path = (
+        "/tmp/frontres-v017-hsl-proposal-v2.pt"
+        if current_learning_iteration == 0
+        else "/tmp/frontres-v024-checkpoint-v19.pt"
+    )
+    runner.current_learning_iteration = current_learning_iteration
+    return runner
+
+
 def _install_observation_trace(runner: SimpleNamespace) -> None:
     from rsl_rl.runners.frontres_segment_runtime_types import (
         bind_frontres_collection_context,
@@ -232,9 +283,38 @@ def test_b02_b07_accept_current_b8_telemetry_and_reject_partial_shapes() -> None
             raise AssertionError(f"v022 audit accepted incomplete B8 telemetry: {tuple(changed)}")
 
 
+def test_b01_accepts_one_bounded_transaction_after_strict_resume() -> None:
+    for current_learning_iteration in (0, 1):
+        runner = _route_runner(current_learning_iteration=current_learning_iteration)
+        stream = io.StringIO()
+        audit.configure_formal_runtime_probe(False)
+        with contextlib.redirect_stdout(stream):
+            audit.print_formal_route_audit(runner, num_learning_iterations=1)
+        assert stream.getvalue().count("[AUDIT-B01]") == 1
+        assert f"current_iter={current_learning_iteration}" in stream.getvalue()
+
+    resumed = _route_runner(current_learning_iteration=1)
+    for invalid_iterations in (0, 2):
+        try:
+            audit.print_formal_route_audit(resumed, num_learning_iterations=invalid_iterations)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("AUDIT-B01 accepted a non-single-transaction invocation")
+
+    resumed.alg.frontres_critic_value_normalizer_state = audit.FrontRESValueNormalizerState(update_count=0)
+    try:
+        audit.print_formal_route_audit(resumed, num_learning_iterations=1)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("AUDIT-B01 accepted mismatched resume and normalizer iteration counts")
+
+
 def main() -> None:
     test_b03_b04_accept_current_b8_roles_and_reject_old_b2_shapes()
     test_b02_b07_accept_current_b8_telemetry_and_reject_partial_shapes()
+    test_b01_accepts_one_bounded_transaction_after_strict_resume()
     print("frontres_v022_formal_runtime_audit_b8_contract: PASS")
 
 

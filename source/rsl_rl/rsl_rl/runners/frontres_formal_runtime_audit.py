@@ -296,8 +296,8 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
     assert isinstance(value_normalizer_state, FrontRESValueNormalizerState)
     value_normalizer_state.validate()
     assert value_normalizer_state.update_count == int(getattr(runner, "current_learning_iteration", -1))
-    assert int(num_learning_iterations) == 1 and int(getattr(runner, "current_learning_iteration", -1)) == 0, (
-        "AUDIT-B01 is admitted only for the fresh one-transaction Phase B run"
+    assert int(num_learning_iterations) == 1, (
+        "AUDIT-B01 is admitted only for one bounded transaction invocation"
     )
     # AUDIT-B01: 检查正式入口身份, 位于 HSL-v2 load -> ordinary Stage3 train.
     # Result: PENDING_LIVE.
