@@ -81,7 +81,7 @@ their own gates.
 TRAIN-v024 local engineering evidence is recorded by the current plan,
 checklist, `frontres_train_v024_module_alignment.json` and
 `frontres_train_v024_formal_live_required.json`: TEST-25A--25D, strict
-checkpoint-v19/replay-v5 and the 58/58 Contract suite pass. This is S0--S3
+checkpoint-v19/replay-v5 and the 59/59 Contract suite pass. This is S0--S3
 evidence only. Prior TRAIN-v023 manifests and reviews are historical and cannot
 admit this route. The single remaining live fact is one official K8/B8/M4
 transaction; long training and policy-quality claims remain unauthorized.

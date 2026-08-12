@@ -130,7 +130,7 @@ def _install_observation_trace(runner: SimpleNamespace) -> None:
     )
 
 
-def _telemetry() -> dict[str, object]:
+def build_current_b8_telemetry_fixture() -> dict[str, object]:
     source_index = tuple(source for source in range(8) for _ in range(4))
     trial_index = tuple(trial for _source in range(8) for trial in range(4))
     gains = tuple(0.1 * (source + 1) + 0.01 * trial for source, trial in zip(source_index, trial_index))
@@ -263,7 +263,7 @@ def test_b03_b04_accept_current_b8_roles_and_reject_old_b2_shapes() -> None:
 
 def test_b02_b07_accept_current_b8_telemetry_and_reject_partial_shapes() -> None:
     runner = _runner()
-    telemetry = _telemetry()
+    telemetry = build_current_b8_telemetry_fixture()
     stream = io.StringIO()
     with contextlib.redirect_stdout(stream):
         audit.print_phase_b_telemetry_audit(runner, telemetry=telemetry)
@@ -281,6 +281,48 @@ def test_b02_b07_accept_current_b8_telemetry_and_reject_partial_shapes() -> None
             pass
         else:
             raise AssertionError(f"v022 audit accepted incomplete B8 telemetry: {tuple(changed)}")
+
+
+def test_b02_b07_accepts_resumed_replay_telemetry_at_live_float32_scale() -> None:
+    """Audit arithmetic must reproduce the float32 producer, including resumed Replay rows."""
+
+    telemetry = build_current_b8_telemetry_fixture()
+    raw_returns = torch.tensor(telemetry["raw_returns"], dtype=torch.float32)
+    policy_values = torch.tensor(telemetry["policy_values"], dtype=torch.float32)
+    raw_returns[0] = 38.574188232421875
+    policy_values[0] = -1.804215908050537
+    utility_returns = torch.sign(raw_returns) * torch.log1p(torch.abs(raw_returns))
+    raw_advantages = raw_returns - policy_values
+    actor_advantages = utility_returns - policy_values
+    source_index = torch.tensor(telemetry["source_index"], dtype=torch.long)
+    segment_targets = tuple(
+        float(utility_returns[source_index == source].mean().item()) for source in range(8)
+    )
+    critic_targets = tuple(segment_targets[int(source)] for source in source_index.tolist())
+    telemetry.update(
+        {
+            "gain_total": tuple(float(value) for value in raw_returns.tolist()),
+            "raw_returns": tuple(float(value) for value in raw_returns.tolist()),
+            "policy_values": tuple(float(value) for value in policy_values.tolist()),
+            "raw_advantages": tuple(float(value) for value in raw_advantages.tolist()),
+            "utility_returns": tuple(float(value) for value in utility_returns.tolist()),
+            "actor_advantages": tuple(float(value) for value in actor_advantages.tolist()),
+            "critic_value_targets": critic_targets,
+            "critic_segment_target_means": segment_targets,
+            "outer_replay_critic_target_means": segment_targets,
+            "return_mean": float(raw_returns.mean().item()),
+            "return_min": float(raw_returns.min().item()),
+            "return_max": float(raw_returns.max().item()),
+            "outer_replay_sources": ("replay",) + ("global",) * 7,
+            "critic_value_normalizer_update_count_before": 1,
+            "critic_value_normalizer_update_count_after": 2,
+            "k_stage_iteration": 1,
+        }
+    )
+    assert abs(telemetry["raw_advantages"][0] - (telemetry["gain_total"][0] - telemetry["policy_values"][0])) > 1e-6
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        audit.print_phase_b_telemetry_audit(_runner(), telemetry=telemetry)
 
 
 def test_b01_accepts_one_bounded_transaction_after_strict_resume() -> None:
@@ -314,6 +356,7 @@ def test_b01_accepts_one_bounded_transaction_after_strict_resume() -> None:
 def main() -> None:
     test_b03_b04_accept_current_b8_roles_and_reject_old_b2_shapes()
     test_b02_b07_accept_current_b8_telemetry_and_reject_partial_shapes()
+    test_b02_b07_accepts_resumed_replay_telemetry_at_live_float32_scale()
     test_b01_accepts_one_bounded_transaction_after_strict_resume()
     print("frontres_v022_formal_runtime_audit_b8_contract: PASS")
 

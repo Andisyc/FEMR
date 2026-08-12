@@ -846,11 +846,19 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
             math.isclose(critic_targets[index], expected_target, rel_tol=0.0, abs_tol=1e-6)
             for index in indices
         )
-    for row in range(rows):
-        assert math.isclose(raw_advantages[row], gains[row] - policy_values[row], rel_tol=0.0, abs_tol=1e-6)
-        assert math.isclose(
-            actor_advantages[row], utility_returns[row] - policy_values[row], rel_tol=0.0, abs_tol=1e-6
-        )
+    audit_values = torch.tensor(policy_values, dtype=torch.float32)
+    assert torch.allclose(
+        torch.tensor(raw_advantages, dtype=torch.float32),
+        torch.tensor(gains, dtype=torch.float32) - audit_values,
+        rtol=0.0,
+        atol=1e-6,
+    )
+    assert torch.allclose(
+        torch.tensor(actor_advantages, dtype=torch.float32),
+        torch.tensor(utility_returns, dtype=torch.float32) - audit_values,
+        rtol=0.0,
+        atol=1e-6,
+    )
 
     # AUDIT-B06: 检查 exact-M state-value target 与逐 attempt Actor advantage.
     expected_returns = torch.tensor(gains, dtype=torch.float32)

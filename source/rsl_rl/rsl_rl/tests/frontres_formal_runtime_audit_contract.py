@@ -4,13 +4,13 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
-import math
 from pathlib import Path
 from types import SimpleNamespace
 
 import torch
 from torch import nn
 from frontres_contract_imports import install_frontres_contract_packages
+from frontres_v022_formal_runtime_audit_b8_contract import build_current_b8_telemetry_fixture
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -54,7 +54,7 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
         [
             {
                 "params": list(policy.residual_actor.parameters()),
-                "lr": 3.0e-6,
+                "lr": 3.0e-7,
                 "frontres_role": "actor",
                 "frontres_step_count": 0,
             },
@@ -71,15 +71,15 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
         frontres_training_objective="segment_replay_hrl",
         frontres_segment_max_horizon_k=64,
         frontres_future_offsets=(1, 2),
-        frontres_method_contract_id="FRS-METHOD-v022",
+        frontres_method_contract_id="FRS-METHOD-v025",
         frontres_gain_contract_id="FRS-GAIN-v008",
-        frontres_optimization_contract_id="FRS-PPO-v009",
-        frontres_training_contract_id="FRS-TRAIN-v021",
+        frontres_optimization_contract_id="FRS-PPO-v012",
+        frontres_training_contract_id="FRS-TRAIN-v024",
         frontres_critic_value_kind="state_value",
         frontres_critic_input_dim=449,
         frontres_critic_support_context_id="action-pre-support-plan-kmax32-v1",
         frontres_critic_action_conditioned=False,
-        frontres_critic_target_id="segment-exact-m-mean-symlog-v1",
+        frontres_critic_target_id="scenario-current-exact-m4-mean-symlog-v1",
         frontres_return_utility_id="symmetric-log-gain-g0-1-v1",
         frontres_return_utility_scale=1.0,
         frontres_gradient_clip_identity="separate-actor-critic-v1",
@@ -117,29 +117,16 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
 def _committed_receipt(*, transaction_id: str = "tx-v016") -> dict[str, object]:
     return {
         "transaction_id": transaction_id,
-        "method_contract_id": "FRS-METHOD-v022",
+        "method_contract_id": "FRS-METHOD-v025",
         "gain_contract_id": "FRS-GAIN-v008",
-        "optimization_contract_id": "FRS-PPO-v009",
-        "training_contract_id": "FRS-TRAIN-v021",
+        "optimization_contract_id": "FRS-PPO-v012",
+        "training_contract_id": "FRS-TRAIN-v024",
         "optimizer_step_delta": 1,
-        "selected_segment_count": 2,
-        "policy_row_count": 8,
-        "role_row_count": 16,
+        "selected_segment_count": 8,
+        "policy_row_count": 32,
+        "role_row_count": 64,
         "active_k": 8,
         "active_m": 4,
-    }
-
-
-def _outer_replay_telemetry() -> dict[str, object]:
-    return {
-        "outer_replay_state_delta": 1,
-        "outer_replay_sources": ("global", "global"),
-        "outer_replay_scenario_key_digests": ("a" * 64, "b" * 64),
-        "outer_replay_score_kind": "critic_calibration",
-        "outer_replay_critic_calibration_values": (0.2, 0.1),
-        "outer_replay_repair_spread_values": (0.3, 0.4),
-        "outer_replay_ema_scores": (0.2, 0.1),
-        "outer_replay_pool_sizes": (2, 0),
     }
 
 
@@ -160,25 +147,25 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     result = SimpleNamespace(
         transaction_id="tx-v016",
         policy_snapshot_id="pi-old-v016",
-        segment_count=2,
-        source_count=2,
-        policy_attempt_count=8,
-        valid_row_count=8,
+        segment_count=8,
+        source_count=8,
+        policy_attempt_count=32,
+        valid_row_count=32,
         optimizer_step_delta=1,
         update_invocation_count=1,
         diagnostics={
-            "method_contract_id": "FRS-METHOD-v022",
+            "method_contract_id": "FRS-METHOD-v025",
             "gain_contract_id": "FRS-GAIN-v008",
-            "optimization_contract_id": "FRS-PPO-v009",
-            "training_contract_id": "FRS-TRAIN-v021",
+            "optimization_contract_id": "FRS-PPO-v012",
+            "training_contract_id": "FRS-TRAIN-v024",
             "critic_support_context_id": "action-pre-support-plan-kmax32-v1",
-            "selected_segment_count": 2,
+            "selected_segment_count": 8,
             "active_m": 4,
-            "policy_row_count": 8,
-            "role_row_count": 16,
-            "grouped_motion_mass_shares": (0.5, 0.5),
-            "grouped_segment_mass_shares": (0.5, 0.5),
-            "grouped_attempt_mass_shares": (0.125,) * 8,
+            "policy_row_count": 32,
+            "role_row_count": 64,
+            "grouped_motion_mass_shares": (0.125,) * 8,
+            "grouped_segment_mass_shares": (0.125,) * 8,
+            "grouped_attempt_mass_shares": (0.03125,) * 32,
         },
     )
     checkpoint_payload = {
@@ -187,7 +174,7 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                 "optimizer_state_dict": {
                     "state": {},
                     "param_groups": [
-                        {"frontres_role": "actor", "lr": 3.0e-6},
+                        {"frontres_role": "actor", "lr": 3.0e-7},
                         {"frontres_role": "critic", "lr": 1.0e-5},
                     ],
                 },
@@ -202,17 +189,17 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                     "update_count": 4,
                 },
                 "frontres_v015_checkpoint_identity": {
-                    "format": "frontres-v021-checkpoint-v16",
-                    "method_contract_id": "FRS-METHOD-v022",
+                    "format": "frontres-v024-checkpoint-v19",
+                    "method_contract_id": "FRS-METHOD-v025",
                     "gain_contract_id": "FRS-GAIN-v008",
-                    "optimization_contract_id": "FRS-PPO-v009",
-                    "training_contract_id": "FRS-TRAIN-v021",
+                    "optimization_contract_id": "FRS-PPO-v012",
+                    "training_contract_id": "FRS-TRAIN-v024",
                     "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
                     "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
                     "return_utility": {
                         "identity": "symmetric-log-gain-g0-1-v1",
                         "scale": 1.0,
-                        "placement": "per-attempt-before-exact-m-mean",
+                        "placement": "per-attempt-before-current-exact-m4-mean",
                     },
                     "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
                     "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -221,7 +208,7 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                         "input_dim": 449,
                         "support_context_id": "action-pre-support-plan-kmax32-v1",
                         "action_conditioned": False,
-                        "target_id": "segment-exact-m-mean-symlog-v1",
+                        "target_id": "scenario-current-exact-m4-mean-symlog-v1",
                         "return_utility_id": "symmetric-log-gain-g0-1-v1",
                         "return_utility_scale": 1.0,
                     },
@@ -287,13 +274,13 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     assert "dr_scale=1.25" in output
     assert "max_horizon_k=64" in output
     transaction_line = next(line for line in output.splitlines() if line.startswith("[AUDIT-SEGMENT-REPLAY-01]"))
-    assert "segments=2" in transaction_line
+    assert "segments=8" in transaction_line
     assert "attempts_per_segment=4" in transaction_line
-    assert "policy_rows=8" in transaction_line and "valid_rows=8" in transaction_line
-    assert "segment_voting_weights=count=2,head=(0.5, 0.5)" in transaction_line
-    assert "attempt_voting_weights=count=8,head=(0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125)" in transaction_line
+    assert "policy_rows=32" in transaction_line and "valid_rows=32" in transaction_line
+    assert "segment_voting_weights=count=8,head=(0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125)" in transaction_line
+    assert "attempt_voting_weights=count=32,head=(0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125, 0.03125)" in transaction_line
     assert "optimizer_step_delta=1" in transaction_line and "update_invocations=1" in transaction_line
-    assert "FRS-METHOD-v022/FRS-GAIN-v008/FRS-PPO-v009/FRS-TRAIN-v021" in transaction_line
+    assert "FRS-METHOD-v025/FRS-GAIN-v008/FRS-PPO-v012/FRS-TRAIN-v024" in transaction_line
     assert "FRS-GAIN-v002" not in output and "shape=(2, 870)" not in output
     assert "lower-k8" in output and "active_k=8" in output
 
@@ -330,13 +317,18 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v013_curriculum() -> None:
             "update_count": 4,
         },
         "frontres_v015_checkpoint_identity": {
-            "format": "frontres-v021-checkpoint-v16",
-            "method_contract_id": "FRS-METHOD-v022",
+            "format": "frontres-v024-checkpoint-v19",
+            "method_contract_id": "FRS-METHOD-v025",
             "gain_contract_id": "FRS-GAIN-v008",
-            "optimization_contract_id": "FRS-PPO-v009",
-            "training_contract_id": "FRS-TRAIN-v021",
+            "optimization_contract_id": "FRS-PPO-v012",
+            "training_contract_id": "FRS-TRAIN-v024",
             "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
             "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
+            "return_utility": {
+                "identity": "symmetric-log-gain-g0-1-v1",
+                "scale": 1.0,
+                "placement": "per-attempt-before-current-exact-m4-mean",
+            },
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
             "critic": {
@@ -344,7 +336,9 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v013_curriculum() -> None:
                 "input_dim": 449,
                 "support_context_id": "action-pre-support-plan-kmax32-v1",
                 "action_conditioned": False,
-                "target_id": "segment-exact-m-mean-symlog-v1",
+                "target_id": "scenario-current-exact-m4-mean-symlog-v1",
+                "return_utility_id": "symmetric-log-gain-g0-1-v1",
+                "return_utility_scale": 1.0,
             },
             "gradient_clip": {"identity": "separate-actor-critic-v1", "max_norm": 0.5},
             "critic_value_normalizer": {
@@ -402,7 +396,7 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
     bind_frontres_collection_context(runner, route="training", sample=object(), batch=object())
     update_frontres_observation_trace(
         runner,
-        role_row_count=16,
+        role_row_count=64,
         current_command_dim=58,
         raw_observation_dim=870,
         q29_tail_dim=58,
@@ -422,95 +416,17 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
         post_advance_gmt_read_count=8,
     )
     evidence = SimpleNamespace(
-        roles=("repair",) * 8 + ("noisy",) * 8,
-        intent_q29_provenance=("deployment_noisy_q29",) * 16,
-        intent_q29_source=("sealed_noisy_q29",) * 16,
-        policy_actions=torch.zeros(8, 6),
-        horizon_k=torch.full((16,), 8, dtype=torch.long),
-        continuation=torch.zeros(16, 8, 65),
-        frozen_gmt_env_actions=torch.zeros(16, 8, 29),
+        roles=("repair",) * 32 + ("noisy",) * 32,
+        intent_q29_provenance=("deployment_noisy_q29",) * 64,
+        intent_q29_source=("sealed_noisy_q29",) * 64,
+        policy_actions=torch.zeros(32, 6),
+        horizon_k=torch.full((64,), 8, dtype=torch.long),
+        continuation=torch.zeros(64, 8, 65),
+        frozen_gmt_env_actions=torch.zeros(64, 8, 29),
         actor_forward_count=1,
         later_femr_action_count=0,
     )
-    raw_returns = (0.29,) * 4 + (0.19,) * 4
-    utility_returns = tuple(math.copysign(math.log1p(abs(value)), value) for value in raw_returns)
-    utility_targets = (utility_returns[0], utility_returns[4])
-    telemetry = {
-        **_outer_replay_telemetry(),
-        "transaction_id": "tx-v016",
-        "source_index": (0, 0, 0, 0, 1, 1, 1, 1),
-        "trial_index": (0, 1, 2, 3, 0, 1, 2, 3),
-        "scenario_ids": ("s0",) * 4 + ("s1",) * 4,
-        "noisy_segment_hashes": ("h0",) * 4 + ("h1",) * 4,
-        "policy_row_count": 8,
-        "active_k": 8,
-        "active_m": 4,
-        "selected_segment_count": 2,
-        "role_row_count": 16,
-        "valid_policy_row_mask": (True,) * 8,
-        "clean_execution_count": (1, 1),
-        "noisy_execution_count": (1, 1),
-        "intent_remaining_noisy": (0.4,) * 8,
-        "intent_remaining_repaired": (0.2, 0.25, 0.3, 0.35, 0.5, 0.55, 0.6, 0.65),
-        "physics_remaining_noisy": (0.5,) * 8,
-        "physics_remaining_repaired": (0.4, 0.35, 0.3, 0.25, 0.2, 0.15, 0.1, 0.05),
-        "intent_gain": (0.2, 0.15, 0.1, 0.05, -0.1, -0.15, -0.2, -0.25),
-        "physics_gain": (0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45),
-        "recovery_pressure": (1.0,) * 8,
-        "weighted_physics_gain": (0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45),
-        "repair_cost": (0.01,) * 8,
-        "repair_penalty": (0.01,) * 8,
-        "cost_free_score": (0.3,) * 4 + (0.2,) * 4,
-        "gain_total": (0.29,) * 4 + (0.19,) * 4,
-        "policy_values": (0.1,) * 4 + (0.05,) * 4,
-        "raw_advantages": (0.19,) * 4 + (0.14,) * 4,
-        "raw_returns": raw_returns,
-        "utility_returns": utility_returns,
-        "return_utility_id": "symmetric-log-gain-g0-1-v1",
-        "return_utility_scale": 1.0,
-        "critic_value_targets": (utility_targets[0],) * 4 + (utility_targets[1],) * 4,
-        "critic_segment_target_means": utility_targets,
-        "actor_advantages": tuple(value - policy for value, policy in zip(utility_returns, (0.1,) * 4 + (0.05,) * 4)),
-        "return_mean": 0.24,
-        "return_min": 0.19,
-        "return_max": 0.29,
-        "grouped_reduction_active": True,
-        "grouped_segment_mass_shares": (0.5, 0.5),
-        "grouped_attempt_mass_shares": (0.125,) * 8,
-        "actor_observation_dim": 158,
-        "critic_observation_dim": 449,
-        "gmt_observation_dim": 770,
-        "critic_value_kind": "state_value",
-        "critic_support_context_id": "action-pre-support-plan-kmax32-v1",
-        "critic_action_conditioned": False,
-        "critic_target_id": "segment-exact-m-mean-symlog-v1",
-        "gradient_clip_identity": "separate-actor-critic-v1",
-        "gradient_clip_max_norm": 0.5,
-        "critic_raw_value_loss": 0.4,
-        "critic_scaled_value_loss": 0.1,
-        "critic_value_normalization_id": "ema-target-std-nonamplifying-v1",
-        "critic_value_scale": 2.0,
-        "critic_value_normalizer_decay": 0.9,
-        "critic_value_normalizer_scale_floor": 1.0,
-        "critic_value_normalizer_update_count_before": 0,
-        "critic_value_normalizer_update_count_after": 1,
-        "actor_gradient_pre_clip_norm": 0.4,
-        "actor_gradient_post_clip_norm": 0.4,
-        "actor_gradient_clip_coefficient": 1.0,
-        "critic_gradient_pre_clip_norm": 1.0,
-        "critic_gradient_post_clip_norm": 0.5,
-        "critic_gradient_clip_coefficient": 0.5,
-        "actor_gradient_nonzero_parameter_count": 4,
-        "critic_gradient_nonzero_parameter_count": 10,
-        "actor_learning_rate": 3.0e-6,
-        "critic_learning_rate": 1.0e-5,
-        "optimizer_step_delta": 1,
-        "update_count": 1,
-        "warmup_phase": "low_dr_joint_init",
-        "k_stage_iteration": 0,
-        "actor_std_parameter_delta": {"param_delta_max_abs": 0.01},
-        "critic_parameter_delta": {"param_delta_max_abs": 0.1},
-    }
+    telemetry = build_current_b8_telemetry_fixture()
     stream = io.StringIO()
     with contextlib.redirect_stdout(stream):
         audit.print_one_action_k_audit(runner, evidence=evidence)
@@ -544,7 +460,7 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
         "sources": evidence.intent_q29_source,
         "policy_actions": evidence.policy_actions,
         "horizon_k": evidence.horizon_k,
-        "gmt_action_shapes": ((16, 29),) * 8,
+        "gmt_action_shapes": ((64, 29),) * 8,
         "gmt_actions_finite": True,
     }
     with contextlib.redirect_stdout(active_stream):
@@ -561,7 +477,10 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
     else:
         raise AssertionError("AUDIT-B04 accepted seven frozen-GMT steps for K8")
 
-    invalid_telemetry = {**telemetry, "scenario_ids": ("s0", "mixed", "s0", "s0") + ("s1",) * 4}
+    invalid_telemetry = {
+        **telemetry,
+        "scenario_ids": ("mixed",) + tuple(telemetry["scenario_ids"])[1:],
+    }
     try:
         audit.print_phase_b_telemetry_audit(runner, telemetry=invalid_telemetry)
     except AssertionError:
@@ -570,7 +489,14 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
         raise AssertionError("AUDIT-B02 accepted mixed scenario identity")
 
     for changed, label in (
-        ({"critic_value_targets": (0.29, 0.28, 0.29, 0.29) + (0.19,) * 4}, "AUDIT-B06 accepted per-attempt Critic targets"),
+        (
+            {
+                "critic_value_targets": (
+                    float(telemetry["critic_value_targets"][0]) + 1.0,
+                ) + tuple(telemetry["critic_value_targets"])[1:]
+            },
+            "AUDIT-B06 accepted per-attempt Critic targets",
+        ),
         ({"critic_gradient_post_clip_norm": 0.6}, "AUDIT-B07 accepted an over-limit Critic gradient"),
         ({"actor_gradient_clip_coefficient": 0.5}, "AUDIT-B07 accepted a coupled critic-only Actor clip"),
     ):
@@ -625,100 +551,46 @@ def test_b03_b04_are_connected_to_the_active_v017_repair_collector() -> None:
 
 def test_phase_b_return_audit_reproduces_float32_reduction() -> None:
     runner = _runner()
-    gains = (
-        0.7266710996627808,
-        -1314020.0,
-        2.5,
-        -3.25,
-        -0.04292364418506622,
-        -2306889.25,
-        4.0,
-        -5.5,
-    )
-    utility_returns = tuple(math.copysign(math.log1p(abs(value)), value) for value in gains)
-    segment_targets = tuple(
-        float(torch.tensor(values, dtype=torch.float32).mean().item())
-        for values in (utility_returns[:4], utility_returns[4:])
-    )
-    telemetry = {
-        **_outer_replay_telemetry(),
-        "transaction_id": "tx-v017-float32",
-        "source_index": (0, 0, 0, 0, 1, 1, 1, 1),
-        "trial_index": (0, 1, 2, 3, 0, 1, 2, 3),
-        "scenario_ids": ("s0",) * 4 + ("s1",) * 4,
-        "noisy_segment_hashes": ("h0",) * 4 + ("h1",) * 4,
-        "policy_row_count": 8,
-        "active_k": 8,
-        "active_m": 4,
-        "selected_segment_count": 2,
-        "role_row_count": 16,
-        "valid_policy_row_mask": (True,) * 8,
-        "clean_execution_count": (1, 1),
-        "noisy_execution_count": (1, 1),
-        "intent_remaining_noisy": (0.4,) * 8,
-        "intent_remaining_repaired": (0.2,) * 8,
-        "physics_remaining_noisy": (0.5,) * 8,
-        "physics_remaining_repaired": (0.4,) * 8,
-        "intent_gain": gains,
-        "physics_gain": gains,
-        "recovery_pressure": (1.0,) * 8,
-        "weighted_physics_gain": gains,
-        "repair_cost": (0.01,) * 8,
-        "repair_penalty": (0.01,) * 8,
-        "cost_free_score": gains,
-        "gain_total": gains,
-        "policy_values": (0.0,) * 8,
-        "raw_advantages": gains,
-        "raw_returns": gains,
-        "utility_returns": utility_returns,
-        "return_utility_id": "symmetric-log-gain-g0-1-v1",
-        "return_utility_scale": 1.0,
-        "critic_value_targets": (
-            *(segment_targets[0],) * 4,
-            *(segment_targets[1],) * 4,
+    telemetry = build_current_b8_telemetry_fixture()
+    gains = torch.tensor(
+        (
+            0.7266710996627808,
+            -1314020.0,
+            2.5,
+            -3.25,
+            -0.04292364418506622,
+            -2306889.25,
+            4.0,
+            -5.5,
+            *((0.0,) * 24),
         ),
-        "critic_segment_target_means": segment_targets,
-        "actor_advantages": utility_returns,
-        "return_mean": float(torch.tensor(gains, dtype=torch.float32).mean().item()),
-        "return_min": min(gains),
-        "return_max": max(gains),
-        "grouped_reduction_active": True,
-        "grouped_segment_mass_shares": (0.5, 0.5),
-        "grouped_attempt_mass_shares": (0.125,) * 8,
-        "actor_observation_dim": 158,
-        "critic_observation_dim": 449,
-        "gmt_observation_dim": 770,
-        "critic_value_kind": "state_value",
-        "critic_support_context_id": "action-pre-support-plan-kmax32-v1",
-        "critic_action_conditioned": False,
-        "critic_target_id": "segment-exact-m-mean-symlog-v1",
-        "gradient_clip_identity": "separate-actor-critic-v1",
-        "gradient_clip_max_norm": 0.5,
-        "critic_raw_value_loss": 0.4,
-        "critic_scaled_value_loss": 0.1,
-        "critic_value_normalization_id": "ema-target-std-nonamplifying-v1",
-        "critic_value_scale": 2.0,
-        "critic_value_normalizer_decay": 0.9,
-        "critic_value_normalizer_scale_floor": 1.0,
-        "critic_value_normalizer_update_count_before": 0,
-        "critic_value_normalizer_update_count_after": 1,
-        "actor_gradient_pre_clip_norm": 0.4,
-        "actor_gradient_post_clip_norm": 0.4,
-        "actor_gradient_clip_coefficient": 1.0,
-        "critic_gradient_pre_clip_norm": 1.0,
-        "critic_gradient_post_clip_norm": 0.5,
-        "critic_gradient_clip_coefficient": 0.5,
-        "actor_gradient_nonzero_parameter_count": 4,
-        "critic_gradient_nonzero_parameter_count": 10,
-        "actor_learning_rate": 3.0e-6,
-        "critic_learning_rate": 1.0e-5,
-        "optimizer_step_delta": 1,
-        "update_count": 1,
-        "warmup_phase": "low_dr_joint_init",
-        "k_stage_iteration": 0,
-        "actor_std_parameter_delta": {"param_delta_max_abs": 0.01},
-        "critic_parameter_delta": {"param_delta_max_abs": 0.1},
-    }
+        dtype=torch.float32,
+    )
+    utility_returns = torch.sign(gains) * torch.log1p(torch.abs(gains))
+    source_index = torch.tensor(telemetry["source_index"], dtype=torch.long)
+    segment_targets = tuple(
+        float(utility_returns[source_index == source].mean().item()) for source in range(8)
+    )
+    telemetry.update(
+        {
+            "intent_gain": tuple(float(value) for value in gains.tolist()),
+            "physics_gain": tuple(float(value) for value in gains.tolist()),
+            "weighted_physics_gain": tuple(float(value) for value in gains.tolist()),
+            "cost_free_score": tuple(float(value) for value in gains.tolist()),
+            "gain_total": tuple(float(value) for value in gains.tolist()),
+            "policy_values": (0.0,) * 32,
+            "raw_advantages": tuple(float(value) for value in gains.tolist()),
+            "raw_returns": tuple(float(value) for value in gains.tolist()),
+            "utility_returns": tuple(float(value) for value in utility_returns.tolist()),
+            "critic_value_targets": tuple(segment_targets[int(source)] for source in source_index.tolist()),
+            "critic_segment_target_means": segment_targets,
+            "actor_advantages": tuple(float(value) for value in utility_returns.tolist()),
+            "outer_replay_critic_target_means": segment_targets,
+            "return_mean": float(gains.mean().item()),
+            "return_min": float(gains.min().item()),
+            "return_max": float(gains.max().item()),
+        }
+    )
     audit.print_phase_b_telemetry_audit(runner, telemetry=telemetry)
 
     corrupted = {**telemetry, "return_mean": telemetry["return_mean"] + 1.0}
