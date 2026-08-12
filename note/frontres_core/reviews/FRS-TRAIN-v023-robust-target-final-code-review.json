@@ -1,0 +1,87 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v023-FINAL-20260812",
+  "mode": "final-gate",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "FINAL_GATE_PASS",
+  "scope": {
+    "requested": ["Final review of TRAIN-v023 robust current-policy-compatible Critic targets through the production Stage-3 route"],
+    "preserved": ["158D Actor, 449D state-value Critic, full-6D action, Gain-v008, B8/M4, K/DR, Actor advantages, split LR, exact-one Adam and frozen GMT"],
+    "forbidden": ["historical Actor-row replay, Q(s,a), variance-head Critic, MOSAIC host changes, simplified formal test, server execution and policy-quality claims"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-02+FRS-DP-09@2026-08-12",
+    "contract": "FRS-METHOD-v024/FRS-GAIN-v008/FRS-PPO-v011/FRS-TRAIN-v023/FRS-EVAL-v005",
+    "checkout": "aa3c4f786a3c61ef377a7e9777f0a1f2aaa0d062+v023-authorized-dirty-worktree-20260812",
+    "review_object": "frontres-v023-replay-owner@sha256:2725d226b3d826e750dbfc54b38d2946eda7fbd4a8454ed08add17d08a724e37"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Final diff, owner-boundary and evidence review"},
+    "source_edits": {"status": "approved", "scope": "User-authorized Option B implementation and P0/P1 repair", "receipt": "User requested one-shot execution to the training boundary on 2026-08-12"},
+    "report_write": {"status": "approved", "scope": "Persist final review receipt", "receipt": "User explicitly requested code-review-expert on 2026-08-12"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_outer_scenario_replay.py",
+    "content_hash": "sha256:2725d226b3d826e750dbfc54b38d2946eda7fbd4a8454ed08add17d08a724e37",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "Active FrontRES engineering discipline"
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "Compatible evidence, robust statistics, uncertainty and Replay priority have one owner; PPO and transaction orchestration remain separate."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "One candidate carries eight keyed targets and diagnostics through the existing public stage/commit seam."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "Replay remains deterministic domain code; PPO never imports Replay; runner adapters supply tensors and consume records."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "Preview is zero-write; exact-one receipt gates commit; checkpoint-v18 persists complete replay-v4 windows and rejects legacy state."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "No new framework, wrapper, host modification or duplicate training entrypoint was introduced."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "58 production Contract markers prove offline semantics/connectivity only; policy quality and simulator success remain unclaimed."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "Replay consumes detached old-policy means, sigmas, values and current symlog utilities; Actor advantages remain current-row U(G)-V_old."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "The production formal transaction reports 32 valid rows, separate Actor/Critic gradients and exactly one optimizer step."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "v18/replay-v4 roundtrip and pre-mutation legacy rejection pass; historical EVAL-v004 remains isolated rather than falsely relabeled."}
+  ],
+  "findings": [
+    {
+      "finding_id": "CRE-FRS-v023-001",
+      "severity": "P1",
+      "status": "resolved",
+      "location": "source/rsl_rl/rsl_rl/frontres/frontres_outer_scenario_replay.py:FrontRESOuterScenarioReplay._preview_capacity",
+      "evidence": [{"kind": "diff", "locator": "capacity/admission/eviction maturity predicates", "observation": "Lifetime visit_count could open expansion after an incompatible-policy window reset left only one compatible visit."}],
+      "named_diagnostic": "Research ML/RL boundary",
+      "responsibility_at_risk": "Current-policy-compatible evidence acquisition before active-pool expansion",
+      "preserved_behavior": "64 to 128 to 256 capacity ladder and minimum four-visit curriculum",
+      "smallest_safe_change": "Use utility_window.compatible_visit_count for every maturity predicate while retaining lifetime visit_count as diagnostics.",
+      "required_tests": ["frontres_v023_robust_replay_contract.py policy-reset maturity counterexample", "frontres_segment_all_contract_suite.py"],
+      "stop_condition": "A reset Scenario with lifetime count four and compatible count one cannot expand capacity; all 58 Contract markers pass."
+    },
+    {
+      "finding_id": "CRE-FRS-v023-002",
+      "severity": "P1",
+      "status": "resolved",
+      "location": "source/rsl_rl/rsl_rl/frontres/frontres_outer_scenario_replay.py:FrontRESOuterScenarioReplay.plan/stage",
+      "evidence": [{"kind": "diff", "locator": "duplicate transaction identity guards", "observation": "Duplicate rejection previously existed only at Replay commit, which follows the optimizer step on the official transaction route."}],
+      "named_diagnostic": "Unit of Work",
+      "responsibility_at_risk": "Fail-closed retry behavior before the exact-one optimizer boundary",
+      "preserved_behavior": "Matching first-time transaction preview and commit semantics",
+      "smallest_safe_change": "Reject the last committed transaction identity at both plan and stage before PPO or optimizer work.",
+      "required_tests": ["frontres_v023_robust_replay_contract.py duplicate-ID zero-write counterexample", "frontres_v015_transaction_route_contract.py"],
+      "stop_condition": "A reused committed transaction ID fails before planning/staging and Replay state remains unchanged."
+    }
+  ],
+  "residual_risks": ["One bounded real IsaacLab K8/B8/M4 transaction remains required before longer training.", "EVAL-v005 held-out manifest/runner remains post-checkpoint work and does not block TRAIN-v023 startup."],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}

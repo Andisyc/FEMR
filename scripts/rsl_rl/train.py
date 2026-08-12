@@ -357,13 +357,13 @@ parser.add_argument(
     "--frontres_segment_actor_lr_init",
     type=float,
     default=None,
-    help="For TRAIN-v022 Stage 3 only: initial/low-DR Actor parameter-group learning rate.",
+    help="For TRAIN-v023 Stage 3 only: initial/low-DR Actor parameter-group learning rate.",
 )
 parser.add_argument(
     "--frontres_segment_actor_lr",
     type=float,
     default=None,
-    help="For TRAIN-v022 Stage 3 only: full-joint residual Actor learning rate.",
+    help="For TRAIN-v023 Stage 3 only: full-joint residual Actor learning rate.",
 )
 parser.add_argument(
     "--frontres_segment_critic_lr",
@@ -912,7 +912,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     # B1: 在 Composition Root 拒绝旧 optimizer owner, 产出唯一 active Stage-3 route.
     if stage == "stage3_segment_hrl" and (live_single_update_arg or live_update_loop_arg):
         raise ValueError(
-            "FRS-PPO-v010 rejects retired Stage-3 single_update/update_loop modes; "
+            "FRS-PPO-v011 rejects retired Stage-3 single_update/update_loop modes; "
             "use the sealed formal train route"
         )
     legacy_local_evaluation_modes = tuple(
@@ -1222,12 +1222,12 @@ def _apply_frontres_segment_split_lr_override(agent_cfg, args_cli) -> None:
     critic_arg = getattr(args_cli, "frontres_segment_critic_lr", None)
     supplied = tuple(value is not None for value in (actor_init_arg, actor_arg, critic_arg))
     if any(supplied) and not all(supplied):
-        raise ValueError("FRS-TRAIN-v022 requires Actor init/joint and Critic LR overrides together")
+        raise ValueError("FRS-TRAIN-v023 requires Actor init/joint and Critic LR overrides together")
     actor_init_lr = float(alg_cfg.learning_rate if actor_init_arg is None else actor_init_arg)
     actor_lr = float(getattr(alg_cfg, "frontres_segment_actor_joint_lr", 1.0e-6) if actor_arg is None else actor_arg)
     critic_lr = float(alg_cfg.critic_learning_rate if critic_arg is None else critic_arg)
     if (actor_init_lr, actor_lr, critic_lr) != (3.0e-7, 1.0e-6, 1.0e-5):
-        raise ValueError("FRS-TRAIN-v022 requires Actor LR 3e-7 -> 1e-6 and Critic LR 1e-5")
+        raise ValueError("FRS-TRAIN-v023 requires Actor LR 3e-7 -> 1e-6 and Critic LR 1e-5")
     if str(getattr(alg_cfg, "schedule", "")).lower() != "fixed":
         raise ValueError("FRS-TRAIN-v019 Stage 3 requires schedule=fixed")
     alg_cfg.learning_rate = actor_init_lr

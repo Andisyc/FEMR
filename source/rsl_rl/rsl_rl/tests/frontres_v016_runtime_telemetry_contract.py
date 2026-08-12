@@ -24,9 +24,9 @@ def _expect_error(call, text: str) -> None:
 
 def main() -> None:
     runner, request, _policy = _request()
-    runner.alg.frontres_method_contract_id = "FRS-METHOD-v023"
-    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v010"
-    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v022"
+    runner.alg.frontres_method_contract_id = "FRS-METHOD-v024"
+    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v011"
+    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v023"
     runner.alg.frontres_return_utility_id = "symmetric-log-gain-g0-1-v1"
     runner.alg.frontres_return_utility_scale = 1.0
     runner.alg.max_grad_norm = 0.5
@@ -51,10 +51,10 @@ def main() -> None:
     open_frontres_checkpoint_transaction_barrier(runner)
     result = run_frontres_formal_transaction_update(runner, request)
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
-    assert telemetry["method_contract_id"] == "FRS-METHOD-v023"
-    assert telemetry["optimization_contract_id"] == "FRS-PPO-v010"
-    assert telemetry["training_contract_id"] == "FRS-TRAIN-v022"
-    assert telemetry["checkpoint_format"] == "frontres-v022-checkpoint-v17"
+    assert telemetry["method_contract_id"] == "FRS-METHOD-v024"
+    assert telemetry["optimization_contract_id"] == "FRS-PPO-v011"
+    assert telemetry["training_contract_id"] == "FRS-TRAIN-v023"
+    assert telemetry["checkpoint_format"] == "frontres-v023-checkpoint-v18"
     assert telemetry["outer_replay_state_delta"] == 1
     assert telemetry["outer_replay_sources"] == ("global",) * 8
     assert len(telemetry["outer_replay_scenario_key_digests"]) == 8
@@ -64,7 +64,7 @@ def main() -> None:
     assert telemetry["gmt_observation_dim"] == 770
     assert telemetry["critic_value_kind"] == "state_value"
     assert telemetry["critic_action_conditioned"] is False
-    assert telemetry["critic_target_id"] == "segment-exact-m-mean-symlog-v1"
+    assert telemetry["critic_target_id"] == "scenario-compatible-robust-mean-symlog-v1"
     assert telemetry["critic_value_targets"] == tuple(result.ppo_result.critic_value_targets)
     assert telemetry["actor_gradient_post_clip_norm"] <= 0.500001
     assert telemetry["critic_gradient_post_clip_norm"] <= 0.500001

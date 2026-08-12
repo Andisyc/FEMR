@@ -6,19 +6,19 @@ This registry is the only default entrypoint for FrontRES contracts.
 
 | Category | Active contract | Status |
 | --- | --- | --- |
-| Method | `active/method/FRS-METHOD-v023-bounded-replay-curriculum.md` | active |
-| Training | `active/training/FRS-TRAIN-v022-b8-low-dr-lr-replay-cold-start.md` | active |
+| Method | `active/method/FRS-METHOD-v024-uncertainty-aware-robust-scenario-replay.md` | active |
+| Training | `active/training/FRS-TRAIN-v023-robust-target-cold-start.md` | active |
 | Reward | `active/reward/FRS-GAIN-v008-recovery-aware-raw-evidence-utility-boundary.md` | active |
-| Optimization | `active/optimization/FRS-PPO-v010-actual-actor-lr-b8.md` | active |
-| Evaluation | `active/evaluation/FRS-EVAL-v004-clean-anchored-local-and-composition-evaluation.md` | active |
+| Optimization | `active/optimization/FRS-PPO-v011-robust-scenario-mean-target.md` | active |
+| Evaluation | `active/evaluation/FRS-EVAL-v005-robust-target-policy-quality.md` | active |
 | Engineering | `active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md` | active |
 
 ## Confirmed Design Rationale
 
-`../plans/FRS-TRAIN-v022-b8-lr-replay-global-formal-test-plan.md` records the
-confirmed DP02/DP03/DP09 correction: actual Actor-group LR authority, B8/M4
-Critic coverage and a bounded visit-gated Replay Curriculum. Active authority
-is METHOD-v023/PPO-v010/TRAIN-v022.
+`../plans/FRS-TRAIN-v023-robust-target-one-shot-engineering-plan.md` records the
+confirmed DP02/DP09 correction: Replay-owned current-policy-compatible robust
+expected-utility statistics supervise the Critic and remove sampling noise from
+calibration priority. Active authority is METHOD-v024/PPO-v011/TRAIN-v023.
 
 ## Concept Figure Design Point Register
 
@@ -28,17 +28,17 @@ Concept Figure. Canonical names and block IDs come from
 
 | Design ID | Canonical human name | Active contract section | Figure block ID | Current code/evidence gap |
 | --- | --- | --- | --- | --- |
-| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v023` / `Stable Scenario Identity`; `FRS-TRAIN-v022` / `Formal Transaction` | `M-02` | Seeded Scenario identity remains unchanged. |
-| `FRS-DP-01P` | Perturbation Probing | `FRS-TRAIN-v022` / `Coupled DR Curriculum` | `M-12` | The measured 2.381 ceiling remains fixed. |
-| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v023` / `Active pool and archive`, `Exact B8 selection schedule` | `SR-01` | Bounded replay-v3 implementation and evidence are pending the user-run test. |
-| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v023`; `FRS-TRAIN-v022` / `DR and Replay curricula` | `M-06` | Replay capacity expands only after DR and repeat-visit gates. |
-| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v023` / `Preserved boundaries` | `M-04` | Direct finite `[B,6]` action semantics are unchanged. |
-| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v023` / `Preserved boundaries` | `M-10` | Frozen 770D GMT authority is unchanged. |
-| `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v023` / `Transaction and persistence`; `FRS-GAIN-v008`; `FRS-EVAL-v004` | `Q-PAIR` | Evaluation remains read-only and replay remains training-only. |
-| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v008`; `FRS-PPO-v010` / `Scalar signal and B8 reduction`; `FRS-EVAL-v004` | `Q-01` | Raw Gain and fixed symlog utility are unchanged. |
-| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v022` / `Campaign identity` | `M-03` | HSL-v2 remains Actor-only initialization. |
-| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v022` / `K/M/B and coupled schedule`; `FRS-PPO-v010` / `Optimizer authority` | `M-05` | Actual Actor LR is 3e-7 -> 1e-6; B8/M4; checkpoint-v17. |
-| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v023` / `Preserved boundaries`; `FRS-TRAIN-v022` / `Formal transaction` | `M-11` | Actor 158D, Critic 449D and GMT 770D remain. |
+| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v024` / `Preserved boundaries`; `FRS-TRAIN-v023` / `Formal transaction` | `M-02` | Seeded Scenario identity remains unchanged. |
+| `FRS-DP-01P` | Perturbation Probing | `FRS-TRAIN-v023` / `Preserved campaign` | `M-12` | The measured 2.381 ceiling remains fixed. |
+| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v024` / `Replay-owned compatible evidence window`, `Calibration priority and target` | `SR-01` | Replay-v4 and its production transaction path are offline-closed; one bounded official K8 transaction remains live-required. |
+| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v024`; `FRS-TRAIN-v023` / `Preserved campaign` | `M-06` | Replay statistics remain K-specific; capacity and DR gates are unchanged. |
+| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v024` / `Preserved boundaries` | `M-04` | Direct finite `[B,6]` action semantics are unchanged. |
+| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v024` / `Preserved boundaries` | `M-10` | Frozen 770D GMT authority is unchanged. |
+| `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v024`; `FRS-GAIN-v008`; `FRS-EVAL-v005` | `Q-PAIR` | Evaluation remains read-only; Replay accumulates committed training evidence only. |
+| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v008`; `FRS-PPO-v011`; `FRS-EVAL-v005` | `Q-01` | Raw Gain, symlog and current-attempt Actor credit are unchanged. |
+| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v023` / `Campaign identity` | `M-03` | HSL-v2 remains Actor-only initialization. |
+| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v023` / `Formal transaction`; `FRS-PPO-v011` | `M-05` | Critic uses compatible robust Scenario means; Actor LR/B8/M4 remain; checkpoint-v18. |
+| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v024` / `Preserved boundaries`; `FRS-TRAIN-v023` / `Formal transaction` | `M-11` | Actor 158D, Critic 449D and GMT 770D remain. |
 
 ## Active Recovery-Aware Contract Migration
 
@@ -48,39 +48,49 @@ raw Gain. The Critic remains `V(s)` over the same 449D action-pre state. Each
 attempt is mapped by fixed `sign(G)*log1p(abs(G))` before Actor advantage and
 before the M4 Critic mean. Raw Gain and hard Physics diagnostics remain visible;
 network, observations, K/DR ceiling, Gain arithmetic and simulator are unchanged;
-TRAIN-v022 changes the transaction width to B8/M4 and adds bounded Replay breadth.
+TRAIN-v023 retains B8/M4 and bounded Replay breadth while adding compatible
+cross-visit target evidence.
 The coordinated active semantic authority is now:
 
 ```text
-FRS-METHOD-v023
+FRS-METHOD-v024
 FRS-GAIN-v008
-FRS-PPO-v010
-FRS-TRAIN-v022
-FRS-EVAL-v004
+FRS-PPO-v011
+FRS-TRAIN-v023
+FRS-EVAL-v005
 ```
 
 The accepted route executes one Clean and one fixed Noisy baseline per Scenario,
 scores every valid Repair with
 `G_total = G_I + lambda_RA G_P - beta C_repair`, and sends all attempts through
 one grouped scalar PPO update. All attempts in one Segment share the same old
-state value; `mean_m(U(G_total_m))` supervises the Critic while individual
+state value; the compatible robust Scenario mean supervises the Critic while individual
 `U(G_total_m)-V_old(s)` values supervise Actor credit. Each transaction uses
 eight distinct Scenario states and M4 attempts. Outer Replay schedules future
-visits through the bounded 64->128->256 active pool, preserves `E_V`
-calibration replay in joint, and never changes PPO mass. Checkpoint-v17 is the
-only compatible Stage-3 training/resume identity and carries target moments/count
-plus replay-v3 active/archive/capacity/key/score/staleness/RNG. The current
+visits through the bounded 64->128->256 active pool, ranks Critic calibration
+error beyond its mean confidence interval, and never changes PPO mass.
+Checkpoint-v18 is the only compatible Stage-3 training/resume identity and
+carries target moments/count plus replay-v4
+active/archive/capacity/key/window/score/staleness/RNG. The current
 Engineering Plan and Module Test Cards are the executable-work and oracle
 control surfaces; implementation, formal route and live evidence close only at
 their own gates.
 
-The local/composition evaluation boundary is aligned by `FRS-EVAL-v004`.
-Its 2026-08-10 revision keeps legacy checkpoint-v13 inspection read-only and
-binds the already-tested checkpoint-v14 Held-out Policy Quality to K16/M4, the 449D state-value
-Critic, raw Gain evidence, `mean_m U(G_total_m)` and the checkpoint's
-privileged-observation normalizer. checkpoint-v14 remains Evaluation-only and
-cannot resume TRAIN-v020. The held-out Segment bank, raw Gain formula and
-deployment-composition question are unchanged.
+Offline engineering closure is recorded by
+`../../testing/manifests/frontres_train_v023_module_alignment.json`,
+`../../testing/manifests/frontres_train_v023_formal_live_required.json` and
+`../reviews/FRS-TRAIN-v023-robust-target-final-code-review.json`. The production
+Contract suite passed 58/58 markers without invoking the Global Simplified
+Formal Test. The formal audit therefore ends at `LIVE_REQUIRED` for exactly one
+official K8/B8/M4 transaction; it does not authorize long training.
+
+`FRS-EVAL-v005` defines the read-only interpretation required for a future
+checkpoint-v18 held-out evaluation. This engineering unit closes strict v18
+checkpoint inspection only; it intentionally leaves the existing
+`FrontRESV018PolicyQualityManifest` and `policy_quality_eval` entrypoint bound
+to historical EVAL-v004/checkpoint-v14. A new v18 held-out manifest and its
+zero-Replay-mutation proof are post-checkpoint evaluation work, not a TRAIN-v023
+startup dependency. No existing EVAL-v004 artifact is evidence for Option B.
 The confirmed proposal at
 `../plans/FRS-METHOD-v018-state-value-future-context-proposal.md` is retained as
 design rationale. The five coordinated method, Gain, optimization, training,

@@ -1,0 +1,60 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v023-CONSTRUCTION-20260812",
+  "mode": "construction",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "CONSTRUCTION_PASS",
+  "scope": {
+    "requested": ["Construction review of Option B compatible robust Critic-target implementation"],
+    "preserved": ["Actor and Critic inputs, current Actor credit, Gain-v008, B8/M4, K/DR, split LR, exact-one and frozen GMT"],
+    "forbidden": ["Historical Actor rows, Q(s,a), variance head, duplicate training route, MOSAIC host changes and live execution"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-02+FRS-DP-09@2026-08-12",
+    "contract": "FRS-METHOD-v024/FRS-GAIN-v008/FRS-PPO-v011/FRS-TRAIN-v023/FRS-EVAL-v005",
+    "checkout": "aa3c4f786a3c61ef377a7e9777f0a1f2aaa0d062+v023-authorized-dirty-worktree-20260812",
+    "review_object": "frontres-v023-replay-owner@sha256:2725d226b3d826e750dbfc54b38d2946eda7fbd4a8454ed08add17d08a724e37"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Construction and owner-boundary inspection"},
+    "source_edits": {"status": "approved", "scope": "User-authorized Option B implementation and review repairs", "receipt": "User requested one-shot implementation to the training boundary on 2026-08-12"},
+    "report_write": {"status": "approved", "scope": "Persist construction review receipt", "receipt": "User explicitly requested code-review-expert on 2026-08-12"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_outer_scenario_replay.py",
+    "content_hash": "sha256:2725d226b3d826e750dbfc54b38d2946eda7fbd4a8454ed08add17d08a724e37",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "Active FrontRES engineering discipline"
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "Replay owns compatible windows and uncertainty; PPO consumes targets; formal transaction owns ordering."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "Existing immutable plan/candidate/receipt boundaries carry the new facts without a wrapper hierarchy."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "Replay has no runner or simulator dependency and PPO has no Replay dependency."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "Preview is zero-write, duplicate identity rejects before work and matching exact-one receipt commits state."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "No alternate Composition Root, simplified training route or MOSAIC host edit was introduced."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Production-boundary tests prove offline semantics and persistence, not simulator quality."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "Detached current utilities and pi_old statistics enter Replay; historical evidence reaches only Critic targets."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "Actor/Critic parameter groups and separate clips remain intact through exactly one Adam step."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "checkpoint-v18/replay-v4 roundtrip is strict and historical EVAL-v004 remains isolated."}
+  ],
+  "findings": [],
+  "residual_risks": ["Final review must inspect capacity maturity and duplicate transaction behavior before bounded live admission."],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}

@@ -1,10 +1,11 @@
 ---
 contract_id: FRS-EVAL-v004
-status: active
+status: superseded
 effective_date: 2026-08-01
 updated_date: 2026-08-10
 supersedes: FRS-EVAL-v003
 scope: Clean-anchored one-action-K local evaluation and isolated full-sequence deployment-composition evaluation
+superseded_by: FRS-EVAL-v005
 ---
 
 # Clean-Anchored Local And Composition Evaluation

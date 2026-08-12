@@ -1,0 +1,117 @@
+{
+  "schema_version": "formal-runtime-audit/v3",
+  "audit_id": "FRA-FRS-TRAIN-v023-LIVE-REQUIRED-20260812",
+  "identities": {
+    "design": "FRS-METHOD-v024/FRS-PPO-v011/FRS-TRAIN-v023",
+    "checkout": "aa3c4f786a3c61ef377a7e9777f0a1f2aaa0d062+v023-authorized-dirty-worktree-20260812",
+    "entrypoint": "run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl",
+    "effective_config": "K8/B8/M4; Actor LR 3e-7; Critic LR 1e-5; bounded one transaction; checkpoint-v18/replay-v4",
+    "checkpoint": "fresh-HSL-v2->frontres-v023-checkpoint-v18/replay-v4"
+  },
+  "module_admission": {
+    "status": "MODULE-CORRECT",
+    "manifest_path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/testing/manifests/frontres_train_v023_module_alignment.json",
+    "manifest_hash": "sha256:dbe3a2d62aee800dd65259c51af7c108eaecb0ce514c20bba53c19ecde69a936",
+    "current": true
+  },
+  "offline_gaps": [],
+  "design_probes": [
+    {
+      "probe_id": "PROBE-v023-REPLAY-EFFECT",
+      "design_id": "FRS-DP-02",
+      "design_claim": "A compatible prior visit changes the later Critic target while leaving current Actor advantages unchanged.",
+      "necessary_capability": "Run two same-Scenario visits through Replay stage/commit and then the production PPO boundary.",
+      "minimal_case": "First M4 target 2.5, compatible second M4 robust target 4.5, current Actor rows remain current U(G)-V_old.",
+      "path_class": "official-entry",
+      "preserved_production_owners": ["FrontRESOuterScenarioReplay", "compute_frontres_segment_ppo_loss", "run_frontres_formal_transaction_update"],
+      "simplifications": ["CPU tensors replace simulator evidence only", "Production Replay, PPO, optimizer and transaction owners are unchanged"],
+      "falsifier": "The second Critic target ignores compatible history or any historical utility enters Actor advantages.",
+      "success_witness": "TEST-24A/D and the formal transaction show robust Critic targets, current-only Actor credit and exact-one commit.",
+      "construction_status": "ready",
+      "uncertainties": [],
+      "status": "passed",
+      "minimum_horizon": {"unit": "compatible Scenario visits", "required": 2, "observed": 2},
+      "required_effect_observations": 2,
+      "observed_effect_observations": 2,
+      "evidence_receipt": "frontres_v023_robust_replay_contract PASS plus frontres_v015_transaction_route_contract 32 valid rows and step_delta=1",
+      "current": true
+    },
+    {
+      "probe_id": "PROBE-v023-LIVE-ISAACLAB",
+      "design_id": "FRS-DP-09",
+      "design_claim": "The official IsaacLab entrypoint can execute and persist one fresh low-DR K8/B8/M4 robust-target transaction.",
+      "necessary_capability": "Use the real Stage-1 cache, HSL-v2 artifact, simulator collectors, production Replay/PPO and checkpoint writer.",
+      "minimal_case": "One fresh K8 transaction with 8 distinct Scenarios, 4 attempts each, one Actor/Critic Adam step, one Replay commit and one v18 checkpoint.",
+      "path_class": "official-entry",
+      "preserved_production_owners": ["Stage-3 official shell entrypoint", "IsaacLab Scenario collector", "FrontRES formal transaction", "checkpoint-v18 writer"],
+      "simplifications": ["One K8 transaction only", "No K16, K32 or long campaign"],
+      "falsifier": "Any identity, finite, B8/M4, target, gradient, step-count, Replay-commit or checkpoint-v18 invariant fails.",
+      "success_witness": "The bounded log reports one committed production transaction, 32 valid rows, robust-target telemetry, optimizer_step_delta=1 and AUDIT-B08 v18 readback.",
+      "construction_status": "ready",
+      "uncertainties": [],
+      "status": "live-required",
+      "live_unknown_id": "LIVE-v023-ONE-K8-TRANSACTION",
+      "minimum_horizon": {"unit": "official simulator transactions", "required": 1, "observed": 0},
+      "required_effect_observations": 1,
+      "observed_effect_observations": 0
+    }
+  ],
+  "route_edges": [
+    {
+      "edge_id": "EDGE-v023-REPLAY-TO-PPO",
+      "design_id": "FRS-DP-02",
+      "producer": "FrontRESOuterScenarioReplay.stage",
+      "carrier": "FrontRESOuterReplayCandidate.critic_target_means",
+      "consumer": "compute_frontres_segment_ppo_loss",
+      "required_level": "R2",
+      "observed_level": "R2",
+      "evidence": {
+        "path_class": "official-entry",
+        "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_transaction_route_contract.py",
+        "exit_code": 0,
+        "identity_receipt": "FRS-METHOD-v024/FRS-PPO-v011/FRS-TRAIN-v023 with eight keyed robust targets",
+        "effect_receipt": "32 current Actor rows, eight Critic targets, one optimizer step and one Replay commit",
+        "persistence_receipt": "checkpoint-v18/replay-v4 roundtrip and v17/v3 rejection pass",
+        "current": true
+      }
+    },
+    {
+      "edge_id": "EDGE-v023-OFFICIAL-K8",
+      "design_id": "FRS-DP-09",
+      "producer": "run/run_frontres_stage3_segment_hrl.sh",
+      "carrier": "official B8/M4 formal transaction and checkpoint-v18 receipt",
+      "consumer": "TRAIN-v023 bounded-live admission",
+      "required_level": "R3",
+      "observed_level": "R2",
+      "evidence": {
+        "path_class": "official-entry",
+        "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py",
+        "exit_code": 0,
+        "identity_receipt": "58 of 58 Contract markers plus official launch preflight",
+        "effect_receipt": "Production formal transaction observes 32 valid rows and exact-one update",
+        "persistence_receipt": "AUDIT-B08 checkpoint-v18 atomic save/readback and replay-v4 restoration",
+        "current": true
+      }
+    }
+  ],
+  "live_only_unknowns": [
+    {
+      "id": "LIVE-v023-ONE-K8-TRANSACTION",
+      "status": "open",
+      "fact": "Real IsaacLab collection, current HSL-v2, Stage-1 cache, robust Replay target, exact-one Adam and checkpoint-v18 work together for one K8/B8/M4 transaction.",
+      "why_offline_impossible": "The real simulator lifecycle, cache artifacts, CUDA execution and server checkpoint filesystem do not exist in the local offline test process.",
+      "falsifier": "The bounded log lacks one complete 32-row transaction, finite robust-target telemetry, optimizer_step_delta=1, Replay state_delta=1 or v18 atomic readback.",
+      "cost": "GPU 7, 64 envs, K8, one training iteration and one update only.",
+      "stop_condition": "Process exits after the first transaction; stop immediately on any fail-closed invariant and do not retry or continue to K16.",
+      "bounded_command": "CUDA_VISIBLE_DEVICES=7 FEMR_ROOT=/hdd0/yuxuancheng/FEMR FEMR_DATA_ROOT=/hdd0/yuxuancheng CACHE_DIR=/hdd0/yuxuancheng/AMASS_G1Segment RUN_NAME=FRS_TRAIN_V023_ROBUST_TARGET_BOUNDED_OFFICIAL_20260812 FRONTRES_G5_S4_BOUNDED=1 FRONTRES_CHECKPOINT_INTERVAL=1 FRONTRES_SPECIALIST_MODE=rp FRONTRES_SEGMENT_ACTOR_LR_INIT=3e-7 FRONTRES_SEGMENT_ACTOR_LR=1e-6 FRONTRES_SEGMENT_CRITIC_LR=1e-5 FRONTRES_V015_K_CURRICULUM='8:4:200:500:1300:lower-k8:0.5:linear-coupled-v1:700:2.381,16:4:300:300:900:lower-k16:0.6:linear-coupled-v1:600:2.381,32:4:400:300:625:lower-k32:0.7:linear-coupled-v1:700:2.381' bash run/run_frontres_stage3_segment_hrl.sh /hdd0/yuxuancheng/FEMR/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt /hdd0/yuxuancheng/AMASS_G1NPZ_Final 64 1 1 train > /hdd0/yuxuancheng/FEMR/log/FRS_TRAIN_V023_ROBUST_TARGET_BOUNDED_OFFICIAL_20260812.log 2>&1",
+      "output_path": "/hdd0/yuxuancheng/FEMR/log/FRS_TRAIN_V023_ROBUST_TARGET_BOUNDED_OFFICIAL_20260812.log",
+      "zero_write_boundary": "No pre-command training mutation; bounded execution may write only its own run directory, one transaction state and checkpoint-v18 artifacts."
+    }
+  ],
+  "live_attempts": [],
+  "claims": [
+    {"kind": "formal-integration", "evidence_level": "R2"},
+    {"kind": "formal-persistence", "evidence_level": "R2"}
+  ],
+  "admission": "LIVE_REQUIRED"
+}

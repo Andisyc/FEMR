@@ -30,7 +30,7 @@ from rsl_rl.frontres.frontres_segment_warmup import (
 )
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-FRONTRES_ACTIVE_CHECKPOINT_FORMAT = "frontres-v022-checkpoint-v17"
+FRONTRES_ACTIVE_CHECKPOINT_FORMAT = "frontres-v023-checkpoint-v18"
 _V019_POLICY_CHECKPOINT_FORMAT = "frontres-v019-checkpoint-v14"
 _V015_LEGACY_POLICY_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v10"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
@@ -157,10 +157,10 @@ def _v015_committed_transaction_receipt(
     expected_identity = dict(
         expected_contract_identity
         or {
-            "method_contract_id": "FRS-METHOD-v023",
+            "method_contract_id": "FRS-METHOD-v024",
             "gain_contract_id": "FRS-GAIN-v008",
-            "optimization_contract_id": "FRS-PPO-v010",
-            "training_contract_id": "FRS-TRAIN-v022",
+            "optimization_contract_id": "FRS-PPO-v011",
+            "training_contract_id": "FRS-TRAIN-v023",
             "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -513,10 +513,10 @@ def _inspect_frontres_v015_policy_quality_payload(
     checkpoint_format = identity.get("format")
     if checkpoint_format == FRONTRES_ACTIVE_CHECKPOINT_FORMAT:
         contract_identity = {
-            "method_contract_id": "FRS-METHOD-v023",
+            "method_contract_id": "FRS-METHOD-v024",
             "gain_contract_id": "FRS-GAIN-v008",
-            "optimization_contract_id": "FRS-PPO-v010",
-            "training_contract_id": "FRS-TRAIN-v022",
+            "optimization_contract_id": "FRS-PPO-v011",
+            "training_contract_id": "FRS-TRAIN-v023",
             "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
@@ -525,7 +525,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         contract_identity = {
             "method_contract_id": "FRS-METHOD-v020",
             "gain_contract_id": "FRS-GAIN-v008",
-            "optimization_contract_id": "FRS-PPO-v010",
+            "optimization_contract_id": "FRS-PPO-v008",
             "training_contract_id": "FRS-TRAIN-v019",
             "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
@@ -576,18 +576,28 @@ def _inspect_frontres_v015_policy_quality_payload(
     critic_observation_normalizer_fingerprint: str | None = None
     critic_value_normalizer_fingerprint: str | None = None
     if checkpoint_format in {FRONTRES_ACTIVE_CHECKPOINT_FORMAT, _V019_POLICY_CHECKPOINT_FORMAT}:
+        expected_critic_target = (
+            "scenario-compatible-robust-mean-symlog-v1"
+            if checkpoint_format == FRONTRES_ACTIVE_CHECKPOINT_FORMAT
+            else "segment-exact-m-mean-symlog-v1"
+        )
+        expected_utility_placement = (
+            "per-attempt-before-compatible-robust-mean"
+            if checkpoint_format == FRONTRES_ACTIVE_CHECKPOINT_FORMAT
+            else "per-attempt-before-exact-m-mean"
+        )
         if identity.get("critic") != {
             "value_kind": "state_value",
             "input_dim": 449,
             "action_conditioned": False,
-            "target_id": "segment-exact-m-mean-symlog-v1",
+            "target_id": expected_critic_target,
             "return_utility_id": "symmetric-log-gain-g0-1-v1",
             "return_utility_scale": 1.0,
             "support_context_id": "action-pre-support-plan-kmax32-v1",
         } or identity.get("return_utility") != {
             "identity": "symmetric-log-gain-g0-1-v1",
             "scale": 1.0,
-            "placement": "per-attempt-before-exact-m-mean",
+            "placement": expected_utility_placement,
         } or identity.get("gradient_clip") != {
             "identity": "separate-actor-critic-v1",
             "max_norm": 0.5,
@@ -611,7 +621,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         critic_input_dim = 449
         critic_value_kind = "state_value"
         critic_action_conditioned = False
-        critic_target_id = "segment-exact-m-mean-symlog-v1"
+        critic_target_id = expected_critic_target
         return_utility_id = "symmetric-log-gain-g0-1-v1"
         return_utility_scale = 1.0
         critic_support_context_id = "action-pre-support-plan-kmax32-v1"
@@ -681,7 +691,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         "d_cap": expected.d_cap,
     }
     if dict(curriculum) != expected_payload:
-        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v022 curriculum identity")
+        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v023 curriculum identity")
     transaction = identity.get("transaction")
     if not isinstance(transaction, Mapping) or str(transaction.get("state", "")) not in {"idle", "committed"}:
         raise RuntimeError("quality policy rejects partial or malformed transaction identity")

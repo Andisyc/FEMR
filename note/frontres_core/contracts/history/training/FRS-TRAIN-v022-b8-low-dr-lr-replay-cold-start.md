@@ -1,10 +1,11 @@
 ---
 contract_id: FRS-TRAIN-v022
-status: active
+status: superseded
 effective_date: 2026-08-11
 updated_date: 2026-08-11
 supersedes: FRS-TRAIN-v021
 scope: Fresh HSL-v2 Stage-3 B8/M4 campaign with actual Actor-LR and bounded Replay curricula
+superseded_by: FRS-TRAIN-v023
 ---
 
 # B8 Low-DR Coupled Actor/Critic Cold Start
@@ -77,4 +78,3 @@ Stop before long training on any non-B8 transaction, loss-weight ramp, wrong
 group LR, fewer than eight Critic targets, Replay/DR simultaneous expansion,
 missing joint `E_V`, non-atomic failure, checkpoint-v17 mismatch, or official
 route divergence.
-

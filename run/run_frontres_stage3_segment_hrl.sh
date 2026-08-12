@@ -9,7 +9,7 @@ if [[ $# -lt 2 ]]; then
   echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
   echo "Evaluation is launched independently through Held-out Policy Quality, Deployment Composition, or DR Sweep."
   echo "FRONTRES_SPECIALIST_MODE selects the perturbation preset for train/eval; default rp."
-  echo "FRS-TRAIN-v022 uses actual Actor LR=3e-7->1e-6 and Critic LR=1e-5 with B8/M4; shared/adaptive overrides are rejected."
+  echo "FRS-TRAIN-v023 uses actual Actor LR=3e-7->1e-6 and Critic LR=1e-5 with B8/M4; shared/adaptive overrides are rejected."
   echo "Example:"
   echo "  SHARD_CACHE_SIZE=8 bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 12000 2000 4 train"
   exit 1
@@ -45,7 +45,7 @@ if ! [[ "${CHECKPOINT_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 if [[ ("${MODE}" == "train" || "${MODE}" == "policy_quality_eval") && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
-  echo "FRS-TRAIN-v022 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
+  echo "FRS-TRAIN-v023 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
   exit 4
 fi
 FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"
@@ -53,7 +53,7 @@ CONTRACT_SUITE="${FRONTRES_STAGE3_CONTRACT_SUITE:-source/rsl_rl/rsl_rl/tests/fro
 CONTRACT_PYTHON="${FRONTRES_STAGE3_CONTRACT_PYTHON:-python}"
 
 if [[ -n "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${FRONTRES_V015_RESUME_CHECKPOINT}" ]]; then
-  echo "checkpoint-v17 resume checkpoint not found: ${FRONTRES_V015_RESUME_CHECKPOINT}" >&2
+  echo "checkpoint-v18 resume checkpoint not found: ${FRONTRES_V015_RESUME_CHECKPOINT}" >&2
   exit 2
 fi
 if [[ -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${HSL_CHECKPOINT}" ]]; then
@@ -61,7 +61,7 @@ if [[ -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${HSL_CHECKPOINT}" ]]; th
   exit 2
 fi
 if [[ "${MODE}" == "train" && "${NUM_ENVS}" != "64" ]]; then
-  echo "FRS-TRAIN-v022 K8/B8/M4 campaign requires NUM_ENVS=64" >&2
+  echo "FRS-TRAIN-v023 K8/B8/M4 campaign requires NUM_ENVS=64" >&2
   exit 4
 fi
 
@@ -107,7 +107,7 @@ case "${MODE}" in
     ;;
   policy_quality_eval)
     if [[ "${NUM_ENVS}" != "16" ]]; then
-      echo "EVAL-v004 K8/K16 M4 policy quality requires NUM_ENVS=16" >&2
+      echo "Historical EVAL-v004 K8/K16 M4 policy quality requires NUM_ENVS=16" >&2
       exit 4
     fi
     if ! [[ "${POLICY_QUALITY_REPEAT_COUNT}" =~ ^[1-9][0-9]*$ ]] || (( POLICY_QUALITY_REPEAT_COUNT > 16 )); then
@@ -121,7 +121,7 @@ case "${MODE}" in
     )
     for name in "${required_quality_vars[@]}"; do
       if [[ -z "${!name:-}" ]]; then
-        echo "EVAL-v004 policy quality requires ${name}" >&2
+        echo "Historical EVAL-v004 policy quality requires ${name}" >&2
         exit 4
       fi
     done
@@ -135,7 +135,7 @@ case "${MODE}" in
     )
     ;;
   single_update|update_loop)
-  echo "FRS-PPO-v010 rejects retired optimizer-writing Stage 3 mode: ${MODE}" >&2
+  echo "FRS-PPO-v011 rejects retired optimizer-writing Stage 3 mode: ${MODE}" >&2
     exit 4
     ;;
   offline_eval|sequence_eval|policy_quality_q2d_eval)

@@ -420,7 +420,7 @@ def test_retired_optimizer_flags_reject_before_stage3_config_mutation() -> None:
         try:
             _apply_frontres_stage_preset(agent_cfg, _args(**{field: True}))
         except ValueError as exc:
-            assert "FRS-PPO-v010 rejects retired Stage-3" in str(exc)
+            assert "FRS-PPO-v011 rejects retired Stage-3" in str(exc)
         else:
             raise AssertionError(f"retired Stage-3 flag must reject: {field}")
         assert vars(agent_cfg.algorithm) == before
@@ -454,7 +454,7 @@ def test_stage3_ppo_schedule_rejects_adaptive() -> None:
     except ValueError as exc:
         assert "schedule must be fixed" in str(exc)
     else:
-        raise AssertionError("FRS-TRAIN-v022 must reject adaptive Stage-3 scheduling")
+        raise AssertionError("FRS-TRAIN-v023 must reject adaptive Stage-3 scheduling")
 
 
 def test_stage3_ppo_schedule_override_rejects_non_stage3() -> None:
@@ -517,7 +517,7 @@ def test_stage3_split_lr_override_rejects_shared_and_partial_inputs() -> None:
         _probe_exception("rejects_non_positive_ppo_lr", exc)
         assert "rejects --frontres_segment_ppo_lr" in str(exc)
     else:
-        raise AssertionError("FRS-TRAIN-v022 must reject the shared LR option")
+        raise AssertionError("FRS-TRAIN-v023 must reject the shared LR option")
     try:
         _apply_frontres_segment_split_lr_override(
             agent_cfg,
@@ -526,7 +526,7 @@ def test_stage3_split_lr_override_rejects_shared_and_partial_inputs() -> None:
     except ValueError as exc:
         assert "together" in str(exc)
     else:
-        raise AssertionError("FRS-TRAIN-v022 must reject a partial split-LR override")
+        raise AssertionError("FRS-TRAIN-v023 must reject a partial split-LR override")
 
 
 def test_stage3_rejects_multiple_live_sentinel_modes() -> None:

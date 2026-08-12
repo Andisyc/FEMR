@@ -1,0 +1,91 @@
+{
+  "schema_version": "workflow-governance/v1",
+  "governance_id": "WFG-FRS-TRAIN-v023-ENGINEERING-20260812",
+  "lifecycle_phase": "contract-active",
+  "target_phase": "engineering-ready",
+  "admission": "ENGINEERING-AUTHORIZED",
+  "scope": {
+    "requested": ["Activate confirmed Option B current-policy-compatible robust Critic targets"],
+    "preserved": ["158D Actor, 449D Critic, Gain-v008, B8/M4, K/DR, Actor credit, split LR, exact-one and frozen GMT"],
+    "forbidden": ["Historical Actor-row replay, Q(s,a), variance-head Critic, MOSAIC host changes, simplified training route and long training"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-02+FRS-DP-09@2026-08-12",
+    "contract": "FRS-METHOD-v024/FRS-GAIN-v008/FRS-PPO-v011/FRS-TRAIN-v023/FRS-EVAL-v005",
+    "checkout": "aa3c4f786a3c61ef377a7e9777f0a1f2aaa0d062+v023-authorized-dirty-worktree-20260812",
+    "entrypoint": "run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl",
+    "effective_config": "TRAIN-v023-fixed-splitlr-3e-7-to-1e-6-and-1e-5-B8M4-K8K16K32",
+    "checkpoint": "fresh-HSL-v2->frontres-v023-checkpoint-v18/replay-v4"
+  },
+  "authority": {
+    "semantic": {"status": "approved", "scope": "Confirmed Option B and updated DP02/DP09 Design Inspector", "receipt": "User selected B and authorized one-shot execution on 2026-08-12"},
+    "local_reversible": {"status": "approved", "scope": "Local Contracts, implementation, production-boundary tests and audit receipts", "receipt": "User requested workflow-governance, runtime-probing-debug and code-review-expert on 2026-08-12"},
+    "git_actions": {"status": "not-requested", "scope": "No stage, commit, push or remote synchronization"},
+    "external_operations": {"status": "not-requested", "scope": "No server, simulator or network operation"},
+    "bounded_live": {"status": "not-requested", "scope": "Command publication only; user retains execution control"},
+    "long_run": {"status": "not-requested", "scope": "Long training remains unauthorized"},
+    "destructive": {"status": "not-required", "scope": "Only versioned active-to-history Contract migration"}
+  },
+  "artifacts": [
+    {
+      "kind": "concept-figure", "artifact_id": "FRS-CONCEPT-FIGURE-vCURRENT",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/architecture/concept/03_frontres_concept_tabs.data.json",
+      "lifecycle": "current", "status": "active", "content_hash": "sha256:6117dcb88d379883a15a71aabfccdf4fbe079e8a001710ff288295afad2f9192", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-09@2026-08-12"}
+    },
+    {
+      "kind": "design-inspector", "artifact_id": "FRS-DESIGN-INSPECTOR-vCURRENT",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/architecture/runtime/04_frontres_design_inspector.data.json",
+      "lifecycle": "current", "status": "confirmed", "content_hash": "sha256:7067e70f093ebed5f4c2e2fd403f76f3b90b7f5a30ccee30aa1823231de7618b", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-09@2026-08-12", "contract": "FRS-METHOD-v024/FRS-GAIN-v008/FRS-PPO-v011/FRS-TRAIN-v023/FRS-EVAL-v005"}
+    },
+    {
+      "kind": "contract", "artifact_id": "FRS-TRAIN-v023-CONTRACT-SET",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/README.md",
+      "lifecycle": "current", "status": "active", "content_hash": "sha256:cc498e8348f1c7710bf4944110cb5aef1b6d7c6e92a528932b1d6776db3ab2d4", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-09@2026-08-12", "contract": "FRS-METHOD-v024/FRS-GAIN-v008/FRS-PPO-v011/FRS-TRAIN-v023/FRS-EVAL-v005"}
+    },
+    {
+      "kind": "plan", "artifact_id": "FRS-TRAIN-v023-PLAN",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/plans/FRS-TRAIN-v023-robust-target-one-shot-engineering-plan.md",
+      "lifecycle": "volatile", "status": "active", "content_hash": "sha256:a90044ab91d1283e392de7398a3137a20191a0f1ff0ccb2a0c8ddc2541b54d57", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-09@2026-08-12", "contract": "FRS-METHOD-v024/FRS-GAIN-v008/FRS-PPO-v011/FRS-TRAIN-v023/FRS-EVAL-v005", "checkout": "aa3c4f786a3c61ef377a7e9777f0a1f2aaa0d062+v023-authorized-dirty-worktree-20260812"}
+    },
+    {
+      "kind": "checklist", "artifact_id": "FRS-TRAIN-v023-CHECKLIST",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/checklists/FRS-TRAIN-v023-robust-target-checklist.md",
+      "lifecycle": "volatile", "status": "active", "content_hash": "sha256:3371bac205cb489e11c906a647bc2bae8dc734d677263f66e943785bb5b9301b", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-09@2026-08-12", "contract": "FRS-METHOD-v024/FRS-GAIN-v008/FRS-PPO-v011/FRS-TRAIN-v023/FRS-EVAL-v005", "checkout": "aa3c4f786a3c61ef377a7e9777f0a1f2aaa0d062+v023-authorized-dirty-worktree-20260812"}
+    },
+    {
+      "kind": "module-test-cards", "artifact_id": "FRS-TRAIN-v023-TEST-CARDS",
+      "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/plans/FRS-TRAIN-v023-robust-target-one-shot-engineering-plan.md",
+      "lifecycle": "current", "status": "confirmed", "content_hash": "sha256:a90044ab91d1283e392de7398a3137a20191a0f1ff0ccb2a0c8ddc2541b54d57", "current": true,
+      "identities": {"project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-09@2026-08-12", "contract": "FRS-METHOD-v024/FRS-GAIN-v008/FRS-PPO-v011/FRS-TRAIN-v023/FRS-EVAL-v005", "checkout": "aa3c4f786a3c61ef377a7e9777f0a1f2aaa0d062+v023-authorized-dirty-worktree-20260812"}
+    }
+  ],
+  "dependencies": [
+    {
+      "kind": "code-review-expert", "status": "READY", "schema_version": "code-review-expert/v1",
+      "manifest_path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/reviews/FRS-TRAIN-v023-robust-target-plan-review.json",
+      "manifest_hash": "sha256:e04b2f4991cb6e230fb325803dc26d7387dfcb9d690e4729a536552764d4bf92", "current": true,
+      "identities": {
+        "project": "FEMR-FrontRES", "design": "FRS-DP-02+FRS-DP-09@2026-08-12", "contract": "FRS-METHOD-v024/FRS-GAIN-v008/FRS-PPO-v011/FRS-TRAIN-v023/FRS-EVAL-v005",
+        "checkout": "aa3c4f786a3c61ef377a7e9777f0a1f2aaa0d062+v023-authorized-dirty-worktree-20260812", "entrypoint": "run/run_frontres_stage3_segment_hrl.sh->scripts/rsl_rl/train.py:stage3_segment_hrl",
+        "effective_config": "TRAIN-v023-fixed-splitlr-3e-7-to-1e-6-and-1e-5-B8M4-K8K16K32", "checkpoint": "fresh-HSL-v2->frontres-v023-checkpoint-v18/replay-v4"
+      },
+      "validation": {"command": "validate_review_manifest.py FRS-TRAIN-v023-robust-target-plan-review.json --target plan", "exit_code": 0, "identity": "CRE-FRS-TRAIN-v023-PLAN-20260812", "current": true}
+    }
+  ],
+  "design_review": {
+    "semantic_change": true, "status": "confirmed", "mapping_complete": true,
+    "receipt": "User selected Option B and authorized document-first one-shot implementation on 2026-08-12",
+    "proposal_hash": "sha256:a90044ab91d1283e392de7398a3137a20191a0f1ff0ccb2a0c8ddc2541b54d57",
+    "inspector_hash": "sha256:7067e70f093ebed5f4c2e2fd403f76f3b90b7f5a30ccee30aa1823231de7618b"
+  },
+  "open_boundaries": [],
+  "invalidations": [],
+  "recovery": {},
+  "closeout": {}
+}

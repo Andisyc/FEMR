@@ -447,7 +447,7 @@ def _build_outer_replay_perturbation_plan(
     n = int(getattr(batch, "batch_size", int(batch.segment_ids.numel())))
     source_index = _source_index_for_batch(batch, n=n, device=batch.segment_ids.device)
     if set(source_index.detach().cpu().tolist()) != set(range(8)):
-        raise ValueError("TRAIN-v022 outer replay requires exactly eight source identities")
+        raise ValueError("TRAIN-v023 outer replay requires exactly eight source identities")
     selections = plan.selections
     source_strength = torch.tensor(
         [selection.perturbation_strength for selection in selections],
@@ -1104,14 +1104,14 @@ def _sample_frontres_v015_transaction_sources(
     max_horizon_k: int,
     candidate_is_eligible: Callable[[int], bool] | None = None,
 ) -> FrontRESSegmentSample:
-    """Select exactly S distinct sources; TRAIN-v022 owns B8/M4, not sampler state."""
+    """Select exactly S distinct sources; TRAIN-v023 owns B8/M4, not sampler state."""
 
     if int(selected_segment_count) != FRONTRES_V011_SELECTED_SEGMENT_COUNT:
-        raise RuntimeError("FRS-TRAIN-v022 requires exactly eight selected Scenario sources")
+        raise RuntimeError("FRS-TRAIN-v023 requires exactly eight selected Scenario sources")
     max_draws = 64
     num_segments = int(getattr(sampler, "num_segments", 0) or 0)
     if 0 < num_segments < selected_segment_count:
-        raise RuntimeError("FRS-TRAIN-v022 requires at least eight valid Scenario sources")
+        raise RuntimeError("FRS-TRAIN-v023 requires at least eight valid Scenario sources")
 
     candidates: list[FrontRESSegmentSample] = []
     candidate_ids: set[int] = set()
@@ -1292,7 +1292,7 @@ def _prepare_frontres_v015_local_transaction_batch(
     required_env_count = 2 * expected_repair_rows
     if env_count != required_env_count:
         raise RuntimeError(
-            "FRS-TRAIN-v022 environment width must equal 2*B8*M4 Repair/Noisy rows: "
+            "FRS-TRAIN-v023 environment width must equal 2*B8*M4 Repair/Noisy rows: "
             f"active_m={curriculum.active_m} required={required_env_count} observed={env_count}"
         )
     repair_rows = env_count // 2
@@ -1324,7 +1324,7 @@ def _prepare_frontres_v015_local_transaction_batch(
     if int(base_ids.numel()) != FRONTRES_V011_SELECTED_SEGMENT_COUNT or int(
         torch.unique(base_ids).numel()
     ) != FRONTRES_V011_SELECTED_SEGMENT_COUNT:
-        raise RuntimeError("FRS-TRAIN-v022 local transaction requires exactly eight distinct Scenario sources")
+        raise RuntimeError("FRS-TRAIN-v023 local transaction requires exactly eight distinct Scenario sources")
     snapshot = capture_frontres_frozen_policy_snapshot(runner, transaction_id=transaction_id)
     frozen_plan = sampler.plan_frozen_policy_transaction(
         base_ids,

@@ -1,10 +1,11 @@
 ---
 contract_id: FRS-PPO-v010
-status: active
+status: superseded
 effective_date: 2026-08-11
 updated_date: 2026-08-11
 supersedes: FRS-PPO-v009
 scope: Grouped B8/M4 symlog PPO with actual Actor optimizer-group LR curriculum
+superseded_by: FRS-PPO-v011
 ---
 
 # Grouped PPO With Actual Actor-LR Curriculum
@@ -49,4 +50,3 @@ and changes no optimizer, replay or curriculum state.
 - failed/invalid transaction has zero parameter, optimizer, replay and
   curriculum mutation;
 - checkpoint-v17 restores both group LRs and their next scheduled transition.
-

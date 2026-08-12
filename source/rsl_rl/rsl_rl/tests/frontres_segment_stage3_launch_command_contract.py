@@ -150,13 +150,13 @@ def test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds() -> None:
         bounds=("16", "1", "1"),
     )
     assert wrong.returncode != 0
-    assert "FRS-TRAIN-v022 K8/B8/M4 campaign requires NUM_ENVS=64" in wrong.stderr
+    assert "FRS-TRAIN-v023 K8/B8/M4 campaign requires NUM_ENVS=64" in wrong.stderr
 
 
-def test_strict_v022_resume_replaces_hsl_initializer() -> None:
+def test_strict_v023_resume_replaces_hsl_initializer() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         resume_path = Path(tmp) / "model_1.pt"
-        resume_path.write_text("semantic checkpoint-v17 fixture\n")
+        resume_path.write_text("semantic checkpoint-v18 fixture\n")
         result = _run_preflight(
             "train",
             {"FRONTRES_V015_RESUME_CHECKPOINT": str(resume_path)},
@@ -172,14 +172,14 @@ def test_strict_v022_resume_replaces_hsl_initializer() -> None:
         assert "--max_iterations 199" in command
 
 
-def test_strict_v022_resume_rejects_missing_checkpoint() -> None:
+def test_strict_v023_resume_rejects_missing_checkpoint() -> None:
     result = _run_preflight(
         "train",
         {"FRONTRES_V015_RESUME_CHECKPOINT": "/definitely/missing/model_1.pt"},
         bounds=("64", "199", "1"),
     )
     assert result.returncode != 0
-    assert "checkpoint-v17 resume checkpoint not found" in result.stderr
+    assert "checkpoint-v18 resume checkpoint not found" in result.stderr
 
 
 def test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel() -> None:
@@ -196,7 +196,7 @@ def test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel() -> Non
         for other_flag in SENTINEL_FLAGS.values():
             if other_flag != expected_flag:
                 assert other_flag not in command
-def test_stage3_train_launch_passes_v022_fixed_split_lr_args() -> None:
+def test_stage3_train_launch_passes_v023_fixed_split_lr_args() -> None:
     result = _run_preflight("train")
     assert result.returncode == 0, result.stderr
     command = _command_line(result)
@@ -250,10 +250,10 @@ def test_stage3_launch_builds_active_v018_policy_quality_command() -> None:
 
     missing = _run_preflight("policy_quality_eval", bounds=("16", "0", "1"))
     assert missing.returncode == 4
-    assert "EVAL-v004 policy quality requires POLICY_QUALITY_MANIFEST" in missing.stderr
+    assert "Historical EVAL-v004 policy quality requires POLICY_QUALITY_MANIFEST" in missing.stderr
     wrong_rows = _run_preflight("policy_quality_eval", quality_env, bounds=("8", "0", "1"))
     assert wrong_rows.returncode == 4
-    assert "EVAL-v004 K8/K16 M4 policy quality requires NUM_ENVS=16" in wrong_rows.stderr
+    assert "Historical EVAL-v004 K8/K16 M4 policy quality requires NUM_ENVS=16" in wrong_rows.stderr
 
     invalid_repeat_env = dict(quality_env, POLICY_QUALITY_REPEAT_COUNT="0")
     invalid_repeat = _run_preflight("policy_quality_eval", invalid_repeat_env, bounds=("16", "0", "1"))
@@ -265,7 +265,7 @@ def test_stage3_launch_rejects_retired_optimizer_modes() -> None:
     for mode in ("single_update", "update_loop"):
         result = _run_preflight(mode)
         assert result.returncode == 4
-        assert "FRS-PPO-v010 rejects retired optimizer-writing Stage 3 mode" in result.stderr
+        assert "FRS-PPO-v011 rejects retired optimizer-writing Stage 3 mode" in result.stderr
         assert "Command: " not in result.stdout
 
 
@@ -274,10 +274,10 @@ if __name__ == "__main__":
     test_g5_s4_bounded_launch_freezes_64_1_1_and_audit()
     test_stage3_train_launch_accepts_explicit_checkpoint_interval()
     test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds()
-    test_strict_v022_resume_replaces_hsl_initializer()
-    test_strict_v022_resume_rejects_missing_checkpoint()
+    test_strict_v023_resume_replaces_hsl_initializer()
+    test_strict_v023_resume_rejects_missing_checkpoint()
     test_stage3_diagnostic_launch_preflight_adds_only_selected_sentinel()
-    test_stage3_train_launch_passes_v022_fixed_split_lr_args()
+    test_stage3_train_launch_passes_v023_fixed_split_lr_args()
     test_stage3_launch_rejects_retired_optimizer_modes()
     test_stage3_launch_rejects_legacy_local_evaluation_modes()
     test_stage3_launch_builds_active_v018_policy_quality_command()

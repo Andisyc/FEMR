@@ -46,6 +46,7 @@ from rsl_rl.frontres.frontres_balance import prepare_frontres_raw_contact_views
 from rsl_rl.frontres.frontres_gain import FrontRESRecoveryAwareGainConfig, compute_recovery_aware_gain
 from rsl_rl.frontres.frontres_local_evaluation import build_frontres_v017_local_evaluation_report
 from rsl_rl.frontres.frontres_outer_scenario_replay import FrontRESOuterScenarioReplay
+from rsl_rl.frontres.frontres_return_utility import frontres_symmetric_log_utility
 from rsl_rl.frontres.frontres_segment_evidence import (
     FrontRESSegmentBaselineEvidence,
     FrontRESSealedRecoveryAwareGainBatch,
@@ -223,10 +224,10 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
             "and layout frontres-v015-future-intent-q29-v1"
         )
     required_identity = {
-        "frontres_method_contract_id": "FRS-METHOD-v023",
+        "frontres_method_contract_id": "FRS-METHOD-v024",
         "frontres_gain_contract_id": "FRS-GAIN-v008",
-        "frontres_optimization_contract_id": "FRS-PPO-v010",
-        "frontres_training_contract_id": "FRS-TRAIN-v022",
+        "frontres_optimization_contract_id": "FRS-PPO-v011",
+        "frontres_training_contract_id": "FRS-TRAIN-v023",
         "frontres_scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
         "frontres_return_utility_id": "symmetric-log-gain-g0-1-v1",
         "frontres_physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
@@ -241,9 +242,9 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
     if float(getattr(alg, "frontres_return_utility_scale", float("nan"))) != 1.0:
         raise RuntimeError("FRS-PPO-v009 formal transaction requires fixed utility G0=1")
     if float(getattr(alg, "frontres_segment_actor_joint_lr", float("nan"))) != 1.0e-6:
-        raise RuntimeError("FRS-TRAIN-v022 formal transaction requires Actor joint LR=1e-6")
+        raise RuntimeError("FRS-TRAIN-v023 formal transaction requires Actor joint LR=1e-6")
     if float(getattr(alg, "critic_learning_rate", float("nan"))) != 1.0e-5:
-        raise RuntimeError("FRS-TRAIN-v022 formal transaction requires Critic LR=1e-5")
+        raise RuntimeError("FRS-TRAIN-v023 formal transaction requires Critic LR=1e-5")
     return alg
 
 
@@ -262,7 +263,12 @@ def _v015_resolve_curriculum_identity(runner: Any, alg: Any | None = None) -> An
     return identity
 
 
-def _v015_formal_ppo_config(alg: Any, *, actor_loss_weight: float) -> FrontRESSegmentPPOConfig:
+def _v015_formal_ppo_config(
+    alg: Any,
+    *,
+    actor_loss_weight: float,
+    critic_target_means_by_source: tuple[float, ...] | None = None,
+) -> FrontRESSegmentPPOConfig:
     """复用 v003 公式参数, 仅选择已确认的 grouped reduction mode."""
 
     normalizer_state = getattr(alg, "frontres_critic_value_normalizer_state", None)
@@ -286,11 +292,12 @@ def _v015_formal_ppo_config(alg: Any, *, actor_loss_weight: float) -> FrontRESSe
         normalize_advantages=False,
         advantage_normalization="grouped_scale_only",
         actor_loss_weight=float(actor_loss_weight),
-        critic_target_id="segment-exact-m-mean-symlog-v1",
+        critic_target_id="scenario-compatible-robust-mean-symlog-v1",
         critic_value_normalization=normalization_id,
         critic_value_normalizer_state=normalizer_state,
         critic_value_normalizer_decay=decay,
         critic_value_normalizer_scale_floor=scale_floor,
+        critic_target_means_by_source=critic_target_means_by_source,
     )
 
 
@@ -356,7 +363,7 @@ def run_frontres_formal_transaction_update(
         or request.outer_replay_plan is None
         or len(request.outer_replay_scenario_keys) != 8
     ):
-        raise RuntimeError("FRS-TRAIN-v022 formal transaction requires the outer Scenario replay owner and eight keys")
+        raise RuntimeError("FRS-TRAIN-v023 formal transaction requires the outer Scenario replay owner and eight keys")
     optimizer_groups = tuple(getattr(optimizer, "param_groups", ()))
     optimizer_lr_by_role = {
         str(group.get("frontres_role", "")): float(group.get("lr", float("nan")))
@@ -368,7 +375,7 @@ def run_frontres_formal_transaction_update(
         or not all(math.isfinite(value) and value > 0.0 for value in optimizer_lr_by_role.values())
         or optimizer_lr_by_role["critic"] != float(getattr(alg, "critic_learning_rate", float("nan")))
     ):
-        raise RuntimeError("FRS-TRAIN-v022 formal transaction requires the exact named split-LR optimizer identity")
+        raise RuntimeError("FRS-TRAIN-v023 formal transaction requires the exact named split-LR optimizer identity")
     optimizer_step_before = _v015_formal_optimizer_step_count(optimizer)
     curriculum = _v015_resolve_curriculum_identity(runner, alg)
     iteration = curriculum.absolute_iteration
@@ -395,11 +402,11 @@ def run_frontres_formal_transaction_update(
         or not math.isclose(float(request.dr_progress), curriculum.dr_progress, abs_tol=1e-12)
         or not math.isclose(float(request.d_cap), curriculum.d_cap, abs_tol=1e-12)
     ):
-        raise RuntimeError("v017 transaction crossed or changed its sealed FRS-TRAIN-v022 K x M x DR x LR identity")
+        raise RuntimeError("v017 transaction crossed or changed its sealed FRS-TRAIN-v023 K x M x DR x LR identity")
     if not bool((request.plan.horizon_k.detach().to(dtype=torch.long) == curriculum.active_k).all().item()):
         raise RuntimeError("FRS-TRAIN-v021 formal update rejects mixed-K transaction rows")
     if request.plan.active_m != curriculum.active_m or request.plan.selected_segment_count != 8:
-        raise RuntimeError("FRS-TRAIN-v022 formal update rejects mixed-M or non-B8 transactions")
+        raise RuntimeError("FRS-TRAIN-v023 formal update rejects mixed-M or non-B8 transactions")
     request.plan.verify_policy(policy)
     accumulator = FrontRESFormalTransactionAccumulator(
         request.plan,
@@ -415,13 +422,29 @@ def run_frontres_formal_transaction_update(
     )
     if int(complete_rows.numel()) != int(request.plan.batch_size) or not bool(complete_rows.all()):
         raise RuntimeError(
-            "FRS-TRAIN-v022 requires every B8 x exact-M Repair row before optimizer update"
+            "FRS-TRAIN-v023 requires every B8 x exact-M Repair row before optimizer update"
         )
-    _seal_frontres_checkpoint_transaction_plan(runner, request.plan)
-    _start_frontres_checkpoint_transaction_commit(runner)
     request.plan.verify_policy(policy)
     policy_evaluator = _v015_formal_policy_evaluator(request, alg, ppo_batch)
-    ppo_cfg = _v015_formal_ppo_config(alg, actor_loss_weight=warmup_phase.actor_loss_weight)
+    if ppo_batch.old_means is None or ppo_batch.old_sigmas is None:
+        raise RuntimeError("FRS-TRAIN-v023 requires sealed pi_old mean and sigma for Replay compatibility")
+    current_utilities = frontres_symmetric_log_utility(ppo_batch.returns.detach())
+    outer_replay_candidate = outer_replay.stage(
+        request.outer_replay_plan,
+        keys=request.outer_replay_scenario_keys,
+        utilities=current_utilities,
+        old_values=ppo_batch.old_values,
+        policy_means=ppo_batch.old_means,
+        policy_sigmas=ppo_batch.old_sigmas,
+        source_index=ppo_batch.transaction_metadata.source_index,
+        policy_snapshot_id=request.plan.policy_snapshot_id,
+        active_m=request.active_m,
+    )
+    ppo_cfg = _v015_formal_ppo_config(
+        alg,
+        actor_loss_weight=warmup_phase.actor_loss_weight,
+        critic_target_means_by_source=outer_replay_candidate.critic_target_means,
+    )
     ppo_result = compute_frontres_segment_ppo_loss(
         policy_evaluator,
         ppo_batch,
@@ -437,14 +460,8 @@ def run_frontres_formal_transaction_update(
         or candidate_normalizer_state.update_count != alg.frontres_critic_value_normalizer_state.update_count + 1
     ):
         raise RuntimeError("FRS-PPO-v009 transaction produced an invalid Critic value-normalizer transition")
-    outer_replay_candidate = outer_replay.stage(
-        request.outer_replay_plan,
-        keys=request.outer_replay_scenario_keys,
-        actor_advantages=torch.tensor(ppo_result.actor_advantages, dtype=torch.float32),
-        source_index=ppo_batch.transaction_metadata.source_index,
-        policy_snapshot_id=request.plan.policy_snapshot_id,
-        active_m=request.active_m,
-    )
+    _seal_frontres_checkpoint_transaction_plan(runner, request.plan)
+    _start_frontres_checkpoint_transaction_commit(runner)
     zero_grad = getattr(optimizer, "zero_grad", None)
     step = getattr(optimizer, "step", None)
     if not callable(zero_grad) or not callable(step):
@@ -608,10 +625,10 @@ def run_frontres_formal_transaction_update(
         "optimizer_step_delta": int(optimizer_step_delta),
         "actor_learning_rate": float(actor_group["lr"]),
         "critic_learning_rate": optimizer_lr_by_role["critic"],
-        "method_contract_id": "FRS-METHOD-v023",
-        "training_contract_id": "FRS-TRAIN-v022",
+        "method_contract_id": "FRS-METHOD-v024",
+        "training_contract_id": "FRS-TRAIN-v023",
         "gain_contract_id": "FRS-GAIN-v008",
-        "optimization_contract_id": "FRS-PPO-v010",
+        "optimization_contract_id": "FRS-PPO-v011",
         "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
         "return_utility_id": ppo_result.return_utility_id,
         "return_utility_scale": float(ppo_result.return_utility_scale),
@@ -622,7 +639,7 @@ def run_frontres_formal_transaction_update(
         "gmt_observation_dim": 770,
         "critic_value_kind": "state_value",
         "critic_action_conditioned": False,
-        "critic_target_id": "segment-exact-m-mean-symlog-v1",
+        "critic_target_id": "scenario-compatible-robust-mean-symlog-v1",
         "critic_support_context_id": "action-pre-support-plan-kmax32-v1",
         "critic_value_targets": tuple(ppo_result.critic_value_targets),
         "critic_segment_target_means": tuple(ppo_result.critic_segment_target_means),
@@ -691,7 +708,7 @@ def run_frontres_formal_transaction_update(
         "v007_diagnostic_report_row_order": diagnostic_report_row_order,
     }
     print(
-        "[FrontRES v017 Formal Transaction] "
+        "[FrontRES v023 Formal Transaction] "
         f"transaction={request.plan.transaction_id} sources={source_count} "
         f"attempts={accumulator.collected_attempt_count} valid={ppo_result.valid_count} "
         f"step_delta={optimizer_step_delta}",
@@ -1089,7 +1106,7 @@ def _build_frontres_v015_local_transaction_request(
         dr_classes = tuple(getattr(dr_plan, "source_dr_class", ()) or ())
         dr_strength_tensor = getattr(dr_plan, "source_perturbation_strength", None)
         if len(dr_classes) != 8 or not isinstance(dr_strength_tensor, torch.Tensor) or int(dr_strength_tensor.numel()) != 8:
-            raise RuntimeError("FRS-TRAIN-v022 formal request requires eight sealed Scenario DR class/strength rows")
+            raise RuntimeError("FRS-TRAIN-v023 formal request requires eight sealed Scenario DR class/strength rows")
         return FrontRESFormalTransactionRequest(
             plan=plan,
             candidate_batches=(candidate_batch,),

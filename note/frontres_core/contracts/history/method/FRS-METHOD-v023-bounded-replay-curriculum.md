@@ -1,10 +1,11 @@
 ---
 contract_id: FRS-METHOD-v023
-status: active
+status: superseded
 effective_date: 2026-08-11
 updated_date: 2026-08-11
 supersedes: FRS-METHOD-v022
 scope: Recovery-Aware B8/M4 training with bounded curriculum-driven outer sealed-Scenario replay
+superseded_by: FRS-METHOD-v024
 ---
 
 # Bounded Outer Scenario Replay Curriculum

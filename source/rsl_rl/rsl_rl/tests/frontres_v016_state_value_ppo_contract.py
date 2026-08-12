@@ -21,6 +21,7 @@ from rsl_rl.algorithms.frontres_segment_ppo import (
     compute_frontres_segment_ppo_loss,
     install_frontres_v006_scalar_gradients,
 )
+from rsl_rl.frontres.frontres_return_utility import frontres_symmetric_log_utility
 from rsl_rl.frontres.frontres_segment_storage_records import FrontRESV015GroupedCandidateMetadata
 
 
@@ -117,6 +118,16 @@ def _cfg(weight: float = 1.0) -> FrontRESSegmentPPOConfig:
     )
 
 
+def _robust_cfg(targets: tuple[float, ...]) -> FrontRESSegmentPPOConfig:
+    return FrontRESSegmentPPOConfig(
+        normalize_advantages=False,
+        advantage_normalization="grouped_scale_only",
+        actor_loss_weight=1.0,
+        critic_target_id="scenario-compatible-robust-mean-symlog-v1",
+        critic_target_means_by_source=targets,
+    )
+
+
 def _expect_error(call, text: str) -> None:
     try:
         call()
@@ -185,6 +196,31 @@ def test_segment_mean_target_and_permutation() -> None:
     )
 
 
+def test_replay_owned_robust_targets_do_not_change_actor_advantages() -> None:
+    policy = _Policy()
+    batch = _batch()
+    targets = tuple(-0.75 + 0.25 * source for source in range(8))
+    result = compute_frontres_segment_ppo_loss(policy, batch, _robust_cfg(targets))
+    expected_rows = tuple(target for target in targets for _ in range(4))
+    torch.testing.assert_close(torch.tensor(result.critic_value_targets), torch.tensor(expected_rows))
+    assert result.critic_segment_target_means == targets
+    expected_actor = frontres_symmetric_log_utility(batch.returns) - batch.old_values
+    torch.testing.assert_close(torch.tensor(result.actor_advantages), expected_actor)
+
+    order = torch.arange(31, -1, -1)
+    permuted = compute_frontres_segment_ppo_loss(policy, _batch(order), _robust_cfg(targets))
+    torch.testing.assert_close(
+        torch.tensor(permuted.critic_value_targets),
+        torch.tensor(expected_rows)[order],
+    )
+    torch.testing.assert_close(result.total_loss, permuted.total_loss)
+
+    _expect_error(
+        lambda: compute_frontres_segment_ppo_loss(policy, batch, _robust_cfg(targets[:-1])),
+        "exactly eight",
+    )
+
+
 def test_separate_gradient_clip() -> None:
     policy = _Policy()
     actor_loss = 100.0 * policy.actor.weight.sum()
@@ -243,6 +279,7 @@ def test_separate_gradient_clip() -> None:
 
 def main() -> None:
     test_segment_mean_target_and_permutation()
+    test_replay_owned_robust_targets_do_not_change_actor_advantages()
     test_separate_gradient_clip()
     print("frontres_v016_state_value_ppo_contract: segment mean + separate clip exact", flush=True)
 

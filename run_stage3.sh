@@ -34,7 +34,8 @@ EXTRA_TRAIN_ARGS=("${@:7}")
 # B5: PPO safety knobs for direct Delta SE Stage 3.
 
 FRONTRES_SEGMENT_PPO_SCHEDULE="${FRONTRES_SEGMENT_PPO_SCHEDULE:-fixed}"
-FRONTRES_SEGMENT_ACTOR_LR="${FRONTRES_SEGMENT_ACTOR_LR:-3e-6}"
+FRONTRES_SEGMENT_ACTOR_LR_INIT="${FRONTRES_SEGMENT_ACTOR_LR_INIT:-3e-7}"
+FRONTRES_SEGMENT_ACTOR_LR="${FRONTRES_SEGMENT_ACTOR_LR:-1e-6}"
 FRONTRES_SEGMENT_CRITIC_LR="${FRONTRES_SEGMENT_CRITIC_LR:-1e-5}"
 
 # B6: Cache, logging, and distributed launch.
@@ -48,16 +49,16 @@ FRONTRES_V015_K_CURRICULUM="${FRONTRES_V015_K_CURRICULUM:-}"
 FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"
 
 if [[ ("${MODE}" == "train" || "${MODE}" == "policy_quality_eval") && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
-  echo "FRS-TRAIN-v021 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
+  echo "FRS-TRAIN-v023 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
   exit 4
 fi
 
 if [[ "${FRONTRES_G5_S4_BOUNDED}" == "1" ]]; then
-  if [[ "${MODE}" != "train" || "${NUM_ENVS}" != "16" || "${MAX_ITERS}" != "1" || "${UPDATE_STEPS}" != "1" ]]; then
-    echo "G5-S4 bounded Stage 3 requires train mode, 16 envs, 1 iteration, and 1 update" >&2
+  if [[ "${MODE}" != "train" || "${NUM_ENVS}" != "64" || "${MAX_ITERS}" != "1" || "${UPDATE_STEPS}" != "1" ]]; then
+    echo "G5-S4 bounded Stage 3 requires train mode, 64 envs, 1 iteration, and 1 update" >&2
     exit 4
   fi
-  RUN_NAME="FRS_TRAIN_V021_LOW_DR_COUPLED_SENTINEL"
+  RUN_NAME="FRS_TRAIN_V023_ROBUST_TARGET_SENTINEL"
 fi
 
 cd "${FEMR_ROOT}"
@@ -77,6 +78,7 @@ export NPROC_PER_NODE
 export FRONTRES_V015_FUTURE_OFFSETS
 export FRONTRES_V015_K_CURRICULUM
 export FRONTRES_G5_S4_BOUNDED
+export FRONTRES_SEGMENT_ACTOR_LR_INIT
 export FRONTRES_CHECKPOINT_INTERVAL="${FRONTRES_CHECKPOINT_INTERVAL:-1}"
 
 mkdir -p "$(dirname "${LOG_PATH}")"
@@ -90,6 +92,7 @@ CMD=(
   "${UPDATE_STEPS}"
   "${MODE}"
   --frontres_segment_ppo_schedule "${FRONTRES_SEGMENT_PPO_SCHEDULE}"
+  --frontres_segment_actor_lr_init "${FRONTRES_SEGMENT_ACTOR_LR_INIT}"
   --frontres_segment_actor_lr "${FRONTRES_SEGMENT_ACTOR_LR}"
   --frontres_segment_critic_lr "${FRONTRES_SEGMENT_CRITIC_LR}"
 )

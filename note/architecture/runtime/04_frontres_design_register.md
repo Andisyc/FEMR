@@ -1,376 +1,93 @@
-# FrontRES Design Inspector
+# FrontRES Design Inspector Register
 
-Status: DP02/DP03/DP09 were human-confirmed for a coordinated revision on
-2026-08-11. The revision replaces Critic-only warmup with low-DR joint
-Actor/Critic adaptation, uses all four relative DR classes from the first
-warmup Transaction, separates warmup Critic-mean Replay priority from later
-Repair-difference priority, and restricts Replay to the current DR interval.
-The active METHOD-v021 / TRAIN-v020 / PPO-v008 / checkpoint-v15 artifacts do
-not encode that coordinated identity, so they are stale for these points and do
-not authorize implementation, resume, bounded live work or long training under
-this revised design. Actor stays 158D, Critic stays 449D and GMT stays 770D;
-Gain-v008 utility, M4, split LR, simulator and exact-one Replay commit semantics
-are preserved.
+Status: aligned to FRS-METHOD-v024 / FRS-GAIN-v008 / FRS-PPO-v011 /
+FRS-TRAIN-v023 / FRS-EVAL-v005 on 2026-08-12.
 
 Interactive page: `../02_frontres_design_inspector.html`
 
-## Purpose
+This file is the concise reading register for Atlas 04. It does not own method
+semantics; the active Contract registry does. The complete card text and
+highlight mapping live in `04_frontres_design_inspector.data.json`.
 
-Atlas 04 is the human method-inspection surface. It answers only one question:
-how does each accepted design point participate in the same Stage-3 training
-Transaction?
-
-It is not a repository reader, evidence ledger, risk register, contract browser,
-or second Concept Figure.
-
-## Interaction Model
-
-The page contains three visual levels:
-
-1. ten compact parent design-point names in causal order;
-2. one shared Transaction spine below the index;
-3. one minimal detail reading card below the spine.
-
-The Concept Figure supporting block `M-12 Perturbation Probing` is mapped to
-`FRS-DP-01P` in TRAIN-v013 and explained inside the Perturbation Data parent
-card. It does not create an eleventh parent tab: it is the optional way to
-acquire the frozen GMT boundary consumed by that design point.
-
-Selecting a design point never replaces the shared spine. It only:
-
-- highlights the steps owned or constrained by that design point;
-- replaces the single bottom reading card with that design point's ordered
-  atomic decisions.
-
-All unselected steps remain visible as quiet gray context. Their explanations do
-not expand. The bottom card contains no owner, code, evidence, risk, status, or
-field-category headings; every numbered line is itself a method decision.
-
-## Shared Transaction Spine
-
-The canonical visual order is:
+## Current Transaction
 
 ```text
-pre-Transaction initialization
--> resolve K/M and training phase
--> select exactly two sealed Scenarios from global/replay/review
--> seal one scenario per Segment
--> restore all roles to the same Clean replay state x_t
--> sample exact M Repair actions per Segment from frozen pi_old
--> FrontRES emits one full-6D Delta SE(3) action at t
--> FrontRES remains frozen while frozen GMT executes K steps
--> construct Clean/Noisy/Repair rollout evidence
--> use Clean direction, Noisy zero point, and every Repair consequence to form
-one raw Recovery-Aware Gain per attempt, then map each attempt to fixed utility
--> seal 2 x M PPO policy rows
--> form one shared 449D support-conditioned state value and mean-M utility target per Segment
--> use every attempt's utility advantage, scale only the Critic loss, clip
-Actor/Critic separately, and execute exactly one grouped optimizer update
--> atomically commit checkpoint, curriculum, Critic target moments and the
-seen/priority/staleness Replay state
+HSL-v2 Actor initialization
+-> resolve K/M, low-DR coupled phase and Actor LR
+-> select B8 sealed ScenarioKeys from the K-local active Replay pool/global admission
+-> freeze pi_old and collect exact M4 current Repair attempts per Scenario
+-> form one raw G_total and one symlog utility per attempt
+-> Replay preview: append/reset compatible utility window, estimate robust mean,
+   outcome variance, standard error and excess Critic error
+-> PPO-v011: use 8 robust means for Critic/normalizer; use all 32 current
+   U(G)-V_old values for Actor
+-> clip Actor and Critic separately; execute exactly one grouped Adam step
+-> atomically commit optimizer receipt, Replay-v4, curriculum and checkpoint-v18
 ```
 
-The main page renders these as short Chinese action statements rather than the
-English outline above.
+## Design Points
 
-## Design-Point Highlight Map
+| ID | Design point | Current decision |
+| --- | --- | --- |
+| FRS-DP-01 | Perturbation Data | One sealed `local_rp` artifact per Scenario; four relative DR classes under current `d_cap`; full-6D action remains available. |
+| FRS-DP-01P | Perturbation Probing | `2.381` is the measured frozen-GMT ceiling for this setup, not an online controller. |
+| FRS-DP-02 | Segment Replay | Inner M4 supplies current evidence. Outer Replay owns a 32-visit policy-compatible window per Scenario/K, a 20% winsorized expected-utility estimate, uncertainty and bounded selection. |
+| FRS-DP-03 | K-step Curriculum | `K8/M4 -> K16/M4 -> K32/M4`; each K restarts lower DR and Actor LR while retaining learned parameters. |
+| FRS-DP-04 | FrontRES 6D Repair | The 158D Actor emits one unclamped full-6D world-frame Delta SE(3) at `t`. |
+| FRS-DP-05 | Frozen GMT | Frozen 770D GMT executes the repaired continuation for K steps. |
+| FRS-DP-06 | Paired Rollouts | One Clean and one fixed Noisy baseline are read-only anchors for all M4 current Repair attempts. |
+| FRS-DP-07 | Repair Gain | `G_total=G_I+lambda_RA*G_P-beta*C_repair`; utility is per-attempt symmetric log. |
+| FRS-DP-08 | HSL Warmup | HSL-v2 initializes Actor/std and Actor-prefix normalizer only. |
+| FRS-DP-09 | Actor & Critic Warmup | Actor and Critic update together from low DR; Actor LR `3e-7 -> 1e-6`, Critic LR `1e-5`, B8/M4. Critic target is Replay's compatible robust Scenario mean. |
+| FRS-DP-10 | Future Motion Context | Actor 158D, Critic 449D action-pre support-conditioned state, GMT 770D; no action-conditioned or variance-head Critic. |
 
-| Parent design point | Highlighted Transaction responsibility |
-| --- | --- |
-| Perturbation Data | seal one first-frame root artifact, inject no new corruption during K, and retain random Segment coverage with a soft preference only for genuinely cheaper prefix-preroll resets |
-| Segment Replay | use inner exact-M collection to estimate each sealed Scenario; during joint warmup revisit Critic mean errors, after warmup revisit Repair differences, and admit only current-DR-compatible ScenarioKeys with fresh current-policy actions |
-| K-step Curriculum | resolve active K/M, execute K-step evidence, and advance only at committed boundaries |
-| FrontRES 6D Repair | consume the deployable actor prefix and emit one full-6D `Delta SE(3)` action at `t` |
-| Frozen GMT | freeze FrontRES and let frozen GMT execute the common continuation |
-| Paired Rollouts | execute one Clean anchor and one fixed Noisy zero point once per sealed Segment, then read-only reuse both while evaluating M Repair rollouts |
-| Repair Gain | retain raw `G_total`; transform each attempt with fixed symlog, subtract one shared state value for Actor credit, and average utilities for the Critic target |
-| HSL Warmup | initialize the proposal Actor before the first Stage-3 Transaction and never use HSL as its target |
-| Actor & Critic Warmup | start Actor and the 449D state-value Critic together on a lower informative DR distribution, then raise Actor influence and DR gradually while retaining the same utility, non-amplifying loss scale and separate clipping |
-| Future Motion Context | seal q29 at `t+1,t+2` plus action-pre current/planned support context for the 449D Critic while keeping Actor at 158D and GMT at 770D |
+## Replay Statistics
 
-## Atomic Decisions Kept In The Primary View
+For each Scenario/K window:
 
-Numbers and information boundaries appear only when they are part of the method
-decision itself. They are not rendered as separate metadata chips:
+```text
+mu_hat   = 20% symmetric winsorized mean of compatible utility samples
+sigma2   = within-Scenario rollout outcome variance
+SE       = sqrt(sigma2 / N)
+h95      = 1.96 * SE
+E_V      = max(abs(V_old - mu_hat) - h95, 0)
+E_A      = current-M4 centered absolute utility spread
+```
 
-- `exactly two Segments`;
-- outer Replay stores complete sealed Scenario identity rather than a bare
-  `segment_id`; same motion/frame with a newly sampled artifact is a different
-  learning problem;
-- every valid committed Scenario enters the seen table with separate
-  `|mean_m U(G_m)-V_old(s)|` Critic-mean error and
-  `mean_m |U(G_m)-mean_m U(G_m)|` Repair-difference scores. Joint warmup ranks
-  the former; Joint Optimize ranks the latter;
-- each Transaction chooses its two distinct sources from `global 40%`,
-  `replay 50%`, and `review 10%`. Replay uses priority rank plus staleness;
-  each slot first draws the current Easy/Medium/Hard/Broken-tail class and only
-  admits stored absolute strengths inside that current `d_cap` interval;
-  empty compatible replay/review pools fall back to current-class global discovery;
-- a replayed Scenario generates fresh exact-M actions and log probabilities
-  under the current frozen `pi_old`; old PPO rows are never reused;
-- Replay pool, priority, staleness and RNG state commit only with a successful
-  Transaction receipt, and priority is K-specific;
-- Segment selection remains stochastic. When reaching `x_t` requires prefix
-  preroll, estimated lower-preroll-cost Segments receive a soft preference;
-  every valid Segment keeps nonzero probability, and direct cached-state reset
-  does not penalize a late start frame;
-- TRAIN-v013 treats 2.381 as the already measured maximum reliable perturbation
-  boundary for the current frozen GMT, robot and perturbation definition. The
-  current campaign configures it directly; a changed setup may obtain a new
-  value through an optional offline frozen-GMT Noisy-only survival probe. That
-  probe only acquires and freezes the outer boundary: it is not an online
-  controller, a per-K `g_K`, or a Gain/PPO feedback path. For the current
-  explicit stage-local
- ceiling `d_cap`, the restored strength mixture is
- `Easy 20%: [0, 0.25d_cap)`, `Medium 30%: [0.25d_cap, 0.70d_cap)`,
- `Hard 40%: [0.70d_cap, d_cap]`, and
- `Broken tail 10%: (d_cap, min(1.10d_cap, 2.381)]`. These are perturbation
-  strength classes, not the separate Safe/Repairable/Broken/Harmful execution
-  outcomes. The four classes preserve basic restoration, ordinary learning,
-  frontier learning, and limited failure-boundary exposure respectively;
- `d_cap` comes from explicit committed stage progress and approaches the frozen
-  boundary, not online survival or Gain feedback; 2.381 is neither a mastery
-  condition nor a per-K `g_K`;
-- the active campaign uses `K8/M4 -> K16/M4 -> K32/M4` as the outer
-  curriculum. Each K owns an inner lower-to-higher DR curriculum;
-- at each K transition, the committed Actor/Critic state is preserved and DR
-  returns to a lower but still informative distribution; Actor loss weight
-  restarts small but nonzero, then Actor influence and DR rise gradually while
-  Actor and Critic continue updating together;
-- same-scenario Repair ordering across K remains diagnostic-only. It does not
-  force the next K to inherit the previous stage's high DR distribution;
-- one sealed Segment samples strength once. Its Noisy and M Repair rollouts
-  share that strength and artifact; Clean remains uncorrupted, and Gain/PPO do
-  not control the curriculum;
-- active schedule `K8/M4 -> K16/M4 -> K32/M4`;
-- `K64` is not active under `FRS-TRAIN-v013`;
-- each sealed Segment owns one Clean rollout, one zero-action Noisy rollout,
-  and M Repair rollouts; only the M Repair rows enter PPO. Runtime env packing
-  is engineering orchestration rather than a method-level `4 x M` identity;
-- one action at `t`, then FrontRES frozen through K;
-- deployment uses no-feedback composition: every per-frame residual is applied
-  to the current frame of the sealed Noisy/deployment stream. Physical state
-  continues across steps, but a repaired reference is never written back as
-  the next frame's actor input or reference base;
-- `Delta SE(3)` translation and rotation are world-frame residuals. Quaternion
-  composition therefore uses
-  `q_repaired = Exp(Delta theta_world) * q_noisy` (left multiplication). This
-  remains an implementation convention derived from the world-frame meaning,
-  not another primary Atlas variable;
-- the full-6D Actor uses no perturbation-family action mask, per-axis scale,
-  `tanh`, `clip`, or `clamp`. Upward `dz` is softly discouraged by the HSL
-  initialization, Clean-anchored K-step consequence, and full-6D repair cost;
-  without a one-sided projection this is deliberately not claimed as a hard
-  prohibition;
-- full-6D repair cost converts translation and rotation into fixed semantic
-  units before combination:
-  `sqrt((||Delta t||/0.10m)^2 + (||Delta theta||/5deg)^2)`; it prefers the
-  smaller intervention when rollout outcomes are comparable and does not
-  decide whether Physics or Intent improved;
-- zero optimizer steps during collection;
-- exactly one grouped optimizer update after complete sealing;
-- every valid Repair attempt remains one equal-structure-mass PPO row; ordering
-  comes from its own `G_total` and advantage, not winner-only selection,
-  argmax, best-of-M weighting, or replay priority;
-- full observation `928D`, FrontRES Actor prefix `158D`, FrontRES Critic state
- `449D`, frozen GMT suffix `770D`;
-- the actor reads two future 29D internal-Intent frames, `q29[t+1]` and
-  `q29[t+2]`, from the same sealed Noisy/deployment reference;
-- those two frames contribute `58D` to the `158D` Actor input and to the
- `289D + 58D + 102D = 449D` state-value Critic input. The 102D block contains
- current actual Contact/load/ZMP plus 32 planned-support pairs and their valid
- mask; Repair-after evidence, `G_total` and the 6D Repair action remain excluded;
-- H supplies the two-frame Actor/Critic context; K remains the executable-evidence
-horizon.
-- Clean Rollout is evaluator-only phase and demo-quality evidence; it does not
-  become an actor input or PPO row.
-- Held-out Policy Quality loads the tested checkpoint-v14 Actor, 449D Critic
-  and 449D privileged-observation normalizer inside one reversible inference
-  scope. It reports every raw Gain and compares the shared Segment value with
-  the exact-M4 utility mean; the value-loss normalizer remains output-preserving
-  and is not applied to `V(s)`.
-- each sealed Segment executes one Clean Rollout and one fixed zero-action Noisy
-  Rollout exactly once; both observed K-step outcomes are then sealed and
-  read-only reused across all M Repair comparisons;
-- Noisy artifact, corruption protocol, application point and hash do not change
-  across M attempts. Shared baselines remove avoidable resampling noise but do
-  not claim complete cancellation of simulator dynamics noise;
-- Gain is divided into Intent Gain and Physics Gain; their interaction inside
-  `G_total` defines Recovery-Aware. Segment Replay preserves all valid
-  same-scenario attempts and lets their different `G_total` advantages carry
-  the ordering.
-- Clean gives the desired motion direction, Noisy defines zero improvement, and
-  M Repair outcomes expose the current policy's empirical one-action reachable
-  frontier. Clean equality is not a positive-Gain threshold.
-- Gain evaluates each attempt; Segment Replay exposes the currently reachable
-  direction through all candidate rows rather than selecting only the winner.
-- each evidence term uses `r_j(X|Clean) = D_j(X,Clean) / S_j`; `D_j` is a
-  channel-specific remaining problem and `S_j` is a fixed semantic unit;
-- continuous `D_j` accumulates the complete K-step consequence with fixed
- `tau_k=k/K` position weights and divides by weighted applicable exposure; this
- distinguishes recovery from deterioration without adding a tunable time
- parameter;
-- Contact and survival retain event/exposure semantics, so early illegal
- support changes or failure cannot be discounted by the time-position weight;
-- weighted-effective-time normalization prevents Intent from scaling
- approximately with `K` and pressure-weighted Physics from scaling
- approximately with `K^2` while one-action repair cost remains unchanged;
-- Intent retains root orientation, joint pose, drift-removed key-body pose,
-  root-local linear/angular velocity and root height; acceleration is initially
-  diagnostic because finite-difference noise is high;
-- Physics retains expected Contact-phase mismatch, loaded support-foot drift,
-  loaded-support phase-ZMP envelope violation and survival lost-horizon
-  fraction;
-- sustained lean without extra support compensation belongs to Intent; extra
-  stepping, dragging and changed support belong to Physics;
-- fixed-scale normalization aligns unlike units, preserves severity across
-  Segments, avoids near-zero recovery-ratio denominators and candidate-derived
-  moving standards, and does not clip severe states to `[0,1]`;
-- Intent sensitivity scales approximately with `1/S_I`, while the
-  pressure-weighted Physics contribution scales approximately with `1/S_P^2`;
-  each final fixed scale must remain physically interpretable and constant
-  across Segments, attempts and K stages;
-- normalized channels are aggregated separately inside Intent and Physics with
- `M(z)=log(mean(exp(z)))`; one severe item increasingly controls its family,
- while every retained item remains visible and the `1/n` baseline is invariant
- to family size;
-- the older raw difference was refined first into two Clean-conditioned
- semantic evaluations and then from a per-scenario recovery ratio into the
- fixed-scale, family-level difference `G_I=I_N-I_R` and `G_P=P_N-P_R`;
-- Clean defines the correct motion semantics, Noisy is the no-action zero point,
-  and Repair supplies the candidate consequence, so positive Gain requires only
-  improvement over Noisy rather than equality with Clean;
-- aggregate Physics pressure uses `lambda_RA = (P_N + P_R) / 2`, giving the
- same Physics change more weight in an imbalanced state and less weight near
- stability;
-- `lambda_RA * G_P = (P_N^2 - P_R^2) / 2`; the two endpoints both reward
- severe recovery and penalize a Repair that creates a new severe imbalance;
-- the fixed semantic units are: root orientation `0.087 rad`, joint pose
-  `0.087 rad`, key-body pose `0.10 m`, linear velocity `0.75 m/s`, angular
-  velocity `2.0 rad/s`, root height `0.05 m`, Contact `0.10 exposure`,
-  support-foot drift `0.03 m`, phase-ZMP `0.02 m`, and survival
-  `0.10 horizon fraction`; they remain constant across Segments, attempts, and K;
-- `C_repair = sqrt((||Delta t||/0.10m)^2 + (||Delta theta||/5deg)^2)` is the
-  magnitude of the single full-6D action in fixed semantic repair units;
-  `beta` says how much extra recovery must justify one extra repair unit, and
-  the first bounded live calibration uses provisional global `beta_init=0.02`;
-- bounded live telemetry retains cost-free recovery `R=G_I+lambda_RA G_P`,
-  `C_repair`, `beta*C_repair`, `G_total`, and within-Segment rank changes;
-- only same-Segment trade-off pairs where greater recovery also costs a larger
-  action define positive break-even values `beta* = Delta R / Delta C`; a
-  recovery-superior, no-more-expensive attempt is dominant rather than a beta
-  calibration pair;
-- live evidence never mutates beta inside a run. Human review may revise the
-  single global value between bounded calibration runs; once accepted, it is
-  frozen across Segments and K rather than becoming a per-stage controller;
-- `G_total = G_I + lambda_RA G_P - beta C_repair` remains the raw Recovery-Aware
-  outcome; outer Replay never ranks raw Gain magnitude. Joint warmup ranks
-  `|mean_m U(G_m)-V_old(s)|`, while Joint Optimize ranks centered
-  `mean_m |U(G_m)-mean_m U(G_m)|` Repair differences;
-- raw `return_K=G_total` remains diagnostic; training uses
- `U(G)=sign(G)*log1p(abs(G))` per attempt, Critic target `mean_m U(G_m)`, and
- Actor advantage `U(G_m)-V_old(s)`;
-- Actor and Critic gradients are clipped independently at 0.5, then the two
-  named LR groups still execute exactly one Adam step; the revised Replay and
-  warmup state require a new checkpoint identity rather than checkpoint-v15;
-- Contact phase, support-foot drift, phase-ZMP and survival remain fail-closed
-  Physics evidence, but their learning route is `P_X -> G_P -> G_total`; the
-  old independent constraint projection and KKT actor gate retire rather than
-  operating in parallel;
-- actual no-load with expected support is handled by the evaluator as a Contact
-  violation while phase-ZMP is `N/A`; this applicability branch is engineering
-  logic, not another primary Atlas decision;
-- exact extra RNG-restoration and persistence mechanics remain in the
-  contract/engineering layer. The Atlas states the direct `HSL -> HRL` role
-  transition rather than inventing a separate Actor-migration concept.
+The policy anchor is the 6D diagonal-Gaussian `pi_old` mean and sigma at
+window creation. A new visit appends only when symmetric Gaussian KL to that
+fixed anchor is at most `0.02`; otherwise it starts a new M4 window. High
+outcome variance alone does not create calibration priority. No historical
+action, log probability or Actor advantage is replayed.
 
-Everything else belongs in active contracts, method-to-code maps, runtime audit,
-or evidence ledgers.
+The active pool is K-local and grows `64 -> 128 -> 256` only after every active
+Scenario has four visits in its current policy-compatible window and the K
+stage reaches full joint optimization. A policy reset returns that Scenario's
+capacity maturity to one compatible visit; lifetime visits remain diagnostic
+only. Warmup slots are
+`1 admission + 6 E_V + 1 stale`; joint slots are
+`1 admission + 4 E_A + 2 E_V + 1 stale`. Four DR quotas remain
+Easy/Medium/Hard/Broken-tail `20/30/40/10`.
 
-## Language Contract
+## State And Failure Boundary
 
-Chinese owns the sentence. English remains only for established method objects,
-identifiers, and variables.
-
-Preferred forms:
-
-- `冻结的 GMT 执行同一条 Clean continuation`;
-- `从同一 pi_old 采样 exact M 个修复动作`;
-- `完整封存后执行一次 grouped update`;
-- `FrontRES 在 t 仅输出一次 Delta SE(3)`.
-
-Forbidden style:
-
-- a Chinese half-sentence joined to an English predicate;
-- an English evidence paragraph inside the primary Transaction view;
-- repeated qualifiers such as identity, provenance, owner, evidence level, and
-  open risk when they do not change the visible Transaction;
-- translating stable symbols in a way that makes them harder to match to the
-  contracts.
-
-## Content Removed From The Primary Card
-
-- Implementation Evidence;
-- Open Risk;
-- source and contract footers;
-- code-owner links;
-- separate Facts, Matrix, Authority, Formula, Dependencies, and Review panels;
-- repeated scientific-problem and owned-object paragraphs;
-- global mapping-gap banners.
-
-These facts remain in their authoritative documents. Removing them from Atlas 04
-does not delete or supersede them.
+- Replay preview includes the current valid M4 but mutates no owner.
+- Only the matching exact-one receipt commits windows, scores, membership,
+  capacity, staleness and RNG.
+- Checkpoint-v18 stores Replay-v4 windows and rejects checkpoint-v17/replay-v3
+  before restore; no migration or zero-fill exists.
+- Evaluation is read-only and does not build or mutate a training Replay window.
+- Current offline evidence proves construction and transaction connectivity,
+  not simulator policy quality. One bounded official K8 transaction is the
+  next live boundary; long training remains unauthorized.
 
 ## Acceptance
 
-- the ten index buttons remain visually compact and each names one canonical
-  parent design point;
-- exactly one shared Transaction spine is visible;
-- selecting any button preserves the same step order;
-- every index button remains a short parent design-point name;
-- selecting it changes only Transaction highlights and the one bottom detail
-  reading card;
-- the affected cards explicitly show Clean/Noisy/Repair's distinct evaluator
-  roles and present only the human-confirmed active Gain formula;
-- the Paired Rollouts card shows one Clean and one fixed Noisy execution per
-  Segment, immutable reuse across M, and the accepted residual-noise boundary;
-- the affected cards distinguish Clean direction, Noisy zero point, per-attempt
- Gain evidence, and M-attempt reachable-frontier search;
-- the Repair Gain card distinguishes recovering from deteriorating K-step
- trajectories without discounting early Contact/survival failures;
-- the Repair Gain card shows separate smooth worst-item aggregation for Intent
- and Physics before group-level improvement and Recovery pressure;
-- the Repair Gain and Actor & Critic Warmup cards show per-attempt `G_total` as
- Actor evidence, the exact-M mean as the shared state-value target, and the old
- independent Physics projection as retired;
-- the bottom card contains four to eight numbered atomic decisions and no
-  implementation/evidence panels;
-- Segment Replay visibly separates inner exact-M estimation from outer
-  Scenario selection; it defines complete ScenarioKey identity, valid-only
-  admission, separate Critic-mean and Repair-difference scores, phase-specific
-  rank plus staleness selection, current-DR-compatible pools, the 40/50/10
-  timing rule, fresh current-policy M4 recollection and committed-only sampler
-  mutation. It preserves equal grouped PPO voting weight and never reuses old
-  policy rows;
-- K-step Curriculum visibly shows K8/M4, K16/M4, K32/M4 and concise K64 inactive
-  status;
-- K-step Curriculum shows one Clean, one Noisy, and M Repair evaluations per
-  Segment without turning runtime env packing into a method identity;
-- Perturbation Data preserves random Segment coverage while expressing only a
-  soft prefix-preroll efficiency preference, and it shows the preserved
-  frozen-GMT frontier-envelope strength curriculum;
-- FrontRES 6D Repair exposes world-frame full-6D semantics, no-feedback
-  per-frame deployment composition, and the soft upward `dz` treatment without
-  hiding a hard clip, mask, or scale;
-- HSL is visibly pre-Transaction rather than a per-Transaction operation;
-- Actor & Critic Warmup states the direct `HSL -> HRL` transition, lower-DR
- joint initiation without Critic-only, monotonic Actor-influence ramp, the 449D
- state-value input, M4 symlog-mean target, separate gradient clipping and a new
- cold-start identity that cannot resume TRAIN-v020 checkpoint-v15;
-- the `Future Motion Context` detail card explicitly states `t+1,t+2`,
-  `29D x 2 = 58D`,
- extraction from one fixed deployment Noisy reference, Actor/Critic reuse, and
- exclusion of future root/global, Clean/evaluator and 6D action information;
-- primary prose follows the Chinese-sentence language contract;
-- the full page is readable at default browser zoom without vertical scanning
-  through multiple long panels.
+- Atlas shows B8/M4, not two Segments.
+- Critic predicts expected symlog utility; robust estimation does not turn it
+  into max/min/median/quantile or Q(s,a).
+- Critic targets may use compatible history; Actor advantages may not.
+- Aleatoric variance, mean confidence, reducible value error and policy drift
+  remain distinct diagnostics.
+- Gain, K/DR, LR, optimizer count, Actor/Critic architecture and simulator are
+  unchanged.

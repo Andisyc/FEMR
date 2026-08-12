@@ -63,18 +63,20 @@ The intended training flow is:
      one grouped optimizer update per committed transaction.
    - The reward owner publishes one raw Recovery-Aware `G_total` per Repair.
      The optimization owner applies fixed symmetric-log utility independently
-     to each valid attempt before the exact-M Critic mean and Actor advantage.
+     to each valid attempt before the Replay-owned current-policy-compatible
+     robust Critic mean and current-attempt Actor advantage.
      The 449D support-conditioned scalar Critic predicts expected utility, not
      raw Gain and not action-conditioned `Q(s,a)`. Actor and Critic retain
      separate gradient clipping before the same exact-one Adam step. There is
      no active constraint-gradient projection or KKT authority.
-   - Under TRAIN-v022 the single Adam owns two named groups. Critic LR remains
+   - Under TRAIN-v023 the single Adam owns two named groups. Critic LR remains
      `1e-5`; Actor LR is the actual optimizer-group LR, starting at `3e-7`,
      ramping to `1e-6`, and resetting to `3e-7` at each K transition.
    - Outer Scenario replay keeps an unbounded archive but a bounded per-K active
      pool (`64 -> 128 -> 256`). Each active Scenario must receive at least four
-     committed M4 visits before breadth expansion; DR and replay breadth never
-     expand in the same phase.
+     committed M4 visits inside its current policy-compatible window before
+     breadth expansion; a policy reset returns this maturity count to one. DR
+     and replay breadth never expand in the same phase.
 
 ## Perturbation Curriculum
 
@@ -104,7 +106,7 @@ by the active reward Contract:
 G_total = G_I + lambda_RA * G_P - beta * C_repair
 return_K = G_total
 U(G_total) = sign(G_total) * log1p(abs(G_total))
-critic_target = mean_m U(G_total_m)
+critic_target = robust_mean(current-policy-compatible committed U(G_total) plus current M4)
 advantage_m = U(G_total_m) - V_old(s)
 ```
 
@@ -119,7 +121,8 @@ scalar Physics fallback, or epsilon gate.
 
 Important diagnostics:
 
-- raw Gain, transformed utility, exact-M target, value, advantage and Critic
+- raw Gain, transformed utility, current-M4 mean, robust target, compatible
+  sample count, outcome variance, mean uncertainty, value, advantage and Critic
   calibration;
 - Critic value loss, committed non-amplifying target scale, committed moments
   and exact update-count transition;

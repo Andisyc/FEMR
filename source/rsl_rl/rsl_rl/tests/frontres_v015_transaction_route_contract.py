@@ -131,10 +131,10 @@ def _alg(policy: _Policy, optimizer: _TrackingAdam) -> SimpleNamespace:
         frontres_segment_live_train_enabled=False,
         frontres_segment_live_update_loop_only=False,
         frontres_segment_live_single_update_only=False,
-        frontres_method_contract_id="FRS-METHOD-v023",
+        frontres_method_contract_id="FRS-METHOD-v024",
         frontres_gain_contract_id="FRS-GAIN-v008",
-        frontres_optimization_contract_id="FRS-PPO-v010",
-        frontres_training_contract_id="FRS-TRAIN-v022",
+        frontres_optimization_contract_id="FRS-PPO-v011",
+        frontres_training_contract_id="FRS-TRAIN-v023",
         frontres_scalar_target_id="symmetric-log-recovery-aware-utility-v1",
         frontres_physics_schema_id="clean-anchored-contact-zmp-survival-v1",
         frontres_grouped_schema_id="grouped-all-attempt-scalar-v1",
@@ -431,7 +431,7 @@ def test_exact_one_scalar_commit_updates_actor_and_critic_from_first_transaction
     assert any(not torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
     assert any(not torch.equal(value, critic_before[name]) for name, value in policy.critic.state_dict().items())
     assert result.diagnostics["gain_contract_id"] == "FRS-GAIN-v008"
-    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v010"
+    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v011"
     assert "constraint_kkt_max_violation" not in result.diagnostics
     telemetry = build_frontres_transaction_telemetry(result, ppo=result.ppo_result)
     assert telemetry["clean_execution_count"] == (1,) * 8
@@ -587,7 +587,7 @@ def main() -> None:
     test_partial_transaction_rejects_before_update()
     test_value_normalizer_iteration_mismatch_rejects_before_update()
     test_phase_reset_routes_mode_through_sealed_reset_owner()
-    print("frontres_v015_transaction_route_contract: v021 coupled outer replay exact-one ok", flush=True)
+    print("frontres_v015_transaction_route_contract: v023 robust outer replay exact-one ok", flush=True)
 
 
 if __name__ == "__main__":

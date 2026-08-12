@@ -1,0 +1,230 @@
+{
+  "title": "In-Context Execution Calibration — Candidate Design Inspector",
+  "subtitle": "候选研究设计；未激活为 FrontRES Contract，未证明实现、运行或策略效果",
+  "layout": "design_transaction_inspector",
+  "defaultZoom": 0.8,
+  "transaction": {
+    "steps": [
+      {
+        "id": "sample-condition",
+        "phase": "pre",
+        "label": "采样一个隐藏执行条件 ξ",
+        "detail": "同一 episode 的 Support 与 Query 共享条件；条件真值不进入 Context Encoder"
+      },
+      {
+        "id": "freeze-source",
+        "phase": "pre",
+        "label": "冻结 Planner 与完整 Tracker",
+        "detail": "Planner、Tracker Encoder 和 Tracker Decoder 均保持源 checkpoint 参数不变"
+      },
+      {
+        "id": "collect-support",
+        "phase": "collection",
+        "label": "执行并记录第一次 Support Rollout",
+        "detail": "同步记录目标 Motion、Executed Action 与 Realized Motion 的完整时序证据"
+      },
+      {
+        "id": "seal-support",
+        "phase": "collection",
+        "label": "封存定长 Support 序列 C",
+        "detail": "按时间顺序形成 c0 到 cT；缺陷标签、扰动参数和正确修复动作均不可见"
+      },
+      {
+        "id": "encode-context",
+        "phase": "collection",
+        "label": "整段编码一次并产生 Δzξ",
+        "detail": "Context Encoder 将完整 Support 序列压缩成一个条件级低维校准表示"
+      },
+      {
+        "id": "run-query",
+        "phase": "collection",
+        "label": "固定 Δzξ 执行 Query Rollout",
+        "detail": "Tracker 仍逐时刻实时输出 Action；Context Encoder 不逐时刻重新处理旧轨迹"
+      },
+      {
+        "id": "seal-query",
+        "phase": "collection",
+        "label": "封存不重叠 Query 窗口",
+        "detail": "Query 与 Support 来自同一执行条件，但 Query Action 不得出现在 Support 中"
+      },
+      {
+        "id": "supervise-action",
+        "phase": "update",
+        "label": "以因果匹配的 Executed Action 监督",
+        "detail": "Realized Future 与实际产生它的 Action 构成逆动力学监督，不构造 Δz 真值"
+      },
+      {
+        "id": "update-context-only",
+        "phase": "update",
+        "label": "只更新 Context Encoder",
+        "detail": "梯度经过冻结 Tracker 的计算图，但 Planner、Encoder 与 Decoder 参数均不更新"
+      }
+    ]
+  },
+  "cards": [
+    {
+      "designId": "ICA-DP-01",
+      "blockId": "ICA-PERTURB",
+      "title": "Perturbation Condition",
+      "color": "#ad6b3d",
+      "responsibility": "产生跨 episode 变化、在单个 Support–Query episode 内保持一致的隐藏执行条件。",
+      "details": [
+        "扰动只改变 Action → Robot Dynamics → Realized Motion，不改写 Planner Intent。",
+        "每个 episode 独立采样条件 ξ；Support 与 Query 共享同一 ξ。",
+        "训练覆盖多个方向、强度与组合，验证留出完整条件而不是只留出轨迹窗口。",
+        "Context Encoder 不读取 ξ、Wrench、Action gain、零位偏差或其他缺陷真值。",
+        "第一版只研究正常步态附近的连续响应，不承担接触模式切换与跌倒后的恢复。"
+      ],
+      "highlightSteps": [
+        "sample-condition",
+        "collect-support",
+        "run-query"
+      ],
+      "chips": []
+    },
+    {
+      "designId": "ICA-DP-02",
+      "blockId": "ICA-PLANNER",
+      "title": "Frozen Planner",
+      "color": "#47749f",
+      "responsibility": "保持任务 Intent 的唯一所有权，并为 Support 与 Query 提供目标 Motion。",
+      "details": [
+        "Planner checkpoint 在训练和部署阶段均冻结。",
+        "Planner 输出定义想要实现的 Motion，而不是目标域的正确 Action。",
+        "Support token 中的目标 Motion 优先使用当次实际下发给 Tracker 的 Planner future。",
+        "预先保存的 clean rollout 可作为分析或对齐证据，但不默认成为部署必需输入。",
+        "Context 校准不得改变 Planner 的任务语义或生成新的 Intent。"
+      ],
+      "highlightSteps": [
+        "freeze-source",
+        "collect-support",
+        "run-query"
+      ],
+      "chips": []
+    },
+    {
+      "designId": "ICA-DP-03",
+      "blockId": "ICA-TRACKER",
+      "title": "Frozen Tracker",
+      "color": "#6c4d91",
+      "responsibility": "保留成熟的 Motion-to-Action 逆映射；Tracker Encoder 与 Decoder 都不吸收目标条件。",
+      "details": [
+        "Tracker Encoder 将当前历史与 Planner future 编码为 nominal motion latent z_t。",
+        "Tracker Decoder 根据当前历史和校准后的 latent 逐时刻输出 Action。",
+        "Encoder 与 Decoder 在所有离线 calibration episodes 中冻结。",
+        "部署时不执行梯度更新、优化器 step 或 normalizer 更新。",
+        "Tracker 仍是唯一 Action 生成器；Context 路径不能绕过 Decoder直接产生 Action。"
+      ],
+      "highlightSteps": [
+        "freeze-source",
+        "run-query",
+        "update-context-only"
+      ],
+      "chips": []
+    },
+    {
+      "designId": "ICA-DP-04",
+      "blockId": "ICA-SUPPORT",
+      "title": "Support Rollout",
+      "color": "#a05e4f",
+      "responsibility": "把第一次执行封存为可部署的目标—动作—实现响应时序证据，而不是正确修复标签。",
+      "details": [
+        "每个时刻形成 token c_t = [Y_target,t, Y_realized,t, A_exec,t]；必要的 proprioceptive history 与有效 mask 随 token 保存。",
+        "Y_target 来自当次 Planner future；Y_realized 来自机器人实际状态；A_exec 是真实下发动作。",
+        "完整 Context 为按时间排列的 C = [c_0, …, c_T]，而不是无序样本集合。",
+        "三路信号必须使用同一时间基准，并显式处理控制延迟与 future-window 对齐。",
+        "Support 不包含缺陷参数、Teacher Action、Query Action 或人为构造的正确 Δz。",
+        "失败 rollout 证明某个 Action 实际产生了某段 Motion；它不证明该 Action 对原 Intent 最优。"
+      ],
+      "highlightSteps": [
+        "collect-support",
+        "seal-support"
+      ],
+      "chips": []
+    },
+    {
+      "designId": "ICA-DP-05",
+      "blockId": "ICA-CONTEXT",
+      "title": "Context Encoder",
+      "color": "#3c7485",
+      "responsibility": "一次读取完整 Support 序列，将条件相关的动作—响应变化压缩为一个低维 Δzξ。",
+      "details": [
+        "Context Encoder 的输入是完整定长或带 mask 的变长时序 C，不是单个当前状态。",
+        "它保留 token 顺序与步态相位信息，不能只读取轨迹终点或一个横向偏差标量。",
+        "整段 Support 编码完成后只输出一个 condition-level Δzξ。",
+        "第二次 rollout 不再逐时刻重读旧 Support；同一个 Δzξ 被固定复用。",
+        "Context Encoder 可以较大，因为它跨大量仿真条件离线训练，部署时完全冻结。",
+        "若相同可见 Support 需要相反校准，增加 Encoder 容量不能解决不可辨识性。"
+      ],
+      "highlightSteps": [
+        "seal-support",
+        "encode-context",
+        "run-query"
+      ],
+      "chips": []
+    },
+    {
+      "designId": "ICA-DP-06",
+      "blockId": "ICA-LATENT",
+      "title": "Latent Calibration",
+      "color": "#377e67",
+      "responsibility": "以低维、低权限接口改变冻结 Tracker 的执行映射，同时保持 Planner Intent 与 Action 所有权不变。",
+      "details": [
+        "nominal latent z_t 与条件级 Δzξ 在受控接口处组合后交给冻结 Decoder。",
+        "Δzξ 的维度和范数受限，使其承担校准而不是编码完整新策略。",
+        "同一个 Δzξ 在一次 Query rollout 内保持固定；实时变化仍由 z_t 与当前 history 表达。",
+        "Context 路径不得直接加到最终 Action，也不得替代 Tracker Decoder。",
+        "当前候选仅确认需要受限 latent interface；具体是直接加法、投影基或低秩调制仍待后续原子设计审核。",
+        "若 FADA-style LoRA 可适配而该接口失败，说明低维校准作用位置或表达能力不足。"
+      ],
+      "highlightSteps": [
+        "encode-context",
+        "run-query",
+        "supervise-action"
+      ],
+      "chips": []
+    },
+    {
+      "designId": "ICA-DP-07",
+      "blockId": "ICA-LEARNING",
+      "title": "Calibration Learning",
+      "color": "#a75555",
+      "responsibility": "用同一隐藏条件下互不重叠的 Support–Query 逆动力学证据，只训练 Context Encoder。",
+      "details": [
+        "Support 产生 Δzξ；Query 提供新的 realized-future / executed-action 配对。",
+        "Query Action 不得进入 Support，否则模型可能复制动作而不是推断持久执行关系。",
+        "监督标签是实际产生 Query realized future 的 Executed Action，不是 clean Action、Teacher Action 或搜索得到的 Δz。",
+        "梯度可以经过冻结 Encoder 与 Decoder 的计算，但只允许更新 Context Encoder 参数。",
+        "不使用 task Reward、Privileged Teacher 或单条目标域轨迹上的在线训练。",
+        "训练跨多个条件、Intent 与 rollout；验证按完整 held-out condition 划分。"
+      ],
+      "highlightSteps": [
+        "seal-query",
+        "supervise-action",
+        "update-context-only"
+      ],
+      "chips": []
+    },
+    {
+      "designId": "ICA-DP-08",
+      "blockId": "ICA-QUERY",
+      "title": "Frozen Query Execution",
+      "color": "#437f86",
+      "responsibility": "在参数完全冻结的情况下，将一次 Support 推断出的 Δzξ 用于后续实时 Action 生成。",
+      "details": [
+        "部署顺序为：第一次 rollout → 封存 Support → 计算一次 Δzξ → 第二次 rollout。",
+        "第二次 rollout 的每个控制周期只运行原 Tracker 实时路径，并复用固定 Δzξ。",
+        "Context Encoder 不需要以控制频率执行，因此不会把整条历史编码开销放进实时循环。",
+        "第二次 rollout 的当前或未来信息不得提前进入首次 Support Context。",
+        "所有模型参数、优化器状态与 normalizer 均保持冻结。",
+        "第一版只声明同一短时程任务边界内的校准；跨 Intent 复用属于待验证能力。"
+      ],
+      "highlightSteps": [
+        "encode-context",
+        "run-query",
+        "seal-query"
+      ],
+      "chips": []
+    }
+  ]
+}
