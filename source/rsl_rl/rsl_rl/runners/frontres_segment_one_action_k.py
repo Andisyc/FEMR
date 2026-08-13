@@ -553,6 +553,7 @@ def collect_frontres_v017_repair_attempts(
     source_index: torch.Tensor,
     segment_ids: torch.Tensor,
     trial_index: torch.Tensor,
+    policy_action_seed: int | None = None,
 ) -> tuple[FrontRESRepairAttemptEvidence, ...]:
     """Collect exact-M Repair policy rows; companion rows remain unobserved scaffold."""
 
@@ -600,6 +601,7 @@ def collect_frontres_v017_repair_attempts(
             iteration=int(getattr(runner, "current_learning_iteration", 0)),
             n_repair=n_repair,
             n_noisy=int(getattr(pair_layout, "n_base", 0)),
+            policy_action_seed=policy_action_seed,
         )
         transition = getattr(runner.alg, "transition", None)
         names = ("observations", "privileged_observations", "actions_log_prob", "values", "action_mean", "action_sigma")

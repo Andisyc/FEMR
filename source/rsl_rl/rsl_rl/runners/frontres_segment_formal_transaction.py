@@ -968,6 +968,7 @@ def collect_frontres_recovery_aware_evaluation(
     label: str,
     beta: float,
     policy_observations: FrontRESSegmentLiveObservations | None = None,
+    policy_action_seed: int | None = None,
 ) -> FrontRESRecoveryAwareCollection:
     """Execute Clean once, Noisy once and exact-M Repairs without an optimizer update."""
 
@@ -1076,6 +1077,7 @@ def collect_frontres_recovery_aware_evaluation(
         source_index=plan.source_index,
         segment_ids=plan.segment_ids,
         trial_index=plan.trial_index,
+        policy_action_seed=policy_action_seed,
     )
     evidence = FrontRESSealedRecoveryAwareGainBatch(
         baselines=tuple(baselines), attempts=attempts, active_m=int(plan.active_m)

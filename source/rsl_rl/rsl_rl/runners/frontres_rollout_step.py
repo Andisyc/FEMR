@@ -11,10 +11,30 @@ environment actions.  The runner keeps the main loop and calls env.step().
 
 from __future__ import annotations
 
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from typing import Any, Callable
 
 import torch
+
+
+@contextmanager
+def frontres_policy_action_rng_scope(seed: int):
+    """Seed one policy sample without advancing the surrounding runtime RNG."""
+
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise ValueError("FrontRES policy action seed must be a non-negative integer")
+    cpu_state = torch.random.get_rng_state()
+    cuda_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else []
+    try:
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        yield
+    finally:
+        torch.random.set_rng_state(cpu_state)
+        if cuda_state:
+            torch.cuda.set_rng_state_all(cuda_state)
 
 
 @dataclass(frozen=True)
@@ -250,6 +270,7 @@ def prepare_frontres_rollout_step(
     n_candidate: int,
     n_base: int,
     n_clean: int,
+    policy_action_seed: int | None = None,
 ) -> FrontRESRolloutStepPlan:
     if getattr(runner, "_frontres_v015_one_action_k_phase", None) == "frozen":
         raise RuntimeError(
@@ -257,13 +278,19 @@ def prepare_frontres_rollout_step(
         )
     actions = None
     if runner.training_type in ("mosaic", "frontres"):
-        actions = runner.alg.act(
-            obs,
-            privileged_obs,
-            teacher_obs=teacher_obs if runner.training_type == "mosaic" else None,
-            ref_vel_estimator_obs=ref_vel_estimator_obs,
-            motion_groups=_motion_groups_for_runner(runner),
+        action_scope = (
+            frontres_policy_action_rng_scope(policy_action_seed)
+            if policy_action_seed is not None
+            else nullcontext()
         )
+        with action_scope:
+            actions = runner.alg.act(
+                obs,
+                privileged_obs,
+                teacher_obs=teacher_obs if runner.training_type == "mosaic" else None,
+                ref_vel_estimator_obs=ref_vel_estimator_obs,
+                motion_groups=_motion_groups_for_runner(runner),
+            )
         if is_task_space_mode:
             _record_direct_task_space_log_prob(runner, actions)
         _record_velocity_estimator_error(runner, vel_est_error_buffer)
@@ -372,6 +399,7 @@ def prepare_frontres_v015_one_action_at_t(
     iteration: int,
     n_repair: int,
     n_noisy: int,
+    policy_action_seed: int | None = None,
 ) -> FrontRESRolloutStepPlan:
     """Sample the unique v015 Repair policy tuple at the local scenario start t."""
 
@@ -399,6 +427,7 @@ def prepare_frontres_v015_one_action_at_t(
             n_candidate=0,
             n_base=n_noisy,
             n_clean=0,
+            policy_action_seed=policy_action_seed,
         )
     except Exception:
         delattr(runner, "_frontres_v015_one_action_k_phase")

@@ -38,7 +38,7 @@ from rsl_rl.runners.frontres_segment_live_sampler import (
 from rsl_rl.runners.frontres_stage3_engine import frontres_stage3_transaction_aggregate
 
 
-SCHEMA = "frontres-action-gain-direction-v1"
+SCHEMA = "frontres-action-gain-direction-v2"
 DIAGNOSTIC_CLASS = "BOUNDED-DIAGNOSTIC/ALTERNATE-PATH"
 _MANIFEST_SCHEMA = "frontres-v024-action-gain-direction-manifest-v1"
 _EXPECTED_CONTRACTS = {
@@ -114,7 +114,7 @@ class FrontRESActionGainDirectionOwners:
     readonly_scope: Callable[[Any], ContextManager[None]]
     prepare_batch: Callable[[Any, tuple[Any, Any], int], Any]
     close_prepared: Callable[[Any], None]
-    collect: Callable[[Any, Any, Any | None, float], Any]
+    collect: Callable[[Any, Any, Any | None, float, int], Any]
     training_state_hashes: Callable[[Any], dict[str, str]]
     replay_owner_present: Callable[[Any], bool]
     write_json: Callable[[str, Mapping[str, Any]], None]
@@ -393,6 +393,18 @@ def _action_seed(request: FrontRESActionGainDirectionRequest, pair_key: tuple[st
     return int.from_bytes(hashlib.sha256(material).digest()[:8], "big") % (2**63 - 1)
 
 
+def _runtime_seed(request: FrontRESActionGainDirectionRequest, pair_key: tuple[str, str]) -> int:
+    material = "|".join(
+        (
+            request.manifest.manifest_file_sha256,
+            request.checkpoint.file_sha256,
+            *pair_key,
+            "fixed-runtime-rng-v1",
+        )
+    ).encode("ascii")
+    return int.from_bytes(hashlib.sha256(material).digest()[:8], "big") % (2**63 - 1)
+
+
 def _used_policy_input_drifts(current: Any, frozen: Any | None) -> tuple[float, float]:
     """Compare the policy inputs actually consumed, not unused live-history observations."""
 
@@ -416,7 +428,13 @@ def _used_policy_input_drifts(current: Any, frozen: Any | None) -> tuple[float, 
     )
 
 
-def _real_collect(runner: Any, prepared: Any, frozen: Any | None, beta: float) -> Any:
+def _real_collect(
+    runner: Any,
+    prepared: Any,
+    frozen: Any | None,
+    beta: float,
+    action_seed: int,
+) -> Any:
     return collect_frontres_recovery_aware_evaluation(
         runner,
         prepared,
@@ -424,6 +442,7 @@ def _real_collect(runner: Any, prepared: Any, frozen: Any | None, beta: float) -
         label="EVAL-v006 bounded action-Gain direction diagnostic",
         beta=beta,
         policy_observations=frozen,
+        policy_action_seed=action_seed,
     )
 
 
@@ -463,6 +482,10 @@ def _collection_rows(collection: Any, *, expected_sources: int, active_m: int) -
     component_tensors = {
         "gain_total": getattr(gain, "gain_total", None),
         "intent_gain": getattr(gain, "intent_gain", None),
+        "physics_remaining_noisy": getattr(gain, "physics_remaining_noisy", None),
+        "physics_remaining_repaired": getattr(gain, "physics_remaining_repaired", None),
+        "physics_gain": getattr(gain, "physics_gain", None),
+        "recovery_pressure": getattr(gain, "recovery_pressure", None),
         "weighted_physics_gain": getattr(gain, "weighted_physics_gain", None),
         "repair_penalty": getattr(gain, "repair_penalty", None),
     }
@@ -473,6 +496,21 @@ def _collection_rows(collection: Any, *, expected_sources: int, active_m: int) -
         for value in component_tensors.values()
     ):
         raise RuntimeError("action-Gain direction collection has incomplete finite Gain components")
+    physics_channel_tensors = {
+        "physics_channel_noisy": getattr(gain, "physics_channel_noisy", None),
+        "physics_channel_repaired": getattr(gain, "physics_channel_repaired", None),
+    }
+    if any(
+        not isinstance(value, torch.Tensor)
+        or tuple(value.shape) != (count, 4)
+        or not bool(torch.isfinite(value[:, (0, 3)]).all())
+        or not bool((torch.isfinite(value[:, (1, 2)]) | torch.isnan(value[:, (1, 2)])).all())
+        for value in physics_channel_tensors.values()
+    ):
+        raise RuntimeError("action-Gain direction collection has malformed Physics channels")
+
+    def optional_channel_row(value: torch.Tensor) -> list[float | None]:
+        return [None if math.isnan(float(item)) else float(item) for item in value.detach().cpu().tolist()]
     totals = component_tensors["gain_total"].detach().reshape(-1)
     utilities = frontres_symmetric_log_utility(totals).detach()
     rows_by_source: dict[int, dict[str, Any]] = {}
@@ -511,7 +549,17 @@ def _collection_rows(collection: Any, *, expected_sources: int, active_m: int) -
                         "raw_return": gain_total,
                         "gain_total": gain_total,
                         "intent_gain": float(component_tensors["intent_gain"][index].detach().cpu().item()),
+                        "physics_remaining_noisy": float(component_tensors["physics_remaining_noisy"][index].detach().cpu().item()),
+                        "physics_remaining_repaired": float(component_tensors["physics_remaining_repaired"][index].detach().cpu().item()),
+                        "physics_gain": float(component_tensors["physics_gain"][index].detach().cpu().item()),
+                        "recovery_pressure": float(component_tensors["recovery_pressure"][index].detach().cpu().item()),
                         "weighted_physics_gain": float(component_tensors["weighted_physics_gain"][index].detach().cpu().item()),
+                        "physics_channel_noisy": optional_channel_row(
+                            physics_channel_tensors["physics_channel_noisy"][index]
+                        ),
+                        "physics_channel_repaired": optional_channel_row(
+                            physics_channel_tensors["physics_channel_repaired"][index]
+                        ),
                         "repair_penalty": repair_penalty,
                         "negative_repair_cost": -repair_penalty,
                     },
@@ -591,15 +639,18 @@ def run_frontres_action_gain_direction_collect(
                 pair_key = tuple(item.item_id for item in item_pair)
                 frozen = frozen_observations.get(pair_key)
                 action_seed = _action_seed(request, pair_key, repeat_index)
+                runtime_seed = _runtime_seed(request, pair_key)
                 rng_pair_before = _rng_state_hashes()
                 prepared = None
-                with _action_rng_scope(action_seed):
+                with _action_rng_scope(runtime_seed):
                     try:
                         with active_owners.readonly_scope(runner):
                             prepared = active_owners.prepare_batch(
                                 runner, item_pair, manifest.attempts_per_segment
                             )
-                            collection = active_owners.collect(runner, prepared, frozen, float(beta))
+                            collection = active_owners.collect(
+                                runner, prepared, frozen, float(beta), action_seed
+                            )
                     finally:
                         if prepared is not None:
                             active_owners.close_prepared(prepared)
@@ -655,6 +706,7 @@ def run_frontres_action_gain_direction_collect(
                         {
                             "visit_index": repeat_index,
                             "action_seed": action_seed,
+                            "runtime_seed": runtime_seed,
                             "actor_input_max_abs_diff": actor_drift,
                             "critic_input_max_abs_diff": critic_drift,
                             "live_actor_input_max_abs_diff": live_actor_drift,
@@ -668,6 +720,7 @@ def run_frontres_action_gain_direction_collect(
                                 "visit_index": repeat_index,
                                 "attempt_index": trial_offset,
                                 "action_seed": action_seed,
+                                "runtime_seed": runtime_seed,
                                 "checkpoint_file_sha256": request.checkpoint.file_sha256,
                                 "manifest_file_sha256": manifest.manifest_file_sha256,
                                 **row,
@@ -727,6 +780,8 @@ def run_frontres_action_gain_direction_collect(
             "rows_per_scenario": manifest.attempts_per_segment * manifest.repeat_count,
             "actor_checkpoint_frozen": True,
             "first_repeat_policy_observations_frozen": True,
+            "runtime_rng_fixed_across_visits": True,
+            "policy_action_rng_isolated_per_visit": True,
             "actor_updated": False,
             "critic_updated": False,
             "optimizer_updated": False,

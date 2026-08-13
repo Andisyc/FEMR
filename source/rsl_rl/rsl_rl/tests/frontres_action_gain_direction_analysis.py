@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
 
-SCHEMA = "frontres-action-gain-direction-v1"
+SCHEMA = "frontres-action-gain-direction-v2"
 ACTION_DIM = 6
 ROWS_PER_SCENARIO = 32
 COMPONENTS = (
@@ -34,7 +34,13 @@ EVIDENCE_COMPONENTS = (
     "raw_return",
     "gain_total",
     "intent_gain",
+    "physics_remaining_noisy",
+    "physics_remaining_repaired",
+    "physics_gain",
+    "recovery_pressure",
     "weighted_physics_gain",
+    "physics_channel_noisy",
+    "physics_channel_repaired",
     "repair_penalty",
     "negative_repair_cost",
 )
@@ -57,7 +63,11 @@ def _finite_number(value: object, *, field: str) -> float:
 
 
 def _close(left: float, right: float) -> bool:
-    return math.isclose(left, right, rel_tol=1.0e-7, abs_tol=1.0e-9)
+    return math.isclose(left, right, rel_tol=1.0e-7, abs_tol=1.0e-7)
+
+
+def _physics_close(left: float, right: float) -> bool:
+    return math.isclose(left, right, rel_tol=1.0e-6, abs_tol=1.0e-7)
 
 
 def _symlog(value: float) -> float:
@@ -108,11 +118,13 @@ def _validate_scenario(
     if not isinstance(raw_visits, list) or len(raw_visits) != 8:
         raise DirectionAnalysisInputError(f"Scenario {scenario_id!r} must contain exactly eight visits")
     visit_seeds: dict[int, int] = {}
+    visit_runtime_seeds: dict[int, int] = {}
     for position, visit in enumerate(raw_visits):
         if not isinstance(visit, Mapping):
             raise DirectionAnalysisInputError(f"Scenario {scenario_id!r} visit {position} must be an object")
         visit_index = visit.get("visit_index")
         action_seed = visit.get("action_seed")
+        runtime_seed = visit.get("runtime_seed")
         actor_drift = visit.get("actor_input_max_abs_diff")
         critic_drift = visit.get("critic_input_max_abs_diff")
         live_actor_drift = visit.get("live_actor_input_max_abs_diff", actor_drift)
@@ -137,6 +149,9 @@ def _validate_scenario(
             or isinstance(action_seed, bool)
             or not isinstance(action_seed, int)
             or action_seed < 0
+            or isinstance(runtime_seed, bool)
+            or not isinstance(runtime_seed, int)
+            or runtime_seed < 0
             or used_actor_drift != 0.0
             or used_critic_drift != 0.0
             or observed_live_actor_drift < 0.0
@@ -146,8 +161,13 @@ def _validate_scenario(
                 f"Scenario {scenario_id!r} visit {position} has invalid identity, seed, or used policy-input drift"
             )
         visit_seeds[visit_index] = action_seed
+        visit_runtime_seeds[visit_index] = runtime_seed
     if set(visit_seeds) != set(range(8)):
         raise DirectionAnalysisInputError(f"Scenario {scenario_id!r} visit_index coverage must be 0..7")
+    if len(set(visit_runtime_seeds.values())) != 1:
+        raise DirectionAnalysisInputError(
+            f"Scenario {scenario_id!r} runtime_seed must remain fixed across all visits"
+        )
     actor_mean = _fixed_policy_vector(
         scenario.get("actor_mean"),
         field=f"Scenario {scenario_id!r} actor_mean",
@@ -183,6 +203,7 @@ def _validate_scenario(
         visit_index = row.get("visit_index")
         attempt_index = row.get("attempt_index")
         action_seed = row.get("action_seed")
+        runtime_seed = row.get("runtime_seed")
         if (
             isinstance(visit_index, bool)
             or not isinstance(visit_index, int)
@@ -194,6 +215,9 @@ def _validate_scenario(
             or attempt_index not in range(4)
             or repair_index != visit_index * 4 + attempt_index
             or action_seed < 0
+            or isinstance(runtime_seed, bool)
+            or not isinstance(runtime_seed, int)
+            or runtime_seed != visit_runtime_seeds.get(visit_index)
         ):
             raise DirectionAnalysisInputError(
                 f"Scenario {scenario_id!r} repair {repair_index} has invalid visit/attempt/action-seed provenance"
@@ -229,13 +253,32 @@ def _validate_scenario(
                 f"Scenario {scenario_id!r} repair {repair_index} component identity mismatch; "
                 f"missing={missing}, extra={extra}"
             )
+        scalar_component_names = tuple(
+            name for name in EVIDENCE_COMPONENTS if not name.startswith("physics_channel_")
+        )
         components = {
             name: _finite_number(
                 raw_components[name],
                 field=f"Scenario {scenario_id!r} repair {repair_index} component {name}",
             )
-            for name in EVIDENCE_COMPONENTS
+            for name in scalar_component_names
         }
+        for channel_name in ("physics_channel_noisy", "physics_channel_repaired"):
+            channel = raw_components[channel_name]
+            if not isinstance(channel, list) or len(channel) != 4:
+                raise DirectionAnalysisInputError(
+                    f"Scenario {scenario_id!r} repair {repair_index} {channel_name} must have four values"
+                )
+            for channel_index, value in enumerate(channel):
+                if channel_index in (1, 2) and value is None:
+                    continue
+                _finite_number(
+                    value,
+                    field=(
+                        f"Scenario {scenario_id!r} repair {repair_index} "
+                        f"{channel_name}[{channel_index}]"
+                    ),
+                )
         reconstructed_total = (
             components["intent_gain"]
             + components["weighted_physics_gain"]
@@ -244,6 +287,27 @@ def _validate_scenario(
         if not _close(components["gain_total"], reconstructed_total):
             raise DirectionAnalysisInputError(
                 f"Scenario {scenario_id!r} repair {repair_index} Gain components do not sum to gain_total"
+            )
+        if not _physics_close(
+            components["physics_gain"],
+            components["physics_remaining_noisy"] - components["physics_remaining_repaired"],
+        ):
+            raise DirectionAnalysisInputError(
+                f"Scenario {scenario_id!r} repair {repair_index} physics_gain identity failed"
+            )
+        if not _physics_close(
+            components["recovery_pressure"],
+            0.5 * (components["physics_remaining_noisy"] + components["physics_remaining_repaired"]),
+        ):
+            raise DirectionAnalysisInputError(
+                f"Scenario {scenario_id!r} repair {repair_index} recovery_pressure identity failed"
+            )
+        if not _physics_close(
+            components["weighted_physics_gain"],
+            components["recovery_pressure"] * components["physics_gain"],
+        ):
+            raise DirectionAnalysisInputError(
+                f"Scenario {scenario_id!r} repair {repair_index} weighted_physics_gain identity failed"
             )
         if components["negative_repair_cost"] > 1.0e-12:
             raise DirectionAnalysisInputError(

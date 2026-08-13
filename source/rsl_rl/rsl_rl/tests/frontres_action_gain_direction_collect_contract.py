@@ -26,6 +26,7 @@ from rsl_rl.runners.frontres_action_gain_direction_collect import (  # noqa: E40
     _parse_manifest,
     run_frontres_action_gain_direction_collect,
 )
+from rsl_rl.runners.frontres_rollout_step import frontres_policy_action_rng_scope  # noqa: E402
 from rsl_rl.runners.frontres_checkpoint_quality import (  # noqa: E402
     FrontRESActiveQualityCheckpointIdentity,
 )
@@ -77,6 +78,8 @@ class _Harness:
         self.drift_used_input_at = drift_used_input_at
         self.written = None
         self.prepared_close_count = 0
+        self.runtime_rng_fingerprints = []
+        self.action_seeds = []
 
     @contextmanager
     def policy_route(self, runner, checkpoint_path: str, checkpoint_sha: str):
@@ -107,9 +110,13 @@ class _Harness:
             prepared.closed = True
             self.prepared_close_count += 1
 
-    def collect(self, runner, prepared, frozen, beta):
+    def collect(self, runner, prepared, frozen, beta, action_seed):
         call_index = self.collect_count
         self.collect_count += 1
+        self.runtime_rng_fingerprints.append(
+            (random.random(), float(np.random.random()), float(torch.rand(())))
+        )
+        self.action_seeds.append(action_seed)
         if self.fail_collect_at == call_index:
             raise RuntimeError("injected collection failure")
         repeat = call_index // 2
@@ -118,6 +125,12 @@ class _Harness:
         intents = []
         physics = []
         penalties = []
+        physics_noisy = []
+        physics_repaired = []
+        physics_gain = []
+        recovery_pressure = []
+        physics_channel_noisy = []
+        physics_channel_repaired = []
         for source, item in enumerate(prepared.items):
             mean = torch.full((6,), 0.01 * (source + call_index % 2))
             sigma = torch.full((6,), 0.1)
@@ -128,6 +141,11 @@ class _Harness:
                 )
                 intent = float(action[0] - action[1])
                 weighted_physics = float(0.5 * action[2])
+                p_noisy = 1.0 + 0.01 * source
+                p_repaired = p_noisy - weighted_physics
+                p_gain = p_noisy - p_repaired
+                pressure = 0.5 * (p_noisy + p_repaired)
+                weighted_physics = pressure * p_gain
                 penalty = float(0.02 * torch.linalg.vector_norm(action))
                 total = intent + weighted_physics - penalty
                 attempts.append(
@@ -146,12 +164,24 @@ class _Harness:
                 totals.append(total)
                 intents.append(intent)
                 physics.append(weighted_physics)
+                physics_noisy.append(p_noisy)
+                physics_repaired.append(p_repaired)
+                physics_gain.append(p_gain)
+                recovery_pressure.append(pressure)
+                physics_channel_noisy.append([p_noisy] * 4)
+                physics_channel_repaired.append([p_repaired] * 4)
                 penalties.append(penalty)
         evidence = SimpleNamespace(ordered_attempts=tuple(attempts))
         gain = SimpleNamespace(
             gain_total=torch.tensor(totals),
             intent_gain=torch.tensor(intents),
             weighted_physics_gain=torch.tensor(physics),
+            physics_remaining_noisy=torch.tensor(physics_noisy),
+            physics_remaining_repaired=torch.tensor(physics_repaired),
+            physics_gain=torch.tensor(physics_gain),
+            recovery_pressure=torch.tensor(recovery_pressure),
+            physics_channel_noisy=torch.tensor(physics_channel_noisy),
+            physics_channel_repaired=torch.tensor(physics_channel_repaired),
             repair_penalty=torch.tensor(penalties),
         )
         used_policy_observations = frozen
@@ -257,11 +287,43 @@ def test_bounded_collection_emits_analyzer_schema_without_state_writes() -> None
         assert all(visit["actor_input_max_abs_diff"] == 0.0 for visit in scenario["visits"])
         assert all(visit["critic_input_max_abs_diff"] == 0.0 for visit in scenario["visits"])
     assert harness.collect_count == 16
+    assert len(set(harness.action_seeds)) == 16
+    assert harness.runtime_rng_fingerprints[0] == harness.runtime_rng_fingerprints[2]
+    assert harness.runtime_rng_fingerprints[1] == harness.runtime_rng_fingerprints[3]
     assert harness.prepared_close_count == 16
     assert harness.policy_loaded is False and harness.readonly_depth == 0
     assert harness.written is not None and harness.written[1] == payload
     analyzed = analyze_payload(payload, partition_count=4, permutation_count=8, seed=17)
     assert len(analyzed["scenarios"]) == 4
+
+
+def test_action_rng_is_nested_and_restores_runtime_rng() -> None:
+    torch.manual_seed(911)
+    before = torch.random.get_rng_state().clone()
+    with frontres_policy_action_rng_scope(101):
+        action_a = torch.rand(6)
+    after_a = torch.random.get_rng_state().clone()
+    assert torch.equal(before, after_a)
+    with frontres_policy_action_rng_scope(202):
+        action_b = torch.rand(6)
+    assert not torch.equal(action_a, action_b)
+    assert torch.equal(before, torch.random.get_rng_state())
+
+
+def test_physics_decomposition_is_exported() -> None:
+    payload = run_frontres_action_gain_direction_collect(
+        _runner(), request=_request(), owners=_Harness().owners()
+    )
+    components = payload["scenarios"][0]["rows"][0]["components"]
+    for field in (
+        "physics_remaining_noisy",
+        "physics_remaining_repaired",
+        "physics_gain",
+        "recovery_pressure",
+        "physics_channel_noisy",
+        "physics_channel_repaired",
+    ):
+        assert field in components
 
 
 def test_exception_restores_route_rng_and_readonly_lifecycle() -> None:
@@ -340,6 +402,8 @@ def test_entrypoint_preserves_formal_training_and_historical_eval_boundaries() -
 
 def main() -> None:
     test_bounded_collection_emits_analyzer_schema_without_state_writes()
+    test_action_rng_is_nested_and_restores_runtime_rng()
+    test_physics_decomposition_is_exported()
     test_exception_restores_route_rng_and_readonly_lifecycle()
     test_used_policy_input_drift_still_fails_closed()
     test_real_prepared_cleanup_is_idempotent()

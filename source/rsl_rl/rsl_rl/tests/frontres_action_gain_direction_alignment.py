@@ -29,11 +29,18 @@ def _actions() -> list[list[float]]:
 
 def _row(repair_index: int, action: list[float], intent: float, physics: float = 0.0, cost: float = 0.0) -> dict:
     total = intent + physics + cost
+    physics_remaining_noisy = 1.0
+    physics_remaining_repaired = math.sqrt(physics_remaining_noisy**2 - 2.0 * physics)
+    physics_gain = physics_remaining_noisy - physics_remaining_repaired
+    recovery_pressure = 0.5 * (physics_remaining_noisy + physics_remaining_repaired)
+    weighted_physics = recovery_pressure * physics_gain
+    total = intent + weighted_physics + cost
     return {
         "repair_index": repair_index,
         "visit_index": repair_index // 4,
         "attempt_index": repair_index % 4,
         "action_seed": 1000 + repair_index // 4,
+        "runtime_seed": 777,
         "checkpoint_file_sha256": "a" * 64,
         "manifest_file_sha256": "b" * 64,
         "action": action,
@@ -42,7 +49,13 @@ def _row(repair_index: int, action: list[float], intent: float, physics: float =
             "raw_return": total,
             "gain_total": total,
             "intent_gain": intent,
-            "weighted_physics_gain": physics,
+            "physics_remaining_noisy": physics_remaining_noisy,
+            "physics_remaining_repaired": physics_remaining_repaired,
+            "physics_gain": physics_gain,
+            "recovery_pressure": recovery_pressure,
+            "weighted_physics_gain": weighted_physics,
+            "physics_channel_noisy": [physics_remaining_noisy] * 4,
+            "physics_channel_repaired": [physics_remaining_repaired] * 4,
             "repair_penalty": -cost,
             "negative_repair_cost": cost,
         },
@@ -67,6 +80,7 @@ def _scenario(
             {
                 "visit_index": visit,
                 "action_seed": 1000 + visit,
+                "runtime_seed": 777,
                 "actor_input_max_abs_diff": 0.0,
                 "critic_input_max_abs_diff": 0.0,
                 "live_actor_input_max_abs_diff": 0.0 if visit == 0 else 3.8110761642456055,
@@ -311,8 +325,8 @@ def test_component_cancellation_remains_visible() -> None:
     }
     assert analyses["intent_gain"]["primary_disjoint_m16"]["cosine"] > 0.999
     assert analyses["weighted_physics_gain"]["primary_disjoint_m16"]["cosine"] > 0.999
-    assert analyses["gain_total"]["m32"]["norm"] == 0.0
-    assert analyses["utility"]["m32"]["norm"] == 0.0
+    assert analyses["gain_total"]["m32"]["norm"] < 1.0e-14
+    assert analyses["utility"]["m32"]["norm"] < 1.0e-14
     component_cosine = direction_cosine(
         analyses["intent_gain"]["m32"]["direction"],
         analyses["weighted_physics_gain"]["m32"]["direction"],
@@ -469,6 +483,32 @@ def test_malformed_evidence_fails_closed() -> None:
     _expect_input_error(
         lambda: analyze_scenario(wrong_visit_seed, partition_count=4, permutation_count=4),
         "disagree with visit provenance",
+    )
+
+    wrong_runtime_seed = copy.deepcopy(base)
+    wrong_runtime_seed["visits"][4]["runtime_seed"] += 1
+    _expect_input_error(
+        lambda: analyze_scenario(wrong_runtime_seed, partition_count=4, permutation_count=4),
+        "runtime_seed must remain fixed",
+    )
+
+    wrong_physics_gain = copy.deepcopy(base)
+    wrong_physics_gain["rows"][0]["components"]["physics_gain"] += 0.25
+    _expect_input_error(
+        lambda: analyze_scenario(wrong_physics_gain, partition_count=4, permutation_count=4),
+        "physics_gain identity failed",
+    )
+
+    valid_physics_na = copy.deepcopy(base)
+    valid_physics_na["rows"][0]["components"]["physics_channel_noisy"][1] = None
+    valid_physics_na["rows"][0]["components"]["physics_channel_repaired"][2] = None
+    analyze_scenario(valid_physics_na, partition_count=4, permutation_count=4)
+
+    invalid_required_physics = copy.deepcopy(base)
+    invalid_required_physics["rows"][0]["components"]["physics_channel_noisy"][0] = None
+    _expect_input_error(
+        lambda: analyze_scenario(invalid_required_physics, partition_count=4, permutation_count=4),
+        "must be a real scalar",
     )
 
     wrong_scenario_hash = copy.deepcopy(base)
