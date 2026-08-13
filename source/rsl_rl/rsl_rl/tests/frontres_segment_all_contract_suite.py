@@ -305,6 +305,13 @@ CONTRACTS = (
         requires_torch=True,
     ),
     ContractTarget(
+        name="same_action_gain_repeatability_probe",
+        path="source/rsl_rl/rsl_rl/tests/frontres_same_action_gain_repeatability_probe_contract.py",
+        expected_marker="frontres_same_action_gain_repeatability_probe_contract: PASS",
+        path_class="core_param_path",
+        requires_torch=False,
+    ),
+    ContractTarget(
         name="v022_formal_runtime_audit_b8",
         path="source/rsl_rl/rsl_rl/tests/frontres_v022_formal_runtime_audit_b8_contract.py",
         expected_marker="frontres_v022_formal_runtime_audit_b8_contract: PASS",

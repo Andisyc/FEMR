@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "design_identity": "FRS-METHOD-v025/FRS-GAIN-v008/FRS-PPO-v012/FRS-TRAIN-v024",
-  "checkout_identity": "6336d119c34ac57f63e786d06ddc6106b89d5df0+v024-authorized-dirty-worktree-20260812",
+  "checkout_identity": "fe39f20ef8b521942bbf7ed680fc55bc34ffca15+same-action-gain-probe-implementation-20260813+preexisting-untracked-training-log",
   "modules": [
     {
       "id": "frontres-v024-current-visit-scenario-replay",
