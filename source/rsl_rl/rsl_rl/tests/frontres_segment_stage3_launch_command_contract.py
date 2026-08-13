@@ -67,11 +67,12 @@ def _command_line(result: subprocess.CompletedProcess[str]) -> str:
 
 
 def _probe(name: str, command: str) -> None:
+    escaped_offsets = "--frontres_v015_future_offsets 1\\,2"
     print(
         f"[probe step7] {name}: "
         f"stage3={'--frontres_stage stage3_segment_hrl' in command} "
         f"hsl_v2={'--frontres_v015_hsl_initializer_checkpoint' in command} "
-        f"offsets={'--frontres_v015_future_offsets 1\\,2' in command} "
+        f"offsets={escaped_offsets in command} "
         f"resume={'--resume' in command} "
         f"update_steps_3={'--frontres_segment_live_update_steps 3' in command} "
         f"specialist_rp={'--frontres_specialist_mode rp' in command} "

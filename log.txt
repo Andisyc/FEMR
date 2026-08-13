@@ -1,134 +1,151 @@
-(mosaic) yuxuancheng@baode:/hdd0/yuxuancheng/FEMR$ FRONTRES_PYTHON="$(command -v python)" bash run/run_frontres_v022_global_simplified_formal_test.sh
-[ResidualActorCritic] Loading GMT policy from: /hdd0/yuxuancheng/FEMR/model/model_27000.pt
-[ResidualActorCritic] GMT architecture: actor_input=770, critic_input=289, actions=29
-Actor MLP: Sequential(
-  (0): Linear(in_features=770, out_features=1024, bias=True)
-  (1): ELU(alpha=1.0)
-  (2): Linear(in_features=1024, out_features=1024, bias=True)
-  (3): ELU(alpha=1.0)
-  (4): Linear(in_features=1024, out_features=512, bias=True)
-  (5): ELU(alpha=1.0)
-  (6): Linear(in_features=512, out_features=256, bias=True)
-  (7): ELU(alpha=1.0)
-  (8): Linear(in_features=256, out_features=29, bias=True)
+(mosaic) chengyuxuan@amax:/hdd2/cyx/FEMR$ cd /hdd2/cyx/FEMR
+
+(
+set -euo pipefail
+
+GPU=7
+ROOT=/hdd2/cyx/FEMR
+DATA=/hdd1/cyx
+PYTHON=/hdd1/cyx/miniconda3/envs/mosaic/bin/python
+
+HSL="$ROOT/g1_flat_frontres_stage1_hsl/2026-08-04_18-14-12_V017_HSL_V2_FULL/model_warmup.pt"
+POLICY="$ROOT/g1_flat_frontres_stage3_segment_hrl/2026-08-13_13-01-07_FRS_TRAIN_V024_K8_B8_M4_MODEL50_TO_MODEL200_HDD2_20260813/model_200.pt"
+MOTIONS="$DATA/AMASS_G1NPZ_Final"
+CACHE="$DATA/AMASS_G1Segment"
+MANIFEST="$ROOT/note/testing/manifests/frontres_v024_action_gain_direction_k8_v1.json"
+
+RESULT="$ROOT/log/FRS_EVAL_V006_V024_ACTION_GAIN_DIRECTION_MODEL200_RERUN1_20260814.json"
+LOG="$ROOT/log/FRS_EVAL_V006_V024_ACTION_GAIN_DIRECTION_MODEL200_RERUN1_20260814.log"
+
+SCHEDULE='8:4:200:500:1300:lower-k8:0.5:linear-coupled-v1:700:2.381,16:4:300:300:900:lower-k16:0.6:linear-coupled-v1:600:2.381,32:4:400:300:625:lower-k32:0.7:linear-coupled-v1:700:2.381'
+
+mkdir -p "$ROOT/log"
+
+for path in "$HSL" "$POLICY" "$MANIFEST"; do
+  [[ -f "$path" ]] || { echo "missing file: $path" >&2; exit 2; }
+done
+
+for path in "$MOTIONS" "$CACHE"; do
+  [[ -d "$path" ]] || { echo "missing directory: $path" >&2; exit 2; }
+done
+
+[[ ! -e "$RESULT" ]] || { echo "result already exists: $RESULT" >&2; exit 2; }
+[[ ! -e "$LOG" ]] || { echo "log already exists: $LOG" >&2; exit 2; }
+
+"$PYTHON" \
+  "$ROOT/source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py"
+
+env \
+  CUDA_VISIBLE_DEVICES="$GPU" \
+  FEMR_ROOT="$ROOT" \
+  FEMR_DATA_ROOT="$DATA" \
+  CACHE_DIR="$CACHE" \
+  LOG_PATH="$LOG" \
+  RUN_NAME="FRS_EVAL_V006_V024_ACTION_GAIN_DIRECTION_MODEL200_RERUN1" \
+  FRONTRES_SPECIALIST_MODE=rp \
+  FRONTRES_V015_K_CURRICULUM="$SCHEDULE" \
+  ACTION_GAIN_DIRECTION_MANIFEST="$MANIFEST" \
+  ACTION_GAIN_DIRECTION_POLICY_CHECKPOINT="$POLICY" \
+  ACTION_GAIN_DIRECTION_RESULT="$RESULT" \
+  bash "$ROOT/run_stage3.sh" \
+    "$HSL" "$MOTIONS" 16 0 1 action_gain_direction_collect
 )
-Critic MLP: Sequential(
-  (0): Linear(in_features=289, out_features=1024, bias=True)
-  (1): ELU(alpha=1.0)
-  (2): Linear(in_features=1024, out_features=1024, bias=True)
-  (3): ELU(alpha=1.0)
-  (4): Linear(in_features=1024, out_features=512, bias=True)
-  (5): ELU(alpha=1.0)
-  (6): Linear(in_features=512, out_features=256, bias=True)
-  (7): ELU(alpha=1.0)
-  (8): Linear(in_features=256, out_features=1, bias=True)
-)
-[ResidualActorCritic] GMT policy frozen (all parameters require_grad=False)
-[ResidualActorCritic] GMT observation normalizer loaded (dim=770) and frozen
-[ResidualActorCritic] Residual last layer weight norm: 0.032478 (gain=0.01)
-[FrontEndResidualActorCritic] FrontRES output: 6 task-space dims [Δpos(3)+Δrpy(3)] — no Δq patching
-[FrontEndResidualActorCritic] FrontRES network: Sequential(
-  (0): Linear(in_features=158, out_features=512, bias=True)
-  (1): ELU(alpha=1.0)
-  (2): Linear(in_features=512, out_features=256, bias=True)
-  (3): ELU(alpha=1.0)
-  (4): Linear(in_features=256, out_features=128, bias=True)
-  (5): ELU(alpha=1.0)
-  (6): Linear(in_features=128, out_features=6, bias=True)
-) (input_dim=158, output_dim=6)
-[ResidualActorCritic] Critic MLP: Sequential(
-  (0): Linear(in_features=449, out_features=1024, bias=True)
-  (1): ELU(alpha=1.0)
-  (2): Linear(in_features=1024, out_features=1024, bias=True)
-  (3): ELU(alpha=1.0)
-  (4): Linear(in_features=1024, out_features=512, bias=True)
-  (5): ELU(alpha=1.0)
-  (6): Linear(in_features=512, out_features=256, bias=True)
-  (7): ELU(alpha=1.0)
-  (8): Linear(in_features=256, out_features=1, bias=True)
-)
-[ResidualActorCritic] Created composed actor for ONNX export
-[FrontRESActorCritic] Observation layout: 928D = 158D FrontRES-only prefix + 770D GMT-compatible suffix. GMT consumes the suffix only; no zero padding.
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[ResidualActorCritic] Loading GMT policy from: /hdd0/yuxuancheng/FEMR/model/model_27000.pt
-[ResidualActorCritic] GMT architecture: actor_input=770, critic_input=289, actions=29
-Actor MLP: Sequential(
-  (0): Linear(in_features=770, out_features=1024, bias=True)
-  (1): ELU(alpha=1.0)
-  (2): Linear(in_features=1024, out_features=1024, bias=True)
-  (3): ELU(alpha=1.0)
-  (4): Linear(in_features=1024, out_features=512, bias=True)
-  (5): ELU(alpha=1.0)
-  (6): Linear(in_features=512, out_features=256, bias=True)
-  (7): ELU(alpha=1.0)
-  (8): Linear(in_features=256, out_features=29, bias=True)
-)
-Critic MLP: Sequential(
-  (0): Linear(in_features=289, out_features=1024, bias=True)
-  (1): ELU(alpha=1.0)
-  (2): Linear(in_features=1024, out_features=1024, bias=True)
-  (3): ELU(alpha=1.0)
-  (4): Linear(in_features=1024, out_features=512, bias=True)
-  (5): ELU(alpha=1.0)
-  (6): Linear(in_features=512, out_features=256, bias=True)
-  (7): ELU(alpha=1.0)
-  (8): Linear(in_features=256, out_features=1, bias=True)
-)
-[ResidualActorCritic] GMT policy frozen (all parameters require_grad=False)
-[ResidualActorCritic] GMT observation normalizer loaded (dim=770) and frozen
-[ResidualActorCritic] Residual last layer weight norm: 0.033500 (gain=0.01)
-[FrontEndResidualActorCritic] FrontRES output: 6 task-space dims [Δpos(3)+Δrpy(3)] — no Δq patching
-[FrontEndResidualActorCritic] FrontRES network: Sequential(
-  (0): Linear(in_features=158, out_features=512, bias=True)
-  (1): ELU(alpha=1.0)
-  (2): Linear(in_features=512, out_features=256, bias=True)
-  (3): ELU(alpha=1.0)
-  (4): Linear(in_features=256, out_features=128, bias=True)
-  (5): ELU(alpha=1.0)
-  (6): Linear(in_features=128, out_features=6, bias=True)
-) (input_dim=158, output_dim=6)
-[ResidualActorCritic] Critic MLP: Sequential(
-  (0): Linear(in_features=449, out_features=1024, bias=True)
-  (1): ELU(alpha=1.0)
-  (2): Linear(in_features=1024, out_features=1024, bias=True)
-  (3): ELU(alpha=1.0)
-  (4): Linear(in_features=1024, out_features=512, bias=True)
-  (5): ELU(alpha=1.0)
-  (6): Linear(in_features=512, out_features=256, bias=True)
-  (7): ELU(alpha=1.0)
-  (8): Linear(in_features=256, out_features=1, bias=True)
-)
-[ResidualActorCritic] Created composed actor for ONNX export
-[FrontRESActorCritic] Observation layout: 928D = 158D FrontRES-only prefix + 770D GMT-compatible suffix. GMT consumes the suffix only; no zero padding.
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-[FrontRES Segment PPO Eval Trace] batch_action_shape=(32, 6) policy_action_mean_shape=(32, 6) eval_mean_shape=(32, 6) log_prob_shape=(32,) actor_obs_shape=(32, 928) critic_obs_shape=(32, 449) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
-frontres_v022_global_simplified_formal_test: PASS transactions=32 K=8 B=8 M=4
+[probe step9] cache_schema: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='PASS: FrontRES Segment cache schema validates ids and rollout state tensors.' marker_count=1 observed_marker=True
+[probe step9] cache_indexer: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='PASS: FrontRES AMASS indexer builds segment index from motion paths and frame counts.' marker_count=1 observed_marker=True
+[probe step9] cache_io: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='PASS: FrontRES Segment cache IO round-trips clean states and noisy variants.' marker_count=1 observed_marker=True
+[probe step9] cache_validator: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='PASS: FrontRES Stage 1 cache validator reads back metadata and clean/noisy shards.' marker_count=1 observed_marker=True
+[probe step9] cache_extractor: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='PASS: FrontRES clean state extractor captures detached robot rollout state.' marker_count=1 observed_marker=True
+[probe step9] cache_perturbation: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='PASS: FrontRES perturbation curriculum descriptors are reproducible and indexed.' marker_count=1 observed_marker=True
+[probe step9] cache_curriculum: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='PASS: FrontRES Stage 1 curriculum bank derives cache levels from HRL perturbation curriculum.' marker_count=1 observed_marker=True
+[probe step9] cache_noisy_capture: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='PASS: FrontRES noisy capture interface builds noisy variants through reset and perturbation hooks.' marker_count=1 observed_marker=True
+[probe step9] cache_builder: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='PASS: FrontRES Stage 1 cache builder orchestrates index, clean, perturbation, noisy, and IO.' marker_count=1 observed_marker=True
+[probe step9] stage1_env_hooks: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='PASS: FrontRES Stage 1 env adapter hooks trace motion, clean reset, perturbation, and baseline rollout.' marker_count=1 observed_marker=True
+[probe step9] dataset: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='result: PASS' marker_count=1 observed_marker=True
+[probe step9] sampler: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='result: PASS' marker_count=1 observed_marker=True
+[probe step9] fixed_noisy_segment_lifecycle: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_fixed_noisy_segment_lifecycle_contract: ok' marker_count=1 observed_marker=True
+[probe step9] full6_no_active_mask: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_full6_no_active_mask_contract: ok' marker_count=1 observed_marker=True
+[probe step9] task_space_contact_correction: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_task_space_correction_contract: ok' marker_count=1 observed_marker=True
+[probe step9] reward: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='result: PASS' marker_count=1 observed_marker=True
+[probe step9] total_reward_scale: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_total_reward_scale_contract: ok' marker_count=1 observed_marker=True
+[probe step9] reset: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='result: PASS' marker_count=1 observed_marker=True
+[probe step9] diagnostics: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='result: PASS' marker_count=1 observed_marker=True
+[probe step9] runner_boundary: class=live_sentinel_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='result: PASS' marker_count=1 observed_marker=True
+[probe step9] interface_refactor: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='FrontRES formal Stage-3 route is isolated behind typed fail-closed ports' marker_count=1 observed_marker=True
+[probe step9] rollout_step_action_stats: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_rollout_step_action_stats_contract: ok' marker_count=1 observed_marker=True
+[probe step9] storage: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='result: PASS' marker_count=1 observed_marker=True
+[probe step9] algorithm: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='result: PASS' marker_count=1 observed_marker=True
+[probe step9] grouped_ppo: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_segment_grouped_ppo_contract: scalar v005 ok' marker_count=1 observed_marker=True
+[probe step9] actual_policy_distribution: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_actual_policy_distribution_contract: ok' marker_count=1 observed_marker=True
+[probe step9] proposal_only_task_space_policy: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_task_space_proposal_only_contract: ok' marker_count=1 observed_marker=True
+[probe step9] observation_layout: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_observation_layout_contract: ok' marker_count=1 observed_marker=True
+[probe step9] balance_obs_cfg: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_balance_obs_cfg_contract: ok' marker_count=1 observed_marker=True
+[probe step9] balance_offline_connectivity: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_balance_offline_connectivity_contract: ok' marker_count=1 observed_marker=True
+[probe step9] live_sentinel: class=live_sentinel_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='result: PASS' marker_count=1 observed_marker=True
+[probe step9] stage3_pseudo_suite: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=1 expected_marker='frontres_segment_stage3_pseudo_suite: ok' marker_count=0 observed_marker=False
+[probe step9] stage3_pseudo_suite: stdout_begin
+[probe step8] step1_live_storage_write: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_probe='[probe step1]' probe_count=39 observed_probe=True
+[probe step8] step2_storage_to_ppo: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_probe='[probe step2]' probe_count=19 observed_probe=True
+[probe step8] step3_single_update: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_probe='[probe step3]' probe_count=16 observed_probe=True
+[probe step8] step4_update_loop: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_probe='[FrontRES Segment Live Update Loop]' probe_count=5 observed_probe=True
+[probe step8] step5_live_training_loop: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_probe='[probe step5]' probe_count=15 observed_probe=True
+[probe step8] step21_live_training_resume: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_probe='[probe step21]' probe_count=5 observed_probe=True
+[probe step8] step13_live_reset_hook: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_probe='[probe step13]' probe_count=9 observed_probe=True
+[probe step8] step15_reference_window_hook: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_probe='[probe step15]' probe_count=1 observed_probe=True
+[probe step8] step16_motion_command_reference: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_probe='[probe step16]' probe_count=17 observed_probe=True
+[probe step8] step17_local_closed_loop: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_probe='[probe step17]' probe_count=7 observed_probe=True
+[probe step8] step6_stage3_entrypoint: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_probe='[probe step6]' probe_count=7 observed_probe=True
+[probe step8] step7_launch_command: class=live_sentinel_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=1 expected_probe='[probe step7]' probe_count=0 observed_probe=False
+[probe step8] step7_launch_command: stdout_begin
+
+[probe step8] step7_launch_command: stderr_begin
+  File "/hdd2/cyx/FEMR/source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_launch_command_contract.py", line 80
+    f"mosaic_path={'/MOSAIC/' in command}",
+                                          ^
+SyntaxError: f-string expression part cannot include a backslash
+
+[probe step8] stage_entrypoint_guard: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_probe='PASS: FrontRES Stage' probe_count=1 observed_probe=True
+[probe step8] suite_summary: contract_count=13 failed_count=1 total_probe_count=141
+
+[probe step9] stage3_pseudo_suite: stderr_begin
+Traceback (most recent call last):
+  File "/hdd2/cyx/FEMR/source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py", line 200, in <module>
+    main()
+  File "/hdd2/cyx/FEMR/source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py", line 194, in main
+    assert not failed, f"Stage 3 pseudo suite failed: {failed}"
+AssertionError: Stage 3 pseudo suite failed: ['step7_launch_command']
+
+[probe step9] stage3_contract_preflight: class=live_sentinel_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_segment_stage3_contract_preflight_contract: ok' marker_count=1 observed_marker=True
+[probe step9] stage3_contract_failure_preflight: class=live_sentinel_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_segment_stage3_contract_failure_preflight_contract: ok' marker_count=1 observed_marker=True
+[probe step9] stage3_live_resume: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_segment_live_resume_pseudo_contract: ok' marker_count=1 observed_marker=True
+[probe step9] stage3_actor_critic_warmup: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_segment_warmup_contract: ok' marker_count=1 observed_marker=True
+[probe step9] frozen_gmt_gradient_boundary: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_frozen_gmt_contract: ok' marker_count=1 observed_marker=True
+[probe step9] v016_runtime_telemetry: class=secondary_contract_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_v016_runtime_telemetry_contract: final serialized fields exact' marker_count=1 observed_marker=True
+[probe step9] gain_v007: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='[T-v007-gain]' marker_count=1 observed_marker=True
+[probe step9] v017_step1_connectivity: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='[T-v017-step1]' marker_count=1 observed_marker=True
+[probe step9] v018_policy_quality_eval: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_v018_policy_quality_eval_contract: ok' marker_count=1 observed_marker=True
+[probe step9] v019_critic_repeat_probe: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_v019_critic_repeat_probe_contract: ok' marker_count=1 observed_marker=True
+[probe step9] v018_policy_quality_compatibility: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_v018_policy_quality_compatibility_contract: ok' marker_count=1 observed_marker=True
+[probe step9] v024_current_visit_replay: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_v024_current_visit_replay_contract: PASS' marker_count=1 observed_marker=True
+[probe step9] same_action_gain_repeatability_probe: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_same_action_gain_repeatability_probe_contract: PASS' marker_count=1 observed_marker=True
+[probe step9] v022_formal_runtime_audit_b8: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_v022_formal_runtime_audit_b8_contract: PASS' marker_count=1 observed_marker=True
+[probe step9] formal_runtime_audit: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_formal_runtime_audit_contract: ok' marker_count=1 observed_marker=True
+[probe step9] v018_policy_quality_batch_adapter: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='[T-v018-heldout] two Segment x M4, K16 and source-shared scenario identities are sealed' marker_count=1 observed_marker=True
+[probe step9] v017_transaction_route: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_v015_transaction_route_contract: v024 current-visit outer replay exact-one ok' marker_count=1 observed_marker=True
+[probe step9] v018_support_conditioned_observation: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_v018_support_conditioned_observation_contract: 289+58+102=449 exact' marker_count=1 observed_marker=True
+[probe step9] v018_m4_schedule: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_v018_m4_schedule_contract: K8/K16/K32 all M4' marker_count=1 observed_marker=True
+[probe step9] v016_state_value_ppo: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_v016_state_value_ppo_contract: segment mean + separate clip exact' marker_count=1 observed_marker=True
+[probe step9] v016_checkpoint_resume: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_v016_checkpoint_contract: v19 replay-v5 round-trip and legacy reject' marker_count=1 observed_marker=True
+[probe step9] hsl_rollout_target_audit: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_hsl_rollout_target_contract: v007 reject ok' marker_count=1 observed_marker=True
+[probe step9] stage3_live_probe_ppo_boundary: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_segment_live_probe_ppo_contract: ok' marker_count=1 observed_marker=True
+[probe step9] stage3_live_reset_hook: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_segment_live_reset_hook_contract: ok' marker_count=1 observed_marker=True
+[probe step9] stage3_reference_window_hook: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='[probe step15]' marker_count=1 observed_marker=True
+[probe step9] stage3_motion_command_reference: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_segment_motion_command_reference_contract: ok' marker_count=1 observed_marker=True
+[probe step9] fixed_noisy_actor_context: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_fixed_noisy_actor_context_contract: ok' marker_count=1 observed_marker=True
+[probe step9] stage3_local_closed_loop: class=core_param_path python=/hdd1/cyx/miniconda3/envs/mosaic/bin/python returncode=0 expected_marker='frontres_segment_live_closed_loop_contract: ok' marker_count=1 observed_marker=True
+[probe step9] suite_summary: contract_count=60 failed_count=1 total_marker_count=59
+Traceback (most recent call last):
+  File "/hdd2/cyx/FEMR/source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py", line 527, in <module>
+    main()
+  File "/hdd2/cyx/FEMR/source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py", line 521, in main
+    assert not failed, f"Segment Replay contract suite failed: {failed}"
+AssertionError: Segment Replay contract suite failed: ['stage3_pseudo_suite']
