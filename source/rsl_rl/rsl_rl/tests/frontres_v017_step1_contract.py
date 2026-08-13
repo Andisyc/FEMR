@@ -38,8 +38,8 @@ from rsl_rl.runners.frontres_segment_physics import FrontRESV017ExecutionFrame
 K = 8
 
 
-def test_baseline_capture_projects_only_authoritative_segment_rows() -> None:
-    authoritative = torch.arange(8)
+def _run_baseline_projection_case(authoritative: torch.Tensor) -> None:
+    total_rows = 8
     step_count = 0
     capture_count = 0
 
@@ -48,7 +48,7 @@ def test_baseline_capture_projects_only_authoritative_segment_rows() -> None:
             pass
 
         def advance_frontres_local_scenario_k_execution(self) -> dict[str, torch.Tensor]:
-            return {"valid_mask": torch.ones(8, dtype=torch.bool)}
+            return {"valid_mask": torch.ones(total_rows, dtype=torch.bool)}
 
         def end_frontres_local_scenario_k_execution(self) -> None:
             pass
@@ -59,23 +59,31 @@ def test_baseline_capture_projects_only_authoritative_segment_rows() -> None:
         def step(self, _actions):
             nonlocal step_count
             step_count += 1
-            return torch.zeros(8, 1), torch.zeros(8), torch.zeros(8, dtype=torch.bool), {}
+            return (
+                torch.zeros(total_rows, 1),
+                torch.zeros(total_rows),
+                torch.zeros(total_rows, dtype=torch.bool),
+                {},
+            )
 
     def capture(_runner, *, selected_rows: torch.Tensor) -> FrontRESV017ExecutionFrame:
         nonlocal capture_count
         capture_count += 1
         assert selected_rows.tolist() == authoritative.tolist()
         row_values = selected_rows.float()
+        selected_count = int(selected_rows.numel())
         return FrontRESV017ExecutionFrame(
-            joint_pos=row_values[:, None].expand(8, 29).clone(),
-            root_pos=torch.zeros(8, 3),
-            root_quat=torch.nn.functional.one_hot(torch.zeros(8, dtype=torch.long), num_classes=4).float(),
-            key_body_pos=torch.zeros(8, 3, 3),
-            root_lin_vel=torch.zeros(8, 3),
-            root_ang_vel=torch.zeros(8, 3),
-            foot_pos=torch.zeros(8, 2, 3),
-            expected_support=torch.ones(8, 2),
-            contact=torch.ones(8, 2),
+            joint_pos=row_values[:, None].expand(selected_count, 29).clone(),
+            root_pos=torch.zeros(selected_count, 3),
+            root_quat=torch.nn.functional.one_hot(
+                torch.zeros(selected_count, dtype=torch.long), num_classes=4
+            ).float(),
+            key_body_pos=torch.zeros(selected_count, 3, 3),
+            root_lin_vel=torch.zeros(selected_count, 3),
+            root_ang_vel=torch.zeros(selected_count, 3),
+            foot_pos=torch.zeros(selected_count, 2, 3),
+            expected_support=torch.ones(selected_count, 2),
+            contact=torch.ones(selected_count, 2),
             zmp_margin=row_values.clone(),
         )
 
@@ -83,14 +91,16 @@ def test_baseline_capture_projects_only_authoritative_segment_rows() -> None:
     runner = SimpleNamespace(
         device=torch.device("cpu"),
         env=_Env(),
-        alg=SimpleNamespace(policy=SimpleNamespace(run_frozen_gmt_from_suffix=lambda obs: torch.zeros(8, 1))),
+        alg=SimpleNamespace(
+            policy=SimpleNamespace(run_frozen_gmt_from_suffix=lambda obs: torch.zeros(total_rows, 1))
+        ),
     )
     original_command = one_action.frontres_motion_command
     original_suffix = one_action._read_v017_normalized_gmt_suffix
     original_capture = one_action.capture_frontres_v017_execution_frame
     try:
         one_action.frontres_motion_command = lambda _runner: command
-        one_action._read_v017_normalized_gmt_suffix = lambda _runner: torch.zeros(8, 770)
+        one_action._read_v017_normalized_gmt_suffix = lambda _runner: torch.zeros(total_rows, 770)
         one_action.capture_frontres_v017_execution_frame = capture
         trajectory, support = one_action.collect_frontres_v017_no_actor_baseline(
             runner,
@@ -103,8 +113,27 @@ def test_baseline_capture_projects_only_authoritative_segment_rows() -> None:
         one_action.capture_frontres_v017_execution_frame = original_capture
     assert step_count == 3
     assert capture_count == 2
-    assert tuple(trajectory.joint_pos.shape) == (2, 8, 29)
-    assert tuple(support.shape) == (2, 8, 2)
+    selected_count = int(authoritative.numel())
+    assert tuple(trajectory.joint_pos.shape) == (2, selected_count, 29)
+    assert tuple(support.shape) == (2, selected_count, 2)
+
+
+def test_baseline_capture_projects_only_authoritative_segment_rows() -> None:
+    _run_baseline_projection_case(torch.arange(8))
+
+
+def test_baseline_capture_accepts_two_unique_evaluation_rows() -> None:
+    _run_baseline_projection_case(torch.tensor([1, 6]))
+
+
+def test_baseline_capture_rejects_empty_or_duplicate_evaluation_rows() -> None:
+    for authoritative in (torch.empty(0, dtype=torch.long), torch.tensor([1, 1])):
+        try:
+            _run_baseline_projection_case(authoritative)
+        except ValueError as exc:
+            assert "non-empty unique authoritative Scenario rows" in str(exc)
+        else:
+            raise AssertionError("baseline must reject empty or duplicate authoritative rows")
 
 
 def _trajectory(joint: float, *, foot: float, zmp: float) -> FrontRESExecutedKTrajectory:
@@ -390,6 +419,8 @@ def test_active_stage3_rejects_legacy_local_evaluation() -> None:
 
 def main() -> None:
     test_baseline_capture_projects_only_authoritative_segment_rows()
+    test_baseline_capture_accepts_two_unique_evaluation_rows()
+    test_baseline_capture_rejects_empty_or_duplicate_evaluation_rows()
     test_v017_sealed_gain_to_grouped_scalar_ppo()
     test_v017_partial_or_mixed_batch_rejects()
     test_v017_evaluation_contact_zmp_lean_and_unplanned_cases_are_hand_checkable()
