@@ -828,16 +828,22 @@ def _attach_frontres_local_scenarios(
 
 
 def close_frontres_local_scenarios(batch: Any) -> None:
-    """Close every sealed scenario owned by one completed transaction batch."""
+    """Idempotently close every sealed scenario owned by one transaction batch."""
 
     lifecycle = getattr(batch, "frontres_local_scenario_lifecycle", None)
     rows = getattr(batch, "frontres_local_scenario_rows", None)
     if lifecycle is None or rows is None:
         return
-    closed: list[str] = []
+    closed = list(getattr(batch, "frontres_local_scenario_closed_ids", ()) or ())
+    closed_set = set(closed)
     for scenario_id in dict.fromkeys(rows.scenario_ids):
+        scenario_id = str(scenario_id)
+        if scenario_id in closed_set:
+            continue
         lifecycle.close_scenario(scenario_id)
-        closed.append(str(scenario_id))
+        closed.append(scenario_id)
+        closed_set.add(scenario_id)
+        object.__setattr__(batch, "frontres_local_scenario_closed_ids", tuple(closed))
     object.__setattr__(batch, "frontres_local_scenario_closed_ids", tuple(closed))
 
 
@@ -1562,21 +1568,28 @@ def prepare_frontres_v015_policy_quality_item_batch(runner: Any, item: Any) -> S
     return SimpleNamespace(sample=sample, batch=batch)
 
 
-def prepare_frontres_policy_quality_fixed_k_m4_batch(
+def prepare_frontres_fixed_k_m4_evaluation_batch(
     runner: Any,
     items: tuple[Any, Any],
     *,
     attempts_per_segment: int,
+    allowed_horizons: tuple[int, ...],
+    transaction_namespace: str,
+    route_label: str,
 ) -> SimpleNamespace:
-    """Materialize two fixed held-out Segments as one immutable K8/K16 M4 batch."""
+    """Materialize two fixed held-out Segments as one immutable exact-M4 batch."""
 
     # B1: 解析两个 manifest Segment, 产出 distinct source identities 和 exact-M row plan.
     if not isinstance(items, tuple) or len(items) != 2 or attempts_per_segment != 4:
-        raise ValueError("EVAL-v004 v018 requires exactly two held-out Segments and M=4")
+        raise ValueError(f"{route_label} requires exactly two held-out Segments and M=4")
+    if not allowed_horizons or any(int(value) <= 0 for value in allowed_horizons):
+        raise ValueError(f"{route_label} requires explicit positive allowed horizons")
+    if not transaction_namespace:
+        raise ValueError(f"{route_label} requires a transaction namespace")
     dataset = getattr(runner, "_frontres_segment_dataset", None)
     resolve_spec = getattr(dataset, "resolve_segment_spec", None)
     if dataset is None or not callable(getattr(dataset, "get_segments", None)) or not callable(resolve_spec):
-        raise RuntimeError("EVAL-v004 manifest requires the initialized Stage-1 index dataset")
+        raise RuntimeError(f"{route_label} requires the initialized Stage-1 index dataset")
     resolved = []
     families: list[str] = []
     strengths: list[float] = []
@@ -1589,40 +1602,40 @@ def prepare_frontres_policy_quality_fixed_k_m4_batch(
             spec = resolve_spec(motion_id=motion_id, start_frame=start_frame)
         except RuntimeError as exc:
             raise RuntimeError(
-                "EVAL-v004 manifest failed to resolve one Segment: "
+                f"{route_label} failed to resolve one Segment: "
                 f"motion={motion_id!r} frame={start_frame}"
             ) from exc
-        if horizon_k not in (8, 16):
+        if horizon_k not in allowed_horizons:
             raise RuntimeError(
-                "EVAL-v004 manifest must resolve each motion/start to one K8/K16 Segment: "
+                f"{route_label} resolved a disallowed K for motion/start: "
                 f"motion={motion_id!r} frame={start_frame} K={horizon_k}"
             )
         if requested_horizon is None:
             requested_horizon = horizon_k
         elif horizon_k != requested_horizon:
-            raise RuntimeError("EVAL-v004 transaction requires one homogeneous K8 or K16 horizon")
+            raise RuntimeError(f"{route_label} requires one homogeneous horizon")
         params = dict(getattr(item, "perturbation_parameters", ()) or ())
         strength_values = [params[name] for name in ("strength", "dr_scale", "scale") if name in params]
         family = str(getattr(item, "perturbation_family", ""))
         if len(strength_values) != 1 or not family:
-            raise ValueError("EVAL-v004 manifest requires one perturbation family and one strength")
+            raise ValueError(f"{route_label} requires one perturbation family and one strength")
         strength = float(strength_values[0])
         if not math.isfinite(strength) or strength < 0.0:
-            raise ValueError("EVAL-v004 perturbation strength must be finite and non-negative")
+            raise ValueError(f"{route_label} perturbation strength must be finite and non-negative")
         resolved.append(spec)
         families.append(family)
         strengths.append(strength)
     if int(resolved[0].segment_id) == int(resolved[1].segment_id):
-        raise ValueError("EVAL-v004 transaction requires two distinct Segment identities")
+        raise ValueError(f"{route_label} requires two distinct Segment identities")
     env_count = int(getattr(getattr(runner, "env", None), "num_envs", 0) or 0)
     repair_rows = 2 * attempts_per_segment
     if env_count != 2 * repair_rows:
         raise RuntimeError(
-            "EVAL-v004 K8/K16 M4 requires 16 env rows (8 Repair + 8 Noisy): "
+            f"{route_label} requires 16 env rows (8 Repair + 8 Noisy): "
             f"observed={env_count}"
         )
     if requested_horizon is None:
-        raise RuntimeError("EVAL-v004 transaction did not resolve a fixed horizon")
+        raise RuntimeError(f"{route_label} did not resolve a fixed horizon")
     device = torch.device(getattr(runner, "device", "cpu"))
     source_index = torch.arange(2, dtype=torch.long, device=device).repeat_interleave(attempts_per_segment)
     trial_index = torch.arange(attempts_per_segment, dtype=torch.long, device=device).repeat(2)
@@ -1673,64 +1686,104 @@ def prepare_frontres_policy_quality_fixed_k_m4_batch(
     transaction_signature = hashlib.sha256(
         "|".join(str(getattr(item, "comparison_signature", "")) for item in items).encode("ascii")
     ).hexdigest()
-    transaction_id = f"frontres-v018-quality:{transaction_signature}"
-    cpu_rng = torch.random.get_rng_state()
-    cuda_rng = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else []
+    transaction_id = f"{transaction_namespace}:{transaction_signature}"
     try:
-        torch.manual_seed(int(transaction_signature[:16], 16) % (2**63 - 1))
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(int(transaction_signature[:16], 16) % (2**63 - 1))
-        batch = _attach_frontres_local_scenarios(
-            runner,
-            batch,
-            sample,
-            update_step=0,
-            transaction_id=transaction_id,
-        )
-    finally:
-        torch.random.set_rng_state(cpu_rng)
-        if cuda_rng:
-            torch.cuda.set_rng_state_all(cuda_rng)
-    scenario_ids = tuple(str(value) for value in getattr(batch, "frontres_local_scenario_ids", ()) or ())
-    hashes = tuple(str(value) for value in getattr(batch, "frontres_local_scenario_hashes", ()) or ())
-    x_t = tuple(str(value) for value in getattr(batch, "frontres_local_scenario_x_t_identities", ()) or ())
-    provenance = tuple(getattr(batch, "frontres_local_scenario_provenance", ()) or ())
-    if any(len(values) != repair_rows for values in (scenario_ids, hashes, x_t, provenance)):
-        raise RuntimeError("EVAL-v004 materializer lost row-aligned scenario identity")
-    for source in range(2):
-        rows = [row for row, value in enumerate(source_index.tolist()) if int(value) == source]
-        if any(len({values[row] for row in rows}) != 1 for values in (scenario_ids, hashes, x_t)):
-            raise RuntimeError("EVAL-v004 reset rows resampled or mixed one Segment scenario")
-    intent_provenance = {str(value.get("intent_q29_provenance", "")) for value in provenance}
-    intent_source = {str(value.get("intent_q29_source", "")) for value in provenance}
-    if len(intent_provenance) != 1 or len(intent_source) != 1:
-        raise RuntimeError("EVAL-v004 requires one deployment q29 provenance owner")
+        cpu_rng = torch.random.get_rng_state()
+        cuda_rng = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else []
+        try:
+            torch.manual_seed(int(transaction_signature[:16], 16) % (2**63 - 1))
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(int(transaction_signature[:16], 16) % (2**63 - 1))
+            batch = _attach_frontres_local_scenarios(
+                runner,
+                batch,
+                sample,
+                update_step=0,
+                transaction_id=transaction_id,
+            )
+        finally:
+            torch.random.set_rng_state(cpu_rng)
+            if cuda_rng:
+                torch.cuda.set_rng_state_all(cuda_rng)
+        scenario_ids = tuple(str(value) for value in getattr(batch, "frontres_local_scenario_ids", ()) or ())
+        hashes = tuple(str(value) for value in getattr(batch, "frontres_local_scenario_hashes", ()) or ())
+        x_t = tuple(str(value) for value in getattr(batch, "frontres_local_scenario_x_t_identities", ()) or ())
+        provenance = tuple(getattr(batch, "frontres_local_scenario_provenance", ()) or ())
+        if any(len(values) != repair_rows for values in (scenario_ids, hashes, x_t, provenance)):
+            raise RuntimeError(f"{route_label} materializer lost row-aligned scenario identity")
+        for source in range(2):
+            rows = [row for row, value in enumerate(source_index.tolist()) if int(value) == source]
+            if any(len({values[row] for row in rows}) != 1 for values in (scenario_ids, hashes, x_t)):
+                raise RuntimeError(f"{route_label} reset rows resampled or mixed one Segment scenario")
+        intent_provenance = {str(value.get("intent_q29_provenance", "")) for value in provenance}
+        intent_source = {str(value.get("intent_q29_source", "")) for value in provenance}
+        if len(intent_provenance) != 1 or len(intent_source) != 1:
+            raise RuntimeError(f"{route_label} requires one deployment q29 provenance owner")
 
-    # B3: Seal evaluation rows without borrowing the B8 formal-training lifecycle owner.
-    snapshot = capture_frontres_frozen_policy_snapshot(runner, transaction_id=transaction_id)
-    batch_specs = tuple(getattr(batch, "specs", ()) or ())
-    plan = FrontRESV015GroupedCandidateMetadata(
-        transaction_id=snapshot.transaction_id,
-        policy_snapshot_id=snapshot.policy_snapshot_id,
-        motion_ids=tuple(str(getattr(spec, "motion_id", "")) for spec in batch_specs),
-        start_frames=torch.tensor(
-            [int(getattr(spec, "start_frame", -1)) for spec in batch_specs],
-            dtype=torch.long,
-            device=device,
-        ),
-        segment_ids=segment_ids,
-        source_index=source_index,
-        trial_index=trial_index,
-        horizon_k=horizon_k,
-        evidence_valid_step_count=horizon_k,
-        trial_role=("policy",) * repair_rows,
-        scenario_ids=scenario_ids,
-        noisy_segment_hashes=hashes,
-        x_t_identities=x_t,
-        intent_q29_provenance=next(iter(intent_provenance)),
-        intent_q29_source=next(iter(intent_source)),
+        # B3: Seal evaluation rows without borrowing the B8 formal-training lifecycle owner.
+        snapshot = capture_frontres_frozen_policy_snapshot(runner, transaction_id=transaction_id)
+        batch_specs = tuple(getattr(batch, "specs", ()) or ())
+        plan = FrontRESV015GroupedCandidateMetadata(
+            transaction_id=snapshot.transaction_id,
+            policy_snapshot_id=snapshot.policy_snapshot_id,
+            motion_ids=tuple(str(getattr(spec, "motion_id", "")) for spec in batch_specs),
+            start_frames=torch.tensor(
+                [int(getattr(spec, "start_frame", -1)) for spec in batch_specs],
+                dtype=torch.long,
+                device=device,
+            ),
+            segment_ids=segment_ids,
+            source_index=source_index,
+            trial_index=trial_index,
+            horizon_k=horizon_k,
+            evidence_valid_step_count=horizon_k,
+            trial_role=("policy",) * repair_rows,
+            scenario_ids=scenario_ids,
+            noisy_segment_hashes=hashes,
+            x_t_identities=x_t,
+            intent_q29_provenance=next(iter(intent_provenance)),
+            intent_q29_source=next(iter(intent_source)),
+        )
+        return SimpleNamespace(sample=sample, batch=batch, plan=plan)
+    except BaseException:
+        close_frontres_local_scenarios(batch)
+        raise
+
+
+def prepare_frontres_policy_quality_fixed_k_m4_batch(
+    runner: Any,
+    items: tuple[Any, Any],
+    *,
+    attempts_per_segment: int,
+) -> SimpleNamespace:
+    """Historical EVAL-v004 wrapper over the version-neutral fixed-M4 owner."""
+
+    return prepare_frontres_fixed_k_m4_evaluation_batch(
+        runner,
+        items,
+        attempts_per_segment=attempts_per_segment,
+        allowed_horizons=(8, 16),
+        transaction_namespace="frontres-v018-quality",
+        route_label="EVAL-v004 held-out policy quality",
     )
-    return SimpleNamespace(sample=sample, batch=batch, plan=plan)
+
+
+def prepare_frontres_action_gain_direction_fixed_k_m4_batch(
+    runner: Any,
+    items: tuple[Any, Any],
+    *,
+    attempts_per_segment: int,
+) -> SimpleNamespace:
+    """Active EVAL-v006 bounded-diagnostic K8/M4 materializer wrapper."""
+
+    return prepare_frontres_fixed_k_m4_evaluation_batch(
+        runner,
+        items,
+        attempts_per_segment=attempts_per_segment,
+        allowed_horizons=(8,),
+        transaction_namespace="frontres-v024-action-gain-direction",
+        route_label="EVAL-v006 bounded action-Gain direction diagnostic",
+    )
 
 _print_evidence_probe = print_frontres_sampler_evidence_probe
 _print_sample_probe = print_frontres_sampler_sample_probe

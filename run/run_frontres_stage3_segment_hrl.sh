@@ -5,7 +5,7 @@ if [[ $# -lt 2 ]]; then
   echo "Usage: bash run/run_frontres_stage3_segment_hrl.sh HSL_CHECKPOINT MOTION_PATH [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE] [TRAIN_ARGS...]"
   echo
   echo "Stage 3 loads an HSL Delta SE proposal checkpoint and trains Segment Replay HRL."
-  echo "MODE can be: train, sentinel, probe, storage, policy_quality_eval."
+  echo "MODE can be: train, sentinel, probe, storage, policy_quality_eval, action_gain_direction_collect."
   echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
   echo "Evaluation is launched independently through Held-out Policy Quality, Deployment Composition, or DR Sweep."
   echo "FRONTRES_SPECIALIST_MODE selects the perturbation preset for train/eval; default rp."
@@ -44,7 +44,7 @@ if ! [[ "${CHECKPOINT_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
-if [[ ("${MODE}" == "train" || "${MODE}" == "policy_quality_eval") && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
+if [[ ("${MODE}" == "train" || "${MODE}" == "policy_quality_eval" || "${MODE}" == "action_gain_direction_collect") && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
   echo "FRS-TRAIN-v024 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
   exit 4
 fi
@@ -132,6 +132,29 @@ case "${MODE}" in
       --frontres_policy_quality_policy_checkpoint "${POLICY_QUALITY_POLICY_CHECKPOINT}"
       --frontres_policy_quality_result "${POLICY_QUALITY_RESULT}"
       --frontres_policy_quality_repeat_count "${POLICY_QUALITY_REPEAT_COUNT}"
+    )
+    ;;
+  action_gain_direction_collect)
+    if [[ "${NUM_ENVS}" != "16" ]]; then
+      echo "EVAL-v006 bounded action-Gain direction collection requires NUM_ENVS=16" >&2
+      exit 4
+    fi
+    required_direction_vars=(
+      ACTION_GAIN_DIRECTION_MANIFEST
+      ACTION_GAIN_DIRECTION_POLICY_CHECKPOINT
+      ACTION_GAIN_DIRECTION_RESULT
+    )
+    for name in "${required_direction_vars[@]}"; do
+      if [[ -z "${!name:-}" ]]; then
+        echo "Action-Gain direction collection requires ${name}" >&2
+        exit 4
+      fi
+    done
+    MODE_ARGS=(
+      --frontres_action_gain_direction_collect_only
+      --frontres_action_gain_direction_manifest "${ACTION_GAIN_DIRECTION_MANIFEST}"
+      --frontres_action_gain_direction_policy_checkpoint "${ACTION_GAIN_DIRECTION_POLICY_CHECKPOINT}"
+      --frontres_action_gain_direction_result "${ACTION_GAIN_DIRECTION_RESULT}"
     )
     ;;
   single_update|update_loop)

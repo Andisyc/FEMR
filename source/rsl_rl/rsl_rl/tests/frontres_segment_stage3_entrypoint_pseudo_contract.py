@@ -236,6 +236,7 @@ def _args(**overrides) -> SimpleNamespace:
         "frontres_segment_live_single_update_only": False,
         "frontres_segment_live_update_loop_only": False,
         "frontres_policy_quality_eval_only": False,
+        "frontres_action_gain_direction_collect_only": False,
         "frontres_policy_quality_q2d_eval_only": False,
         "frontres_segment_live_update_steps": 6,
         "frontres_segment_critic_warmup_iterations": 200,
@@ -371,6 +372,22 @@ def test_stage3_policy_quality_config_is_formal_and_read_only() -> None:
     assert alg.lambda_supervised == 0.0
     assert alg.frontres_segment_live_single_update_only is False
     assert alg.frontres_segment_live_update_loop_only is False
+
+    direction_cfg = _agent_cfg()
+    _apply_frontres_stage_preset(
+        direction_cfg,
+        _args(frontres_action_gain_direction_collect_only=True),
+    )
+    direction_alg = direction_cfg.algorithm
+    assert direction_cfg.max_iterations == 0
+    assert direction_alg.frontres_segment_replay_enabled is False
+    assert direction_alg.frontres_policy_quality_eval_only is True
+    assert direction_alg.frontres_segment_live_runner_enabled is False
+    assert direction_alg.frontres_segment_live_train_enabled is False
+    assert direction_alg.frontres_formal_transaction_enabled is True
+    assert direction_alg.frontres_segment_advantage_normalization == "grouped_scale_only"
+    assert direction_alg.frontres_segment_k == 8
+    assert direction_alg.frontres_gain_beta == 0.02
 
     missing_initializer = _agent_cfg()
     try:

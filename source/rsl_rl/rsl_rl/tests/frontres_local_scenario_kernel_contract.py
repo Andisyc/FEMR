@@ -800,6 +800,33 @@ def test_t_v018_heldout_k16_m4_transaction() -> None:
     )
     assert tuple(prepared_k8.sample.horizon_k.tolist()) == (8,) * 8
     assert tuple(prepared_k8.batch.frontres_local_scenario_clean_continuation.shape) == (8, 8, 65)
+
+    original_snapshot = live_sampler.capture_frontres_frozen_policy_snapshot
+    original_close = live_sampler.close_frontres_local_scenarios
+    closed_batches: list[object] = []
+
+    def fail_snapshot(*_args, **_kwargs):
+        raise RuntimeError("injected post-materialization snapshot failure")
+
+    def record_close(batch):
+        original_close(batch)
+        closed_batches.append(batch)
+
+    live_sampler.capture_frontres_frozen_policy_snapshot = fail_snapshot
+    live_sampler.close_frontres_local_scenarios = record_close
+    try:
+        _expect_error(
+            RuntimeError,
+            lambda: live_sampler.prepare_frontres_policy_quality_fixed_k_m4_batch(
+                runner, k8_items, attempts_per_segment=4
+            ),
+        )
+    finally:
+        live_sampler.capture_frontres_frozen_policy_snapshot = original_snapshot
+        live_sampler.close_frontres_local_scenarios = original_close
+    assert len(closed_batches) == 1
+    assert len(tuple(closed_batches[0].frontres_local_scenario_closed_ids)) == 2
+
     _expect_error(
         RuntimeError,
         lambda: live_sampler.prepare_frontres_policy_quality_fixed_k_m4_batch(

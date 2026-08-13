@@ -1193,13 +1193,16 @@
           strokeLineDash: edge.kind === "evidence" ? [7, 5] : undefined,
         }));
         drawMethodArrowHead(points, color);
-        if (edge.label) {
+        if (edge.label || edge.labelLines?.length) {
           const midpoint = methodLongestSegmentMidpoint(points);
           edgeLabels.push({
             ...midpoint,
             x: edge.labelX ?? midpoint.x,
             y: edge.labelY ?? midpoint.y,
             text: edge.label,
+            lines: edge.labelLines?.length ? edge.labelLines : [edge.label],
+            anchor: edge.labelAnchor || "middle",
+            lineHeight: edge.labelLineHeight || (edge.labelSize || 11) + 4,
             color,
             size: edge.labelSize || 11,
           });
@@ -1209,16 +1212,19 @@
       (data.nodes || []).forEach((node) => drawMethodNode(rc, data, node));
 
       edgeLabels.forEach((label) => {
-        const text = addText(label.text, label.x, label.y - 8, {
-          size: label.size,
-          weight: 750,
-          fill: label.color,
-          anchor: "middle",
+        const firstY = label.y - 8 - ((label.lines.length - 1) * label.lineHeight) / 2;
+        label.lines.forEach((line, index) => {
+          const text = addText(line, label.x, firstY + index * label.lineHeight, {
+            size: label.size,
+            weight: 750,
+            fill: label.color,
+            anchor: label.anchor,
+          });
+          text.setAttribute("paint-order", "stroke");
+          text.setAttribute("stroke", "#fffdf6");
+          text.setAttribute("stroke-width", "5");
+          text.setAttribute("stroke-linejoin", "round");
         });
-        text.setAttribute("paint-order", "stroke");
-        text.setAttribute("stroke", "#fffdf6");
-        text.setAttribute("stroke-width", "5");
-        text.setAttribute("stroke-linejoin", "round");
       });
 
     }

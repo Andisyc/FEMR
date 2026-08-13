@@ -309,7 +309,8 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert '_set_if_present(alg_cfg, "frontres_segment_live_update_loop_only", False)' in train
     assert "FRS-PPO-v012 rejects retired Stage-3 single_update/update_loop modes" in train
     assert '_set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)' in train
-    assert '1 if (live_train_enabled or policy_quality_eval_arg) else live_update_steps' in train
+    assert 'evaluation_only = policy_quality_eval_arg or action_gain_direction_arg' in train
+    assert '1 if (live_train_enabled or evaluation_only) else live_update_steps' in train
     quality_dispatch = train.index('if bool(getattr(args_cli, "frontres_policy_quality_eval_only", False)):')
     assert quality_dispatch < train.index("runner.learn_frontres_segment_live(", quality_dispatch)
     assert "sentinel_log()" in runner

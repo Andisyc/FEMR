@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import torch
 
 from rsl_rl.frontres.frontres_gain import (
@@ -131,6 +133,46 @@ def test_clean_anchor_pressure_and_row_permutation() -> None:
     assert torch.allclose(result.gain_total, permuted_result.gain_total)
 
 
+def test_gain_evidence_accepts_b2_m4_while_source_identity_fails_closed() -> None:
+    """The shared Gain value object supports evaluation B2; training owns B8."""
+
+    batch = FrontRESSealedRecoveryAwareGainBatch(
+        baselines=tuple(_baseline(source) for source in range(2)),
+        attempts=tuple(
+            _attempt(source, trial, joint=0.0435 + 0.005 * trial, action=0.001 * trial)
+            for source in range(2)
+            for trial in range(4)
+        ),
+        active_m=4,
+    )
+    batch.validate()
+    gain_input = batch.to_gain_input()
+    assert tuple(gain_input.repair_actions.shape) == (8, 6)
+    assert tuple(gain_input.clean_joint_pos.shape[:2]) == (2, 8)
+
+    for baselines, required_text in (
+        ((_baseline(0), _baseline(0)), "distinct contiguous source"),
+        ((_baseline(0), _baseline(2)), "distinct contiguous source"),
+    ):
+        bad = FrontRESSealedRecoveryAwareGainBatch(
+            baselines=baselines,
+            attempts=batch.attempts,
+            active_m=4,
+        )
+        try:
+            bad.validate()
+        except ValueError as exc:
+            assert required_text in str(exc)
+        else:
+            raise AssertionError("duplicate/missing Gain source identity did not fail closed")
+
+    formal_source = (
+        Path(__file__).resolve().parents[1] / "runners" / "frontres_segment_formal_transaction.py"
+    ).read_text(encoding="utf-8")
+    assert 'request.plan.selected_segment_count != 8' in formal_source
+    assert 'formal update rejects mixed-M or non-B8 transactions' in formal_source
+
+
 def test_baseline_alias_and_execution_count_fail_closed() -> None:
     batch = _batch()
     gain_input = batch.to_gain_input()
@@ -237,6 +279,7 @@ def test_cost_breaks_equal_recovery_without_changing_channels() -> None:
 
 def main() -> None:
     test_clean_anchor_pressure_and_row_permutation()
+    test_gain_evidence_accepts_b2_m4_while_source_identity_fails_closed()
     test_baseline_alias_and_execution_count_fail_closed()
     test_loaded_support_zmp_na_and_malformed_payload()
     test_flight_support_drift_is_na_without_erasing_physics_score()

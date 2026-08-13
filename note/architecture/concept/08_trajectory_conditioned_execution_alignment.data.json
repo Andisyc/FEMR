@@ -10,7 +10,7 @@
       "x1": 40,
       "x2": 2010,
       "y": 760,
-      "topLabel": "Context-Conditioned Tracker Training",
+      "topLabel": "Offline Support-Query Meta-Training",
       "bottomLabel": "Controlled Real-World Proof of Concept"
     }
   ],
@@ -35,10 +35,6 @@
       "name": "Execution Context",
       "color": "#d97706"
     },
-    "C-ICA3-CORRECT": {
-      "name": "Correct Trajectory Supervision",
-      "color": "#65a30d"
-    },
     "C-ICA3-LEARNING": {
       "name": "Response-Calibration Learning",
       "color": "#db2777"
@@ -53,7 +49,7 @@
     {
       "id": "ICA3-T-01",
       "title": "Planner",
-      "summary": "冻结 Planner，产生同一短时程运动 Intent",
+      "summary": "冻结 Planner，为未校准 Rollout 产生 Target Motion",
       "concept": "C-ICA3-PLANNER",
       "x": 40,
       "y": 370,
@@ -63,7 +59,7 @@
     {
       "id": "ICA3-T-02",
       "title": "Tracker Encoder",
-      "summary": "编码状态、历史与 Planner Intent，输出 nominal latent z",
+      "summary": "冻结；编码 Motion 与 History，输出 latent z",
       "concept": "C-ICA3-TRACKER",
       "shape": "encoder",
       "shapeInset": 48,
@@ -86,7 +82,7 @@
     {
       "id": "ICA3-T-03",
       "title": "Tracker Decoder",
-      "summary": "解码校准后的 latent，生成执行 Action",
+      "summary": "冻结；由 z + Δz 生成或重建 Action",
       "concept": "C-ICA3-TRACKER",
       "shape": "decoder",
       "shapeInset": 48,
@@ -96,31 +92,31 @@
       "h": 190
     },
     {
-      "id": "ICA3-T-04",
-      "title": "Execution Shift",
-      "summary": "向校准路线注入可恢复的隐藏执行缺陷",
-      "concept": "C-ICA3-SHIFT",
+      "id": "ICA3-T-05",
+      "title": "Support Rollout",
+      "summary": "Δz=0 时预先封存 Ytarget、Yrealized 与 Aexec",
+      "concept": "C-ICA3-SUPPORT",
       "kind": "external",
-      "x": 1060,
-      "y": 370,
-      "w": 220,
+      "x": 40,
+      "y": 120,
+      "w": 250,
       "h": 110
     },
     {
-      "id": "ICA3-T-05",
-      "title": "Rollout",
-      "summary": "第一次轨迹作为 Context，第二次执行验证校准",
+      "id": "ICA3-T-07",
+      "title": "Query Rollout",
+      "summary": "同一 ξ、Δz=0 时独立封存监督窗口",
       "concept": "C-ICA3-SUPPORT",
       "kind": "external",
-      "x": 1340,
-      "y": 370,
+      "x": 40,
+      "y": 590,
       "w": 250,
       "h": 110
     },
     {
       "id": "ICA3-T-06",
       "title": "Context Encoder",
-      "summary": "将失败轨迹压缩为 calibration latent Δz",
+      "summary": "将 Support 时序压缩为条件级 calibration latent Δzξ",
       "concept": "C-ICA3-CONTEXT",
       "shape": "context_encoder",
       "shapeInset": 55,
@@ -130,21 +126,11 @@
       "h": 170
     },
     {
-      "id": "ICA3-T-10",
-      "title": "Correct Trajectory",
-      "summary": "冻结 Planner 与 Tracker 在无缺陷仿真中 Rollout 完美轨迹",
-      "concept": "C-ICA3-CORRECT",
-      "x": 1650,
-      "y": 170,
-      "w": 240,
-      "h": 110
-    },
-    {
       "id": "ICA3-T-09",
       "title": "Calibration Learning",
-      "summary": "将受扰轨迹与 Correct Trajectory 做 MSE，仅训练 Context Encoder",
+      "summary": "比较预测 Action 与 Query Executed Action，仅训练 Context Encoder",
       "concept": "C-ICA3-LEARNING",
-      "x": 1650,
+      "x": 1060,
       "y": 370,
       "w": 240,
       "h": 110
@@ -205,16 +191,6 @@
   ],
   "edges": [
     {
-      "from": "ICA3-T-10",
-      "to": "ICA3-T-09",
-      "label": "无缺陷轨迹目标",
-      "concept": "C-ICA3-CORRECT",
-      "fromAnchor": "bottom",
-      "toAnchor": "top",
-      "labelX": 1788,
-      "labelY": 330
-    },
-    {
       "from": "ICA3-T-01",
       "to": "ICA3-T-02",
       "label": "Intent",
@@ -236,32 +212,26 @@
     },
     {
       "from": "ICA3-T-03",
-      "to": "ICA3-T-04",
-      "label": "Action",
+      "to": "ICA3-T-09",
+      "label": "Âq",
       "concept": "C-ICA3-TRACKER"
-    },
-    {
-      "from": "ICA3-T-04",
-      "to": "ICA3-T-05",
-      "label": "执行",
-      "concept": "C-ICA3-SHIFT",
-      "fromAnchor": "right",
-      "toAnchor": "left",
-      "labelX": 1310,
-      "labelY": 414
     },
     {
       "from": "ICA3-T-05",
       "to": "ICA3-T-06",
-      "label": "失败轨迹",
-      "concept": "C-ICA3-SUPPORT",
-      "fromAnchor": "top",
-      "toAnchor": "right",
-      "via": [
-        [1465, 175]
+      "label": "Support evidence",
+      "labelLines": [
+        "Y_target",
+        "Y_realized",
+        "A_exec"
       ],
-      "labelX": 1120,
-      "labelY": 164
+      "labelAnchor": "start",
+      "labelLineHeight": 16,
+      "concept": "C-ICA3-SUPPORT",
+      "fromAnchor": "right",
+      "toAnchor": "left",
+      "labelX": 325,
+      "labelY": 215
     },
     {
       "from": "ICA3-T-06",
@@ -275,64 +245,47 @@
       "labelY": 323
     },
     {
-      "from": "ICA3-T-05",
+      "from": "ICA3-T-07",
+      "to": "ICA3-T-02",
+      "label": "Query: History + Yrealized",
+      "concept": "C-ICA3-SUPPORT",
+      "fromAnchor": "top",
+      "toAnchor": "bottom",
+      "via": [
+        [165, 550],
+        [420, 550]
+      ],
+      "labelX": 300,
+      "labelY": 540
+    },
+    {
+      "from": "ICA3-T-07",
       "to": "ICA3-T-09",
-      "label": "第二次表现",
+      "label": "Aexecᵠ",
       "concept": "C-ICA3-LEARNING",
       "fromAnchor": "right",
-      "toAnchor": "left",
-      "labelX": 1610,
-      "labelY": 414
+      "toAnchor": "bottom",
+      "via": [
+        [1180, 645]
+      ],
+      "labelX": 875,
+      "labelY": 635
     },
     {
       "from": "ICA3-T-09",
       "to": "ICA3-T-06",
-      "label": "训练 Context Encoder",
+      "label": "MSE gradient: only Context Encoder",
       "concept": "C-ICA3-LEARNING",
       "kind": "feedback",
-      "fromAnchor": "right",
-      "fromOffset": -25,
-      "toAnchor": "top",
+      "fromAnchor": "top",
+      "toAnchor": "right",
       "via": [
-        [1990, 400],
-        [1990, 60],
-        [645, 60]
+        [1180, 300],
+        [820, 300],
+        [820, 175]
       ],
-      "labelX": 1295,
-      "labelY": 68
-    },
-    {
-      "from": "ICA3-T-09",
-      "to": "ICA3-T-02",
-      "label": "训练 Tracker Encoder",
-      "concept": "C-ICA3-LEARNING",
-      "kind": "feedback",
-      "fromAnchor": "right",
-      "fromOffset": 25,
-      "toAnchor": "bottom",
-      "via": [
-        [2020, 450],
-        [2020, 690],
-        [420, 690]
-      ],
-      "labelX": 1310,
-      "labelY": 679
-    },
-    {
-      "from": "ICA3-T-09",
-      "to": "ICA3-T-03",
-      "label": "训练 Tracker Decoder",
-      "concept": "C-ICA3-LEARNING",
-      "kind": "feedback",
-      "fromAnchor": "bottom",
-      "fromOffset": -50,
-      "toAnchor": "bottom",
-      "via": [
-        [1720, 630],
-        [870, 630]
-      ],
-      "labelX": 1255,
-      "labelY": 619
+      "labelX": 1000,
+      "labelY": 292
     },
     {
       "from": "ICA3-D-01",

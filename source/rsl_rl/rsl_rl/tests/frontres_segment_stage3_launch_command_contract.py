@@ -261,6 +261,44 @@ def test_stage3_launch_builds_active_v018_policy_quality_command() -> None:
     assert "POLICY_QUALITY_REPEAT_COUNT must be an integer from 1 to 16" in invalid_repeat.stderr
 
 
+def test_stage3_launch_builds_bounded_action_gain_direction_command() -> None:
+    direction_env = {
+        "ACTION_GAIN_DIRECTION_MANIFEST": "/tmp/frontres-v024-action-gain-direction.json",
+        "ACTION_GAIN_DIRECTION_POLICY_CHECKPOINT": "/tmp/frontres-v024-model-200.pt",
+        "ACTION_GAIN_DIRECTION_RESULT": "/tmp/frontres-v024-action-gain-direction-result.json",
+    }
+    result = _run_preflight(
+        "action_gain_direction_collect",
+        direction_env,
+        bounds=("16", "0", "1"),
+    )
+    assert result.returncode == 0, result.stderr
+    command = _command_line(result)
+    assert "[FrontRES Stage3 startup preflight] PASS mode=action_gain_direction_collect" in result.stdout
+    assert "--frontres_action_gain_direction_collect_only" in command
+    assert "--frontres_action_gain_direction_manifest /tmp/frontres-v024-action-gain-direction.json" in command
+    assert "--frontres_action_gain_direction_policy_checkpoint /tmp/frontres-v024-model-200.pt" in command
+    assert "--frontres_action_gain_direction_result /tmp/frontres-v024-action-gain-direction-result.json" in command
+    assert "--frontres_policy_quality_eval_only" not in command
+    assert "--frontres_checkpoint_interval" not in command
+    assert "--frontres_v015_hsl_initializer_checkpoint" in command
+
+    missing = _run_preflight(
+        "action_gain_direction_collect",
+        bounds=("16", "0", "1"),
+    )
+    assert missing.returncode == 4
+    assert "Action-Gain direction collection requires ACTION_GAIN_DIRECTION_MANIFEST" in missing.stderr
+
+    wrong_rows = _run_preflight(
+        "action_gain_direction_collect",
+        direction_env,
+        bounds=("8", "0", "1"),
+    )
+    assert wrong_rows.returncode == 4
+    assert "EVAL-v006 bounded action-Gain direction collection requires NUM_ENVS=16" in wrong_rows.stderr
+
+
 def test_stage3_launch_rejects_retired_optimizer_modes() -> None:
     for mode in ("single_update", "update_loop"):
         result = _run_preflight(mode)
@@ -281,5 +319,6 @@ if __name__ == "__main__":
     test_stage3_launch_rejects_retired_optimizer_modes()
     test_stage3_launch_rejects_legacy_local_evaluation_modes()
     test_stage3_launch_builds_active_v018_policy_quality_command()
+    test_stage3_launch_builds_bounded_action_gain_direction_command()
     test_stage3_launch_rejects_unknown_mode_before_training()
     print("frontres_segment_stage3_launch_command_contract: ok")

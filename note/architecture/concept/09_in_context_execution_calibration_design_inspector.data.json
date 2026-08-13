@@ -20,8 +20,8 @@
       {
         "id": "collect-support",
         "phase": "collection",
-        "label": "执行并记录第一次 Support Rollout",
-        "detail": "同步记录目标 Motion、Executed Action 与 Realized Motion 的完整时序证据"
+        "label": "执行并记录未校准 Support Rollout",
+        "detail": "在 Δz=0 时同步记录目标 Motion、Executed Action 与 Realized Motion 的完整时序证据"
       },
       {
         "id": "seal-support",
@@ -38,14 +38,14 @@
       {
         "id": "run-query",
         "phase": "collection",
-        "label": "固定 Δzξ 执行 Query Rollout",
-        "detail": "Tracker 仍逐时刻实时输出 Action；Context Encoder 不逐时刻重新处理旧轨迹"
+        "label": "独立执行并记录未校准 Query Rollout",
+        "detail": "Query 与 Support 共享条件 ξ，但也在 Δz=0 时预先采集；它不能由训练中的 Δzξ 重新执行产生"
       },
       {
         "id": "seal-query",
         "phase": "collection",
         "label": "封存不重叠 Query 窗口",
-        "detail": "Query 与 Support 来自同一执行条件，但 Query Action 不得出现在 Support 中"
+        "detail": "固定保存 History、Realized Future 与 Executed Action；Query Action 不得出现在 Support 中"
       },
       {
         "id": "supervise-action",
@@ -206,7 +206,7 @@
       "blockId": "ICA-LEARNING",
       "title": "Calibration Learning",
       "color": "#a75555",
-      "responsibility": "用同一动力学条件下相互独立的 Support–Query Rollout，只训练 Context Encoder 学习可跨轨迹复用的校准量。",
+      "responsibility": "用同一动力学条件下预先封存的未校准 Support–Query Rollout，只训练 Context Encoder 摊销 FADA 式逆动力学适配。",
       "details": [
         {
           "heading": "1. 按动力学条件构造 Episode",
@@ -214,40 +214,40 @@
           "latex": "\\xi \\sim p_{\\mathrm{train}}(\\xi)"
         },
         {
-          "heading": "2. 在相同条件下生成两条独立 Rollout",
-          "text": "Support Rollout 用于识别动力学变化；Query Rollout 用于监督校准结果。两条轨迹共享动力学条件，但使用不同初始状态、步态相位或噪声。",
+          "heading": "2. 在相同条件下预先采集两条未校准 Rollout",
+          "text": "冻结 Planner 与 Tracker，并令 Δz=0，分别采集 Support 与 Query。两条轨迹共享动力学条件，但使用不同初始状态、步态相位或噪声。",
           "latex": "R_{\\mathrm{sup}},R_{\\mathrm{qry}} \\sim p(R\\mid\\xi),\\qquad R_{\\mathrm{sup}}\\neq R_{\\mathrm{qry}}"
         },
         {
-          "heading": "3. Support Rollout 生成校准量",
-          "text": "Context Encoder 读取完整 Support 时序，并将当前动力学条件的执行响应压缩成一个固定校准量。Support 可以包含自身的 Executed Action，但不能包含 Query Action。",
+          "heading": "3. Support 与 Query 承担不同角色",
+          "text": "Support 用于推断动力学变化；Query 是预先封存的独立监督数据。训练中的 Δzξ 不得重新执行或改写 Query，否则会形成用模型自身输出监督自身的闭环。"
+        },
+        {
+          "heading": "4. Support Rollout 生成校准量",
+          "text": "Context Encoder 读取 Support 的目标 Motion、Realized Motion 与 Executed Action 时序，并输出一个条件级、低维且固定的校准量。Support 可以包含自身的 Executed Action，但不能包含 Query Action。",
           "latex": "\\Delta z_{\\xi}=A_{\\mathrm{ctx}}(S_{\\xi}),\\qquad S_{\\xi}=(Y_{\\mathrm{target}}^{s},Y_{\\mathrm{realized}}^{s},A_{\\mathrm{exec}}^{s})"
         },
         {
-          "heading": "4. Query Rollout 提供独立监督",
-          "text": "Query 不输入 Context Encoder。它提供因果匹配的 Realized Motion–Executed Action Pair：某段 Motion 实际由哪个 Action 产生，就用哪个 Action 作为标签。",
-          "latex": "Q_{\\xi}=(Y_{\\mathrm{realized}}^{q},A_{\\mathrm{exec}}^{q})"
+          "heading": "5. Query 使用真实未来运动",
+          "text": "Query 不输入 Context Encoder。训练从已完成的 Query 轨迹中截取执行前的 History、执行后真实发生的 Future Motion，以及实际发送的 Action，形成因果匹配的逆动力学监督窗口。",
+          "latex": "Q_{\\xi}=(\\mathrm{history}^{q},Y_{\\mathrm{realized}}^{q},A_{\\mathrm{exec}}^{q})"
         },
         {
-          "heading": "5. 冻结 Tracker 重建 Query Action",
-          "text": "Query 的目标、历史与 Realized Motion 经过冻结 Tracker。Decoder 使用 Support 推断出的校准量，在 Query 上预测 Executed Action。",
+          "heading": "6. 冻结 Tracker 重建 Query Action",
+          "text": "训练时，Tracker Encoder 输入 Query 中真实发生的 Future Motion，而不是 Planner 预测的 Intent；Decoder 再结合 Support 推断出的 Δzξ 预测对应的 Executed Action。",
           "latex": [
             "z_q=E_{\\mathrm{Tracker}}(Y_{\\mathrm{realized}}^{q},\\mathrm{history}^{q})",
             "\\hat A_q=D_{\\mathrm{Tracker}}(z_q+\\Delta z_{\\xi},\\mathrm{history}^{q})"
           ]
         },
         {
-          "heading": "6. 使用 Executed Action 监督",
-          "text": "预测 Action 与 Query 中真正执行的 Action 计算均方误差。不使用 clean Action、Teacher Action、task Reward 或人为搜索得到的校准量真值。",
+          "heading": "7. 使用 Executed Action 监督，只更新 Context Encoder",
+          "text": "预测 Action 与 Query 中真正执行的 Action 计算均方误差。梯度经过冻结 Tracker，但只更新 Context Encoder；不使用 clean Action、Teacher Action、task Reward 或人为搜索得到的 Δz 真值。",
           "latex": "\\mathcal{L}_{\\mathrm{cal}}=\\lVert\\hat A_q-A_{\\mathrm{exec}}^{q}\\rVert_2^2"
         },
         {
-          "heading": "7. 梯度经过冻结 Tracker，只更新 Context Encoder",
-          "text": "损失梯度经过冻结的 Tracker Encoder 和 Decoder 计算并传回校准量，但 Planner、Tracker Encoder 与 Tracker Decoder 均不更新；优化器只更新 Context Encoder。"
-        },
-        {
-          "heading": "8. 跨条件元训练，并在未见条件上评价",
-          "text": "在大量不同的仿真动力学条件下重复上述 Episode。验证与测试按完整动力学条件划分，使模型在训练阶段未见过的动力学条件下，仅根据一条 Support Rollout 生成校准量。",
+          "heading": "8. 跨条件训练，并保持训练—部署接口一致",
+          "text": "在大量仿真动力学条件下重复上述 Episode，并按完整条件划分验证与测试。训练时 IDM 输入真实 Future Motion；部署时输入 Planner 预测的 Future Motion，二者必须采用相同的 proprioceptive motion 表示。",
           "latex": "\\Xi_{\\mathrm{train}}\\cap\\Xi_{\\mathrm{test}}=\\varnothing"
         }
       ],

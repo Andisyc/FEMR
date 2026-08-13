@@ -764,6 +764,27 @@ class OnPolicyRunner:
         )
         return self._dispatch_frontres_startup_once("policy_quality", operation)
 
+    def run_frontres_action_gain_direction_collect(
+        self,
+        *,
+        manifest_path: str,
+        policy_checkpoint_path: str,
+        result_path: str,
+    ):
+        """Thin connector for the bounded EVAL-v006 direction diagnostic."""
+
+        from rsl_rl.runners.frontres_action_gain_direction_collect import (
+            collect_frontres_action_gain_direction,
+        )
+
+        operation = lambda: collect_frontres_action_gain_direction(
+            self,
+            manifest_path=manifest_path,
+            policy_checkpoint_path=policy_checkpoint_path,
+            result_path=result_path,
+        )
+        return self._dispatch_frontres_startup_once("action_gain_direction", operation)
+
     def run_frontres_policy_quality_q2d_eval(
         self,
         *,

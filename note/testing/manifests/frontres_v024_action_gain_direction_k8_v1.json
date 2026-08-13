@@ -1,0 +1,53 @@
+{
+  "schema_version": "frontres-v024-action-gain-direction-manifest-v1",
+  "method_contract_id": "FRS-METHOD-v025",
+  "training_contract_id": "FRS-TRAIN-v024",
+  "gain_contract_id": "FRS-GAIN-v008",
+  "ppo_contract_id": "FRS-PPO-v012",
+  "evaluation_contract_id": "FRS-EVAL-v006",
+  "checkpoint_format": "frontres-v024-checkpoint-v19",
+  "action_dim": 6,
+  "horizon_k": 8,
+  "attempts_per_segment": 4,
+  "repeat_count": 8,
+  "segments_per_transaction": 2,
+  "fixed_segment_count": 4,
+  "items": [
+    {
+      "item_id": "v024-direction-kit572-wave-right02-f163-s42",
+      "motion_id": "KIT/572/amass_g1_wave_right02_poses_reflect.npz",
+      "start_frame": 163,
+      "perturbation_family": "local_rp",
+      "perturbation_parameters": [["dr_scale", 1.25]],
+      "effective_horizon_k": 8,
+      "seed": 42
+    },
+    {
+      "item_id": "v024-direction-bml-rub003-catch-throw-f93-s42",
+      "motion_id": "BioMotionLab_NTroje/rub003/amass_g1_0017_catching_and_throwing_poses.npz",
+      "start_frame": 93,
+      "perturbation_family": "local_rp",
+      "perturbation_parameters": [["dr_scale", 1.25]],
+      "effective_horizon_k": 8,
+      "seed": 42
+    },
+    {
+      "item_id": "v024-direction-ejd-hamada-walk-look-f432-s42",
+      "motion_id": "Eyes_Japan_Dataset/hamada/amass_g1_walk-28-look up-hamada_poses.npz",
+      "start_frame": 432,
+      "perturbation_family": "local_rp",
+      "perturbation_parameters": [["dr_scale", 1.25]],
+      "effective_horizon_k": 8,
+      "seed": 42
+    },
+    {
+      "item_id": "v024-direction-kit674-wash-head-f385-s42",
+      "motion_id": "KIT/674/amass_g1_wash_head01_poses.npz",
+      "start_frame": 385,
+      "perturbation_family": "local_rp",
+      "perturbation_parameters": [["dr_scale", 1.25]],
+      "effective_horizon_k": 8,
+      "seed": 42
+    }
+  ]
+}

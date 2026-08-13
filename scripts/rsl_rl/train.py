@@ -389,6 +389,10 @@ parser.add_argument("--frontres_policy_quality_hsl_checkpoint", type=str, defaul
 parser.add_argument("--frontres_policy_quality_policy_checkpoint", type=str, default=None)
 parser.add_argument("--frontres_policy_quality_result", type=str, default=None)
 parser.add_argument("--frontres_policy_quality_repeat_count", type=int, default=1)
+parser.add_argument("--frontres_action_gain_direction_collect_only", action="store_true", default=False)
+parser.add_argument("--frontres_action_gain_direction_manifest", type=str, default=None)
+parser.add_argument("--frontres_action_gain_direction_policy_checkpoint", type=str, default=None)
+parser.add_argument("--frontres_action_gain_direction_result", type=str, default=None)
 parser.add_argument("--frontres_policy_quality_q2d_eval_only", action="store_true", default=False)
 parser.add_argument("--frontres_policy_quality_q2d_result", type=str, default=None)
 parser.add_argument("--frontres_policy_quality_q2d_credit_result", type=str, default=None)
@@ -879,6 +883,9 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     live_single_update_arg = bool(getattr(args_cli, "frontres_segment_live_single_update_only", False))
     live_update_loop_arg = bool(getattr(args_cli, "frontres_segment_live_update_loop_only", False))
     policy_quality_eval_arg = bool(getattr(args_cli, "frontres_policy_quality_eval_only", False))
+    action_gain_direction_arg = bool(
+        getattr(args_cli, "frontres_action_gain_direction_collect_only", False)
+    )
     hsl_live_smoke_arg = bool(getattr(args_cli, "frontres_hsl_live_smoke", False))
     hsl_initializer_arg = str(
         getattr(args_cli, "frontres_v015_hsl_initializer_checkpoint", "") or ""
@@ -892,6 +899,8 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         raise ValueError("v018 HSL initialization and checkpoint-v14 full resume are mutually exclusive")
     if hsl_live_smoke_arg and stage != "stage1_hsl":
         raise ValueError("--frontres_hsl_live_smoke requires --frontres_stage stage1_hsl")
+    if action_gain_direction_arg and stage != "stage3_segment_hrl":
+        raise ValueError("--frontres_action_gain_direction_collect_only requires Stage 3")
     if (
         live_sentinel_arg
         or local_sentinel_arg
@@ -1008,6 +1017,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             or live_probe_only
             or live_storage_only
             or policy_quality_eval_arg
+            or action_gain_direction_arg
         )
         if sum((
             live_sentinel_only,
@@ -1015,13 +1025,15 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             live_probe_only,
             live_storage_only,
             policy_quality_eval_arg,
+            action_gain_direction_arg,
         )) > 1:
             raise ValueError(
                 "Use only one of --frontres_segment_live_sentinel_only, "
                 "--frontres_local_sentinel_only, "
                 "--frontres_segment_live_probe_only, or "
                 "--frontres_segment_live_storage_write_only, or "
-                "--frontres_policy_quality_eval_only."
+                "--frontres_policy_quality_eval_only, or "
+                "--frontres_action_gain_direction_collect_only."
             )
         if (
             live_sentinel_only
@@ -1029,13 +1041,15 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             or live_probe_only
             or live_storage_only
             or policy_quality_eval_arg
+            or action_gain_direction_arg
         ):
             agent_cfg.max_iterations = 0
         # B1: evaluator 是外层只读调度, 算法仍以 Stage-3 objective 构造.
         # replay/live training 保持关闭, 之后只能进入专用 evaluator dispatch.
         _set_if_present(alg_cfg, "frontres_training_objective", "segment_replay_hrl")
-        _set_if_present(alg_cfg, "frontres_segment_replay_enabled", not policy_quality_eval_arg)
-        _set_if_present(alg_cfg, "frontres_policy_quality_eval_only", policy_quality_eval_arg)
+        evaluation_only = policy_quality_eval_arg or action_gain_direction_arg
+        _set_if_present(alg_cfg, "frontres_segment_replay_enabled", not evaluation_only)
+        _set_if_present(alg_cfg, "frontres_policy_quality_eval_only", evaluation_only)
         _set_if_present(
             alg_cfg,
             "frontres_segment_live_runner_enabled",
@@ -1059,7 +1073,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(
             alg_cfg,
             "frontres_segment_live_update_steps",
-            1 if (live_train_enabled or policy_quality_eval_arg) else live_update_steps,
+            1 if (live_train_enabled or evaluation_only) else live_update_steps,
         )
         _set_if_present(
             alg_cfg,
@@ -1088,10 +1102,10 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             alg_cfg,
             "frontres_segment_advantage_normalization",
             "grouped_scale_only"
-            if (local_sentinel_only or live_train_enabled or policy_quality_eval_arg)
+            if (local_sentinel_only or live_train_enabled or evaluation_only)
             else "scale_only",
         )
-        if local_sentinel_only or live_train_enabled or policy_quality_eval_arg:
+        if local_sentinel_only or live_train_enabled or evaluation_only:
             k_curriculum = _parse_frontres_v015_k_curriculum(
                 getattr(args_cli, "frontres_segment_k_curriculum", None)
             )
@@ -1761,6 +1775,45 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             result_path=args_cli.frontres_policy_quality_q2d_result,
         )
         env.close()
+        return
+
+    if bool(getattr(args_cli, "frontres_action_gain_direction_collect_only", False)):
+        conflicting_modes = [
+            name
+            for name in (
+                "frontres_policy_quality_eval_only",
+                "frontres_policy_quality_q2d_eval_only",
+                "frontres_segment_live_sentinel_only",
+                "frontres_local_sentinel_only",
+                "frontres_segment_live_probe_only",
+                "frontres_segment_live_storage_write_only",
+                "frontres_segment_live_single_update_only",
+                "frontres_segment_live_update_loop_only",
+            )
+            if bool(getattr(args_cli, name, False))
+        ]
+        if conflicting_modes:
+            raise ValueError(
+                f"action_gain_direction_collect is exclusive with other Stage 3 modes: {conflicting_modes}"
+            )
+        required = {
+            "--frontres_action_gain_direction_manifest": args_cli.frontres_action_gain_direction_manifest,
+            "--frontres_action_gain_direction_policy_checkpoint": (
+                args_cli.frontres_action_gain_direction_policy_checkpoint
+            ),
+            "--frontres_action_gain_direction_result": args_cli.frontres_action_gain_direction_result,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise ValueError(f"action_gain_direction_collect missing required arguments: {missing}")
+        try:
+            runner.run_frontres_action_gain_direction_collect(
+                manifest_path=args_cli.frontres_action_gain_direction_manifest,
+                policy_checkpoint_path=args_cli.frontres_action_gain_direction_policy_checkpoint,
+                result_path=args_cli.frontres_action_gain_direction_result,
+            )
+        finally:
+            env.close()
         return
 
     if bool(getattr(args_cli, "frontres_policy_quality_eval_only", False)):

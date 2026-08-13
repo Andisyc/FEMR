@@ -36,11 +36,10 @@ const requiredNodes = [
   "ICA3-T-01",
   "ICA3-T-02",
   "ICA3-T-03",
-  "ICA3-T-04",
   "ICA3-T-05",
   "ICA3-T-06",
+  "ICA3-T-07",
   "ICA3-T-09",
-  "ICA3-T-10",
   "ICA3-T-11",
   "ICA3-D-01",
   "ICA3-D-02",
@@ -56,14 +55,16 @@ for (const id of requiredNodes) {
 if (nodes.size !== requiredNodes.length) {
   throw new Error("Concept Figure contains unexpected or retired nodes");
 }
-if (nodes.has("ICA3-T-07")) {
-  throw new Error("Support and Query must remain merged into one Rollout node");
+if (nodes.has("ICA3-T-04") || nodes.has("ICA3-T-10")) {
+  throw new Error("Perturbation and Correct-Trajectory nodes must remain outside the current training layout");
 }
 if (
-  nodes.get("ICA3-T-05")?.title !== "Rollout" ||
-  !nodes.get("ICA3-T-05")?.summary?.includes("第一次轨迹作为 Context")
+  nodes.get("ICA3-T-05")?.title !== "Support Rollout" ||
+  nodes.get("ICA3-T-07")?.title !== "Query Rollout" ||
+  !nodes.get("ICA3-T-05")?.summary?.includes("Δz=0") ||
+  !nodes.get("ICA3-T-07")?.summary?.includes("Δz=0")
 ) {
-  throw new Error("Rollout node must explain that the first trajectory becomes Context");
+  throw new Error("Support and Query must remain split and independently pre-collected at Delta-z zero");
 }
 
 const dividers = data.layerDividers || (data.layerDivider ? [data.layerDivider] : []);
@@ -82,7 +83,7 @@ for (const divider of dividers) {
 }
 const [demoDivider] = dividers;
 if (
-  demoDivider.topLabel !== "Context-Conditioned Tracker Training" ||
+  demoDivider.topLabel !== "Offline Support-Query Meta-Training" ||
   demoDivider.bottomLabel !== "Controlled Real-World Proof of Concept"
 ) {
   throw new Error("Concept Figure layer divider labels do not match the two figure layers");
@@ -231,15 +232,12 @@ const requiredEdges = [
   "ICA3-T-01->ICA3-T-02",
   "ICA3-T-02->ICA3-T-11",
   "ICA3-T-11->ICA3-T-03",
-  "ICA3-T-03->ICA3-T-04",
-  "ICA3-T-04->ICA3-T-05",
   "ICA3-T-05->ICA3-T-06",
   "ICA3-T-06->ICA3-T-11",
-  "ICA3-T-05->ICA3-T-09",
-  "ICA3-T-10->ICA3-T-09",
+  "ICA3-T-07->ICA3-T-02",
+  "ICA3-T-07->ICA3-T-09",
+  "ICA3-T-03->ICA3-T-09",
   "ICA3-T-09->ICA3-T-06",
-  "ICA3-T-09->ICA3-T-02",
-  "ICA3-T-09->ICA3-T-03",
   "ICA3-D-01->ICA3-D-02",
   "ICA3-D-02->ICA3-D-03",
   "ICA3-D-03->ICA3-D-04",
@@ -254,9 +252,6 @@ if (routes.length !== requiredEdges.length) {
 }
 if (edgePairs.has("ICA3-T-01->ICA3-T-07")) {
   throw new Error("Planner-to-Query connector is redundant and must remain removed");
-}
-if ([...edgePairs].some((pair) => pair.includes("ICA3-T-07"))) {
-  throw new Error("retired Query Rollout must not retain connectors");
 }
 
 function route(from, to) {
@@ -299,35 +294,62 @@ if (nodes.get("ICA3-T-11")?.summarySize < 14) {
 const supportRoute = route("ICA3-T-05", "ICA3-T-06");
 const supportEnd = supportRoute.points.at(-1);
 const supportBeforeEnd = supportRoute.points.at(-2);
-if (!isHorizontal(supportBeforeEnd, supportEnd) || supportEnd[0] >= supportBeforeEnd[0]) {
-  throw new Error("Support-to-Context must point leftward into Context Encoder");
+if (!isHorizontal(supportBeforeEnd, supportEnd) || supportEnd[0] <= supportBeforeEnd[0]) {
+  throw new Error("Support-to-Context must point rightward into Context Encoder");
 }
-
-const rolloutRoute = route("ICA3-T-05", "ICA3-T-09");
-if (rolloutRoute.points.length !== 2) {
-  throw new Error("Rollout-to-Learning must be a single straight connector");
+if (!supportRoute.edge.label.startsWith("Support")) {
+  throw new Error("Support-to-Context must expose the Support evidence role");
 }
-
-const executionRoute = route("ICA3-T-04", "ICA3-T-05");
-const executionSource = nodes.get("ICA3-T-04");
-const executionTarget = nodes.get("ICA3-T-05");
 if (
-  executionRoute.edge.label !== "执行" ||
-  executionRoute.edge.labelX <= executionSource.x + executionSource.w ||
-  executionRoute.edge.labelX >= executionTarget.x
+  JSON.stringify(supportRoute.edge.labelLines) !==
+    JSON.stringify(["Y_target", "Y_realized", "A_exec"]) ||
+  supportRoute.edge.labelAnchor !== "start"
 ) {
-  throw new Error("Execution label must remain centered in the gap between its endpoint blocks");
+  throw new Error("Support evidence fields must render as three left-aligned rows");
+}
+
+const queryRoute = route("ICA3-T-07", "ICA3-T-02");
+if (!queryRoute.edge.label.startsWith("Query:")) {
+  throw new Error("Pre-collected Query evidence must feed the frozen Tracker Encoder");
+}
+
+const rolloutRoute = route("ICA3-T-07", "ICA3-T-09");
+if (rolloutRoute.edge.label !== "Aexecᵠ") {
+  throw new Error("Calibration Learning must receive Query Executed Action as its fixed target");
+}
+
+const predictionRoute = route("ICA3-T-03", "ICA3-T-09");
+if (predictionRoute.edge.label !== "Âq") {
+  throw new Error("Frozen Tracker Decoder must provide predicted Query Action to Calibration Learning");
+}
+
+const feedbackRoute = route("ICA3-T-09", "ICA3-T-06");
+if (
+  feedbackRoute.edge.fromAnchor !== "top" ||
+  feedbackRoute.edge.toAnchor !== "right" ||
+  !isVertical(feedbackRoute.points[0], feedbackRoute.points[1]) ||
+  !isHorizontal(feedbackRoute.points.at(-2), feedbackRoute.points.at(-1))
+) {
+  throw new Error("Calibration feedback must leave from the card top and enter Context Encoder from the right");
 }
 
 const learning = nodes.get("ICA3-T-09");
-const correctTrajectory = nodes.get("ICA3-T-10");
+const supportRollout = nodes.get("ICA3-T-05");
+const queryRollout = nodes.get("ICA3-T-07");
+const trackerEncoder = nodes.get("ICA3-T-02");
+if (
+  supportRollout.y + supportRollout.h >= trackerEncoder.y ||
+  supportRollout.x + supportRollout.w >= nodes.get("ICA3-T-06").x ||
+  supportRollout.x !== queryRollout.x ||
+  queryRollout.y <= trackerEncoder.y + trackerEncoder.h
+) {
+  throw new Error("Support and Query must align vertically left of the model while remaining outside the main axis");
+}
 const mainAxisIds = [
   "ICA3-T-01",
   "ICA3-T-02",
   "ICA3-T-11",
   "ICA3-T-03",
-  "ICA3-T-04",
-  "ICA3-T-05",
   "ICA3-T-09",
 ];
 const mainAxisGaps = mainAxisIds.slice(1).map((id, index) => {
@@ -339,7 +361,7 @@ if (Math.max(...mainAxisGaps) - Math.min(...mainAxisGaps) > 10) {
   throw new Error(`main-axis spacing must remain even: ${mainAxisGaps.join(",")}`);
 }
 
-const lowerIds = ["ICA3-T-01", "ICA3-T-02", "ICA3-T-11", "ICA3-T-03", "ICA3-T-04", "ICA3-T-05", "ICA3-T-06", "ICA3-T-09", "ICA3-T-10"];
+const lowerIds = ["ICA3-T-01", "ICA3-T-02", "ICA3-T-11", "ICA3-T-03", "ICA3-T-05", "ICA3-T-06", "ICA3-T-07", "ICA3-T-09"];
 const demoIds = ["ICA3-D-01", "ICA3-D-02", "ICA3-D-03", "ICA3-D-04", "ICA3-D-05"];
 if (lowerIds.some((id) => nodes.get(id).y < 0 || nodes.get(id).y + nodes.get(id).h >= demoDivider.y)) {
   throw new Error("Tracker training nodes must remain above the dashed divider");
@@ -357,19 +379,13 @@ if (Math.max(...demoAxisGaps) - Math.min(...demoAxisGaps) > 10) {
   throw new Error(`demo-axis spacing must remain even: ${demoAxisGaps.join(",")}`);
 }
 
-if (correctTrajectory.title !== "Correct Trajectory") {
-  throw new Error("Calibration supervision must come from Correct Trajectory");
+if (!learning.summary.includes("Query Executed Action") || !learning.summary.includes("仅训练 Context Encoder")) {
+  throw new Error("Calibration Learning must use Query Executed Action and update only Context Encoder");
 }
-if (correctTrajectory.x + correctTrajectory.w / 2 !== learning.x + learning.w / 2) {
-  throw new Error("Correct Trajectory must sit directly above Calibration Learning");
-}
-const correctTrajectoryRoute = route("ICA3-T-10", "ICA3-T-09");
-if (
-  correctTrajectoryRoute.edge.label !== "无缺陷轨迹目标" ||
-  correctTrajectoryRoute.points.length !== 2 ||
-  !isVertical(correctTrajectoryRoute.points[0], correctTrajectoryRoute.points[1])
-) {
-  throw new Error("Correct Trajectory must connect straight down to Calibration Learning");
+for (const forbiddenPair of ["ICA3-T-09->ICA3-T-02", "ICA3-T-09->ICA3-T-03", "ICA3-T-10->ICA3-T-09"]) {
+  if (edgePairs.has(forbiddenPair)) {
+    throw new Error(`retired supervision or frozen-Tracker training route remains: ${forbiddenPair}`);
+  }
 }
 
 console.log(`in-context execution calibration figure ok; nodes=${nodes.size} edges=${routes.length}`);

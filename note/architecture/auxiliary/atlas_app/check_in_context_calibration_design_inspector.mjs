@@ -125,13 +125,13 @@ assert.deepEqual(
   learningCard.details.map(({ heading }) => heading),
   [
     "1. 按动力学条件构造 Episode",
-    "2. 在相同条件下生成两条独立 Rollout",
-    "3. Support Rollout 生成校准量",
-    "4. Query Rollout 提供独立监督",
-    "5. 冻结 Tracker 重建 Query Action",
-    "6. 使用 Executed Action 监督",
-    "7. 梯度经过冻结 Tracker，只更新 Context Encoder",
-    "8. 跨条件元训练，并在未见条件上评价",
+    "2. 在相同条件下预先采集两条未校准 Rollout",
+    "3. Support 与 Query 承担不同角色",
+    "4. Support Rollout 生成校准量",
+    "5. Query 使用真实未来运动",
+    "6. 冻结 Tracker 重建 Query Action",
+    "7. 使用 Executed Action 监督，只更新 Context Encoder",
+    "8. 跨条件训练，并保持训练—部署接口一致",
   ],
 );
 assert.ok(learningCard.details.every((detail) => typeof detail === "object"));
@@ -143,8 +143,10 @@ for (const required of [
   "输入完整时序，而非单帧",
   "整条轨迹只输出一个 Δz",
   "第二次 Rollout 固定复用 Δz",
-  "在相同条件下生成两条独立 Rollout",
-  "梯度经过冻结 Tracker，只更新 Context Encoder",
+  "在相同条件下预先采集两条未校准 Rollout",
+  "训练中的 Δzξ 不得重新执行或改写 Query",
+  "训练时，Tracker Encoder 输入 Query 中真实发生的 Future Motion",
+  "梯度经过冻结 Tracker，但只更新 Context Encoder",
   "不使用 clean Action、Teacher Action、task Reward",
 ]) {
   assert.ok(text.includes(required), `missing required decision: ${required}`);
