@@ -115,6 +115,20 @@ def _validate_scenario(
         action_seed = visit.get("action_seed")
         actor_drift = visit.get("actor_input_max_abs_diff")
         critic_drift = visit.get("critic_input_max_abs_diff")
+        live_actor_drift = visit.get("live_actor_input_max_abs_diff", actor_drift)
+        live_critic_drift = visit.get("live_critic_input_max_abs_diff", critic_drift)
+        used_actor_drift = _finite_number(
+            actor_drift, field=f"Scenario {scenario_id!r} visit used actor drift"
+        )
+        used_critic_drift = _finite_number(
+            critic_drift, field=f"Scenario {scenario_id!r} visit used critic drift"
+        )
+        observed_live_actor_drift = _finite_number(
+            live_actor_drift, field=f"Scenario {scenario_id!r} visit live actor drift"
+        )
+        observed_live_critic_drift = _finite_number(
+            live_critic_drift, field=f"Scenario {scenario_id!r} visit live critic drift"
+        )
         if (
             isinstance(visit_index, bool)
             or not isinstance(visit_index, int)
@@ -123,11 +137,13 @@ def _validate_scenario(
             or isinstance(action_seed, bool)
             or not isinstance(action_seed, int)
             or action_seed < 0
-            or _finite_number(actor_drift, field=f"Scenario {scenario_id!r} visit actor drift") != 0.0
-            or _finite_number(critic_drift, field=f"Scenario {scenario_id!r} visit critic drift") != 0.0
+            or used_actor_drift != 0.0
+            or used_critic_drift != 0.0
+            or observed_live_actor_drift < 0.0
+            or observed_live_critic_drift < 0.0
         ):
             raise DirectionAnalysisInputError(
-                f"Scenario {scenario_id!r} visit {position} has invalid identity, seed, or policy-input drift"
+                f"Scenario {scenario_id!r} visit {position} has invalid identity, seed, or used policy-input drift"
             )
         visit_seeds[visit_index] = action_seed
     if set(visit_seeds) != set(range(8)):

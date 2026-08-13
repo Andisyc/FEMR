@@ -64,11 +64,17 @@ class _Aggregate:
 
 
 class _Harness:
-    def __init__(self, *, fail_collect_at: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail_collect_at: int | None = None,
+        drift_used_input_at: int | None = None,
+    ) -> None:
         self.policy_loaded = False
         self.readonly_depth = 0
         self.collect_count = 0
         self.fail_collect_at = fail_collect_at
+        self.drift_used_input_at = drift_used_input_at
         self.written = None
         self.prepared_close_count = 0
 
@@ -148,13 +154,30 @@ class _Harness:
             weighted_physics_gain=torch.tensor(physics),
             repair_penalty=torch.tensor(penalties),
         )
+        used_policy_observations = frozen
+        if used_policy_observations is None:
+            used_policy_observations = SimpleNamespace(
+                obs=torch.arange(16 * 928, dtype=torch.float32).reshape(16, 928),
+                privileged_obs=torch.arange(16 * 449, dtype=torch.float32).reshape(16, 449),
+            )
+        elif self.drift_used_input_at == call_index:
+            used_policy_observations = SimpleNamespace(
+                obs=used_policy_observations.obs.clone(),
+                privileged_obs=used_policy_observations.privileged_obs.clone(),
+            )
+            used_policy_observations.obs[0, 0] += 1.0e-3
         return SimpleNamespace(
             evidence=evidence,
             gain=gain,
-            policy_observations=object() if frozen is None else frozen,
+            policy_observations=used_policy_observations,
             observation_trace={
-                "repeat_live_actor_input_max_abs_diff": 0.0,
-                "repeat_live_critic_input_max_abs_diff": 0.0,
+                "repeat_policy_input_source": (
+                    "live-first-repeat" if frozen is None else "first-repeat-frozen"
+                ),
+                "repeat_live_actor_input_max_abs_diff": 0.0 if frozen is None else 3.8110761642456055,
+                "repeat_live_critic_input_max_abs_diff": 0.0 if frozen is None else 4.439251899719238,
+                "repeat_used_actor_input_max_abs_diff": 0.0,
+                "repeat_used_critic_input_max_abs_diff": 0.0,
             },
         )
 
@@ -229,6 +252,10 @@ def test_bounded_collection_emits_analyzer_schema_without_state_writes() -> None
         assert [row["repair_index"] for row in scenario["rows"]] == list(range(32))
         assert [row["visit_index"] for row in scenario["rows"]] == [index // 4 for index in range(32)]
         assert [row["attempt_index"] for row in scenario["rows"]] == [index % 4 for index in range(32)]
+        assert scenario["visits"][0]["live_actor_input_max_abs_diff"] == 0.0
+        assert scenario["visits"][1]["live_actor_input_max_abs_diff"] == 3.8110761642456055
+        assert all(visit["actor_input_max_abs_diff"] == 0.0 for visit in scenario["visits"])
+        assert all(visit["critic_input_max_abs_diff"] == 0.0 for visit in scenario["visits"])
     assert harness.collect_count == 16
     assert harness.prepared_close_count == 16
     assert harness.policy_loaded is False and harness.readonly_depth == 0
@@ -254,6 +281,23 @@ def test_exception_restores_route_rng_and_readonly_lifecycle() -> None:
     assert before[0] == after[0]
     assert np.array_equal(before[1], after[1])
     assert torch.equal(before[2], after[2])
+    assert harness.policy_loaded is False and harness.readonly_depth == 0
+    assert harness.prepared_close_count == 3
+    assert harness.written is None
+
+
+def test_used_policy_input_drift_still_fails_closed() -> None:
+    harness = _Harness(drift_used_input_at=2)
+    try:
+        run_frontres_action_gain_direction_collect(
+            _runner(),
+            request=_request(),
+            owners=harness.owners(),
+        )
+    except RuntimeError as exc:
+        assert "changed used Actor/Critic inputs" in str(exc)
+    else:
+        raise AssertionError("collector must reject drift in the policy inputs actually consumed")
     assert harness.policy_loaded is False and harness.readonly_depth == 0
     assert harness.prepared_close_count == 3
     assert harness.written is None
@@ -297,6 +341,7 @@ def test_entrypoint_preserves_formal_training_and_historical_eval_boundaries() -
 def main() -> None:
     test_bounded_collection_emits_analyzer_schema_without_state_writes()
     test_exception_restores_route_rng_and_readonly_lifecycle()
+    test_used_policy_input_drift_still_fails_closed()
     test_real_prepared_cleanup_is_idempotent()
     test_entrypoint_preserves_formal_training_and_historical_eval_boundaries()
     print("frontres_action_gain_direction_collect_contract: ok")

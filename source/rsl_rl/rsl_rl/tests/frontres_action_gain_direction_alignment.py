@@ -69,6 +69,8 @@ def _scenario(
                 "action_seed": 1000 + visit,
                 "actor_input_max_abs_diff": 0.0,
                 "critic_input_max_abs_diff": 0.0,
+                "live_actor_input_max_abs_diff": 0.0 if visit == 0 else 3.8110761642456055,
+                "live_critic_input_max_abs_diff": 0.0 if visit == 0 else 4.439251899719238,
             }
             for visit in range(8)
         ],

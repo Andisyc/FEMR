@@ -393,6 +393,29 @@ def _action_seed(request: FrontRESActionGainDirectionRequest, pair_key: tuple[st
     return int.from_bytes(hashlib.sha256(material).digest()[:8], "big") % (2**63 - 1)
 
 
+def _used_policy_input_drifts(current: Any, frozen: Any | None) -> tuple[float, float]:
+    """Compare the policy inputs actually consumed, not unused live-history observations."""
+
+    values: list[torch.Tensor] = []
+    references: list[torch.Tensor] = []
+    for name in ("obs", "privileged_obs"):
+        value = getattr(current, name, None)
+        if not isinstance(value, torch.Tensor) or value.requires_grad or not bool(torch.isfinite(value).all()):
+            raise RuntimeError(f"action-Gain direction collection lost finite detached used {name}")
+        values.append(value)
+        if frozen is not None:
+            reference = getattr(frozen, name, None)
+            if not isinstance(reference, torch.Tensor) or tuple(reference.shape) != tuple(value.shape):
+                raise RuntimeError(f"action-Gain direction collection changed used {name} shape")
+            references.append(reference)
+    if frozen is None:
+        return 0.0, 0.0
+    return tuple(
+        float((value - reference).abs().max().detach().cpu().item())
+        for value, reference in zip(values, references, strict=True)
+    )
+
+
 def _real_collect(runner: Any, prepared: Any, frozen: Any | None, beta: float) -> Any:
     return collect_frontres_recovery_aware_evaluation(
         runner,
@@ -583,18 +606,30 @@ def run_frontres_action_gain_direction_collect(
                 if _rng_state_hashes() != rng_pair_before:
                     raise RuntimeError("action-Gain direction action RNG scope failed to restore global RNG state")
                 trace = dict(getattr(collection, "observation_trace", {}) or {})
-                actor_drift = float(trace.get("repeat_live_actor_input_max_abs_diff", float("nan")))
-                critic_drift = float(trace.get("repeat_live_critic_input_max_abs_diff", float("nan")))
-                if not math.isfinite(actor_drift) or not math.isfinite(critic_drift) or actor_drift != 0.0 or critic_drift != 0.0:
+                live_actor_drift = float(trace.get("repeat_live_actor_input_max_abs_diff", float("nan")))
+                live_critic_drift = float(trace.get("repeat_live_critic_input_max_abs_diff", float("nan")))
+                expected_source = "live-first-repeat" if frozen is None else "first-repeat-frozen"
+                if (
+                    not math.isfinite(live_actor_drift)
+                    or not math.isfinite(live_critic_drift)
+                    or live_actor_drift < 0.0
+                    or live_critic_drift < 0.0
+                    or trace.get("repeat_policy_input_source") != expected_source
+                ):
                     raise RuntimeError(
-                        "action-Gain direction repeat changed live Actor/Critic inputs; "
+                        "action-Gain direction collection lost policy-input provenance; "
+                        f"source={trace.get('repeat_policy_input_source')!r} "
+                        f"live_actor_drift={live_actor_drift} live_critic_drift={live_critic_drift}"
+                    )
+                used = getattr(collection, "policy_observations", None)
+                actor_drift, critic_drift = _used_policy_input_drifts(used, frozen)
+                if actor_drift != 0.0 or critic_drift != 0.0:
+                    raise RuntimeError(
+                        "action-Gain direction repeat changed used Actor/Critic inputs; "
                         f"actor_drift={actor_drift} critic_drift={critic_drift}"
                     )
                 if frozen is None:
-                    first = getattr(collection, "policy_observations", None)
-                    if first is None:
-                        raise RuntimeError("action-Gain direction first repeat lost frozen policy inputs")
-                    frozen_observations[pair_key] = first
+                    frozen_observations[pair_key] = used
                 collected = _collection_rows(
                     collection,
                     expected_sources=manifest.segments_per_transaction,
@@ -622,6 +657,8 @@ def run_frontres_action_gain_direction_collect(
                             "action_seed": action_seed,
                             "actor_input_max_abs_diff": actor_drift,
                             "critic_input_max_abs_diff": critic_drift,
+                            "live_actor_input_max_abs_diff": live_actor_drift,
+                            "live_critic_input_max_abs_diff": live_critic_drift,
                         }
                     )
                     for trial_offset, row in enumerate(data["rows"]):
