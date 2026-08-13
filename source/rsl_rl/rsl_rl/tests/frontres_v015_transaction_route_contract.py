@@ -88,6 +88,29 @@ class _TrackingAdam(torch.optim.Adam):
         return super().step(closure=closure)
 
 
+class _ReadOnlyTrackingAdam(torch.optim.Adam):
+    """Mirror the production persisted counter, whose public property has no setter."""
+
+    def __init__(self, params) -> None:
+        super().__init__(params, lr=1.0e-3)
+        for group in self.param_groups:
+            group["frontres_step_count"] = 0
+
+    @property
+    def frontres_step_count(self) -> int:
+        counts = {int(group["frontres_step_count"]) for group in self.param_groups}
+        if len(counts) != 1:
+            raise RuntimeError("test optimizer groups disagree on step count")
+        return counts.pop()
+
+    def step(self, closure=None):
+        result = super().step(closure=closure)
+        value = self.frontres_step_count + 1
+        for group in self.param_groups:
+            group["frontres_step_count"] = value
+        return result
+
+
 SCHEDULE = (
     (8, 4, 200, 500, 1300, "lower-k8", 0.5, "linear-coupled-v1", 700, 2.381),
     (16, 4, 300, 300, 900, "lower-k16", 0.6, "linear-coupled-v1", 600, 2.381),
@@ -224,10 +247,11 @@ def _request(
     *,
     iteration: int = 0,
     runner: SimpleNamespace | None = None,
+    optimizer_type: type[torch.optim.Adam] = _TrackingAdam,
 ) -> tuple[SimpleNamespace, FrontRESFormalTransactionRequest, _Policy]:
     if runner is None:
         policy = _Policy()
-        optimizer = _TrackingAdam(
+        optimizer = optimizer_type(
             [
                 {
                     "params": (*tuple(policy.actor.parameters()), policy.log_std),
@@ -625,6 +649,29 @@ def test_replay_commit_failure_rolls_back_the_whole_formal_transaction() -> None
     _assert_formal_transaction_state_restored(runner, policy, before)
 
 
+def test_real_counter_shape_rolls_back_without_writing_read_only_property() -> None:
+    runner, request, policy = _request(optimizer_type=_ReadOnlyTrackingAdam)
+    outer_replay = runner._frontres_outer_scenario_replay
+    before = _capture_formal_transaction_state(runner, policy)
+    original_commit = outer_replay.commit
+
+    def fail_commit(_candidate, *, receipt):
+        assert receipt["optimizer_step_delta"] == 1
+        raise RuntimeError("forced Replay commit failure with read-only counter")
+
+    outer_replay.commit = fail_commit
+    open_frontres_checkpoint_transaction_barrier(runner)
+    try:
+        run_frontres_formal_transaction_update(runner, request)
+    except RuntimeError as exc:
+        assert "forced Replay commit failure with read-only counter" in str(exc)
+    else:
+        raise AssertionError("read-only counter rollback case must reject the transaction")
+    finally:
+        outer_replay.commit = original_commit
+    _assert_formal_transaction_state_restored(runner, policy, before)
+
+
 def test_post_commit_audit_failure_also_rolls_back_replay_and_optimizer() -> None:
     runner, request, policy = _request()
     outer_replay = runner._frontres_outer_scenario_replay
@@ -686,6 +733,7 @@ def main() -> None:
     test_partial_transaction_rejects_before_update()
     test_value_normalizer_iteration_mismatch_rejects_before_update()
     test_replay_commit_failure_rolls_back_the_whole_formal_transaction()
+    test_real_counter_shape_rolls_back_without_writing_read_only_property()
     test_post_commit_audit_failure_also_rolls_back_replay_and_optimizer()
     test_phase_reset_routes_mode_through_sealed_reset_owner()
     print("frontres_v015_transaction_route_contract: v024 current-visit outer replay exact-one ok", flush=True)

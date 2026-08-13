@@ -242,7 +242,12 @@ class _FrontRESFormalTransactionRollback:
                 parameter.copy_(value)
         optimizer.load_state_dict(copy.deepcopy(self.optimizer_state))
         for name, value in self.optimizer_step_counters:
-            setattr(optimizer, name, value)
+            descriptor = getattr(type(optimizer), name, None)
+            if isinstance(descriptor, property) and descriptor.fset is None:
+                if getattr(optimizer, name) != value:
+                    raise RuntimeError(f"formal transaction rollback did not restore read-only optimizer {name}")
+            else:
+                setattr(optimizer, name, value)
         frontres_outer_scenario_replay(runner).load_state_dict(copy.deepcopy(self.outer_replay_state))
         alg.frontres_critic_value_normalizer_state = copy.deepcopy(self.normalizer_state)
         for name, present, value in (

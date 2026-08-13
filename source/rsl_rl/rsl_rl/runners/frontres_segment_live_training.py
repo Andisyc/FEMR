@@ -584,7 +584,7 @@ def run_frontres_segment_live_training_loop(
                 runner,
                 checkpoint_path=checkpoint_path,
                 summary=summary,
-                required=False,
+                required=formal_v015,
                 expected_v015_transaction_id=(summary["transaction_id"] if formal_v015 else None),
             ):
                 last_checkpoint_probe_path = checkpoint_path

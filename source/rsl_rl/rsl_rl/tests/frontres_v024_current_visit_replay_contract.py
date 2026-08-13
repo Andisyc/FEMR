@@ -207,6 +207,35 @@ def test_capacity_maturity_uses_committed_visit_count() -> None:
     assert restored.stats(active_k=8)["minimum_active_visits"] == 4
 
 
+def test_full_pool_seals_one_replacement_before_current_evidence() -> None:
+    owner = FrontRESOuterScenarioReplay(
+        capacity_ladder=(8, 16),
+        minimum_visits_before_expand=1,
+        seed=19,
+    )
+    transaction = 0
+    while int(owner.stats(active_k=8)["active_count"]) < 16:
+        plan = _plan(owner, f"fill-{transaction}", joint=True)
+        candidate = _stage(owner, plan, torch.zeros(32), torch.zeros(32))
+        owner.commit(candidate, receipt=_receipt(candidate))
+        transaction += 1
+        assert transaction <= 9
+
+    plan = _plan(owner, "replace-full", joint=True)
+    assert plan.active_capacity_before == plan.active_capacity_after == 16
+    assert plan.replacement_digest is not None
+    replacement = next(record for record in owner.records if record.key.digest == plan.replacement_digest)
+    assert replacement.key.segment_id not in {selection.segment_id for selection in plan.selections}
+
+    candidate = _stage(owner, plan, torch.arange(32, dtype=torch.float32), torch.zeros(32))
+    active = dict(candidate.active_digests_by_k)[8]
+    assert len(active) == 16
+    assert plan.replacement_digest not in active
+    assert plan.replacement_digest in {record.key.digest for record in candidate.records}
+    owner.commit(candidate, receipt=_receipt(candidate))
+    assert int(owner.stats(active_k=8)["active_count"]) == 16
+
+
 def test_row_permutation_preserves_scenario_targets() -> None:
     owner = FrontRESOuterScenarioReplay(global_frac=1.0, replay_frac=0.0, review_frac=0.0, seed=17)
     plan = _plan(owner, "ordered")
@@ -232,6 +261,7 @@ def main() -> None:
     test_current_m4_uncertainty_changes_priority_but_not_target()
     test_replay_v5_persists_selection_metadata_without_outcome_history()
     test_capacity_maturity_uses_committed_visit_count()
+    test_full_pool_seals_one_replacement_before_current_evidence()
     test_row_permutation_preserves_scenario_targets()
     print("frontres_v024_current_visit_replay_contract: PASS", flush=True)
 

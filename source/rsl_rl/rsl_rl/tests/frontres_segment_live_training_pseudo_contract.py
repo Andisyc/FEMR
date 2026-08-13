@@ -479,7 +479,7 @@ def test_pseudo_live_training_log_formats_large_loss_readably() -> None:
     assert "151579182193432229576704.000000" not in output
 
 
-def test_pseudo_live_training_continues_after_periodic_checkpoint_failure() -> None:
+def test_legacy_live_training_continues_after_periodic_checkpoint_failure() -> None:
     runner = FakeRunner(fail_save_paths={"/tmp/frontres-pseudo/model_1.pt"})
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
@@ -503,6 +503,48 @@ def test_pseudo_live_training_continues_after_periodic_checkpoint_failure() -> N
     assert "synthetic checkpoint write failure" in output
     assert "save.path: /tmp/frontres-pseudo/model_1.pt" in output
     assert "save.status: OK" in output
+
+
+def test_formal_training_fails_closed_after_periodic_checkpoint_failure() -> None:
+    runner, calls = _formal_stage_runner(iteration=50, num_envs=64)
+    runner.save_interval = 1
+    required_flags: list[bool] = []
+    originals = (
+        live_training_module.print_formal_route_audit,
+        live_training_module._require_v015_committed_result,
+        live_training_module._print_v015_formal_train_summary,
+        live_training_module._save_live_checkpoint,
+    )
+    live_training_module.print_formal_route_audit = lambda *_args, **_kwargs: None
+    live_training_module._require_v015_committed_result = lambda _runner, result: result
+    live_training_module._print_v015_formal_train_summary = lambda *_args, **_kwargs: None
+
+    def fail_checkpoint(_runner, *, required: bool, **_kwargs):
+        required_flags.append(required)
+        raise RuntimeError("synthetic formal checkpoint write failure")
+
+    live_training_module._save_live_checkpoint = fail_checkpoint
+    try:
+        try:
+            run_frontres_segment_live_training_loop(
+                runner,
+                num_learning_iterations=2,
+                init_at_random_ep_len=False,
+            )
+        except RuntimeError as exc:
+            assert "synthetic formal checkpoint write failure" in str(exc)
+        else:
+            raise AssertionError("formal periodic checkpoint failure must stop training")
+        assert calls == [50]
+        assert runner.current_learning_iteration == 51
+        assert required_flags == [True]
+    finally:
+        (
+            live_training_module.print_formal_route_audit,
+            live_training_module._require_v015_committed_result,
+            live_training_module._print_v015_formal_train_summary,
+            live_training_module._save_live_checkpoint,
+        ) = originals
 
 
 def test_training_process_has_no_embedded_evaluator() -> None:
@@ -652,7 +694,8 @@ def main() -> None:
     test_pseudo_live_training_rejects_too_few_valid_samples()
     test_pseudo_live_training_can_disable_fail_fast_guards()
     test_pseudo_live_training_log_formats_large_loss_readably()
-    test_pseudo_live_training_continues_after_periodic_checkpoint_failure()
+    test_legacy_live_training_continues_after_periodic_checkpoint_failure()
+    test_formal_training_fails_closed_after_periodic_checkpoint_failure()
     test_training_process_has_no_embedded_evaluator()
     test_resume_progress_separates_absolute_and_local_iterations()
     test_formal_k_stage_boundary_saves_then_requires_new_env_width()

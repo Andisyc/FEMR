@@ -307,6 +307,7 @@ class FrontRESOuterReplayPlan:
     record_state_digest: str
     active_capacity_before: int
     active_capacity_after: int
+    replacement_digest: str | None
 
     @property
     def active_k(self) -> int:
@@ -351,6 +352,17 @@ class FrontRESOuterReplayPlan:
             raise ValueError("outer replay plan cannot shrink active capacity")
         if self.active_capacity_after > self.active_capacity_before and self.phase_name != "joint":
             raise ValueError("outer replay capacity cannot expand while DR is adapting")
+        if self.replacement_digest is not None:
+            _require_nonempty("replacement_digest", self.replacement_digest)
+            if self.active_capacity_after != self.active_capacity_before:
+                raise ValueError("outer replay cannot replace and expand capacity in the same plan")
+            admissions = tuple(
+                selection
+                for selection in self.selections
+                if selection.purpose == "admission" and selection.source == "global"
+            )
+            if len(admissions) != 1:
+                raise ValueError("outer replay replacement requires one sealed global admission")
         for value in (self.generator_state_before, self.generator_state_after):
             if not isinstance(value, torch.Tensor) or value.dtype != torch.uint8 or value.ndim != 1:
                 raise ValueError("outer replay plan requires uint8 generator states")
@@ -676,6 +688,7 @@ class FrontRESOuterScenarioReplay:
         admission_open = self._admission_open(curriculum, capacity=capacity_after)
         active_records = self._active_records(curriculum.active_k)
         replacement_class: str | None = None
+        replacement_digest: str | None = None
         if admission_open and len(active_records) >= capacity_after:
             protected = self._protected_anchor_digests(active_records, active_k=curriculum.active_k)
             replaceable = tuple(
@@ -686,7 +699,7 @@ class FrontRESOuterScenarioReplay:
             )
             if not replaceable:
                 raise RuntimeError("Replay Curriculum opened admission without a replaceable active Scenario")
-            replacement_class = min(
+            replacement = min(
                 replaceable,
                 key=lambda record: (
                     max(
@@ -695,7 +708,10 @@ class FrontRESOuterScenarioReplay:
                     ),
                     record.key.digest,
                 ),
-            ).dr_class
+            )
+            replacement_class = replacement.dr_class
+            replacement_digest = replacement.key.digest
+            excluded_segments.add(replacement.key.segment_id)
         planned_class_counts = {name: 0 for name in FRONTRES_V013_DR_CLASS_NAMES}
         for record in self._active_records(curriculum.active_k):
             planned_class_counts[record.dr_class] = planned_class_counts.get(record.dr_class, 0) + 1
@@ -828,6 +844,7 @@ class FrontRESOuterScenarioReplay:
             record_state_digest=self._record_digest(),
             active_capacity_before=capacity_before,
             active_capacity_after=capacity_after,
+            replacement_digest=replacement_digest,
         )
         result.validate()
         return result
@@ -952,40 +969,13 @@ class FrontRESOuterScenarioReplay:
         active_by_k = {int(k): set(values) for k, values in self._active_by_k.items()}
         active = active_by_k.setdefault(int(plan.active_k), set())
         selected_digests = {key.digest for key in keys}
-        admitted_digests = {
-            key.digest
-            for selection, key in zip(plan.selections, keys, strict=True)
-            if selection.replay_key_digest is None
-        }
         active.update(selected_digests)
-        while len(active) > int(plan.active_capacity_after):
-            active_records = [records[digest] for digest in active if digest in records]
-            protected = self._protected_anchor_digests(active_records, active_k=plan.active_k)
-            admission_classes = {
-                selection.dr_class for selection in plan.selections if selection.source == "global"
-            }
-            eligible = [
-                record
-                for record in active_records
-                if record.key.digest not in protected
-                and record.key.digest not in admitted_digests
-                and record.visit_count >= self.minimum_visits_before_expand
-                and (not admission_classes or record.dr_class in admission_classes)
-            ]
-            if not eligible:
-                raise RuntimeError("Replay Curriculum cannot evict without violating visit or anchor protection")
-            evicted = min(
-                eligible,
-                key=lambda record: (
-                    max(
-                        float(record.score_for_k(plan.active_k, score_kind="critic_calibration") or 0.0),
-                        float(record.score_for_k(plan.active_k, score_kind="repair_spread") or 0.0),
-                    ),
-                    -record.visit_count,
-                    record.key.digest,
-                ),
-            )
-            active.remove(evicted.key.digest)
+        if plan.replacement_digest is not None:
+            if plan.replacement_digest not in active or plan.replacement_digest in selected_digests:
+                raise RuntimeError("Replay Curriculum plan lost its sealed replacement identity")
+            active.remove(plan.replacement_digest)
+        if len(active) > int(plan.active_capacity_after):
+            raise RuntimeError("Replay Curriculum plan exceeded active capacity without a sealed replacement")
         candidate = FrontRESOuterReplayCandidate(
             transaction_id=plan.transaction_id,
             policy_snapshot_id=_require_nonempty("policy_snapshot_id", policy_snapshot_id),
