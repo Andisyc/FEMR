@@ -33,18 +33,12 @@ for (const field of ["claim", "subtitle"]) {
 }
 
 const requiredNodes = [
-  "ICA3-P-01",
-  "ICA3-P-02",
-  "ICA3-P-03",
-  "ICA3-P-04",
-  "ICA3-P-05",
   "ICA3-T-01",
   "ICA3-T-02",
   "ICA3-T-03",
   "ICA3-T-04",
   "ICA3-T-05",
   "ICA3-T-06",
-  "ICA3-T-08",
   "ICA3-T-09",
   "ICA3-T-10",
   "ICA3-T-11",
@@ -73,8 +67,8 @@ if (
 }
 
 const dividers = data.layerDividers || (data.layerDivider ? [data.layerDivider] : []);
-if (dividers.length !== 2) {
-  throw new Error("Concept Figure must contain two labeled horizontal layer dividers");
+if (dividers.length !== 1) {
+  throw new Error("Concept Figure must contain one labeled horizontal layer divider");
 }
 for (const divider of dividers) {
   if (
@@ -86,14 +80,12 @@ for (const divider of dividers) {
     throw new Error("Concept Figure contains an invalid horizontal layer divider");
   }
 }
-const [teacherDivider, demoDivider] = dividers;
+const [demoDivider] = dividers;
 if (
-  teacherDivider.topLabel !== "Privileged Teacher Training" ||
-  teacherDivider.bottomLabel !== "Context-Conditioned Tracker Training" ||
   demoDivider.topLabel !== "Context-Conditioned Tracker Training" ||
   demoDivider.bottomLabel !== "Controlled Real-World Proof of Concept"
 ) {
-  throw new Error("Concept Figure layer divider labels do not match the three figure layers");
+  throw new Error("Concept Figure layer divider labels do not match the two figure layers");
 }
 
 const requiredShapes = new Map([
@@ -236,13 +228,6 @@ for (let firstIndex = 0; firstIndex < routes.length; firstIndex += 1) {
 }
 
 const requiredEdges = [
-  "ICA3-P-01->ICA3-P-02",
-  "ICA3-P-02->ICA3-T-08",
-  "ICA3-T-08->ICA3-P-03",
-  "ICA3-P-01->ICA3-P-03",
-  "ICA3-P-03->ICA3-P-04",
-  "ICA3-P-04->ICA3-P-05",
-  "ICA3-P-05->ICA3-T-08",
   "ICA3-T-01->ICA3-T-02",
   "ICA3-T-02->ICA3-T-11",
   "ICA3-T-11->ICA3-T-03",
@@ -295,11 +280,20 @@ if (contextRoute.points.length !== 2) {
 if (contextRoute.edge.label !== "Δz") {
   throw new Error("Context Encoder must supply calibration latent Δz");
 }
+if (contextRoute.edge.labelSize < 14) {
+  throw new Error("Delta-z label must remain visually prominent");
+}
 
 const nominalRoute = route("ICA3-T-02", "ICA3-T-11");
 const calibratedRoute = route("ICA3-T-11", "ICA3-T-03");
 if (nominalRoute.edge.label !== "z" || calibratedRoute.edge.label !== "z + Δz") {
   throw new Error("Tracker bottleneck must explicitly render z + Δz latent calibration");
+}
+if (nominalRoute.edge.labelSize < 14 || calibratedRoute.edge.labelSize < 14) {
+  throw new Error("Tracker latent labels must remain visually prominent");
+}
+if (nodes.get("ICA3-T-11")?.summarySize < 14) {
+  throw new Error("Latent Add summary must remain visually prominent");
 }
 
 const supportRoute = route("ICA3-T-05", "ICA3-T-06");
@@ -314,9 +308,19 @@ if (rolloutRoute.points.length !== 2) {
   throw new Error("Rollout-to-Learning must be a single straight connector");
 }
 
-const teacher = nodes.get("ICA3-T-08");
+const executionRoute = route("ICA3-T-04", "ICA3-T-05");
+const executionSource = nodes.get("ICA3-T-04");
+const executionTarget = nodes.get("ICA3-T-05");
+if (
+  executionRoute.edge.label !== "执行" ||
+  executionRoute.edge.labelX <= executionSource.x + executionSource.w ||
+  executionRoute.edge.labelX >= executionTarget.x
+) {
+  throw new Error("Execution label must remain centered in the gap between its endpoint blocks");
+}
+
 const learning = nodes.get("ICA3-T-09");
-const distilledTeacher = nodes.get("ICA3-T-10");
+const correctTrajectory = nodes.get("ICA3-T-10");
 const mainAxisIds = [
   "ICA3-T-01",
   "ICA3-T-02",
@@ -335,18 +339,10 @@ if (Math.max(...mainAxisGaps) - Math.min(...mainAxisGaps) > 10) {
   throw new Error(`main-axis spacing must remain even: ${mainAxisGaps.join(",")}`);
 }
 
-const upperIds = ["ICA3-P-01", "ICA3-P-02", "ICA3-T-08", "ICA3-P-03", "ICA3-P-04", "ICA3-P-05"];
 const lowerIds = ["ICA3-T-01", "ICA3-T-02", "ICA3-T-11", "ICA3-T-03", "ICA3-T-04", "ICA3-T-05", "ICA3-T-06", "ICA3-T-09", "ICA3-T-10"];
 const demoIds = ["ICA3-D-01", "ICA3-D-02", "ICA3-D-03", "ICA3-D-04", "ICA3-D-05"];
-if (upperIds.some((id) => nodes.get(id).y + nodes.get(id).h >= teacherDivider.y)) {
-  throw new Error("Privileged Teacher training nodes must remain above the dashed divider");
-}
-if (
-  lowerIds.some(
-    (id) => nodes.get(id).y <= teacherDivider.y || nodes.get(id).y + nodes.get(id).h >= demoDivider.y,
-  )
-) {
-  throw new Error("Tracker training nodes must remain between the two dashed dividers");
+if (lowerIds.some((id) => nodes.get(id).y < 0 || nodes.get(id).y + nodes.get(id).h >= demoDivider.y)) {
+  throw new Error("Tracker training nodes must remain above the dashed divider");
 }
 if (demoIds.some((id) => nodes.get(id).y <= demoDivider.y)) {
   throw new Error("Controlled proof-of-concept nodes must remain below the second dashed divider");
@@ -361,49 +357,19 @@ if (Math.max(...demoAxisGaps) - Math.min(...demoAxisGaps) > 10) {
   throw new Error(`demo-axis spacing must remain even: ${demoAxisGaps.join(",")}`);
 }
 
-const upperAxisGaps = upperIds.slice(1).map((id, index) => {
-  const previous = nodes.get(upperIds[index]);
-  const current = nodes.get(id);
-  return current.x - (previous.x + previous.w);
-});
-if (Math.max(...upperAxisGaps) - Math.min(...upperAxisGaps) > 10) {
-  throw new Error(`teacher-axis spacing must remain even: ${upperAxisGaps.join(",")}`);
+if (correctTrajectory.title !== "Correct Trajectory") {
+  throw new Error("Calibration supervision must come from Correct Trajectory");
 }
-
-for (const key of ["title", "summary", "concept", "w", "h"]) {
-  if (distilledTeacher[key] !== teacher[key]) {
-    throw new Error(`Lower Privileged Teacher must match upper card field ${key}`);
-  }
+if (correctTrajectory.x + correctTrajectory.w / 2 !== learning.x + learning.w / 2) {
+  throw new Error("Correct Trajectory must sit directly above Calibration Learning");
 }
-if (distilledTeacher.x + distilledTeacher.w / 2 !== learning.x + learning.w / 2) {
-  throw new Error("Lower Privileged Teacher must sit directly above Calibration Learning");
-}
-if (edgePairs.has("ICA3-T-08->ICA3-T-09")) {
-  throw new Error("Upper Teacher must not use a cross-layer connector to Calibration Learning");
-}
-const teacherRoute = route("ICA3-T-10", "ICA3-T-09");
-if (teacherRoute.points.length !== 2 || !isVertical(teacherRoute.points[0], teacherRoute.points[1])) {
-  throw new Error("Lower Teacher must connect straight down to Calibration Learning");
-}
-
-const teacherFeedback = route("ICA3-P-05", "ICA3-T-08");
+const correctTrajectoryRoute = route("ICA3-T-10", "ICA3-T-09");
 if (
-  teacherFeedback.points.length !== 4 ||
-  !isVertical(teacherFeedback.points[0], teacherFeedback.points[1]) ||
-  !isHorizontal(teacherFeedback.points[1], teacherFeedback.points[2]) ||
-  !isVertical(teacherFeedback.points[2], teacherFeedback.points[3])
+  correctTrajectoryRoute.edge.label !== "无缺陷轨迹目标" ||
+  correctTrajectoryRoute.points.length !== 2 ||
+  !isVertical(correctTrajectoryRoute.points[0], correctTrajectoryRoute.points[1])
 ) {
-  throw new Error("Teacher RL update must close one visible feedback loop");
-}
-
-const sharedWrenchRoute = route("ICA3-P-01", "ICA3-P-03");
-if (
-  sharedWrenchRoute.points.length !== 4 ||
-  !isVertical(sharedWrenchRoute.points[0], sharedWrenchRoute.points[1]) ||
-  !isHorizontal(sharedWrenchRoute.points[1], sharedWrenchRoute.points[2]) ||
-  !isVertical(sharedWrenchRoute.points[2], sharedWrenchRoute.points[3])
-) {
-  throw new Error("One sampled Wrench must feed both Teacher input and Teacher rollout");
+  throw new Error("Correct Trajectory must connect straight down to Calibration Learning");
 }
 
 console.log(`in-context execution calibration figure ok; nodes=${nodes.size} edges=${routes.length}`);

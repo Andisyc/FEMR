@@ -2,21 +2,14 @@
   "title": "08 In-Context Execution Calibration",
   "layout": "method_figure",
   "figureWidth": 2050,
-  "figureHeight": 1540,
+  "figureHeight": 1110,
   "connectorClearance": 18,
   "showLegend": false,
   "layerDividers": [
     {
       "x1": 40,
       "x2": 2010,
-      "y": 460,
-      "topLabel": "Privileged Teacher Training",
-      "bottomLabel": "Context-Conditioned Tracker Training"
-    },
-    {
-      "x1": 40,
-      "x2": 2010,
-      "y": 1190,
+      "y": 760,
       "topLabel": "Context-Conditioned Tracker Training",
       "bottomLabel": "Controlled Real-World Proof of Concept"
     }
@@ -42,8 +35,8 @@
       "name": "Execution Context",
       "color": "#d97706"
     },
-    "C-ICA3-TEACHER": {
-      "name": "Privileged Supervision",
+    "C-ICA3-CORRECT": {
+      "name": "Correct Trajectory Supervision",
       "color": "#65a30d"
     },
     "C-ICA3-LEARNING": {
@@ -51,81 +44,19 @@
       "color": "#db2777"
     },
     "C-ICA3-OBJECTIVE": {
-      "name": "Teacher Objective",
+      "name": "Execution Objective",
       "color": "#b45309"
     }
   },
   "zones": [],
   "nodes": [
     {
-      "id": "ICA3-P-01",
-      "title": "Wrench Sampling",
-      "summary": "按任务先验随机采样方向与强度",
-      "concept": "C-ICA3-SHIFT",
-      "kind": "external",
-      "x": 40,
-      "y": 90,
-      "w": 220,
-      "h": 110
-    },
-    {
-      "id": "ICA3-P-02",
-      "title": "Privileged Inputs",
-      "summary": "组合当前状态、Intent 与真实 Wrench",
-      "concept": "C-ICA3-TEACHER",
-      "x": 340,
-      "y": 90,
-      "w": 230,
-      "h": 110
-    },
-    {
-      "id": "ICA3-T-08",
-      "title": "Privileged Teacher",
-      "summary": "以真实 Wrench 为条件输出恢复 Action",
-      "concept": "C-ICA3-TEACHER",
-      "x": 660,
-      "y": 90,
-      "w": 240,
-      "h": 110
-    },
-    {
-      "id": "ICA3-P-03",
-      "title": "Same-Wrench Rollout",
-      "summary": "环境承受与 Teacher 输入相同的 Wrench",
-      "concept": "C-ICA3-SUPPORT",
-      "kind": "external",
-      "x": 990,
-      "y": 90,
-      "w": 250,
-      "h": 110
-    },
-    {
-      "id": "ICA3-P-04",
-      "title": "Locomotion Objective",
-      "summary": "保持直线速度、航向与稳定性",
-      "concept": "C-ICA3-OBJECTIVE",
-      "x": 1330,
-      "y": 90,
-      "w": 240,
-      "h": 110
-    },
-    {
-      "id": "ICA3-P-05",
-      "title": "Teacher RL Update",
-      "summary": "从 nominal Tracker 微调条件恢复策略",
-      "concept": "C-ICA3-LEARNING",
-      "x": 1660,
-      "y": 90,
-      "w": 240,
-      "h": 110
-    },
-    {
       "id": "ICA3-T-01",
       "title": "Planner",
       "summary": "冻结 Planner，产生同一短时程运动 Intent",
       "concept": "C-ICA3-PLANNER",
       "x": 40,
-      "y": 800,
+      "y": 370,
       "w": 190,
       "h": 110
     },
@@ -137,7 +68,7 @@
       "shape": "encoder",
       "shapeInset": 48,
       "x": 290,
-      "y": 760,
+      "y": 330,
       "w": 260,
       "h": 190
     },
@@ -145,9 +76,10 @@
       "id": "ICA3-T-11",
       "title": "Latent Add",
       "summary": "z + Δz",
+      "summarySize": 16,
       "concept": "C-ICA3-TRACKER",
       "x": 610,
-      "y": 815,
+      "y": 385,
       "w": 70,
       "h": 80
     },
@@ -159,18 +91,18 @@
       "shape": "decoder",
       "shapeInset": 48,
       "x": 740,
-      "y": 760,
+      "y": 330,
       "w": 260,
       "h": 190
     },
     {
       "id": "ICA3-T-04",
       "title": "Execution Shift",
-      "summary": "注入与 Teacher 训练同分布的可恢复 Wrench",
+      "summary": "向校准路线注入可恢复的隐藏执行缺陷",
       "concept": "C-ICA3-SHIFT",
       "kind": "external",
       "x": 1060,
-      "y": 800,
+      "y": 370,
       "w": 220,
       "h": 110
     },
@@ -181,7 +113,7 @@
       "concept": "C-ICA3-SUPPORT",
       "kind": "external",
       "x": 1340,
-      "y": 800,
+      "y": 370,
       "w": 250,
       "h": 110
     },
@@ -193,27 +125,27 @@
       "shape": "context_encoder",
       "shapeInset": 55,
       "x": 515,
-      "y": 520,
+      "y": 90,
       "w": 260,
       "h": 170
     },
     {
       "id": "ICA3-T-10",
-      "title": "Privileged Teacher",
-      "summary": "以真实 Wrench 为条件输出恢复 Action",
-      "concept": "C-ICA3-TEACHER",
+      "title": "Correct Trajectory",
+      "summary": "冻结 Planner 与 Tracker 在无缺陷仿真中 Rollout 完美轨迹",
+      "concept": "C-ICA3-CORRECT",
       "x": 1650,
-      "y": 600,
+      "y": 170,
       "w": 240,
       "h": 110
     },
     {
       "id": "ICA3-T-09",
       "title": "Calibration Learning",
-      "summary": "以 Teacher Action 训练 Context Encoder 与 Tracker",
+      "summary": "将受扰轨迹与 Correct Trajectory 做 MSE，仅训练 Context Encoder",
       "concept": "C-ICA3-LEARNING",
       "x": 1650,
-      "y": 800,
+      "y": 370,
       "w": 240,
       "h": 110
     },
@@ -224,7 +156,7 @@
       "concept": "C-ICA3-SHIFT",
       "kind": "external",
       "x": 40,
-      "y": 1300,
+      "y": 870,
       "w": 280,
       "h": 110
     },
@@ -235,7 +167,7 @@
       "concept": "C-ICA3-SUPPORT",
       "kind": "external",
       "x": 390,
-      "y": 1300,
+      "y": 870,
       "w": 280,
       "h": 110
     },
@@ -245,7 +177,7 @@
       "summary": "少量真机 Rollout 成为下一次执行的校准信号",
       "concept": "C-ICA3-CONTEXT",
       "x": 740,
-      "y": 1300,
+      "y": 870,
       "w": 290,
       "h": 110
     },
@@ -255,7 +187,7 @@
       "summary": "模型参数保持冻结，仅根据首次轨迹校准第二次执行",
       "concept": "C-ICA3-TRACKER",
       "x": 1100,
-      "y": 1300,
+      "y": 870,
       "w": 300,
       "h": 110
     },
@@ -266,81 +198,21 @@
       "concept": "C-ICA3-OBJECTIVE",
       "kind": "external",
       "x": 1470,
-      "y": 1300,
+      "y": 870,
       "w": 300,
       "h": 110
     }
   ],
   "edges": [
     {
-      "from": "ICA3-P-01",
-      "to": "ICA3-P-02",
-      "label": "sampled Wrench",
-      "concept": "C-ICA3-SHIFT"
-    },
-    {
-      "from": "ICA3-P-02",
-      "to": "ICA3-T-08",
-      "label": "特权条件",
-      "concept": "C-ICA3-TEACHER"
-    },
-    {
-      "from": "ICA3-T-08",
-      "to": "ICA3-P-03",
-      "label": "Teacher Action",
-      "concept": "C-ICA3-TEACHER"
-    },
-    {
-      "from": "ICA3-P-01",
-      "to": "ICA3-P-03",
-      "label": "同一 Wrench",
-      "concept": "C-ICA3-SHIFT",
-      "fromAnchor": "top",
-      "toAnchor": "top",
-      "via": [
-        [150, 40],
-        [1115, 40]
-      ],
-      "labelX": 635,
-      "labelY": 48
-    },
-    {
-      "from": "ICA3-P-03",
-      "to": "ICA3-P-04",
-      "label": "受扰执行",
-      "concept": "C-ICA3-SUPPORT"
-    },
-    {
-      "from": "ICA3-P-04",
-      "to": "ICA3-P-05",
-      "label": "task reward",
-      "concept": "C-ICA3-OBJECTIVE"
-    },
-    {
-      "from": "ICA3-P-05",
-      "to": "ICA3-T-08",
-      "label": "更新 Teacher",
-      "concept": "C-ICA3-LEARNING",
-      "kind": "feedback",
-      "fromAnchor": "bottom",
-      "toAnchor": "bottom",
-      "toOffset": 50,
-      "via": [
-        [1780, 350],
-        [830, 350]
-      ],
-      "labelX": 1305,
-      "labelY": 358
-    },
-    {
       "from": "ICA3-T-10",
       "to": "ICA3-T-09",
-      "label": "冻结 Teacher Action 目标",
-      "concept": "C-ICA3-TEACHER",
+      "label": "无缺陷轨迹目标",
+      "concept": "C-ICA3-CORRECT",
       "fromAnchor": "bottom",
       "toAnchor": "top",
       "labelX": 1788,
-      "labelY": 760
+      "labelY": 330
     },
     {
       "from": "ICA3-T-01",
@@ -352,12 +224,14 @@
       "from": "ICA3-T-02",
       "to": "ICA3-T-11",
       "label": "z",
+      "labelSize": 15,
       "concept": "C-ICA3-TRACKER"
     },
     {
       "from": "ICA3-T-11",
       "to": "ICA3-T-03",
       "label": "z + Δz",
+      "labelSize": 15,
       "concept": "C-ICA3-TRACKER"
     },
     {
@@ -373,8 +247,8 @@
       "concept": "C-ICA3-SHIFT",
       "fromAnchor": "right",
       "toAnchor": "left",
-      "labelX": 1275,
-      "labelY": 844
+      "labelX": 1310,
+      "labelY": 414
     },
     {
       "from": "ICA3-T-05",
@@ -384,20 +258,21 @@
       "fromAnchor": "top",
       "toAnchor": "right",
       "via": [
-        [1465, 605]
+        [1465, 175]
       ],
       "labelX": 1120,
-      "labelY": 594
+      "labelY": 164
     },
     {
       "from": "ICA3-T-06",
       "to": "ICA3-T-11",
       "label": "Δz",
+      "labelSize": 15,
       "concept": "C-ICA3-CONTEXT",
       "fromAnchor": "bottom",
       "toAnchor": "top",
       "labelX": 605,
-      "labelY": 753
+      "labelY": 323
     },
     {
       "from": "ICA3-T-05",
@@ -407,7 +282,7 @@
       "fromAnchor": "right",
       "toAnchor": "left",
       "labelX": 1610,
-      "labelY": 844
+      "labelY": 414
     },
     {
       "from": "ICA3-T-09",
@@ -419,12 +294,12 @@
       "fromOffset": -25,
       "toAnchor": "top",
       "via": [
-        [1990, 830],
-        [1990, 490],
-        [645, 490]
+        [1990, 400],
+        [1990, 60],
+        [645, 60]
       ],
       "labelX": 1295,
-      "labelY": 498
+      "labelY": 68
     },
     {
       "from": "ICA3-T-09",
@@ -436,12 +311,12 @@
       "fromOffset": 25,
       "toAnchor": "bottom",
       "via": [
-        [2020, 880],
-        [2020, 1120],
-        [420, 1120]
+        [2020, 450],
+        [2020, 690],
+        [420, 690]
       ],
       "labelX": 1310,
-      "labelY": 1109
+      "labelY": 679
     },
     {
       "from": "ICA3-T-09",
@@ -453,11 +328,11 @@
       "fromOffset": -50,
       "toAnchor": "bottom",
       "via": [
-        [1720, 1060],
-        [870, 1060]
+        [1720, 630],
+        [870, 630]
       ],
       "labelX": 1255,
-      "labelY": 1049
+      "labelY": 619
     },
     {
       "from": "ICA3-D-01",

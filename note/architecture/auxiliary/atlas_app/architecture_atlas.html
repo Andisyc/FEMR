@@ -1133,7 +1133,7 @@
       const summaryBottom = node.y + node.h - 14;
       const summaryMaxLines = Math.max(1, Math.floor((summaryBottom - summaryY) / summaryLineHeight));
       wrapText(node.summary || "", node.x + textInset, summaryY, node.w - textInset * 2, {
-        size: compact ? 10 : 11,
+        size: node.summarySize || (compact ? 10 : 11),
         lineHeight: summaryLineHeight,
         charWidth: compact ? 5.4 : 5.8,
         maxLines: summaryMaxLines,
@@ -1201,6 +1201,7 @@
             y: edge.labelY ?? midpoint.y,
             text: edge.label,
             color,
+            size: edge.labelSize || 11,
           });
         }
       });
@@ -1209,7 +1210,7 @@
 
       edgeLabels.forEach((label) => {
         const text = addText(label.text, label.x, label.y - 8, {
-          size: 9,
+          size: label.size,
           weight: 750,
           fill: label.color,
           anchor: "middle",
