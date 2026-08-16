@@ -63,7 +63,7 @@
       "concept": "C-ICA3-TRACKER",
       "shape": "encoder",
       "shapeInset": 48,
-      "x": 290,
+      "x": 310,
       "y": 330,
       "w": 260,
       "h": 190
@@ -74,7 +74,7 @@
       "summary": "z + Δz",
       "summarySize": 16,
       "concept": "C-ICA3-TRACKER",
-      "x": 610,
+      "x": 650,
       "y": 385,
       "w": 70,
       "h": 80
@@ -86,7 +86,7 @@
       "concept": "C-ICA3-TRACKER",
       "shape": "decoder",
       "shapeInset": 48,
-      "x": 740,
+      "x": 800,
       "y": 330,
       "w": 260,
       "h": 190
@@ -120,7 +120,7 @@
       "concept": "C-ICA3-CONTEXT",
       "shape": "context_encoder",
       "shapeInset": 55,
-      "x": 515,
+      "x": 555,
       "y": 90,
       "w": 260,
       "h": 170
@@ -130,7 +130,7 @@
       "title": "Calibration Learning",
       "summary": "比较预测 Action 与 Query Executed Action，仅训练 Context Encoder",
       "concept": "C-ICA3-LEARNING",
-      "x": 1060,
+      "x": 1140,
       "y": 370,
       "w": 240,
       "h": 110
@@ -194,6 +194,7 @@
       "from": "ICA3-T-01",
       "to": "ICA3-T-02",
       "label": "Intent",
+      "labelSize": 13,
       "concept": "C-ICA3-PLANNER"
     },
     {
@@ -214,6 +215,7 @@
       "from": "ICA3-T-03",
       "to": "ICA3-T-09",
       "label": "Âq",
+      "labelSize": 13,
       "concept": "C-ICA3-TRACKER"
     },
     {
@@ -226,11 +228,12 @@
         "A_exec"
       ],
       "labelAnchor": "start",
-      "labelLineHeight": 16,
+      "labelLineHeight": 18,
+      "labelSize": 13,
       "concept": "C-ICA3-SUPPORT",
       "fromAnchor": "right",
       "toAnchor": "left",
-      "labelX": 325,
+      "labelX": 345,
       "labelY": 215
     },
     {
@@ -241,74 +244,85 @@
       "concept": "C-ICA3-CONTEXT",
       "fromAnchor": "bottom",
       "toAnchor": "top",
-      "labelX": 605,
+      "labelX": 645,
       "labelY": 323
     },
     {
       "from": "ICA3-T-07",
       "to": "ICA3-T-02",
-      "label": "Query: History + Yrealized",
+      "label": "Query evidence",
+      "labelLines": [
+        "History",
+        "Y_realized"
+      ],
+      "labelAnchor": "start",
+      "labelLineHeight": 18,
+      "labelSize": 13,
       "concept": "C-ICA3-SUPPORT",
-      "fromAnchor": "top",
+      "fromAnchor": "right",
+      "fromOffset": -20,
       "toAnchor": "bottom",
       "via": [
-        [165, 550],
-        [420, 550]
+        [440, 625]
       ],
-      "labelX": 300,
-      "labelY": 540
+      "labelX": 305,
+      "labelY": 600
     },
     {
       "from": "ICA3-T-07",
       "to": "ICA3-T-09",
       "label": "Aexecᵠ",
+      "labelSize": 13,
       "concept": "C-ICA3-LEARNING",
       "fromAnchor": "right",
       "toAnchor": "bottom",
       "via": [
-        [1180, 645]
+        [1260, 645]
       ],
-      "labelX": 875,
+      "labelX": 955,
       "labelY": 635
     },
     {
       "from": "ICA3-T-09",
       "to": "ICA3-T-06",
       "label": "MSE gradient: only Context Encoder",
+      "labelSize": 13,
       "concept": "C-ICA3-LEARNING",
       "kind": "feedback",
       "fromAnchor": "top",
       "toAnchor": "right",
       "via": [
-        [1180, 300],
-        [820, 300],
-        [820, 175]
+        [1260, 175]
       ],
-      "labelX": 1000,
-      "labelY": 292
+      "labelX": 1040,
+      "labelY": 167
     },
     {
       "from": "ICA3-D-01",
       "to": "ICA3-D-02",
       "label": "受控缺陷",
+      "labelSize": 13,
       "concept": "C-ICA3-SHIFT"
     },
     {
       "from": "ICA3-D-02",
       "to": "ICA3-D-03",
       "label": "失败轨迹",
+      "labelSize": 13,
       "concept": "C-ICA3-SUPPORT"
     },
     {
       "from": "ICA3-D-03",
       "to": "ICA3-D-04",
       "label": "Context",
+      "labelSize": 13,
       "concept": "C-ICA3-CONTEXT"
     },
     {
       "from": "ICA3-D-04",
       "to": "ICA3-D-05",
       "label": "第二次执行",
+      "labelSize": 13,
       "concept": "C-ICA3-TRACKER"
     }
   ],

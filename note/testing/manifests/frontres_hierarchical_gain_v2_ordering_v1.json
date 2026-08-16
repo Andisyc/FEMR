@@ -1,0 +1,121 @@
+{
+  "schema": "reward-ordering-card/v1",
+  "card_id": "frontres-hierarchical-gain-v2-ordering-v1",
+  "design_identity": "FRS-DP-07-hierarchical-relational-gain-20260816",
+  "status": "CONFIRMED",
+  "ordering_kind": "partial",
+  "authority": {
+    "human_confirmed": true,
+    "semantic_owner": "Dr. Cheng with reward-engineering-lab"
+  },
+  "objective": {
+    "baseline": "same Scenario and Clean-conditioned physical semantics",
+    "horizon": "one Repair followed by the finite K-step consequence and final W-step hold",
+    "evidence_scope": "raw executed Physics and Intent evidence",
+    "parameters_receiving_credit": ["FrontRES full-6D Repair action"]
+  },
+  "relations": [
+    {
+      "rule_id": "physics-level-order",
+      "relation": "better",
+      "condition": "compare valid outcomes from different Physics levels",
+      "left": "higher level among L3 stable, L2 admissible unsettled, L1 contact invalid, L0 survival failed",
+      "right": "lower Physics level",
+      "evidence_fields": ["survival_ok", "contact_validity", "capture_margin", "zmp_margin", "momentum_error", "support_drift", "stable_hold_steps"]
+    },
+    {
+      "rule_id": "l1-severe-pareto",
+      "relation": "better",
+      "condition": "same L1 and left is no worse on every severe item and strictly better on one",
+      "left": "lower expected-support no-load, unplanned-switch, and illegal-contact values",
+      "right": "dominated severe vector",
+      "evidence_fields": ["expected_support_no_load", "unplanned_support_switch", "illegal_contact_duration"]
+    },
+    {
+      "rule_id": "l2-recovery-pareto",
+      "relation": "better",
+      "condition": "same L2 and left is no worse on every Recovery item and strictly better on one",
+      "left": "higher Capture Margin/trend and ZMP Margin, lower linear/angular momentum error and drift",
+      "right": "dominated Recovery vector",
+      "evidence_fields": ["capture_margin", "capture_margin_trend", "zmp_margin", "linear_momentum_error", "angular_momentum_error", "support_drift"]
+    },
+    {
+      "rule_id": "l3-intent-then-cost",
+      "relation": "better",
+      "condition": "same L3, Intent Pareto is equal, then lower repair cost",
+      "left": "better Intent or equal Intent with lower cost",
+      "right": "dominated Intent or higher-cost tie",
+      "evidence_fields": ["intent_error", "repair_cost"]
+    }
+  ],
+  "non_compensable": [
+    {
+      "violation_id": "survival-failure",
+      "evidence_fields": ["survival_ok"],
+      "cannot_be_offset_by": ["intent_error", "repair_cost", "ordinary_improvement"]
+    },
+    {
+      "violation_id": "severe-contact-exchange",
+      "evidence_fields": ["expected_support_no_load", "unplanned_support_switch", "illegal_contact_duration"],
+      "cannot_be_offset_by": ["sum_of_severe_items", "intent_error", "repair_cost"]
+    }
+  ],
+  "incomparable_cases": [
+    {
+      "case_id": "l0-internal-severity",
+      "left": "L0 outcome with one failure severity",
+      "right": "L0 outcome with another failure severity",
+      "reason": "L0 internal priority is not human-confirmed"
+    },
+    {
+      "case_id": "l1-severe-tradeoff",
+      "left": "L1 outcome improving one severe item",
+      "right": "L1 outcome improving another severe item",
+      "reason": "severe-vector exchange has no confirmed priority"
+    },
+    {
+      "case_id": "l2-recovery-tradeoff",
+      "left": "L2 outcome improving one Recovery item",
+      "right": "L2 outcome improving another Recovery item",
+      "reason": "Recovery-vector exchange has no confirmed priority"
+    },
+    {
+      "case_id": "l3-intent-tradeoff",
+      "left": "L3 outcome improving one Intent item",
+      "right": "L3 outcome improving another Intent item",
+      "reason": "Intent-vector exchange has no confirmed priority"
+    },
+    {
+      "case_id": "undefined-cross-domain",
+      "left": "outcome with missing comparison domain",
+      "right": "outcome from another evidence domain",
+      "reason": "undefined cross-domain comparisons remain incomparable"
+    }
+  ],
+  "validity": {
+    "missing": "fail_closed",
+    "invalid": "fail_closed",
+    "not_applicable": "preserve"
+  },
+  "oracle": {
+    "kind": "human-confirmed-behavioral-relations",
+    "second_scoring_formula_forbidden": true
+  },
+  "required_telemetry": [
+    "survival_ok",
+    "survival_failure_duration",
+    "expected_support_no_load",
+    "unplanned_support_switch",
+    "illegal_contact_duration",
+    "capture_margin",
+    "capture_margin_trend",
+    "zmp_applicable",
+    "zmp_margin",
+    "linear_momentum_error",
+    "angular_momentum_error",
+    "support_drift",
+    "stable_hold_steps",
+    "intent_error",
+    "repair_cost"
+  ]
+}

@@ -131,7 +131,31 @@ class _Harness:
         recovery_pressure = []
         physics_channel_noisy = []
         physics_channel_repaired = []
+        baselines = []
+        def trajectory(seed: float):
+            return SimpleNamespace(
+                joint_pos=torch.full((8, 1, 29), seed),
+                root_pos=torch.full((8, 1, 3), seed),
+                root_quat=torch.tensor([[[1.0, 0.0, 0.0, 0.0]]] * 8),
+                key_body_pos=torch.full((8, 1, 2, 3), seed),
+                root_lin_vel=torch.full((8, 1, 3), seed),
+                root_ang_vel=torch.full((8, 1, 3), seed),
+                foot_pos=torch.full((8, 1, 2, 3), seed),
+                contact=torch.ones((8, 1, 2)),
+                zmp_margin=torch.full((8, 1), 0.03),
+                survival=torch.ones((8, 1)),
+                valid_mask=torch.ones((8, 1)),
+            )
         for source, item in enumerate(prepared.items):
+            expected_support = torch.ones((8, 1, 2))
+            baselines.append(
+                SimpleNamespace(
+                    source_index=source,
+                    expected_support=expected_support,
+                    clean=trajectory(float(source)),
+                    noisy=trajectory(float(source) + 0.1),
+                )
+            )
             mean = torch.full((6,), 0.01 * (source + call_index % 2))
             sigma = torch.full((6,), 0.1)
             for trial in range(4):
@@ -159,6 +183,7 @@ class _Harness:
                         policy_mean=mean,
                         policy_sigma=sigma,
                         policy_action=action,
+                        repair=trajectory(float(source) + 0.2 + trial * 0.01),
                     )
                 )
                 totals.append(total)
@@ -171,7 +196,7 @@ class _Harness:
                 physics_channel_noisy.append([p_noisy] * 4)
                 physics_channel_repaired.append([p_repaired] * 4)
                 penalties.append(penalty)
-        evidence = SimpleNamespace(ordered_attempts=tuple(attempts))
+        evidence = SimpleNamespace(ordered_attempts=tuple(attempts), baselines=tuple(baselines))
         gain = SimpleNamespace(
             gain_total=torch.tensor(totals),
             intent_gain=torch.tensor(intents),
@@ -324,6 +349,20 @@ def test_physics_decomposition_is_exported() -> None:
         "physics_channel_repaired",
     ):
         assert field in components
+    scenario = payload["scenarios"][0]
+    baseline = scenario["raw_physics_baseline"]
+    assert set(baseline) == {"expected_support", "clean", "noisy"}
+    assert baseline["clean"]["schema"] == "frontres-raw-k-trajectory-v1"
+    assert set(baseline["clean"]) >= {
+        "contact",
+        "survival",
+        "zmp_margin",
+        "root_lin_vel",
+        "root_ang_vel",
+        "foot_pos",
+        "valid_mask",
+    }
+    assert scenario["rows"][0]["raw_physics"]["repair"]["schema"] == "frontres-raw-k-trajectory-v1"
 
 
 def test_exception_restores_route_rng_and_readonly_lifecycle() -> None:

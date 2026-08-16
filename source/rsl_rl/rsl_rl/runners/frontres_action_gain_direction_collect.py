@@ -472,6 +472,44 @@ def _finite_vector(value: Any, *, label: str, positive: bool = False) -> list[fl
     return result
 
 
+def _json_tensor(value: torch.Tensor, *, label: str) -> Any:
+    """Serialize raw executed evidence without inventing a derived score."""
+
+    if not isinstance(value, torch.Tensor) or value.requires_grad or bool(torch.isinf(value).any()):
+        raise RuntimeError(f"{label} must be a detached finite tensor with optional NaN semantics")
+    array = value.detach().to(device="cpu").tolist()
+
+    def clean(item: Any) -> Any:
+        if isinstance(item, list):
+            return [clean(child) for child in item]
+        if isinstance(item, float) and math.isnan(item):
+            return None
+        if isinstance(item, (int, float, bool)):
+            return item
+        raise RuntimeError(f"{label} contains a non-JSON scalar")
+
+    return clean(array)
+
+
+def _trajectory_payload(trajectory: Any, *, label: str) -> dict[str, Any]:
+    fields = (
+        "joint_pos",
+        "root_pos",
+        "root_quat",
+        "key_body_pos",
+        "root_lin_vel",
+        "root_ang_vel",
+        "foot_pos",
+        "contact",
+        "zmp_margin",
+        "survival",
+        "valid_mask",
+    )
+    payload = {name: _json_tensor(getattr(trajectory, name), label=f"{label}.{name}") for name in fields}
+    payload["schema"] = "frontres-raw-k-trajectory-v1"
+    return payload
+
+
 def _collection_rows(collection: Any, *, expected_sources: int, active_m: int) -> dict[int, dict[str, Any]]:
     evidence = getattr(collection, "evidence", None)
     gain = getattr(collection, "gain", None)
@@ -514,6 +552,11 @@ def _collection_rows(collection: Any, *, expected_sources: int, active_m: int) -
     totals = component_tensors["gain_total"].detach().reshape(-1)
     utilities = frontres_symmetric_log_utility(totals).detach()
     rows_by_source: dict[int, dict[str, Any]] = {}
+    baseline_by_source = {
+        int(value.source_index): value for value in getattr(evidence, "baselines", ())
+    }
+    if set(baseline_by_source) != set(range(expected_sources)):
+        raise RuntimeError("action-Gain direction collection lost raw Clean/Noisy baseline identity")
     for source in range(expected_sources):
         indices = [index for index, attempt in enumerate(attempts) if int(attempt.source_index) == source]
         if len(indices) != active_m or sorted(int(attempts[index].trial_index) for index in indices) != list(range(active_m)):
@@ -563,6 +606,12 @@ def _collection_rows(collection: Any, *, expected_sources: int, active_m: int) -
                         "repair_penalty": repair_penalty,
                         "negative_repair_cost": -repair_penalty,
                     },
+                    "raw_physics": {
+                        "repair": _trajectory_payload(
+                            attempt.repair,
+                            label=f"source={source},trial={attempt.trial_index}.repair",
+                        ),
+                    },
                 }
             )
         if len(action_fingerprints) != active_m:
@@ -574,6 +623,20 @@ def _collection_rows(collection: Any, *, expected_sources: int, active_m: int) -
             "noisy_segment_hash": next(iter(identities["noisy_segment_hash"])),
             "x_t_identity": next(iter(identities["x_t_identity"])),
             "segment_id": next(iter(identities["segment_id"])),
+            "raw_physics_baseline": {
+                "expected_support": _json_tensor(
+                    baseline_by_source[source].expected_support,
+                    label=f"source={source}.expected_support",
+                ),
+                "clean": _trajectory_payload(
+                    baseline_by_source[source].clean,
+                    label=f"source={source}.clean",
+                ),
+                "noisy": _trajectory_payload(
+                    baseline_by_source[source].noisy,
+                    label=f"source={source}.noisy",
+                ),
+            },
             "rows": rows,
         }
     return rows_by_source
@@ -696,6 +759,7 @@ def run_frontres_action_gain_direction_collect(
                         "noisy_segment_hash",
                         "x_t_identity",
                         "segment_id",
+                        "raw_physics_baseline",
                     )
                     if repeat_index == 0:
                         for name in identity_fields:
@@ -787,6 +851,8 @@ def run_frontres_action_gain_direction_collect(
             "optimizer_updated": False,
             "normalizer_updated": False,
             "replay_constructed": False,
+            "raw_physics_exported": True,
+            "raw_physics_schema": "frontres-raw-k-trajectory-v1",
         },
         "state_hashes": {
             "before_checkpoint_route": state_before,

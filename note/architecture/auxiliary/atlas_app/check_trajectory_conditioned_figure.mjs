@@ -309,8 +309,23 @@ if (
 }
 
 const queryRoute = route("ICA3-T-07", "ICA3-T-02");
-if (!queryRoute.edge.label.startsWith("Query:")) {
+if (!queryRoute.edge.label.startsWith("Query")) {
   throw new Error("Pre-collected Query evidence must feed the frozen Tracker Encoder");
+}
+if (
+  JSON.stringify(queryRoute.edge.labelLines) !== JSON.stringify(["History", "Y_realized"]) ||
+  queryRoute.edge.labelAnchor !== "start"
+) {
+  throw new Error("Query evidence fields must render as two left-aligned rows");
+}
+if (
+  queryRoute.edge.fromAnchor !== "right" ||
+  queryRoute.edge.toAnchor !== "bottom" ||
+  queryRoute.points.length !== 3 ||
+  !isHorizontal(queryRoute.points[0], queryRoute.points[1]) ||
+  !isVertical(queryRoute.points[1], queryRoute.points[2])
+) {
+  throw new Error("Query evidence must leave from the card right and use one bend into Tracker Encoder");
 }
 
 const rolloutRoute = route("ICA3-T-07", "ICA3-T-09");
@@ -327,10 +342,11 @@ const feedbackRoute = route("ICA3-T-09", "ICA3-T-06");
 if (
   feedbackRoute.edge.fromAnchor !== "top" ||
   feedbackRoute.edge.toAnchor !== "right" ||
+  feedbackRoute.points.length !== 3 ||
   !isVertical(feedbackRoute.points[0], feedbackRoute.points[1]) ||
   !isHorizontal(feedbackRoute.points.at(-2), feedbackRoute.points.at(-1))
 ) {
-  throw new Error("Calibration feedback must leave from the card top and enter Context Encoder from the right");
+  throw new Error("Calibration feedback must use one bend from the card top into Context Encoder right");
 }
 
 const learning = nodes.get("ICA3-T-09");
@@ -359,6 +375,15 @@ const mainAxisGaps = mainAxisIds.slice(1).map((id, index) => {
 });
 if (Math.max(...mainAxisGaps) - Math.min(...mainAxisGaps) > 10) {
   throw new Error(`main-axis spacing must remain even: ${mainAxisGaps.join(",")}`);
+}
+if (Math.min(...mainAxisGaps) < 75) {
+  throw new Error(`main-axis connectors must remain visibly extended: ${mainAxisGaps.join(",")}`);
+}
+
+for (const { edge } of routes) {
+  if (edge.label && (edge.labelSize || 11) < 13) {
+    throw new Error(`${edge.from}->${edge.to} connector label is too small`);
+  }
 }
 
 const lowerIds = ["ICA3-T-01", "ICA3-T-02", "ICA3-T-11", "ICA3-T-03", "ICA3-T-05", "ICA3-T-06", "ICA3-T-07", "ICA3-T-09"];

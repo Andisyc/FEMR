@@ -1,0 +1,111 @@
+{
+  "schema": "reward-ordering-card/v1",
+  "card_id": "frontres-pr-behavioral-ordering-v1",
+  "design_identity": "FRS-DP-07-partial-order-review-20260814",
+  "status": "CONFIRMED",
+  "ordering_kind": "partial",
+  "authority": {
+    "human_confirmed": true,
+    "semantic_owner": "Dr. Cheng decision authority with reward-engineering-lab"
+  },
+  "objective": {
+    "baseline": "same sealed Scenario and executed Clean-conditioned outcome semantics",
+    "horizon": "one Repair action followed by the active K-step Segment consequence",
+    "evidence_scope": "executed Repair physical outcome relative to the same Clean support semantics",
+    "parameters_receiving_credit": [
+      "FrontRES full-6D Repair Actor through the active Gain consumer"
+    ]
+  },
+  "relations": [
+    {
+      "rule_id": "no-severe-dominates-any-severe",
+      "relation": "better",
+      "condition": "compare two valid Repair outcomes for the same Scenario",
+      "left": "Repair with no survival failure, no expected-support no-load, and no unplanned support switch",
+      "right": "Repair with at least one of those severe violations",
+      "evidence_fields": [
+        "survival_failure",
+        "expected_support_no_load",
+        "unplanned_support_switch"
+      ]
+    },
+    {
+      "rule_id": "severe-pareto-dominance",
+      "relation": "better",
+      "condition": "left is no worse on all three severe violations and strictly improves at least one",
+      "left": "severe-violation vector that Pareto-dominates the right vector",
+      "right": "dominated severe-violation vector",
+      "evidence_fields": [
+        "survival_failure",
+        "expected_support_no_load",
+        "unplanned_support_switch"
+      ]
+    },
+    {
+      "rule_id": "ordinary-pareto-dominance-after-severe-clear",
+      "relation": "better",
+      "condition": "both Repairs have zero severe violations; left is no worse on every defined ordinary item and strictly improves at least one",
+      "left": "ordinary outcome vector that Pareto-dominates the right vector",
+      "right": "dominated ordinary outcome vector",
+      "evidence_fields": [
+        "ordinary_contact_error",
+        "intent_error",
+        "support_foot_drift",
+        "phase_zmp_error",
+        "repair_cost"
+      ]
+    }
+  ],
+  "non_compensable": [
+    {
+      "violation_id": "survival-failure",
+      "evidence_fields": ["survival_failure"],
+      "cannot_be_offset_by": ["ordinary_contact_error", "intent_improvement", "support_foot_drift_improvement", "phase_zmp_improvement", "repair_cost_improvement"]
+    },
+    {
+      "violation_id": "expected-support-no-load",
+      "evidence_fields": ["expected_support", "actual_loaded_support"],
+      "cannot_be_offset_by": ["ordinary_contact_error", "intent_improvement", "support_foot_drift_improvement", "phase_zmp_improvement", "repair_cost_improvement"]
+    },
+    {
+      "violation_id": "unplanned-support-switch",
+      "evidence_fields": ["clean_planned_support_transition", "actual_support_transition"],
+      "cannot_be_offset_by": ["ordinary_contact_error", "intent_improvement", "support_foot_drift_improvement", "phase_zmp_improvement", "repair_cost_improvement"]
+    }
+  ],
+  "incomparable_cases": [
+    {
+      "case_id": "severe-violation-exchange",
+      "left": "Repair improves one severe violation but introduces or worsens another severe violation",
+      "right": "Repair preserves the first severe item but is better on the second",
+      "reason": "the Design Inspector decision does not define a severity priority between different severe violation families"
+    },
+    {
+      "case_id": "ordinary-tradeoff-without-dominance",
+      "left": "severe-clear Repair improves some ordinary items and worsens others",
+      "right": "another severe-clear Repair with the opposite ordinary tradeoff",
+      "reason": "no human-confirmed scalar tradeoff weights exist between ordinary items"
+    }
+  ],
+  "validity": {
+    "missing": "fail_closed",
+    "invalid": "fail_closed",
+    "not_applicable": "preserve"
+  },
+  "oracle": {
+    "kind": "human-confirmed-behavioral-relations",
+    "second_scoring_formula_forbidden": true
+  },
+  "required_telemetry": [
+    "survival_failure",
+    "expected_support",
+    "actual_loaded_support",
+    "clean_planned_support_transition",
+    "actual_support_transition",
+    "ordinary_contact_error",
+    "intent_error",
+    "support_foot_drift",
+    "phase_zmp_error",
+    "repair_cost"
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "schema_version": "human-control-protocol/v1",
+  "control_id": "HCP-FRS-HIERARCHICAL-GAIN-V2-20260816",
+  "mode": "bounded-execution",
+  "state": "COMPLETE",
+  "objective": "Validate the confirmed candidate relational Gain ordering offline without changing Active Gain or training.",
+  "scope": {
+    "requested": ["maintain ordering card", "add isolated candidate public boundary", "run offline tests"],
+    "preserved": ["Active FRS-GAIN-v008", "training Contract", "server and simulator state"],
+    "forbidden": ["Active Gain integration", "training", "deployment", "server operation", "checkpoint IO"]
+  },
+  "identities": {
+    "project": "FEMR",
+    "design": "FRS-DP-07-hierarchical-relational-gain-20260816",
+    "contract": "FRS-GAIN-v008-preserved; candidate-only boundary",
+    "checkout": "1cce99ff0c42ba70535b16d13df88d86c2ada258",
+    "task": "offline candidate ordering validation"
+  },
+  "authority": {
+    "source": "current user instruction to execute offline candidate validation",
+    "current": true,
+    "receipt": "user-authorized bounded offline implementation",
+    "auto_actions": ["read", "test"],
+    "confirmation_actions": ["edit", "training", "deployment", "external-operation", "checkpoint-io"],
+    "forbidden_actions": ["simulator"],
+    "live": {"status": "not-authorized", "scope": "no live or server operations"}
+  },
+  "cost_control": {
+    "class": "offline-bounded",
+    "estimate": "seconds",
+    "update_cadence_seconds": 30,
+    "max_expensive_attempts": 3,
+    "stop_conditions": ["test failure with new semantic mismatch", "any request to touch Active Gain or live route"]
+  },
+  "cursor": {"status": "unconfirmed", "source": "chat context only"},
+  "evidence": [
+    {
+      "claim": "ordering card validates as reward-ordering-card/v1",
+      "class": "contract-confirmed",
+      "source_kind": "test",
+      "locator": "note/testing/manifests/frontres_hierarchical_gain_v2_ordering_v1.json",
+      "identity": "frontres-hierarchical-gain-v2-ordering-v1",
+      "current": true,
+      "proves": "card schema and declared partial-order fields are complete",
+      "does_not_prove": "Active Gain implementation correctness"
+    },
+    {
+      "claim": "candidate public boundary preserves all focused relations",
+      "class": "runtime-confirmed",
+      "source_kind": "run",
+      "locator": "source/rsl_rl/rsl_rl/tests/frontres_hierarchical_gain_v2_public_alignment.py",
+      "identity": "frontres-hierarchical-gain-v2-public-alignment/v1",
+      "current": true,
+      "proves": "16 candidate boundary cases are objective-aligned",
+      "does_not_prove": "real transaction telemetry or active training behavior"
+    }
+  ],
+  "contradictions": [],
+  "attempts": [],
+  "dependencies": [],
+  "blockers": ["real replay remains TELEMETRY-GAP"],
+  "next_step": {
+    "admission": "USER_CONFIRMATION_REQUIRED",
+    "action_class": "edit",
+    "action_signature": "extend-bounded-diagnostic-raw-telemetry",
+    "description": "extend a bounded diagnostic collector with the required raw fields",
+    "stop_condition": "stop before live execution if any field owner or state boundary is ambiguous",
+    "required_evidence": ["raw per-step telemetry contract", "runtime owner review"],
+    "options": []
+  },
+  "completion": {
+    "chain_mapped": true,
+    "evidence_classes": ["contract-confirmed", "runtime-confirmed"],
+    "unconfirmed_boundaries": ["real raw telemetry", "Active Gain integration", "policy quality"],
+    "next_decision": "whether to authorize raw-telemetry collector work"
+  }
+}
