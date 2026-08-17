@@ -1,0 +1,69 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v025-BOUNDED1-AUDIT-PLAN-20260817",
+  "mode": "plan",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "READY",
+  "scope": {
+    "requested": ["Repair the second relational bounded-run failure and close same-path offline audit gaps before another live attempt"],
+    "preserved": [
+      "legacy scalar one-action-K audit identity",
+      "shared role, observation, action, horizon, and frozen-GMT assertions",
+      "relational Actor-only optimization and checkpoint-v20 identity"
+    ],
+    "forbidden": [
+      "Gain, PPO, checkpoint-schema, transaction, or MOSAIC behavior changes",
+      "silent fallback between scalar and relational identities",
+      "live, simulator, server, training, Git, or destructive actions by Codex"
+    ]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-07R@FRS-METHOD-v026",
+    "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025/FRS-EVAL-v007",
+    "checkout": "145f195f170a5487ce6632b48df552808ba78d28+bounded1-rerun-log",
+    "review_object": "sha256:911d2cedbed1f49db3eac4b037780123196105c2fb3d364492b33a0c1f9c91cb"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Localized formal-audit repair plan review"},
+    "source_edits": {"status": "approved", "scope": "Formal audit owner and affected regression tests", "receipt": "User requested repair on 2026-08-17"},
+    "report_write": {"status": "approved", "scope": "Persist plan, attempt ledger, and review receipts", "receipt": "User requested all fixes be saved"}
+  },
+  "review_object": {
+    "kind": "plan",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/plans/FRS-TRAIN-v025-bounded1-formal-audit-repair-plan.md",
+    "content_hash": "sha256:911d2cedbed1f49db3eac4b037780123196105c2fb3d364492b33a0c1f9c91cb",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "The plan changes the existing audit Pinch Point, adds an exact characterization, preserves closed identities, and stops before live execution."
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "The existing formal audit remains the sole owner of runtime identity assertions and read-only probes."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "Both collectors retain the same public audit calls; callers learn no new fact."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "The audit consumes public algorithm identity fields and imports no training entrypoint or test code."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "The repair is assertion-only and occurs before optimizer update or transaction commit."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "The Effect Sketch narrows at one shared audit helper plus its direct contract."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Offline tests may establish admission and fail-closed identity checks, but not a Formal PASS or policy-quality result."},
+    {"name": "proof-route", "disposition": "pass", "evidence": "The plan requires exact RED/GREEN, mixed-identity rejection, scalar compatibility, affected contracts, the aggregate suite, and official offline preflight."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "No tensor construction changes; existing shape, finite, role, and provenance assertions remain shared."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "Relational identity requires Actor-only ownership and no Critic target; the audit performs no update."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "Checkpoint-v20 remains independently verified; this unit changes no schema or load route."}
+  ],
+  "findings": [],
+  "residual_risks": ["A fresh real transaction remains user-controlled runtime evidence after offline closure."],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}

@@ -114,6 +114,36 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
     )
 
 
+def _configure_relational_runner(runner: SimpleNamespace) -> None:
+    for parameter in runner.alg.policy.critic.parameters():
+        parameter.requires_grad_(False)
+    runner.alg.optimizer = torch.optim.Adam(
+        [{
+            "params": list(runner.alg.policy.residual_actor.parameters()),
+            "lr": 3.0e-7,
+            "frontres_role": "actor",
+            "frontres_step_count": 0,
+        }]
+    )
+    identity = {
+        "frontres_relational_actor_only": True,
+        "frontres_training_objective": "segment_replay_relational",
+        "frontres_method_contract_id": "FRS-METHOD-v026",
+        "frontres_gain_contract_id": "FRS-GAIN-v009",
+        "frontres_optimization_contract_id": "FRS-PPO-v013",
+        "frontres_training_contract_id": "FRS-TRAIN-v025",
+        "frontres_scalar_target_id": "none",
+        "frontres_segment_advantage_normalization": "pairwise_edge",
+        "frontres_critic_value_kind": "inert-legacy-compat",
+        "frontres_critic_support_context_id": "none",
+        "frontres_critic_target_id": "none",
+        "frontres_critic_value_normalization": "none",
+        "frontres_gradient_clip_identity": "actor-only-relational-v1",
+    }
+    for name, value in identity.items():
+        setattr(runner.alg, name, value)
+
+
 def _committed_receipt(*, transaction_id: str = "tx-v016") -> dict[str, object]:
     return {
         "transaction_id": transaction_id,
@@ -477,6 +507,22 @@ def test_phase_b_one_action_and_final_telemetry_are_fail_closed() -> None:
     else:
         raise AssertionError("AUDIT-B04 accepted seven frozen-GMT steps for K8")
 
+    _configure_relational_runner(runner)
+    relational_stream = io.StringIO()
+    with contextlib.redirect_stdout(relational_stream):
+        audit.print_v017_repair_attempts_audit(runner, **active_kwargs)
+    relational_output = relational_stream.getvalue()
+    assert "critic_kind=inert-legacy-compat" in relational_output
+    assert "critic_target=none" in relational_output
+    runner.alg.frontres_critic_target_id = "scenario-current-exact-m4-mean-symlog-v1"
+    try:
+        audit.print_v017_repair_attempts_audit(runner, **active_kwargs)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("AUDIT-B03 accepted a mixed relational/scalar Critic identity")
+    runner.alg.frontres_critic_target_id = "none"
+
     invalid_telemetry = {
         **telemetry,
         "scenario_ids": ("mixed",) + tuple(telemetry["scenario_ids"])[1:],
@@ -745,24 +791,7 @@ def test_termination_term_snapshot_preserves_term_and_role_identity() -> None:
 
 def test_relational_formal_route_audit_accepts_actor_only_identity() -> None:
     runner = _runner()
-    for parameter in runner.alg.policy.critic.parameters():
-        parameter.requires_grad_(False)
-    runner.alg.optimizer = torch.optim.Adam(
-        [{
-            "params": list(runner.alg.policy.residual_actor.parameters()),
-            "lr": 3.0e-7,
-            "frontres_role": "actor",
-            "frontres_step_count": 0,
-        }]
-    )
-    runner.alg.frontres_relational_actor_only = True
-    runner.alg.frontres_training_objective = "segment_replay_relational"
-    runner.alg.frontres_method_contract_id = "FRS-METHOD-v026"
-    runner.alg.frontres_gain_contract_id = "FRS-GAIN-v009"
-    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v013"
-    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v025"
-    runner.alg.frontres_critic_support_context_id = "none"
-    runner.alg.frontres_critic_value_normalization = "none"
+    _configure_relational_runner(runner)
     with contextlib.redirect_stdout(io.StringIO()) as buffer:
         audit.print_formal_route_audit(runner, num_learning_iterations=1)
     assert "FRS-GAIN-v009" in buffer.getvalue()

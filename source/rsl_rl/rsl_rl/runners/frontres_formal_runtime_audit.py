@@ -651,11 +651,34 @@ def _print_one_action_k_audit_facts(
 
     policy = getattr(getattr(runner, "alg", None), "policy", None)
     alg = getattr(runner, "alg", None)
-    assert getattr(alg, "frontres_critic_value_kind", None) == "state_value"
+    relational = bool(getattr(alg, "frontres_relational_actor_only", False))
+    critic_identity = (
+        {
+            "frontres_training_objective": "segment_replay_relational",
+            "frontres_scalar_target_id": "none",
+            "frontres_segment_advantage_normalization": "pairwise_edge",
+            "frontres_critic_value_kind": "inert-legacy-compat",
+            "frontres_critic_support_context_id": "none",
+            "frontres_critic_target_id": "none",
+            "frontres_gradient_clip_identity": "actor-only-relational-v1",
+        }
+        if relational
+        else {
+            "frontres_critic_value_kind": "state_value",
+            "frontres_critic_support_context_id": "action-pre-support-plan-kmax32-v1",
+            "frontres_critic_target_id": "scenario-current-exact-m4-mean-symlog-v1",
+        }
+    )
+    for name, expected in critic_identity.items():
+        assert getattr(alg, name, None) == expected, f"AUDIT-B03 requires {name}={expected}"
     assert getattr(alg, "frontres_critic_input_dim", None) == 449
-    assert getattr(alg, "frontres_critic_support_context_id", None) == "action-pre-support-plan-kmax32-v1"
     assert getattr(alg, "frontres_critic_action_conditioned", None) is False
-    assert getattr(alg, "frontres_critic_target_id", None) == "scenario-current-exact-m4-mean-symlog-v1"
+    if relational:
+        optimizer_groups = tuple(getattr(getattr(alg, "optimizer", None), "param_groups", ()) or ())
+        assert len(optimizer_groups) == 1 and optimizer_groups[0].get("frontres_role") == "actor"
+        critic = getattr(policy, "critic", None)
+        assert isinstance(critic, torch.nn.Module)
+        assert all(not parameter.requires_grad for parameter in critic.parameters())
     assert int(trace["critic_future_intent_dim"]) == int(trace["q29_tail_dim"])
     gmt_policy = getattr(policy, "gmt_policy", None)
     assert isinstance(gmt_policy, torch.nn.Module) and not gmt_policy.training
@@ -682,6 +705,8 @@ def _print_one_action_k_audit_facts(
         actor_raw_max_abs_diff=trace["actor_raw_observation_max_abs_diff"],
         critic_raw_max_abs_diff=trace["critic_raw_observation_max_abs_diff"],
         critic_kind=getattr(alg, "frontres_critic_value_kind"),
+        critic_target=getattr(alg, "frontres_critic_target_id"),
+        relational_actor_only=int(relational),
         action_conditioned=int(bool(getattr(alg, "frontres_critic_action_conditioned"))),
     )
     # AUDIT-B04: 检查一次 FEMR action 后仅 frozen GMT 执行 K8.
