@@ -1,0 +1,78 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-GAIN-RELATIONAL-CANDIDATE-20260817",
+  "mode": "construction",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "REQUEST_CHANGES",
+  "scope": {
+    "requested": ["Review the candidate relational Gain and training adapter before active FEMR integration"],
+    "preserved": ["Confirmed hierarchical partial order", "Active FRS-GAIN-v008/PPO-v012/TRAIN-v024 route", "No training or simulator execution"],
+    "forbidden": ["Inventing a scalar value for INCOMPARABLE", "Treating masked Actor credit as a confirmed Critic target", "Activating a Contract during review"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-07R-relational-gain-interface-proposal-v001",
+    "contract": "FRS-GAIN-v008-active; relational proposal not active",
+    "checkout": "a89377bc1c9d9d3f9cb0eb0f474c30b011a85609+candidate-relational-adapter-20260817",
+    "review_object": "sha256:34caf09d15d81b048d4ed573d6dffa3183d8d4beb328a41ebf35e825ad247fd5"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Candidate owner/interface construction review"},
+    "source_edits": {"status": "approved", "scope": "User-authorized pre-training candidate implementation and correction", "receipt": "User requested one-shot completion stopping before training"},
+    "report_write": {"status": "approved", "scope": "Persist the construction review receipt", "receipt": "User invoked code-construction and workflow-governance"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_hierarchical_gain_candidate.py",
+    "content_hash": "sha256:34caf09d15d81b048d4ed573d6dffa3183d8d4beb328a41ebf35e825ad247fd5",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "Active FrontRES engineering discipline"
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "The candidate module uniquely owns evidence validation, level classification, comparison, and masked Actor pairwise credit."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "Outcome, Comparison, RelationalTrainingBatch, compare, and build_relational_training_batch form a narrow immutable candidate boundary."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "The candidate uses only Python value objects and does not import runners, PPO, simulator, active Gain, or persistence owners."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "The module is deterministic and stateless; INVALID fails the complete candidate batch closed."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "Active Gain, PPO, runner, optimizer, replay, checkpoint and simulator code are unchanged."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Exact-M4 synthetic evidence proves module semantics only; real telemetry, official reachability and policy quality remain unclaimed."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "The public boundary consumes explicit finite raw outcome fields; row-order permutation and invalid telemetry are independently tested."},
+    {"name": "gradient-update-boundary", "disposition": "fail", "evidence": "Masked c_i defines candidate Actor direction, but a fully ordered M4 has mean(c_i)=0; no non-degenerate Critic target or loss/update owner is defined."},
+    {"name": "persistence-evaluation", "disposition": "fail", "evidence": "Without a confirmed Critic object, no checkpoint schema, legacy rejection rule, official composition route, or evaluation interpretation can be reviewed."}
+  ],
+  "findings": [
+    {
+      "finding_id": "CRE-FRS-GAIN-REL-001",
+      "severity": "P1",
+      "status": "open",
+      "location": "source/rsl_rl/rsl_rl/frontres/frontres_hierarchical_gain_candidate.py:build_relational_training_batch",
+      "evidence": [
+        {"kind": "source", "locator": "dominance credit c_i=(wins-losses)/comparable pairs", "observation": "For a fully ordered exact M4 the credits are (1, 1/3, -1/3, -1), whose mean is exactly zero."},
+        {"kind": "test", "locator": "frontres_relational_training_adapter_alignment.py", "observation": "The public candidate test explicitly confirms the zero-sum M4 while preserving correct Actor directions."},
+        {"kind": "contract", "locator": "FRS-PPO-v012 current-M4 mean target", "observation": "The active state-value Critic consumes a current-M4 scalar mean, which cannot be reused as relational repair quality here."}
+      ],
+      "named_diagnostic": "Research ML/RL boundary",
+      "responsibility_at_risk": "Critic target identity and Actor/Critic loss ownership",
+      "preserved_behavior": "INCOMPARABLE and SAME create no invented direction; active scalar PPO remains unchanged until coordinated migration",
+      "smallest_safe_change": "Human-confirm one non-degenerate Critic object and complete relational PPO interface before adding any active consumer or checkpoint schema.",
+      "required_tests": ["Independent module alignment for the selected Critic object", "Official offline pseudo-transaction", "Checkpoint fresh-start and incompatible-state pre-mutation rejection"],
+      "stop_condition": "No active Gain/PPO/runner integration and no PRE-TRAINING-READY verdict while the Critic object is unresolved."
+    }
+  ],
+  "residual_risks": ["The confirmed behavior ordering may still require real telemetry fields not present in the prior RERUN2 artifact."],
+  "blockers": [],
+  "claims": {
+    "maintainability": "not-reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}

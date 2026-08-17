@@ -1,0 +1,284 @@
+{
+  "schema_version": 1,
+  "design_identity": "FRS-DP-07R-relational-gain-interface-proposal-v001",
+  "checkout_identity": "a89377bc1c9d9d3f9cb0eb0f474c30b011a85609+candidate-relational-adapter-20260817",
+  "modules": [
+    {
+      "id": "frontres-relational-gain-candidate-adapter",
+      "owner": "rsl_rl.frontres.frontres_hierarchical_gain_candidate",
+      "public_boundary": "compare plus build_relational_training_batch",
+      "card": {
+        "status": "confirmed",
+        "identity": "frontres-hierarchical-gain-v2-ordering-v1"
+      },
+      "required": {
+        "s_tiers": ["S1"],
+        "case_families": ["C1", "C2", "C3", "C4"],
+        "t_kinds": ["T-preference", "T-value", "T-mask", "T-role", "T-permute"]
+      },
+      "cases": [
+        {
+          "id": "relational-c1-exact-m4-level-order",
+          "case_family": "C1",
+          "s_tier": "S1",
+          "t_kinds": ["T-preference", "T-value", "T-role"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "source_kind": "synthetic",
+            "raw_outcome_fields_complete": true,
+            "semantic_roles": ["L3 stable", "L2 unsettled", "L1 contact-invalid", "L0 survival-failed"],
+            "units_and_axes": "one exact-M4 Scenario; level order and six pair relations",
+            "validity_semantics": "all fifteen raw Outcome fields are finite and valid"
+          },
+          "oracle": {
+            "kind": "human-confirmed-ordering",
+            "independent_from_production": true,
+            "expected_relation": "better",
+            "second_scoring_formula_used": false
+          },
+          "sensitivity": {
+            "kind": "controlled-mutation",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "env PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_training_adapter_alignment.py",
+            "exit_code": 0,
+            "identity": "exact-M4-hand-credit-plus-sign-reversal-counterexample"
+          }
+        },
+        {
+          "id": "relational-c2-incomparable-no-direction",
+          "case_family": "C2",
+          "s_tier": "S1",
+          "t_kinds": ["T-preference", "T-mask", "T-value"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "source_kind": "synthetic",
+            "raw_outcome_fields_complete": true,
+            "semantic_roles": ["stable outcome A", "stable outcome B with Intent tradeoff"],
+            "units_and_axes": "one same-level pair with opposed Intent components",
+            "validity_semantics": "both outcomes valid; Pareto tradeoff is intentionally incomparable"
+          },
+          "oracle": {
+            "kind": "human-confirmed-ordering",
+            "independent_from_production": true,
+            "expected_relation": "incomparable",
+            "second_scoring_formula_used": false
+          },
+          "sensitivity": {
+            "kind": "controlled-counterexample",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "env PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_training_adapter_alignment.py",
+            "exit_code": 0,
+            "identity": "incomparable-none-mask-plus-zero-fill-counterexample"
+          }
+        },
+        {
+          "id": "relational-c3-invalid-fails-closed",
+          "case_family": "C3",
+          "s_tier": "S1",
+          "t_kinds": ["T-preference", "T-mask"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "source_kind": "synthetic",
+            "raw_outcome_fields_complete": true,
+            "semantic_roles": ["valid stable outcome", "outcome with NaN ZMP margin"],
+            "units_and_axes": "one candidate pair with invalid physical telemetry",
+            "validity_semantics": "NaN is malformed evidence and must invalidate the complete batch"
+          },
+          "oracle": {
+            "kind": "human-confirmed-ordering",
+            "independent_from_production": true,
+            "expected_relation": "invalid",
+            "second_scoring_formula_used": false
+          },
+          "sensitivity": {
+            "kind": "controlled-mutation",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "env PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_training_adapter_alignment.py",
+            "exit_code": 0,
+            "identity": "invalid-batch-zero-mask-plus-continue-counterexample"
+          }
+        },
+        {
+          "id": "relational-c4-m4-permutation",
+          "case_family": "C4",
+          "s_tier": "S1",
+          "t_kinds": ["T-preference", "T-permute", "T-role", "T-value", "T-mask"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "source_kind": "synthetic",
+            "raw_outcome_fields_complete": true,
+            "semantic_roles": ["exact-M4 outcomes", "reversed exact-M4 outcomes", "key-aligned credits"],
+            "units_and_axes": "one exact-M4 Scenario and a full row-order reversal",
+            "validity_semantics": "outcome identity is preserved while row position changes"
+          },
+          "oracle": {
+            "kind": "human-confirmed-ordering",
+            "independent_from_production": true,
+            "expected_relation": "equivalent",
+            "second_scoring_formula_used": false
+          },
+          "sensitivity": {
+            "kind": "controlled-mutation",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "env PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_training_adapter_alignment.py",
+            "exit_code": 0,
+            "identity": "reversed-M4-reverses-key-aligned-credit-and-mask"
+          }
+        }
+      ],
+      "semantic_class": "behavioral-objective",
+      "validation_phase": "pre-training",
+      "ordering_card": {
+        "schema": "reward-ordering-card/v1",
+        "card_id": "frontres-hierarchical-gain-v2-ordering-v1",
+        "status": "CONFIRMED",
+        "current": true
+      },
+      "objective_replay": {
+        "fixture_kind": "semantic_pseudo_sample",
+        "raw_outcome_fields_complete": true,
+        "second_scoring_formula_used": false,
+        "ordering_result": "OBJECTIVE-ALIGNED",
+        "comparable_pair_count": 6,
+        "incomparable_pair_count": 1,
+        "violation_count": 0
+      },
+      "status": "MODULE-CORRECT"
+    },
+    {
+      "id": "frontres-relational-actor-only-ppo",
+      "owner": "rsl_rl.algorithms.frontres_segment_ppo",
+      "public_boundary": "compute_frontres_relational_actor_loss",
+      "card": {
+        "status": "confirmed",
+        "identity": "frontres-relational-actor-ppo-v1"
+      },
+      "required": {
+        "s_tiers": ["S1"],
+        "case_families": ["C1", "C2", "C3", "C4"],
+        "t_kinds": ["T-preference", "T-value", "T-mask", "T-role", "T-permute"]
+      },
+      "cases": [
+        {
+          "id": "relational-ppo-c1-directed-edge-gradient",
+          "case_family": "C1",
+          "s_tier": "S1",
+          "t_kinds": ["T-preference", "T-value", "T-role"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"source_kind": "synthetic", "raw_outcome_fields_complete": true, "semantic_roles": ["winner", "loser"], "units_and_axes": "four Actor rows and three acyclic preference edges", "validity_semantics": "finite same-policy log probabilities"},
+          "oracle": {"kind": "human-confirmed-ordering", "independent_from_production": true, "expected_relation": "better", "second_scoring_formula_used": false},
+          "sensitivity": {"kind": "controlled-mutation", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "env PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_ppo_alignment.py", "exit_code": 0, "identity": "edge-incidence-gradient"}
+        },
+        {
+          "id": "relational-ppo-c2-no-edge-zero-write",
+          "case_family": "C2",
+          "s_tier": "S1",
+          "t_kinds": ["T-mask", "T-value"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"source_kind": "synthetic", "raw_outcome_fields_complete": true, "semantic_roles": ["same-or-incomparable"], "units_and_axes": "empty edge set", "validity_semantics": "valid evidence with no ordered pair"},
+          "oracle": {"kind": "human-confirmed-ordering", "independent_from_production": true, "expected_relation": "same", "second_scoring_formula_used": false},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "env PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_ppo_alignment.py", "exit_code": 0, "identity": "no-edge-no-step"}
+        },
+        {
+          "id": "relational-ppo-c3-invalid-or-cyclic-fail-closed",
+          "case_family": "C3",
+          "s_tier": "S1",
+          "t_kinds": ["T-preference", "T-mask", "T-role"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"source_kind": "synthetic", "raw_outcome_fields_complete": true, "semantic_roles": ["invalid endpoint", "cyclic edge set"], "units_and_axes": "four Actor rows", "validity_semantics": "tampered relation carriers are forbidden"},
+          "oracle": {"kind": "human-confirmed-ordering", "independent_from_production": true, "expected_relation": "invalid", "second_scoring_formula_used": false},
+          "sensitivity": {"kind": "controlled-mutation", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "env PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_ppo_alignment.py", "exit_code": 0, "identity": "invalid-edge-and-cycle-rejected"}
+        },
+        {
+          "id": "relational-ppo-c4-row-permutation",
+          "case_family": "C4",
+          "s_tier": "S1",
+          "t_kinds": ["T-preference", "T-permute", "T-role", "T-value"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"source_kind": "synthetic", "raw_outcome_fields_complete": true, "semantic_roles": ["original edge rows", "reversed edge rows"], "units_and_axes": "four Actor rows", "validity_semantics": "row identity and edge endpoints are permuted together"},
+          "oracle": {"kind": "human-confirmed-ordering", "independent_from_production": true, "expected_relation": "equivalent", "second_scoring_formula_used": false},
+          "sensitivity": {"kind": "controlled-mutation", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "env PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_ppo_alignment.py", "exit_code": 0, "identity": "permuted-rows-permute-credit"}
+        }
+      ],
+      "semantic_class": "behavioral-objective",
+      "validation_phase": "pre-training",
+      "ordering_card": {"schema": "reward-ordering-card/v1", "card_id": "frontres-relational-actor-ppo-v1", "status": "CONFIRMED", "current": true},
+      "objective_replay": {"fixture_kind": "semantic_pseudo_sample", "raw_outcome_fields_complete": true, "second_scoring_formula_used": false, "ordering_result": "OBJECTIVE-ALIGNED", "comparable_pair_count": 3, "incomparable_pair_count": 0, "violation_count": 0},
+      "status": "MODULE-CORRECT"
+    },
+    {
+      "id": "frontres-relational-evidence-edge-adapter",
+      "owner": "rsl_rl.frontres.frontres_segment_evidence and frontres_segment_grouped_adapter",
+      "public_boundary": "relational_preference_edges plus build_frontres_v025_relational_candidate_storage",
+      "card": {"status": "confirmed", "identity": "frontres-relational-evidence-edge-v1"},
+      "required": {"s_tiers": ["S1"], "case_families": ["C1", "C2", "C3", "C4"], "t_kinds": ["T-preference", "T-value", "T-mask", "T-role"]},
+      "cases": [
+        {
+          "id": "relational-evidence-c1-exact-m4-edge-projection",
+          "case_family": "C1",
+          "s_tier": "S1",
+          "t_kinds": ["T-preference", "T-value", "T-role"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"source_kind": "synthetic", "raw_outcome_fields_complete": true, "semantic_roles": ["four Repair Outcomes", "one sealed Scenario"], "units_and_axes": "K4 x M4", "validity_semantics": "each Repair carries a validated Outcome"},
+          "oracle": {"kind": "human-confirmed-ordering", "independent_from_production": true, "expected_relation": "better", "second_scoring_formula_used": false},
+          "sensitivity": {"kind": "controlled-mutation", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "env PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_evidence_alignment.py", "exit_code": 0, "identity": "exact-m4-global-edge-projection"}
+        },
+        {
+          "id": "relational-evidence-c2-missing-outcome-fail-closed",
+          "case_family": "C2",
+          "s_tier": "S1",
+          "t_kinds": ["T-mask", "T-value"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"source_kind": "synthetic", "raw_outcome_fields_complete": false, "semantic_roles": ["missing Outcome carrier"], "units_and_axes": "one incomplete Repair", "validity_semantics": "missing evidence cannot become zero credit"},
+          "oracle": {"kind": "human-confirmed-ordering", "independent_from_production": true, "expected_relation": "invalid", "second_scoring_formula_used": false},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "env PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_evidence_alignment.py", "exit_code": 0, "identity": "missing-outcome-rejected"}
+        },
+        {
+          "id": "relational-evidence-c3-invalid-carrier",
+          "case_family": "C3",
+          "s_tier": "S1",
+          "t_kinds": ["T-mask", "T-value"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"source_kind": "synthetic", "raw_outcome_fields_complete": false, "semantic_roles": ["invalid Outcome"], "units_and_axes": "one sealed Scenario", "validity_semantics": "invalid evidence closes before storage"},
+          "oracle": {"kind": "human-confirmed-ordering", "independent_from_production": true, "expected_relation": "invalid", "second_scoring_formula_used": false},
+          "sensitivity": {"kind": "controlled-mutation", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "env PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_evidence_alignment.py", "exit_code": 0, "identity": "invalid-carrier-fail-closed"}
+        },
+        {
+          "id": "relational-evidence-c4-row-identity",
+          "case_family": "C4",
+          "s_tier": "S1",
+          "t_kinds": ["T-preference", "T-role", "T-value"],
+          "invokes_production_public_boundary": true,
+          "fixture": {"source_kind": "synthetic", "raw_outcome_fields_complete": true, "semantic_roles": ["source/trial identity"], "units_and_axes": "one exact-M4 Scenario", "validity_semantics": "edges use deterministic source/trial order"},
+          "oracle": {"kind": "human-confirmed-ordering", "independent_from_production": true, "expected_relation": "equivalent", "second_scoring_formula_used": false},
+          "sensitivity": {"kind": "controlled-mutation", "observed_failure": true},
+          "evidence": {"class": "contract-confirmed", "command": "env PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_evidence_alignment.py", "exit_code": 0, "identity": "source-trial-order-preserved"}
+        }
+      ],
+      "semantic_class": "behavioral-objective",
+      "validation_phase": "pre-training",
+      "ordering_card": {"schema": "reward-ordering-card/v1", "card_id": "frontres-relational-evidence-edge-v1", "status": "CONFIRMED", "current": true},
+      "objective_replay": {"fixture_kind": "semantic_pseudo_sample", "raw_outcome_fields_complete": true, "second_scoring_formula_used": false, "ordering_result": "OBJECTIVE-ALIGNED", "comparable_pair_count": 6, "incomparable_pair_count": 0, "violation_count": 0},
+      "status": "MODULE-CORRECT"
+    }
+  ]
+}

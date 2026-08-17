@@ -28,6 +28,9 @@ from rsl_rl.frontres.frontres_outer_scenario_replay import (
     FrontRESOuterScenarioReplay,
     FrontRESScenarioKey,
 )
+from rsl_rl.frontres.frontres_relational_scenario_replay import (
+    FrontRESRelationalScenarioReplay,
+)
 from rsl_rl.runners.frontres_stage3_engine import frontres_stage3_transaction_aggregate
 
 
@@ -63,13 +66,13 @@ def frontres_outer_scenario_replay(
     runner: Any,
     *,
     required: bool = True,
-) -> FrontRESOuterScenarioReplay | None:
+) -> FrontRESOuterScenarioReplay | FrontRESRelationalScenarioReplay | None:
     """Return the one runner-owned Replay aggregate through a validated boundary."""
 
     owner = getattr(runner, "_frontres_outer_scenario_replay", None)
     if owner is None and not required:
         return None
-    if not isinstance(owner, FrontRESOuterScenarioReplay):
+    if not isinstance(owner, (FrontRESOuterScenarioReplay, FrontRESRelationalScenarioReplay)):
         raise RuntimeError("FrontRES Stage-3 requires one initialized outer Scenario Replay owner")
     return owner
 
@@ -166,6 +169,7 @@ class FrontRESFormalTransactionRequest:
     d_cap: float
     dr_class_by_segment: tuple[str, ...]
     dr_strength_by_segment: tuple[float, ...]
+    relational_actor_only: bool = False
     outer_replay_plan: FrontRESOuterReplayPlan | None = None
     outer_replay_scenario_keys: tuple[FrontRESScenarioKey, ...] = ()
     policy_evaluator: Any | None = None
@@ -176,6 +180,8 @@ class FrontRESFormalTransactionRequest:
     def __post_init__(self) -> None:
         object.__setattr__(self, "candidate_batches", tuple(self.candidate_batches))
         object.__setattr__(self, "diagnostic_reports", tuple(self.diagnostic_reports))
+        if not isinstance(self.relational_actor_only, bool):
+            raise TypeError("formal transaction relational_actor_only must be boolean")
         if not isinstance(self.plan, FrontRESFormalTransactionPlan):
             raise TypeError("v015 formal transaction request requires FrontRESFormalTransactionPlan")
         self.plan.validate()
@@ -184,9 +190,10 @@ class FrontRESFormalTransactionRequest:
         if len(self.diagnostic_reports) != len(self.candidate_batches):
             raise ValueError("v015 formal transaction requires one immutable diagnostic projection per candidate batch")
         for candidate_batch, report in zip(self.candidate_batches, self.diagnostic_reports, strict=True):
-            if not isinstance(report, FrontRESV017LocalEvaluationReport):
+            validate_report = getattr(report, "validate", None)
+            if not callable(validate_report):
                 raise TypeError("v015 formal transaction diagnostic projection has an invalid owner")
-            report.validate()
+            validate_report()
             metadata = getattr(candidate_batch, "transaction_metadata", None)
             if (
                 report.transaction_id != self.plan.transaction_id
@@ -245,7 +252,11 @@ class FrontRESFormalTransactionRequest:
         """Return the immutable identity/shape projection consumed by the engine."""
 
         view = FrontRESActiveTransactionRequestView(
-            identity=FrontRESActiveContractIdentity(),
+            identity=(
+                FrontRESActiveContractIdentity.relational()
+                if self.relational_actor_only
+                else FrontRESActiveContractIdentity()
+            ),
             transaction_id=str(self.plan.transaction_id),
             policy_snapshot_id=str(self.plan.policy_snapshot_id),
             shape=FrontRESActiveTransactionShape(
@@ -360,14 +371,15 @@ def _commit_frontres_checkpoint_transaction(
     state = aggregate.as_dict()
     if state.get("state") != "sealed":
         raise RuntimeError("v015 formal transaction commit requires a sealed checkpoint barrier")
+    alg = getattr(runner, "alg", None)
     receipt = {
-        "method_contract_id": "FRS-METHOD-v025",
-        "gain_contract_id": "FRS-GAIN-v008",
-        "optimization_contract_id": "FRS-PPO-v012",
-        "training_contract_id": "FRS-TRAIN-v024",
-        "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
-        "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
-        "grouped_schema_id": "grouped-all-attempt-scalar-v1",
+        "method_contract_id": str(getattr(alg, "frontres_method_contract_id", "")),
+        "gain_contract_id": str(getattr(alg, "frontres_gain_contract_id", "")),
+        "optimization_contract_id": str(getattr(alg, "frontres_optimization_contract_id", "")),
+        "training_contract_id": str(getattr(alg, "frontres_training_contract_id", "")),
+        "scalar_target_id": str(getattr(alg, "frontres_scalar_target_id", "")),
+        "physics_schema_id": str(getattr(alg, "frontres_physics_schema_id", "")),
+        "grouped_schema_id": str(getattr(alg, "frontres_grouped_schema_id", "")),
         "transaction_id": plan.transaction_id,
         "policy_snapshot_id": plan.policy_snapshot_id,
         "plan_identity_hash": _v015_checkpoint_plan_hash(plan, scenario_only=False),

@@ -2,8 +2,106 @@
   "layout": "design_transaction_inspector",
   "defaultZoom": 0.8,
   "title": "FrontRES Design Inspector",
-  "subtitle": "DP02/DP09 已激活 METHOD-v025 / PPO-v012 / TRAIN-v024；外层 Replay 只选 Scenario，Critic target 只读当前 M4",
+  "subtitle": "标量 METHOD-v025 与关系型 METHOD-v026 并存；METHOD-v026 用层级关系训练 Actor，不构造标量 Gain 或 Critic target",
   "cards": [
+    {
+      "designId": "FRS-DP-07R",
+      "blockId": "Q-01R",
+      "title": "Relational Gain",
+      "color": "#8a4f9e",
+      "responsibility": "将 Repair 结果表达为 BETTER/WORSE/SAME/INCOMPARABLE，保留严重 Physics 违规不可补偿和明确不可比较的情况。",
+      "details": [
+        {
+          "heading": "关系型 Actor-only 训练接口",
+          "text": "同一当前事务内只统计可比较 Pair；SAME 与 INCOMPARABLE 不产生 Actor 方向，N_i=0 时该 attempt 没有 Actor credit。该接口不定义 Critic target；INVALID 使整批 fail closed。",
+          "latex": [
+            "W_i=\\#\\{j:i\\succ j\\},\\quad L_i=\\#\\{j:j\\succ i\\},\\quad N_i=W_i+L_i",
+            "c_i=\\begin{cases}W_i-L_i,&N_i>0\\\\\\mathrm{undefined},&N_i=0\\end{cases}",
+            "actor\\_mask_i=[N_i>0];\\quad SAME,INCOMPARABLE\\not\\Rightarrow c_i=0",
+            "r_i=\\exp(\\log\\pi_\\theta(a_i|s_i)-\\log\\pi_{old}(a_i|s_i))",
+            "L_{pair}=-\\frac{1}{|E|}\\sum_i\\min\\left(r_ic_i,\\operatorname{clip}(r_i,1-\\epsilon,1+\\epsilon)c_i\\right)",
+            "\\text{relational route has no scalar Gain, advantage, return, value loss, or Critic target}"
+          ]
+        },
+        {
+          "heading": "候选公式：证据到层级",
+          "text": "先把每个 Repair 压缩为结构化证据，再按层级比较；层级不同直接返回 BETTER/WORSE，不允许下层指标补偿上层失败。",
+          "latex": [
+            "P_X=(S_X,H_X,C_X),\\qquad S_X=(s_X,f_X),\\quad H_X=(h_X^{load},h_X^{switch},h_X^{illegal})",
+            "level(X)=\\begin{cases}L_0,&s_X=0\\\\L_1,&s_X=1\\land\\|q(H_X)\\|_0>0\\\\L_2,&s_X=1\\land q(H_X)=0\\land Stable(X)=0\\\\L_3,&Stable(X)=1\\end{cases}",
+            "L_3\\succ L_2\\succ L_1\\succ L_0"
+          ],
+          "table": {
+            "columns": ["层级", "进入条件", "层级含义"],
+            "rows": [
+              ["L0", "survival_ok=0", "物理生存失败"],
+              ["L1", "Survival 成功且 H 非零", "严重接触/支撑违规"],
+              ["L2", "H=0 且 Stable=0", "可生存但恢复未稳定"],
+              ["L3", "Stable=1", "恢复稳定后才比较 Intent/成本"]
+            ]
+          }
+        },
+        {
+          "heading": "候选公式：L1 严重违规",
+          "text": "L1 只允许逐分量 Pareto；失载、换脚和非法接触不能相互抵消。",
+          "latex": [
+            "H_X=(h_1,h_2,h_3)=(no\\_load,unplanned\\_switch,illegal\\_contact\\_duration)",
+            "q_r(v)=\\left\\lfloor\\frac{v}{r}+\\frac12\\right\\rfloor,\\quad r=10^{-6}",
+            "A\\succ B\\iff[\\forall i:q_r(h_i^A)\\le q_r(h_i^B)]\\land[\\exists j:q_r(h_j^A)<q_r(h_j^B)]"
+          ]
+        },
+        {
+          "heading": "候选公式：L2 恢复质量",
+          "text": "L2 只比较恢复质量向量；所有维度都必须不差，且至少一维改善，才称为 BETTER。",
+          "latex": [
+            "L_X=(m_X,\\dot m_X,z_X,-e_X^{lin},-e_X^{ang},-d_X^{support})",
+            "p_{cp,t}^{xy}=(p_{root,t}-p_{origin})^{xy}+v_{root,t}^{xy}\\sqrt{h_t/g},\\quad m_X=\\min_{t\\in\\mathcal V}d_{signed}(p_{cp,t}^{xy},\\partial\\mathcal S_t)",
+            "e_X^{lin}=\\operatorname{mean}_{t\\in\\mathcal V}\\|v_{root,t}^{repair}-v_{root,t}^{clean}\\|_2,\\quad e_X^{ang}=\\operatorname{mean}_{t\\in\\mathcal V}\\|\\omega_{root,t}^{repair}-\\omega_{root,t}^{clean}\\|_2",
+            "d_X^{support}=\\max_{t,f\\in support(t)}\\|p_{foot,t,f}^{repair}-p_{foot,t,f}^{clean}\\|_2",
+            "A\\succ B\\iff q_r(L_A)\\ge q_r(L_B)\\land\\exists j:q_r(L_{A,j})>q_r(L_{B,j})",
+            "z_X=\\mathrm{N/A}\\iff planned\\_zmp\\_applicable_X=0;\\quad planned\\_zmp\\_applicable_X=1\\land z_X\\notin\\mathbb R\\Rightarrow INVALID"
+          ]
+        },
+        {
+          "heading": "候选公式：L3 稳定后的任务质量",
+          "text": "只有进入 L3 后，任务跟踪和修复成本才有比较资格；Physics 稳定性不是成本项。",
+          "latex": [
+            "Stable(X)=[m_X\\ge0.02]\\land[\\dot m_X\\ge0]\\land[z_X=\\mathrm{N/A}\\lor z_X\\ge0.01]\\land[e_X^{lin}\\le0.10]",
+            "\\qquad\\land[e_X^{ang}\\le0.10]\\land[d_X^{support}\\le0.05]\\land[hold_X\\ge4]",
+            "I_X=(-err_{X,1}^{intent},\\ldots,-err_{X,d}^{intent});\\quad I_A\\equiv I_B\\Rightarrow compare(-cost_A,-cost_B)"
+          ],
+          "table": {
+            "columns": ["条件", "阈值", "方向"],
+            "rows": [
+              ["Capture Margin", "m_X≥0.02", "越大越好"],
+              ["Margin trend", "ṁ_X≥0", "越大越好"],
+              ["ZMP（适用时）", "z_X≥0.01", "越大越好"],
+              ["线/角动量误差", "e_lin≤0.10；e_ang≤0.10", "越小越好"],
+              ["支撑漂移 / 稳定保持", "d_support≤0.05；hold≥4", "漂移越小、保持越长"]
+            ]
+          }
+        },
+        {
+          "heading": "候选输出与失效规则",
+          "text": "输出是关系而不是总分；INVALID 不得被当作 SAME、零收益或可训练样本。",
+          "latex": [
+            "compare(A,B)\\in\\{BETTER,WORSE,SAME,INCOMPARABLE,INVALID\\}",
+            "validate(A)=0\\lor validate(B)=0\\Rightarrow compare(A,B)=INVALID",
+            "q_r\\text{ 后使用 exact Pareto；不使用 }H_1+H_2+H_3\\text{，也不使用成对 }\\varepsilon"
+          ]
+        },
+        {
+          "heading": "训练前边界",
+          "text": "Actor credit、INCOMPARABLE、B8×M4 聚合、关系型 Replay 和 checkpoint-v20 已由独立接口承载。训练前仍需通过代码审查、Checkpoint 恢复和正式入口离线审计；代码同步、checkpoint 生成与训练由用户执行。"
+        },
+        {
+          "heading": "治理结论",
+          "text": "PRE-TRAINING-CANDIDATE：关系型路径只可推进到训练前工程审计。通过后必须停止并交还用户，不由 Codex 启动 live test 或训练；真实阈值和策略质量仍未验证。"
+        }
+      ],
+      "highlightSteps": ["seal-scenarios", "gmt-execute-k"],
+      "chips": []
+    },
     {
       "designId": "FRS-DP-01",
       "blockId": "M-02",

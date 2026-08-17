@@ -148,6 +148,12 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
+    "--frontres_relational_actor_only",
+    action="store_true",
+    default=False,
+    help="Use FRS-GAIN-v009 / FRS-PPO-v013 relational Actor-only Stage-3 training.",
+)
+parser.add_argument(
     "--frontres_specialist_mode",
     type=str,
     choices=("rp", "local_rp", "rp_only", "strong_rp", "rp_z", "z_rp", "vertical_contact"),
@@ -886,6 +892,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     action_gain_direction_arg = bool(
         getattr(args_cli, "frontres_action_gain_direction_collect_only", False)
     )
+    relational_actor_only = bool(getattr(args_cli, "frontres_relational_actor_only", False))
     hsl_live_smoke_arg = bool(getattr(args_cli, "frontres_hsl_live_smoke", False))
     hsl_initializer_arg = str(
         getattr(args_cli, "frontres_v015_hsl_initializer_checkpoint", "") or ""
@@ -895,6 +902,8 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     ).strip()
     if (hsl_initializer_arg or v015_resume_arg) and stage != "stage3_segment_hrl":
         raise ValueError("v018 HSL initialization/full resume requires --frontres_stage stage3_segment_hrl")
+    if relational_actor_only and stage != "stage3_segment_hrl":
+        raise ValueError("--frontres_relational_actor_only requires Stage 3")
     if hsl_initializer_arg and v015_resume_arg:
         raise ValueError("v018 HSL initialization and checkpoint-v14 full resume are mutually exclusive")
     if hsl_live_smoke_arg and stage != "stage1_hsl":
@@ -1046,7 +1055,12 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             agent_cfg.max_iterations = 0
         # B1: evaluator 是外层只读调度, 算法仍以 Stage-3 objective 构造.
         # replay/live training 保持关闭, 之后只能进入专用 evaluator dispatch.
-        _set_if_present(alg_cfg, "frontres_training_objective", "segment_replay_hrl")
+        _set_if_present(
+            alg_cfg,
+            "frontres_training_objective",
+            "segment_replay_relational" if relational_actor_only else "segment_replay_hrl",
+        )
+        _set_if_present(alg_cfg, "frontres_relational_actor_only", relational_actor_only)
         evaluation_only = policy_quality_eval_arg or action_gain_direction_arg
         _set_if_present(alg_cfg, "frontres_segment_replay_enabled", not evaluation_only)
         _set_if_present(alg_cfg, "frontres_policy_quality_eval_only", evaluation_only)
@@ -1120,11 +1134,16 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             _set_if_present(
                 alg_cfg,
                 "frontres_critic_value_normalization",
-                "ema-target-std-nonamplifying-v1",
+                "none" if relational_actor_only else "ema-target-std-nonamplifying-v1",
             )
             _set_if_present(alg_cfg, "frontres_critic_value_normalizer_decay", 0.9)
             _set_if_present(alg_cfg, "frontres_critic_value_normalizer_scale_floor", 1.0)
             _set_if_present(alg_cfg, "frontres_gain_beta", 0.02)
+            _set_if_present(
+                alg_cfg,
+                "frontres_segment_advantage_normalization",
+                "pairwise_edge" if relational_actor_only else "grouped_scale_only",
+            )
             _set_if_present(alg_cfg, "frontres_future_offsets", future_offsets)
             _set_if_present(alg_cfg, "frontres_future_intent_layout_version", "frontres-v015-future-intent-q29-v1")
             _set_if_present(alg_cfg, "lambda_supervised", 0.0)

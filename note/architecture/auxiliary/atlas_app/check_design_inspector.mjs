@@ -59,14 +59,14 @@ if (review.defaultZoom !== 0.8) {
 }
 
 const registryRows = [...registry.matchAll(
- /\| `(FRS-DP-\d+)` \| ([^|]+) \| ([^|]+) \| `([^`]+)` \|/g,
+  /\| `(FRS-DP-\d+R?)` \| ([^|]+) \| ([^|]+) \| `([^`]+)` \|/g,
 )].map((match) => ({
  designId: match[1],
  title: match[2].trim(),
  blockId: match[4],
 }));
 const cardsById = new Map(review.cards.map((card) => [card.designId, card]));
-if (registryRows.length !== 10 || cardsById.size !== registryRows.length) {
+if (registryRows.length !== 11 || cardsById.size !== registryRows.length) {
  throw new Error(`Transaction index/register mismatch cards=${cardsById.size} registry=${registryRows.length}`);
 }
 

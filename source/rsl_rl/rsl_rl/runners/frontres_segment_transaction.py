@@ -454,6 +454,18 @@ class FrontRESFormalTransactionAccumulator:
             key=lambda row: (int(source_index[row].item()), int(trial_index[row].item())),
         )
         order = torch.tensor(order_values, device=source_index.device, dtype=torch.long)
+        inverse_order = {old_row: new_row for new_row, old_row in enumerate(order_values)}
+        preference_edges: list[tuple[int, int]] = []
+        row_offset = 0
+        for batch in self._batches:
+            batch_rows = int(batch.observations.shape[0])
+            for winner, loser in tuple(getattr(batch, "preference_edges", ()) or ()):
+                if not (0 <= int(winner) < batch_rows) or not (0 <= int(loser) < batch_rows):
+                    raise ValueError("formal transaction preference edge is outside its candidate shard")
+                preference_edges.append(
+                    (inverse_order[row_offset + int(winner)], inverse_order[row_offset + int(loser)])
+                )
+            row_offset += batch_rows
 
         def reorder_tensor(value: torch.Tensor) -> torch.Tensor:
             return value.index_select(0, order.to(device=value.device))
@@ -484,13 +496,10 @@ class FrontRESFormalTransactionAccumulator:
         total_rows = int(metadata.batch_size)
         valid_mask = reorder_tensor(cat_batch_tensor("valid_mask")).bool()
 
-        return batch_cls(
+        common_payload = dict(
             observations=reorder_tensor(cat_batch_tensor("observations")),
             actions=reorder_tensor(cat_batch_tensor("actions")),
             old_log_probs=reorder_tensor(cat_batch_tensor("old_log_probs")),
-            old_values=reorder_tensor(cat_batch_tensor("old_values")),
-            returns=reorder_tensor(cat_batch_tensor("returns")),
-            advantages=reorder_tensor(cat_batch_tensor("advantages")),
             valid_mask=valid_mask,
             segment_ids=reorder_tensor(cat_batch_tensor("segment_ids")),
             old_means=(
@@ -510,7 +519,15 @@ class FrontRESFormalTransactionAccumulator:
             ),
             transaction_metadata=metadata,
             transaction_row_indices=torch.arange(total_rows, dtype=torch.long),
+            preference_edges=tuple(preference_edges),
         )
+        if hasattr(first, "returns"):
+            common_payload.update(
+                old_values=reorder_tensor(cat_batch_tensor("old_values")),
+                returns=reorder_tensor(cat_batch_tensor("returns")),
+                advantages=reorder_tensor(cat_batch_tensor("advantages")),
+            )
+        return batch_cls(**common_payload)
 
 
 def _immutable_frozen_transaction_vector(name: str, value: Any) -> torch.Tensor:

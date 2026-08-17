@@ -169,6 +169,7 @@ def test_asset_converter_dir_reaches_formal_spawn_and_fails_closed() -> None:
 def _alg_cfg() -> SimpleNamespace:
     return SimpleNamespace(
         frontres_training_objective="unset",
+        frontres_relational_actor_only=False,
         frontres_segment_replay_enabled=False,
         frontres_policy_quality_eval_only=False,
         frontres_segment_live_runner_enabled=False,
@@ -230,6 +231,7 @@ def _agent_cfg() -> SimpleNamespace:
 def _args(**overrides) -> SimpleNamespace:
     values = {
         "frontres_stage": "stage3_segment_hrl",
+        "frontres_relational_actor_only": False,
         "frontres_segment_live_sentinel_only": False,
         "frontres_segment_live_probe_only": False,
         "frontres_segment_live_storage_write_only": False,
@@ -344,6 +346,19 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
         assert "frontres_checkpoint_interval" in str(exc)
     else:
         raise AssertionError("non-positive checkpoint interval must be rejected")
+
+
+def test_stage3_relational_config_is_fresh_actor_only() -> None:
+    agent_cfg = _agent_cfg()
+    _apply_frontres_stage_preset(agent_cfg, _args(frontres_relational_actor_only=True))
+    alg = agent_cfg.algorithm
+    assert alg.frontres_training_objective == "segment_replay_relational"
+    assert alg.frontres_relational_actor_only is True
+    assert alg.frontres_segment_advantage_normalization == "pairwise_edge"
+    assert alg.frontres_critic_value_normalization == "none"
+    assert alg.frontres_segment_live_train_enabled is True
+    assert alg.frontres_formal_transaction_enabled is True
+
 
 
 def test_stage3_policy_quality_config_is_formal_and_read_only() -> None:
@@ -646,6 +661,7 @@ def test_stage3_hsl_initializer_dispatch_is_explicit_and_formal_training_opens()
 if __name__ == "__main__":
     test_runtime_temp_dir_is_private_writable_and_fail_closed()
     test_stage3_default_enters_live_train_config_without_zeroing_iterations()
+    test_stage3_relational_config_is_fresh_actor_only()
     test_stage3_policy_quality_config_is_formal_and_read_only()
     test_stage3_rejects_noncanonical_future_offsets_before_config_mutation()
     test_retired_optimizer_flags_reject_before_stage3_config_mutation()

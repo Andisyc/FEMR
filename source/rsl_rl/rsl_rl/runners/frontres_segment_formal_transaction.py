@@ -27,11 +27,21 @@ import torch
 
 
 from rsl_rl.algorithms.frontres_segment_ppo import (
+    FrontRESRelationalPPOBatch,
+    FrontRESRelationalPPOConfig,
     FrontRESSegmentPPOBatch,
     FrontRESSegmentPPOConfig,
+    compute_frontres_relational_actor_loss,
     compute_frontres_segment_ppo_loss,
     install_frontres_v006_scalar_gradients,
     step_frontres_v005_scalar_optimizer,
+)
+from rsl_rl.frontres.frontres_relational_scenario_replay import (
+    FrontRESRelationalReplayPlan,
+    FrontRESRelationalScenarioReplay,
+)
+from rsl_rl.frontres.frontres_segment_storage_records import (
+    FrontRESV015RejectedTransactionEvidence,
 )
 from rsl_rl.frontres.frontres_value_normalization import (
     FRONTRES_VALUE_NORMALIZATION_ID,
@@ -51,7 +61,13 @@ from rsl_rl.frontres.frontres_segment_evidence import (
     FrontRESSegmentBaselineEvidence,
     FrontRESSealedRecoveryAwareGainBatch,
 )
-from rsl_rl.frontres.frontres_segment_grouped_adapter import build_frontres_v017_grouped_candidate_storage
+from rsl_rl.frontres.frontres_segment_grouped_adapter import (
+    build_frontres_v017_grouped_candidate_storage,
+    build_frontres_v025_relational_candidate_storage,
+)
+from rsl_rl.frontres.frontres_relational_evaluation import (
+    build_frontres_relational_evaluation_report,
+)
 
 
 from rsl_rl.frontres.frontres_segment_warmup import require_frontres_v013_campaign_schedule, resolve_frontres_k_stage_identity
@@ -271,8 +287,10 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
     alg = getattr(runner, "alg", None)
     if alg is None or not bool(getattr(alg, "frontres_formal_transaction_enabled", False)):
         raise RuntimeError("v017 formal transaction route requires frontres_formal_transaction_enabled=True")
-    if str(getattr(alg, "frontres_segment_advantage_normalization", "")).lower() != "grouped_scale_only":
-        raise RuntimeError("v017 formal transaction route requires grouped_scale_only normalization")
+    relational = bool(getattr(alg, "frontres_relational_actor_only", False))
+    expected_normalization = "pairwise_edge" if relational else "grouped_scale_only"
+    if str(getattr(alg, "frontres_segment_advantage_normalization", "")).lower() != expected_normalization:
+        raise RuntimeError(f"formal transaction route requires {expected_normalization} normalization")
     if any(
         float(getattr(alg, name, 0.0) or 0.0) != 0.0
         for name in ("lambda_supervised", "lambda_supervised_min")
@@ -306,20 +324,38 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
             "v017 formal transaction route requires exact deployment-q29 offsets (1, 2) "
             "and layout frontres-v015-future-intent-q29-v1"
         )
-    required_identity = {
-        "frontres_method_contract_id": "FRS-METHOD-v025",
-        "frontres_gain_contract_id": "FRS-GAIN-v008",
-        "frontres_optimization_contract_id": "FRS-PPO-v012",
-        "frontres_training_contract_id": "FRS-TRAIN-v024",
-        "frontres_scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
-        "frontres_return_utility_id": "symmetric-log-gain-g0-1-v1",
-        "frontres_physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
-        "frontres_grouped_schema_id": "grouped-all-attempt-scalar-v1",
-        "frontres_critic_support_context_id": "action-pre-support-plan-kmax32-v1",
-    }
+    relational = bool(getattr(alg, "frontres_relational_actor_only", False))
+    required_identity = (
+        {
+            "frontres_method_contract_id": "FRS-METHOD-v026",
+            "frontres_gain_contract_id": "FRS-GAIN-v009",
+            "frontres_optimization_contract_id": "FRS-PPO-v013",
+            "frontres_training_contract_id": "FRS-TRAIN-v025",
+            "frontres_scalar_target_id": "none",
+            "frontres_physics_schema_id": "hierarchical-relational-evidence-v1",
+            "frontres_grouped_schema_id": "relational-preference-edge-v1",
+            "frontres_critic_support_context_id": "none",
+        }
+        if relational
+        else {
+            "frontres_method_contract_id": "FRS-METHOD-v025",
+            "frontres_gain_contract_id": "FRS-GAIN-v008",
+            "frontres_optimization_contract_id": "FRS-PPO-v012",
+            "frontres_training_contract_id": "FRS-TRAIN-v024",
+            "frontres_scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
+            "frontres_return_utility_id": "symmetric-log-gain-g0-1-v1",
+            "frontres_physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
+            "frontres_grouped_schema_id": "grouped-all-attempt-scalar-v1",
+            "frontres_critic_support_context_id": "action-pre-support-plan-kmax32-v1",
+        }
+    )
     for name, expected in required_identity.items():
         if str(getattr(alg, name, "")) != expected:
             raise RuntimeError(f"v017 formal transaction requires {name}={expected}")
+    if relational:
+        if str(getattr(alg, "frontres_segment_advantage_normalization", "")) != "pairwise_edge":
+            raise RuntimeError("FRS-PPO-v013 formal transaction requires pairwise_edge normalization")
+        return alg
     if float(getattr(alg, "frontres_gain_beta", float("nan"))) != 0.02:
         raise RuntimeError("FRS-GAIN-v008 formal transaction requires frozen beta_init=0.02")
     if float(getattr(alg, "frontres_return_utility_scale", float("nan"))) != 1.0:
@@ -413,7 +449,192 @@ def _v015_formal_policy_evaluator(
         or int(privileged_observations.shape[1]) <= 0
     ):
         raise ValueError("v017 formal transaction critic observations must be non-empty [policy_row, critic_feature]")
-    return FrontRESSegmentLivePolicyAdapter(alg, privileged_observations)
+    return FrontRESSegmentLivePolicyAdapter(
+        alg,
+        privileged_observations,
+        actor_only=bool(getattr(alg, "frontres_relational_actor_only", False)),
+    )
+
+
+def _execute_frontres_relational_transaction_update(
+    runner: Any,
+    request: FrontRESFormalTransactionRequest,
+    *,
+    alg: Any,
+    policy: Any,
+    optimizer: Any,
+    outer_replay: Any,
+) -> FrontRESFormalTransactionUpdateResult:
+    """Commit one FRS-TRAIN-v025 Actor-only preference transaction."""
+
+    if not isinstance(outer_replay, FrontRESRelationalScenarioReplay):
+        raise RuntimeError("FRS-TRAIN-v025 requires the relation-only outer Replay owner")
+    if not isinstance(request.outer_replay_plan, FrontRESRelationalReplayPlan):
+        raise RuntimeError("FRS-TRAIN-v025 requires one sealed relational Replay plan")
+    optimizer_groups = tuple(getattr(optimizer, "param_groups", ()))
+    if len(optimizer_groups) != 1 or str(optimizer_groups[0].get("frontres_role", "")) != "actor":
+        raise RuntimeError("FRS-TRAIN-v025 requires exactly one Actor optimizer group")
+    critic = getattr(policy, "critic", None)
+    if critic is not None and any(bool(value.requires_grad) for value in critic.parameters()):
+        raise RuntimeError("FRS-TRAIN-v025 requires frozen Critic parameters")
+    optimizer_step_before = _v015_formal_optimizer_step_count(optimizer)
+    curriculum = _v015_resolve_curriculum_identity(runner, alg)
+    if (
+        request.training_iteration != curriculum.absolute_iteration
+        or request.curriculum_fingerprint != curriculum.schedule_fingerprint
+        or request.k_stage_index != curriculum.stage_index
+        or request.active_k != curriculum.active_k
+        or request.active_m != curriculum.active_m
+        or request.k_stage_iteration != curriculum.stage_iteration
+        or request.warmup_phase_name != curriculum.phase.name
+        or request.dr_stage_fingerprint != curriculum.dr_stage_fingerprint
+        or not math.isclose(float(request.dr_progress), curriculum.dr_progress, abs_tol=1.0e-12)
+        or not math.isclose(float(request.d_cap), curriculum.d_cap, abs_tol=1.0e-12)
+        or not request.relational_actor_only
+    ):
+        raise RuntimeError("FRS-TRAIN-v025 transaction changed its sealed K x M x DR identity")
+    if request.plan.active_m != 4 or request.plan.selected_segment_count != 8:
+        raise RuntimeError("FRS-TRAIN-v025 requires one complete B8 x M4 transaction")
+    actor_learning_rate = float(curriculum.phase.actor_learning_rate)
+    if not math.isfinite(actor_learning_rate) or actor_learning_rate <= 0.0:
+        raise RuntimeError("FRS-TRAIN-v025 requires a positive finite scheduled Actor LR")
+    optimizer_groups[0]["lr"] = actor_learning_rate
+    alg.learning_rate = actor_learning_rate
+    alg.actor_learning_rate = actor_learning_rate
+    request.plan.verify_policy(policy)
+    accumulator = FrontRESFormalTransactionAccumulator(
+        request.plan,
+        optimizer_step_count=lambda: _v015_formal_optimizer_step_count(optimizer),
+    )
+    for value in request.candidate_batches:
+        accumulator.append_candidate_batch(value)
+    ppo_batch = accumulator.seal()
+    edges = tuple(getattr(ppo_batch, "preference_edges", ()) or ())
+    if not edges:
+        raise FrontRESV015RejectedTransactionEvidence(
+            "FRS-GAIN-v009 produced NO_COMPARABLE_PAIRS; transaction remains zero-write"
+        )
+    policy_evaluator = _v015_formal_policy_evaluator(request, alg, ppo_batch)
+    ppo_result = compute_frontres_relational_actor_loss(
+        policy_evaluator,
+        ppo_batch,
+        edges,
+        FrontRESRelationalPPOConfig(
+            clip_param=float(getattr(alg, "clip_param", 0.2)),
+            max_log_ratio=20.0,
+        ),
+    )
+    if not ppo_result.should_step:
+        raise FrontRESV015RejectedTransactionEvidence(
+            "FRS-PPO-v013 found no valid preference edge; transaction remains zero-write"
+        )
+    replay_candidate = outer_replay.stage(
+        request.outer_replay_plan,
+        keys=request.outer_replay_scenario_keys,
+        preference_edges=edges,
+        source_index=ppo_batch.transaction_metadata.source_index,
+        policy_snapshot_id=request.plan.policy_snapshot_id,
+        active_m=request.active_m,
+    )
+    _seal_frontres_checkpoint_transaction_plan(runner, request.plan)
+    _start_frontres_checkpoint_transaction_commit(runner)
+    try:
+        optimizer.zero_grad(set_to_none=True)
+    except TypeError:
+        optimizer.zero_grad()
+    optimizer_params, parameter_snapshots = _optimizer_parameter_snapshots(policy, optimizer)
+    ppo_result.total_loss.backward()
+    actor_parameters = tuple(
+        parameter
+        for group in optimizer_groups
+        for parameter in group.get("params", ())
+        if isinstance(parameter, torch.Tensor) and parameter.requires_grad
+    )
+    if not actor_parameters:
+        raise RuntimeError("FRS-TRAIN-v025 Actor optimizer has no trainable parameters")
+    gradients = tuple(value.grad for value in actor_parameters if isinstance(value.grad, torch.Tensor))
+    if not gradients or any(not bool(torch.isfinite(value).all().item()) for value in gradients):
+        raise FloatingPointError("FRS-PPO-v013 requires finite nonempty Actor gradients")
+    gradient_pre_clip_norm = float(
+        torch.sqrt(sum(value.detach().float().square().sum() for value in gradients)).cpu().item()
+    )
+    max_grad_norm = float(getattr(alg, "max_grad_norm", float("nan")))
+    if max_grad_norm != 0.5:
+        raise RuntimeError("FRS-PPO-v013 requires Actor max_grad_norm=0.5")
+    torch.nn.utils.clip_grad_norm_(actor_parameters, max_grad_norm)
+    gradient_post_clip_norm = float(
+        torch.sqrt(sum(value.grad.detach().float().square().sum() for value in actor_parameters if value.grad is not None)).cpu().item()
+    )
+    optimizer.step()
+    optimizer_step_after = _v015_formal_optimizer_step_count(optimizer)
+    if optimizer_step_after - optimizer_step_before != 1:
+        raise RuntimeError("FRS-TRAIN-v025 requires exactly one Actor optimizer step")
+    _commit_frontres_checkpoint_transaction(
+        runner,
+        plan=request.plan,
+        valid_policy_row_count=int(ppo_result.valid_count),
+        optimizer_step_before=optimizer_step_before,
+        optimizer_step_after=optimizer_step_after,
+        curriculum=curriculum,
+    )
+    committed = frontres_stage3_transaction_aggregate(runner).as_dict()
+    receipt = committed.get("receipt")
+    if committed.get("state") != "committed" or not isinstance(receipt, Mapping):
+        raise RuntimeError("FRS-TRAIN-v025 did not publish its committed receipt")
+    replay_telemetry = outer_replay.commit(replay_candidate, receipt=receipt)
+    parameter_delta = _parameter_delta_stats(optimizer_params, parameter_snapshots)
+    diagnostics = {
+        "transaction_id": request.plan.transaction_id,
+        "policy_snapshot_id": request.plan.policy_snapshot_id,
+        "method_contract_id": "FRS-METHOD-v026",
+        "training_contract_id": "FRS-TRAIN-v025",
+        "gain_contract_id": "FRS-GAIN-v009",
+        "optimization_contract_id": "FRS-PPO-v013",
+        "scalar_target_id": "none",
+        "physics_schema_id": "hierarchical-relational-evidence-v1",
+        "grouped_schema_id": "relational-preference-edge-v1",
+        "preference_edges": edges,
+        "edge_count": int(ppo_result.edge_count),
+        "actor_credit": tuple(float(value) for value in ppo_result.actor_credit.cpu().tolist()),
+        "actor_loss": float(ppo_result.actor_loss.detach().cpu().item()),
+        "gradient_pre_clip_norm": gradient_pre_clip_norm,
+        "gradient_post_clip_norm": gradient_post_clip_norm,
+        "gradient_clip_identity": "actor-only-relational-v1",
+        "optimizer_step_delta": 1,
+        "actor_learning_rate": actor_learning_rate,
+        "critic_learning_rate": 0.0,
+        "critic_target_id": "none",
+        "critic_value_kind": "inert-legacy-compat",
+        "training_iteration": curriculum.absolute_iteration,
+        "active_k": curriculum.active_k,
+        "active_m": curriculum.active_m,
+        "selected_segment_count": request.plan.selected_segment_count,
+        "policy_row_count": request.plan.batch_size,
+        "parameter_delta": parameter_delta,
+        "outer_replay": replay_telemetry,
+        "v009_relational_reports": request.diagnostic_reports,
+    }
+    result = FrontRESFormalTransactionUpdateResult(
+        transaction_id=request.plan.transaction_id,
+        policy_snapshot_id=request.plan.policy_snapshot_id,
+        segment_count=8,
+        source_count=8,
+        policy_attempt_count=accumulator.collected_attempt_count,
+        valid_row_count=int(ppo_result.valid_count),
+        optimizer_step_before=optimizer_step_before,
+        optimizer_step_after=optimizer_step_after,
+        optimizer_step_delta=1,
+        update_invocation_count=1,
+        ppo_result=ppo_result,
+        diagnostics=diagnostics,
+    )
+    print(
+        "[FrontRES v025 Relational Transaction] "
+        f"transaction={request.plan.transaction_id} edges={ppo_result.edge_count} "
+        f"valid={ppo_result.valid_count} step_delta=1",
+        flush=True,
+    )
+    return result
 
 
 def _execute_frontres_formal_transaction_update(
@@ -441,6 +662,15 @@ def _execute_frontres_formal_transaction_update(
     outer_replay = frontres_outer_scenario_replay(runner)
     if policy is None or optimizer is None:
         raise RuntimeError("v017 formal transaction update requires runner.alg policy and optimizer")
+    if bool(getattr(alg, "frontres_relational_actor_only", False)):
+        return _execute_frontres_relational_transaction_update(
+            runner,
+            request,
+            alg=alg,
+            policy=policy,
+            optimizer=optimizer,
+            outer_replay=outer_replay,
+        )
     if (
         request.outer_replay_plan is None
         or len(request.outer_replay_scenario_keys) != 8
@@ -1083,11 +1313,15 @@ def collect_frontres_recovery_aware_evaluation(
         baselines=tuple(baselines), attempts=attempts, active_m=int(plan.active_m)
     )
     evidence.validate()
-    gain = compute_recovery_aware_gain(
-        evidence.to_gain_input(),
-        config=FrontRESRecoveryAwareGainConfig(beta=float(beta)),
-    )
-    report = build_frontres_v017_local_evaluation_report(evidence, gain)
+    if bool(getattr(getattr(runner, "alg", None), "frontres_relational_actor_only", False)):
+        gain = None
+        report = build_frontres_relational_evaluation_report(evidence)
+    else:
+        gain = compute_recovery_aware_gain(
+            evidence.to_gain_input(),
+            config=FrontRESRecoveryAwareGainConfig(beta=float(beta)),
+        )
+        report = build_frontres_v017_local_evaluation_report(evidence, gain)
     observation_trace = dict(frontres_observation_trace(runner))
     if route == "policy_quality":
         observation_trace.update({
@@ -1146,29 +1380,41 @@ def _build_frontres_v015_local_transaction_request(
     plan = prepared.plan
     try:
         policy_row_count = int(plan.batch_size)
+        relational = bool(getattr(alg, "frontres_relational_actor_only", False))
         gain_beta = getattr(alg, "frontres_gain_beta", None)
-        if gain_beta is None:
+        if gain_beta is None and not relational:
             raise RuntimeError("FRS-GAIN-v008 formal transaction requires an explicit repair-cost beta")
         collection = collect_frontres_recovery_aware_evaluation(
             runner,
             prepared,
             route=route,
             label=label,
-            beta=float(gain_beta),
+            beta=0.0 if relational else float(gain_beta),
         )
         sealed_evidence = collection.evidence
         gain_result = collection.gain
         baselines = collection.evidence.baselines
         # B3: 唯一 Gain owner 产出 scalar rows, 再交给 grouped adapter 和 read-only local report.
-        candidate_storage = build_frontres_v017_grouped_candidate_storage(
-            sealed_evidence,
-            gain_result,
-            motion_ids=plan.motion_ids,
-            start_frames=plan.start_frames,
-            intent_q29_provenance=plan.intent_q29_provenance,
-            intent_q29_source=plan.intent_q29_source,
+        if relational:
+            candidate_storage = build_frontres_v025_relational_candidate_storage(
+                sealed_evidence,
+                motion_ids=plan.motion_ids,
+                start_frames=plan.start_frames,
+                intent_q29_provenance=plan.intent_q29_provenance,
+                intent_q29_source=plan.intent_q29_source,
+            )
+        else:
+            candidate_storage = build_frontres_v017_grouped_candidate_storage(
+                sealed_evidence,
+                gain_result,
+                motion_ids=plan.motion_ids,
+                start_frames=plan.start_frames,
+                intent_q29_provenance=plan.intent_q29_provenance,
+                intent_q29_source=plan.intent_q29_source,
+            )
+        candidate_batch = candidate_storage.to_grouped_ppo_candidate_batch(
+            FrontRESRelationalPPOBatch if relational else FrontRESSegmentPPOBatch
         )
-        candidate_batch = candidate_storage.to_grouped_ppo_candidate_batch(FrontRESSegmentPPOBatch)
         diagnostic_report = collection.report
         artifact = getattr(batch, "frontres_local_scenario_current_root_artifact_t", None)
         continuation_lengths = getattr(batch, "frontres_local_scenario_clean_continuation_lengths", None)
@@ -1224,6 +1470,7 @@ def _build_frontres_v015_local_transaction_request(
             d_cap=sealed_curriculum.d_cap,
             dr_class_by_segment=dr_classes,
             dr_strength_by_segment=tuple(float(value) for value in dr_strength_tensor.detach().cpu().tolist()),
+            relational_actor_only=relational,
             outer_replay_plan=prepared.outer_replay_plan,
             outer_replay_scenario_keys=tuple(prepared.outer_replay_scenario_keys),
         )

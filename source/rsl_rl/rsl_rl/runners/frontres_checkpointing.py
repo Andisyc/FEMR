@@ -32,6 +32,10 @@ from rsl_rl.frontres.frontres_outer_scenario_replay import (
     FRONTRES_OUTER_REPLAY_SCHEMA,
     FrontRESOuterScenarioReplay,
 )
+from rsl_rl.frontres.frontres_relational_scenario_replay import (
+    FRONTRES_RELATIONAL_REPLAY_SCHEMA,
+    FrontRESRelationalScenarioReplay,
+)
 from rsl_rl.modules import FrontRESActorCritic, ResidualActorCritic
 from rsl_rl.modules.frontres_observation_layout import (
     FRONTRES_FUTURE_INTENT_DIM,
@@ -56,6 +60,7 @@ from rsl_rl.frontres.frontres_segment_warmup import (
 from rsl_rl.runners.frontres_checkpoint_quality import (
     EMPIRICAL_NORMALIZER_STATE_KEYS as _EMPIRICAL_NORMALIZER_STATE_KEYS,
     FRONTRES_ACTIVE_CHECKPOINT_FORMAT,
+    FRONTRES_RELATIONAL_CHECKPOINT_FORMAT,
     FRONTRES_ACTIVE_CHECKPOINT_IDENTITY_KEY as _V015_CHECKPOINT_IDENTITY_KEY,
     FRONTRES_ACTIVE_GROUPED_CANDIDATE_LAYOUT as _V015_GROUPED_CANDIDATE_LAYOUT,
     FRONTRES_LEGACY_POLICY_CHECKPOINT_FORMAT as _V015_LEGACY_POLICY_CHECKPOINT_FORMAT,
@@ -489,6 +494,99 @@ def _uses_v015_formal_checkpoint_identity(runner: Any) -> bool:
     )
 
 
+def _uses_v025_relational_checkpoint_identity(runner: Any) -> bool:
+    return _uses_v015_formal_checkpoint_identity(runner) and bool(
+        getattr(getattr(runner, "alg", None), "frontres_relational_actor_only", False)
+    )
+
+
+def _build_v025_relational_checkpoint_identity(
+    runner: Any,
+    *,
+    obs_norm_state: Mapping[str, Any] | None,
+    extra_mean: torch.Tensor | None,
+    extra_std: torch.Tensor | None,
+) -> dict[str, Any]:
+    """Build the fresh Actor-only checkpoint identity without scalar state."""
+
+    fields = _v015_checkpoint_layout_fields(runner)
+    alg = getattr(runner, "alg", None)
+    if str(getattr(alg, "frontres_training_objective", "")) != "segment_replay_relational":
+        raise RuntimeError("checkpoint-v20 requires the relational training objective")
+    if str(getattr(alg, "frontres_segment_advantage_normalization", "")) != "pairwise_edge":
+        raise RuntimeError("checkpoint-v20 requires pairwise_edge normalization")
+    optimizer_groups = {
+        str(group.get("frontres_role", "")): group
+        for group in getattr(getattr(alg, "optimizer", None), "param_groups", ())
+    }
+    if set(optimizer_groups) != {"actor"}:
+        raise RuntimeError("checkpoint-v20 requires one Actor optimizer group")
+    if any(bool(parameter.requires_grad) for parameter in getattr(getattr(alg, "policy", None), "critic", ()).parameters()):
+        raise RuntimeError("checkpoint-v20 requires frozen compatibility Critic parameters")
+    if not isinstance(obs_norm_state, Mapping):
+        raise RuntimeError("checkpoint-v20 requires persisted observation normalizer state")
+    if not isinstance(extra_mean, torch.Tensor) or not isinstance(extra_std, torch.Tensor):
+        raise RuntimeError("checkpoint-v20 requires exact q29-prefix normalizer statistics")
+    iteration = int(getattr(runner, "current_learning_iteration", 0))
+    schedule = tuple(getattr(alg, "frontres_segment_k_curriculum", ()) or ())
+    require_frontres_v013_campaign_schedule(schedule)
+    curriculum = resolve_frontres_k_stage_identity(
+        schedule=schedule,
+        committed_update_iteration=iteration,
+        max_horizon_k=int(getattr(alg, "frontres_segment_max_horizon_k", 0)),
+    )
+    transaction = _v015_transaction_checkpoint_payload(runner)
+    schedule_tuple = frontres_k_stage_schedule_tuple(schedule)
+    _validate_v013_receipt_curriculum(
+        transaction,
+        schedule=schedule_tuple,
+        current_iteration=iteration,
+    )
+    return {
+        "format": FRONTRES_RELATIONAL_CHECKPOINT_FORMAT,
+        "method_contract_id": "FRS-METHOD-v026",
+        "training_contract_id": "FRS-TRAIN-v025",
+        "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
+        "gain_contract_id": "FRS-GAIN-v009",
+        "optimization_contract_id": "FRS-PPO-v013",
+        "scalar_target_id": "none",
+        "physics_schema_id": "hierarchical-relational-evidence-v1",
+        "grouped_schema_id": "relational-preference-edge-v1",
+        "outer_replay_schema_id": "frontres-relational-scenario-replay-v1",
+        "critic": {"value_kind": "inert-legacy-compat", "target_id": "none", "trainable": False},
+        "critic_value_normalizer": {"identity": "none"},
+        "gradient_clip": {"identity": "actor-only-relational-v1", "max_norm": 0.5},
+        "action": {"kind": "delta_se3", "dim": 6, "semantics": "direct-world-full6-v1"},
+        "gmt": _v015_frozen_gmt_identity(runner),
+        "future_intent_layout": fields,
+        "normalizer": {
+            "mode": "empirical_prefix_plus_frozen_gmt",
+            "prefix_layout_version": fields["layout_version"],
+            "prefix_dim": int(fields["prefix_dim"]),
+            "combined_dim": 928,
+            "prefix_stats_fingerprint": _v015_tensor_fingerprint(extra_mean, extra_std),
+        },
+        "grouped_loss": {
+            "advantage_normalization": "pairwise_edge",
+            "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
+            "policy_rows_per_attempt": 1,
+        },
+        "curriculum": {
+            "schedule": schedule_tuple,
+            "schedule_fingerprint": curriculum.schedule_fingerprint,
+            "absolute_iteration": iteration,
+            "active_k": curriculum.active_k,
+            "active_m": curriculum.active_m,
+            "stage_iteration": curriculum.stage_iteration,
+            "actor_learning_rate": float(optimizer_groups["actor"].get("lr", float("nan"))),
+            "dr_stage_fingerprint": curriculum.dr_stage_fingerprint,
+            "dr_progress": curriculum.dr_progress,
+            "d_cap": curriculum.d_cap,
+        },
+        "transaction": transaction,
+    }
+
+
 def _v015_checkpoint_layout_fields(runner: Any) -> dict[str, int | str | tuple[int, ...]]:
     """在 persistence 或 restore 前读取并验证 R3 精确 observation authority."""
 
@@ -738,11 +836,15 @@ def _validate_v015_hsl_checkpoint_resume(
         raise RuntimeError("proposal-only HSL checkpoint identity is missing; legacy or unversioned payload rejected")
     if set(checkpoint) != _V015_HSL_TOP_LEVEL_KEYS:
         raise RuntimeError("proposal-only HSL checkpoint requires the exact payload field set")
-    expected_runtime_objective = "segment_replay_hrl" if stage3_initializer else "supervised_restore"
-    if str(getattr(getattr(runner, "alg", None), "frontres_training_objective", "")) != expected_runtime_objective:
+    expected_runtime_objectives = (
+        {"segment_replay_hrl", "segment_replay_relational"}
+        if stage3_initializer
+        else {"supervised_restore"}
+    )
+    if str(getattr(getattr(runner, "alg", None), "frontres_training_objective", "")) not in expected_runtime_objectives:
         raise RuntimeError(
             "proposal-only HSL checkpoint runtime objective mismatch: "
-            f"expected={expected_runtime_objective}"
+            f"expected={sorted(expected_runtime_objectives)}"
         )
     identity = checkpoint.get(_V015_HSL_CHECKPOINT_IDENTITY_KEY)
     required_identity = {
@@ -1184,6 +1286,74 @@ def _validate_v015_checkpoint_resume(
             "v015 formal resume requires frontres_v015_checkpoint_identity; "
             "legacy or unversioned checkpoints are forbidden"
         )
+    if _uses_v025_relational_checkpoint_identity(runner):
+        required = {
+            "format": FRONTRES_RELATIONAL_CHECKPOINT_FORMAT,
+            "method_contract_id": "FRS-METHOD-v026",
+            "training_contract_id": "FRS-TRAIN-v025",
+            "gain_contract_id": "FRS-GAIN-v009",
+            "optimization_contract_id": "FRS-PPO-v013",
+            "scalar_target_id": "none",
+            "physics_schema_id": "hierarchical-relational-evidence-v1",
+            "grouped_schema_id": "relational-preference-edge-v1",
+            "outer_replay_schema_id": FRONTRES_RELATIONAL_REPLAY_SCHEMA,
+            "critic": {"value_kind": "inert-legacy-compat", "target_id": "none", "trainable": False},
+            "critic_value_normalizer": {"identity": "none"},
+            "gradient_clip": {"identity": "actor-only-relational-v1", "max_norm": 0.5},
+        }
+        if any(identity.get(name) != value for name, value in required.items()):
+            raise RuntimeError("checkpoint-v20 has an incompatible relational identity")
+        if identity.get("grouped_loss") != {
+            "advantage_normalization": "pairwise_edge",
+            "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
+            "policy_rows_per_attempt": 1,
+        }:
+            raise RuntimeError("checkpoint-v20 has an incompatible pairwise loss identity")
+        model_state = checkpoint.get("model_state_dict")
+        if not isinstance(model_state, Mapping) or not isinstance(model_state.get("residual_actor"), Mapping):
+            raise RuntimeError("checkpoint-v20 requires residual Actor state")
+        optimizer_state = checkpoint.get("optimizer_state_dict")
+        if not isinstance(optimizer_state, Mapping):
+            raise RuntimeError("checkpoint-v20 requires Actor optimizer state")
+        replay_state = checkpoint.get("frontres_outer_scenario_replay_state_dict")
+        replay_owner = frontres_outer_scenario_replay(runner, required=False)
+        if not isinstance(replay_owner, FrontRESRelationalScenarioReplay) or not isinstance(replay_state, Mapping):
+            raise RuntimeError("checkpoint-v20 requires the relational Scenario Replay state")
+        replay_preview = FrontRESRelationalScenarioReplay(
+            min_replay_score=replay_owner.min_replay_score,
+            capacity_ladder=replay_owner.capacity_ladder,
+            minimum_visits_before_expand=replay_owner.minimum_visits_before_expand,
+            seed=0,
+        )
+        replay_preview.load_state_dict(replay_state)
+        if validation_scope == "resume" and "frontres_critic_value_normalizer_state_dict" in checkpoint:
+            raise RuntimeError("checkpoint-v20 rejects scalar Critic normalizer state")
+        if identity.get("action") != {"kind": "delta_se3", "dim": 6, "semantics": "direct-world-full6-v1"}:
+            raise RuntimeError("checkpoint-v20 has an incompatible action identity")
+        if identity.get("gmt") != _v015_frozen_gmt_identity(runner):
+            raise RuntimeError("checkpoint-v20 frozen GMT identity differs from runtime")
+        if identity.get("future_intent_layout") != _v015_checkpoint_layout_fields(runner):
+            raise RuntimeError("checkpoint-v20 future-intent layout differs from runtime")
+        curriculum = identity.get("curriculum")
+        runtime_schedule = frontres_k_stage_schedule_tuple(
+            tuple(getattr(getattr(runner, "alg", None), "frontres_segment_k_curriculum", ()) or ())
+        )
+        if not isinstance(curriculum, Mapping) or curriculum.get("schedule") != runtime_schedule:
+            raise RuntimeError("checkpoint-v20 curriculum differs from runtime")
+        if int(curriculum.get("absolute_iteration", -1)) != int(checkpoint.get("iter", -2)):
+            raise RuntimeError("checkpoint-v20 curriculum iteration differs from payload")
+        transaction = identity.get("transaction")
+        if not isinstance(transaction, Mapping) or transaction.get("state") not in {"idle", "committed"}:
+            raise RuntimeError("checkpoint-v20 has an invalid transaction boundary")
+        _validate_v013_receipt_curriculum(
+            transaction,
+            schedule=runtime_schedule,
+            current_iteration=int(checkpoint["iter"]),
+        )
+        rng_state = checkpoint.get("frontres_v013_rng_state")
+        if not isinstance(rng_state, Mapping) or set(rng_state) != {"python", "numpy", "torch_cpu", "torch_cuda"}:
+            raise RuntimeError("checkpoint-v20 is missing complete RNG state")
+        return dict(identity)
     if (
         identity.get("format") != FRONTRES_ACTIVE_CHECKPOINT_FORMAT
         or identity.get("method_contract_id") != "FRS-METHOD-v025"
@@ -1711,7 +1881,7 @@ def save_runner(self, path: str, infos=None):
         "optimizer_state_dict": self.alg.optimizer.state_dict(),
         "iter": self.current_learning_iteration,
         "infos": infos,}
-    if getattr(self.alg, "frontres_training_objective", "") == "segment_replay_hrl":
+    if getattr(self.alg, "frontres_training_objective", "") in {"segment_replay_hrl", "segment_replay_relational"}:
         saved_dict["frontres_segment_k_curriculum"] = frontres_k_stage_schedule_tuple(
             tuple(getattr(self.alg, "frontres_segment_k_curriculum", ()) or ())
         )
@@ -1792,7 +1962,14 @@ def save_runner(self, path: str, infos=None):
                 saved_dict["teacher_obs_norm_state_dict"] = self.teacher_obs_normalizer.state_dict()
 
     # B3: v015 不做 compatibility conversion, 仅保存精确 layout/normalizer identity 和 completed-or-idle receipt.
-    if _uses_v015_formal_checkpoint_identity(self):
+    if _uses_v025_relational_checkpoint_identity(self):
+        saved_dict[_V015_CHECKPOINT_IDENTITY_KEY] = _build_v025_relational_checkpoint_identity(
+            self,
+            obs_norm_state=obs_norm_state,
+            extra_mean=extra_mean,
+            extra_std=extra_std,
+        )
+    elif _uses_v015_formal_checkpoint_identity(self):
         for key in tuple(saved_dict):
             if key in {"dr_scale", "dr_prev_error", "frontres_boundary_ema", "last_frontres_boundary_stats"} or key.startswith(
                 ("frontres_gmt_frontier_", "frontres_exec_floor_")
@@ -1913,7 +2090,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     v015_resume_identity = _validate_v015_checkpoint_resume(self, loaded_dict)
     if v015_resume_identity is None:
         reject_legacy_frontres_hsl_checkpoint(self, loaded_dict)
-    else:
+    elif not _uses_v025_relational_checkpoint_identity(self):
         self.alg.frontres_critic_value_normalizer_state = FrontRESValueNormalizerState.from_state_dict(
             loaded_dict["frontres_critic_value_normalizer_state_dict"]
         )
@@ -1948,11 +2125,14 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     if v015_resume_identity is None:
         validate_frontres_legacy_gain_config_resume(self, loaded_dict, is_full_resume=is_full_resume)
     else:
-        print(
-            "[Runner] Verified FRS-GAIN-v008 and FRS-TRAIN-v024 through the checkpoint-v19 identity; "
-            "legacy scalar Gain metadata is excluded from the active v021 owner.",
-            flush=True,
-        )
+        if _uses_v025_relational_checkpoint_identity(self):
+            print("[Runner] Verified FRS-GAIN-v009 / FRS-TRAIN-v025 checkpoint-v20 identity.", flush=True)
+        else:
+            print(
+                "[Runner] Verified FRS-GAIN-v008 and FRS-TRAIN-v024 through the checkpoint-v19 identity; "
+                "legacy scalar Gain metadata is excluded from the active v021 owner.",
+                flush=True,
+            )
     # Full-resume diagnostic probe; uncomment when checking checkpoint reloads.
     # print(
     #     "[FrontRES Resume Probe] "
@@ -2100,8 +2280,10 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
                     named_groups = {
                         str(group.get("frontres_role", "")): group for group in self.alg.optimizer.param_groups
                     }
-                    if v015_resume_identity is not None and set(named_groups) != {"actor", "critic"}:
-                        raise RuntimeError("v015 full resume restored an invalid split-LR optimizer identity")
+                    relational_resume = _uses_v025_relational_checkpoint_identity(self)
+                    expected_roles = {"actor"} if relational_resume else {"actor", "critic"}
+                    if v015_resume_identity is not None and set(named_groups) != expected_roles:
+                        raise RuntimeError("v015 full resume restored an invalid optimizer role identity")
                     if v015_resume_identity is not None:
                         resumed_phase = resolve_frontres_k_stage_identity(
                             schedule=tuple(getattr(self.alg, "frontres_segment_k_curriculum", ()) or ()),
@@ -2109,14 +2291,15 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
                             max_horizon_k=int(getattr(self.alg, "frontres_segment_max_horizon_k", 0)),
                         ).phase
                         actor_lr = float(resumed_phase.actor_learning_rate)
-                        critic_lr = 1.0e-5
+                        critic_lr = 0.0 if relational_resume else 1.0e-5
                         named_groups["actor"]["lr"] = actor_lr
-                        named_groups["critic"]["lr"] = critic_lr
+                        if not relational_resume:
+                            named_groups["critic"]["lr"] = critic_lr
                         self.alg.learning_rate = actor_lr
                         self.alg.actor_learning_rate = actor_lr
                         self.alg.critic_learning_rate = critic_lr
                         print(
-                            "[Runner] Synced split learning rates "
+                            "[Runner] Synced scheduled learning rates "
                             f"actor={actor_lr:.2e} critic={critic_lr:.2e} schedule_continuation=1"
                         )
                     elif reset_lr:
@@ -2241,7 +2424,8 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
                 ("_frontres_gmt_frontier_", "_frontres_exec_floor_")
             ):
                 delattr(self, _attr)
-        print("[Runner] TRAIN-v024 restored coupled per-K DR identity; legacy adaptive DR state excluded")
+        restored_training = "FRS-TRAIN-v025" if _uses_v025_relational_checkpoint_identity(self) else "FRS-TRAIN-v024"
+        print(f"[Runner] {restored_training} restored coupled per-K DR identity; legacy adaptive DR state excluded")
     elif is_full_resume:
         self._dr_scale      = loaded_dict.get("dr_scale",      0.0)
         self._dr_prev_error = loaded_dict.get("dr_prev_error", 0.0)

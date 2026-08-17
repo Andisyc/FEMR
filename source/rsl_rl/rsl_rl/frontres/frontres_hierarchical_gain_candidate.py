@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import IntEnum
 import math
+from typing import Sequence
 
 
 class EvidenceError(ValueError):
@@ -66,6 +67,19 @@ class Comparison:
     left_level: str | None
     right_level: str | None
     reason: str
+
+
+@dataclass(frozen=True)
+class RelationalTrainingBatch:
+    """Candidate Actor pairwise-credit carrier; not an active PPO target."""
+
+    status: str
+    pair_relations: tuple[tuple[str, ...], ...]
+    dominance_credit: tuple[float | None, ...]
+    comparable_pair_count: tuple[int, ...]
+    actor_credit_mask: tuple[bool, ...]
+    reason: str
+    preference_edges: tuple[tuple[int, int], ...] = ()
 
 
 def _real(value: object, name: str, *, non_negative: bool = False) -> float:
@@ -191,3 +205,86 @@ def compare(left: Outcome, right: Outcome, thresholds: Thresholds = Thresholds()
     assert left_c.cost is not None and right_c.cost is not None
     relation = _pareto((-left_c.cost,), (-right_c.cost,), resolution)
     return Comparison(relation, left_c.level.name, right_c.level.name, "Intent SAME; cost tie-break")
+
+
+def build_relational_training_batch(
+    outcomes: Sequence[Outcome], thresholds: Thresholds = Thresholds()
+) -> RelationalTrainingBatch:
+    """Build pairwise credit without scalarizing incomparable outcomes.
+
+    BETTER/WORSE pairs contribute +/-1. SAME and INCOMPARABLE pairs contribute
+    no direction and therefore do not create Actor credit by themselves. This
+    adapter intentionally does not define a Critic target: a state-value target
+    cannot be inferred from a partial order without another semantic decision.
+    This is a candidate adapter for offline tests, not the active PPO contract.
+    """
+
+    if len(outcomes) < 2:
+        return RelationalTrainingBatch("INVALID", (), (), (), (), "at least two outcomes are required")
+    matrix: list[list[str]] = [["SAME" for _ in outcomes] for _ in outcomes]
+    wins = [0 for _ in outcomes]
+    losses = [0 for _ in outcomes]
+    comparable = [0 for _ in outcomes]
+    preference_edges: list[tuple[int, int]] = []
+    for left_index in range(len(outcomes)):
+        for right_index in range(left_index + 1, len(outcomes)):
+            result = compare(outcomes[left_index], outcomes[right_index], thresholds)
+            matrix[left_index][right_index] = result.relation
+            reverse = {
+                "BETTER": "WORSE",
+                "WORSE": "BETTER",
+                "SAME": "SAME",
+                "INCOMPARABLE": "INCOMPARABLE",
+                "INVALID": "INVALID",
+            }[result.relation]
+            matrix[right_index][left_index] = reverse
+            if result.relation == "INVALID":
+                return RelationalTrainingBatch(
+                    "INVALID",
+                    tuple(tuple(row) for row in matrix),
+                    tuple(None for _ in outcomes),
+                    tuple(comparable),
+                    tuple(False for _ in outcomes),
+                    "invalid evidence cannot enter relational training",
+                )
+            if result.relation == "BETTER":
+                preference_edges.append((left_index, right_index))
+                wins[left_index] += 1
+                losses[right_index] += 1
+                comparable[left_index] += 1
+                comparable[right_index] += 1
+            elif result.relation == "WORSE":
+                preference_edges.append((right_index, left_index))
+                losses[left_index] += 1
+                wins[right_index] += 1
+                comparable[left_index] += 1
+                comparable[right_index] += 1
+    # Keep edge incidence integer-valued. The PPO owner normalizes the sum of
+    # edge losses by the number of valid preference edges; normalizing each row
+    # here would give the two ends of one edge different mass.
+    credits = tuple(
+        None if comparable[index] == 0 else float(wins[index] - losses[index])
+        for index in range(len(outcomes))
+    )
+    masks = tuple(value is not None for value in credits)
+    return RelationalTrainingBatch(
+        "READY" if any(masks) else "NO_COMPARABLE_PAIRS",
+        tuple(tuple(row) for row in matrix),
+        credits,
+        tuple(comparable),
+        masks,
+        "pairwise dominance credit; SAME/INCOMPARABLE are not scalarized",
+        tuple(preference_edges),
+    )
+
+
+__all__ = (
+    "Comparison",
+    "EvidenceError",
+    "Outcome",
+    "PhysicsLevel",
+    "RelationalTrainingBatch",
+    "Thresholds",
+    "build_relational_training_batch",
+    "compare",
+)

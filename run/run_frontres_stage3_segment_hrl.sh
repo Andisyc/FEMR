@@ -5,11 +5,12 @@ if [[ $# -lt 2 ]]; then
   echo "Usage: bash run/run_frontres_stage3_segment_hrl.sh HSL_CHECKPOINT MOTION_PATH [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE] [TRAIN_ARGS...]"
   echo
   echo "Stage 3 loads an HSL Delta SE proposal checkpoint and trains Segment Replay HRL."
-  echo "MODE can be: train, sentinel, probe, storage, policy_quality_eval, action_gain_direction_collect."
+  echo "MODE can be: train, relational_train, sentinel, probe, storage, policy_quality_eval, action_gain_direction_collect."
   echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
   echo "Evaluation is launched independently through Held-out Policy Quality, Deployment Composition, or DR Sweep."
   echo "FRONTRES_SPECIALIST_MODE selects the perturbation preset for train/eval; default rp."
   echo "FRS-TRAIN-v024 uses actual Actor LR=3e-7->1e-6 and Critic LR=1e-5 with B8/M4; shared/adaptive overrides are rejected."
+  echo "MODE=relational_train selects FRS-TRAIN-v025 Actor-only preference edges and checkpoint-v20."
   echo "Example:"
   echo "  SHARD_CACHE_SIZE=8 bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 12000 2000 4 train"
   exit 1
@@ -44,7 +45,7 @@ if ! [[ "${CHECKPOINT_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
-if [[ ("${MODE}" == "train" || "${MODE}" == "policy_quality_eval" || "${MODE}" == "action_gain_direction_collect") && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
+if [[ ("${MODE}" == "train" || "${MODE}" == "relational_train" || "${MODE}" == "policy_quality_eval" || "${MODE}" == "action_gain_direction_collect") && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
   echo "FRS-TRAIN-v024 requires an explicit ten-field K/M/DR schedule; no hidden DR defaults are allowed" >&2
   exit 4
 fi
@@ -60,7 +61,7 @@ if [[ -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${HSL_CHECKPOINT}" ]]; th
   echo "HSL checkpoint not found: ${HSL_CHECKPOINT}" >&2
   exit 2
 fi
-if [[ "${MODE}" == "train" && "${NUM_ENVS}" != "64" ]]; then
+if [[ ("${MODE}" == "train" || "${MODE}" == "relational_train") && "${NUM_ENVS}" != "64" ]]; then
   echo "FRS-TRAIN-v024 K8/B8/M4 campaign requires NUM_ENVS=64" >&2
   exit 4
 fi
@@ -77,8 +78,8 @@ if [[ ${#EXTRA_TRAIN_ARGS[@]} -gt 0 ]]; then
 fi
 
 if [[ "${FRONTRES_G5_S4_BOUNDED}" == "1" ]]; then
-  if [[ "${MODE}" != "train" || "${NUM_ENVS}" != "64" || "${MAX_ITERS}" != "1" || "${UPDATE_STEPS}" != "1" ]]; then
-    echo "G5-S4 bounded Stage 3 requires train mode, 64 envs, 1 iteration, and 1 update" >&2
+  if [[ ("${MODE}" != "train" && "${MODE}" != "relational_train") || "${NUM_ENVS}" != "64" || "${MAX_ITERS}" != "1" || "${UPDATE_STEPS}" != "1" ]]; then
+    echo "G5-S4 bounded Stage 3 requires train or relational_train mode, 64 envs, 1 iteration, and 1 update" >&2
     exit 4
   fi
 elif [[ "${FRONTRES_G5_S4_BOUNDED}" != "0" ]]; then
@@ -95,6 +96,9 @@ fi
 MODE_ARGS=()
 case "${MODE}" in
   train)
+    ;;
+  relational_train)
+    MODE_ARGS=(--frontres_relational_actor_only)
     ;;
   sentinel)
     MODE_ARGS=(--frontres_segment_live_sentinel_only)
@@ -201,7 +205,7 @@ else
   TRAIN_CMD+=(--frontres_v015_hsl_initializer_checkpoint "${HSL_CHECKPOINT}")
 fi
 
-if [[ "${MODE}" == "train" ]]; then
+if [[ "${MODE}" == "train" || "${MODE}" == "relational_train" ]]; then
   TRAIN_CMD+=(--frontres_checkpoint_interval "${CHECKPOINT_INTERVAL}")
 fi
 
@@ -265,6 +269,10 @@ if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
       exit 4
     fi
   done
+  if [[ "${MODE}" == "relational_train" && "${joined}" != *" --frontres_relational_actor_only "* ]]; then
+    echo "Stage 3 relational preflight failed; missing --frontres_relational_actor_only" >&2
+    exit 4
+  fi
   echo "[FrontRES Stage3 startup preflight] PASS mode=${MODE}"
   echo -n "Command: "
   printf '%q ' "${TRAIN_CMD[@]}"

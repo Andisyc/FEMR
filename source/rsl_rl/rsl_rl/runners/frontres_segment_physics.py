@@ -59,6 +59,7 @@ class FrontRESV017ExecutionFrame:
     expected_support: torch.Tensor
     contact: torch.Tensor
     zmp_margin: torch.Tensor
+    env_origin: torch.Tensor | None = None
 
     def validate(self) -> None:
         rows = int(self.joint_pos.shape[0]) if self.joint_pos.ndim == 2 else -1
@@ -77,6 +78,12 @@ class FrontRESV017ExecutionFrame:
             value = getattr(self, name)
             if not isinstance(value, torch.Tensor) or tuple(value.shape) != shape:
                 raise ValueError(f"v017 execution frame {name} must be {shape}")
+        if self.env_origin is not None and (
+            not isinstance(self.env_origin, torch.Tensor)
+            or tuple(self.env_origin.shape) != (rows, 3)
+            or not bool(torch.isfinite(self.env_origin.float()).all())
+        ):
+            raise ValueError("v017 execution frame env_origin must be finite [N,3]")
         if (
             self.key_body_pos.ndim != 3
             or tuple(self.key_body_pos.shape[:1]) != (rows,)
@@ -584,6 +591,7 @@ def _capture_v017_execution_frame(
         expected_support=expected.detach().clone(),
         contact=contact.detach().clone(),
         zmp_margin=zmp_margin.detach().clone(),
+        env_origin=origins.detach().clone(),
     )
     frame.validate()
     return frame

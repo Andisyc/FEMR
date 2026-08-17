@@ -1,0 +1,67 @@
+{
+  "schema_version": "migration-new-branch/v1",
+  "migration_id": "FRS-GAIN-RELATIONAL-ACTOR-ONLY-20260817",
+  "mode": "COEXISTENCE",
+  "donor": {
+    "kind": "repository",
+    "repository": "FEMR/FrontRES",
+    "revision": "a89377bc1c9d9d3f9cb0eb0f474c30b011a85609",
+    "symbols": ["FRS-GAIN-v008", "FRS-PPO-v012", "FRS-TRAIN-v024"],
+    "license_status": "same-repository",
+    "license_evidence": "internal repository contracts"
+  },
+  "target": {
+    "repository": "FEMR/FrontRES",
+    "base_revision": "a89377bc1c9d9d3f9cb0eb0f474c30b011a85609",
+    "checkout": "a89377bc1c9d9d3f9cb0eb0f474c30b011a85609+relational-actor-only-20260817",
+    "branch_or_worktree": "current governed worktree; no git mutation authorized"
+  },
+  "semantics": {
+    "owner": "explicit relational Gain comparator plus Actor-only PPO adapter",
+    "included": [
+      "same-Scenario partial-order edges",
+      "fail-closed evidence validation",
+      "edge-incidence clipped Actor loss",
+      "Actor-only optimizer and inert compatibility Critic",
+      "fresh checkpoint and Replay schema identities"
+    ],
+    "excluded": [
+      "scalar G_total utility on the relational route",
+      "state-value Critic targets",
+      "automatic migration of checkpoint-v19",
+      "training or server execution in this migration unit"
+    ],
+    "preserved": [
+      "legacy scalar route under FRS-GAIN-v008/FRS-PPO-v012/FRS-TRAIN-v024",
+      "old checkpoint reader characterization",
+      "formal transaction zero-write behavior on invalid evidence"
+    ]
+  },
+  "activation": {
+    "kind": "owner-flag",
+    "owner": "FrontRES relational PPO composition root",
+    "selector": "frontres_training_objective=segment_replay_relational and frontres_relational_actor_only=true",
+    "baseline_state": "legacy scalar route with Actor+Critic optimizer",
+    "migrated_state": "relational edge route with Actor-only optimizer and fresh checkpoint",
+    "forbidden_mixed_states": [
+      "relational Gain with scalar Critic target",
+      "relational preference edges passed to legacy scalar PPO",
+      "legacy checkpoint-v19 loaded into relational route",
+      "INCOMPARABLE or INVALID converted to numeric zero"
+    ]
+  },
+  "parameter_inventory": {
+    "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py, source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py, source/rsl_rl/rsl_rl/runners/frontres_segment_live_policy.py, source/rsl_rl/rsl_rl/frontres/frontres_segment_storage_records.py",
+    "complete": true,
+    "persistence_risk": "affected"
+  },
+  "state_compatibility": {
+    "affected": true,
+    "mixed_version_policy": "forbidden"
+  },
+  "authority": {
+    "git_actions": {"status": "not-requested", "scope": "no staging, commit, reset, or push"},
+    "semantic_change": {"status": "approved", "scope": "execute the confirmed relational route up to the training boundary"},
+    "external_code": {"status": "not-required", "scope": "no external donor"}
+  }
+}

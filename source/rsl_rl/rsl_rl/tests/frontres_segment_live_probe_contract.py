@@ -46,12 +46,15 @@ def _install_live_probe_import_stubs():
 
     ppo_module = types.ModuleType("rsl_rl.algorithms.frontres_segment_ppo")
     ppo_module.FrontRESSegmentPPOBatch = object
+    ppo_module.FrontRESRelationalPPOBatch = object
+    ppo_module.FrontRESRelationalPPOConfig = object
     ppo_module.FrontRESSegmentPPOConfig = object
 
     def _unused_ppo_loss(*_args, **_kwargs):
         raise AssertionError("Step 1 storage test must not enter PPO loss")
 
     ppo_module.compute_frontres_segment_ppo_loss = _unused_ppo_loss
+    ppo_module.compute_frontres_relational_actor_loss = _unused_ppo_loss
     ppo_module.install_frontres_v005_scalar_gradients = lambda *_args, **_kwargs: None
     ppo_module.install_frontres_v006_scalar_gradients = lambda *_args, **_kwargs: None
     ppo_module.step_frontres_v005_scalar_optimizer = lambda *_args, **_kwargs: None

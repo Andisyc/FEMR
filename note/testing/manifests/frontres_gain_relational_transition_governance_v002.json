@@ -1,0 +1,55 @@
+{
+  "schema_version": "workflow-governance/v1",
+  "governance_id": "WFG-FRS-GAIN-RELATIONAL-PRETRAINING-20260817-V002",
+  "lifecycle_phase": "contract-active-pre-training",
+  "target_phase": "user-operated-training",
+  "admission": "PRE-TRAINING-READY",
+  "scope": {
+    "completed": [
+      "Design Inspector and active Contract registry alignment",
+      "trajectory-to-Outcome materialization",
+      "hierarchical relation and edge projection",
+      "Actor-only exact-one formal transaction",
+      "relation-only Scenario Replay",
+      "checkpoint-v20 round-trip",
+      "official relational_train composition-root preflight",
+      "60/60 aggregate Contract suite"
+    ],
+    "forbidden": ["Codex training", "Codex live simulator execution", "policy-quality claim", "Formal PASS claim"]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025/FRS-EVAL-v007",
+    "checkout": "a89377bc1c9d9d3f9cb0eb0f474c30b011a85609+dirty-worktree",
+    "entrypoint": "run/run_frontres_stage3_segment_hrl.sh MODE=relational_train",
+    "checkpoint": "frontres-v025-checkpoint-v20",
+    "design_inspector_sha256": "feab57279c7705cd00301b2a76c1a2ed13c8637658d48a941881c0455345fd02",
+    "contract_registry_sha256": "a9e0ef900086f2f12c891957f5467f06280c97730bce8a0ad2962528f7921663"
+  },
+  "authority": {
+    "semantic": {"status": "approved", "scope": "new relational fresh-training route"},
+    "source_edits": {"status": "approved", "scope": "implementation through training boundary"},
+    "git_actions": {"status": "not-requested", "scope": "no staging, commit, reset or push"},
+    "external_operations": {"status": "user-owned", "scope": "code sync and server training"},
+    "long_run": {"status": "user-owned", "scope": "training and monitoring"}
+  },
+  "evidence": [
+    {"kind": "module", "result": "OBJECTIVE-ALIGNED", "tests": ["frontres_relational_outcome_alignment", "frontres_relational_evidence_alignment", "frontres_relational_ppo_alignment", "frontres_relational_replay_alignment"]},
+    {"kind": "transaction", "result": "PASS", "test": "frontres_v015_transaction_route_contract", "boundary": "B8 x M4 exact-one Actor update plus no-edge zero-write"},
+    {"kind": "persistence", "result": "PASS", "test": "frontres_v016_checkpoint_contract", "boundary": "checkpoint-v20 CPU save/load"},
+    {"kind": "entrypoint", "result": "PASS", "test": "relational_train launcher preflight", "boundary": "configuration only; no simulator"},
+    {"kind": "regression", "result": "PASS", "test": "frontres_segment_all_contract_suite", "count": "60/60"}
+  ],
+  "open_boundaries": [
+    {"id": "LIVE-RELATIONAL-01", "status": "unconfirmed", "reason": "No simulator transaction has run on the new route."},
+    {"id": "QUALITY-RELATIONAL-01", "status": "unconfirmed", "reason": "No post-migration checkpoint or real policy-quality artifact exists."},
+    {"id": "THRESHOLD-CALIBRATION-01", "status": "unconfirmed", "reason": "Recovery thresholds have synthetic ordering evidence only."}
+  ],
+  "closeout": {
+    "evidence_complete_for_pretraining": true,
+    "atlas_synced": true,
+    "maintainability_status": "reviewed-no-open-finding",
+    "formal_route_status": "runtime-unconfirmed",
+    "next_decision": "User synchronizes code and starts the first relational training run; Codex stops before that action."
+  }
+}

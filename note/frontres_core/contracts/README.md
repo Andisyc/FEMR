@@ -6,12 +6,24 @@ This registry is the only default entrypoint for FrontRES contracts.
 
 | Category | Active contract | Status |
 | --- | --- | --- |
-| Method | `active/method/FRS-METHOD-v025-current-visit-scenario-replay.md` | active |
-| Training | `active/training/FRS-TRAIN-v024-current-visit-target-cold-start.md` | active |
-| Reward | `active/reward/FRS-GAIN-v008-recovery-aware-raw-evidence-utility-boundary.md` | active |
-| Optimization | `active/optimization/FRS-PPO-v012-current-m4-mean-target.md` | active |
-| Evaluation | `active/evaluation/FRS-EVAL-v006-current-visit-policy-quality.md` | active |
+| Method | `active/method/FRS-METHOD-v026-relational-repair.md` | active-pre-training |
+| Training | `active/training/FRS-TRAIN-v025-relational-actor-only.md` | active-pre-training |
+| Reward | `active/reward/FRS-GAIN-v009-hierarchical-relational-order.md` | active-pre-training |
+| Optimization | `active/optimization/FRS-PPO-v013-relational-actor-only.md` | active-pre-training |
+| Evaluation | `active/evaluation/FRS-EVAL-v007-relational.md` | active-pre-training |
 | Engineering | `active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md` | active |
+
+## Active Relational Gain Transition
+
+`FRS-GAIN-RELATIONAL-PROPOSAL-v001` records the rationale for the relational Gain that
+returns `BETTER/WORSE/SAME/INCOMPARABLE` under the confirmed hierarchical
+partial order. The coordinated v026/v009/v013/v025/v007 set is now the active
+fresh-training authority. It retires the scalar state-value Critic and scalar
+Gain on that route. The old v025/v008/v012/v024/v006 set remains characterized
+for compatibility but is not the next fresh campaign. This status admits code
+sync and user-operated training only; no live, convergence, or policy-quality
+claim has been made. Governance receipt:
+`note/testing/manifests/frontres_gain_relational_transition_governance_v001.json`.
 
 ## Confirmed Design Rationale
 
@@ -37,6 +49,7 @@ Concept Figure. Canonical names and block IDs come from
 | `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v025` / `Preserved boundaries` | `M-10` | Frozen 770D GMT authority is unchanged. |
 | `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v025`; `FRS-GAIN-v008`; `FRS-EVAL-v006` | `Q-PAIR` | Evaluation remains read-only; every selected Scenario is freshly rerun. |
 | `FRS-DP-07` | Repair Gain | `FRS-GAIN-v008`; `FRS-PPO-v012`; `FRS-EVAL-v006` | `Q-01` | Raw Gain, symlog and current-attempt Actor credit are unchanged. |
+| `FRS-DP-07R` | Relational Gain | `FRS-METHOD-v026`; `FRS-GAIN-v009`; `FRS-PPO-v013`; `FRS-TRAIN-v025` | `Q-01R` | Active-pre-training Actor-only relation route; simulator and policy quality remain unconfirmed. |
 | `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v024` / `Campaign identity` | `M-03` | HSL-v2 remains Actor-only initialization. |
 | `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v024` / `Formal transaction`; `FRS-PPO-v012` | `M-05` | Critic uses current exact-M4 Scenario means; Actor LR/B8/M4 remain; checkpoint-v19. |
 | `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v025` / `Preserved boundaries`; `FRS-TRAIN-v024` / `Formal transaction` | `M-11` | Actor 158D, Critic 449D and GMT 770D remain. |

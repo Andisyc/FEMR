@@ -31,6 +31,7 @@ from rsl_rl.frontres.frontres_segment_warmup import (
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
 FRONTRES_ACTIVE_CHECKPOINT_FORMAT = "frontres-v024-checkpoint-v19"
+FRONTRES_RELATIONAL_CHECKPOINT_FORMAT = "frontres-v025-checkpoint-v20"
 _V019_POLICY_CHECKPOINT_FORMAT = "frontres-v019-checkpoint-v14"
 _V015_LEGACY_POLICY_CHECKPOINT_FORMAT = "frontres-v017-checkpoint-v10"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
@@ -356,6 +357,7 @@ class FrontRESActiveQualityCheckpointIdentity:
     critic_value_normalization_id: str | None = None
     critic_observation_normalizer_fingerprint: str | None = None
     critic_value_normalizer_fingerprint: str | None = None
+    value_normalizer_state = None
 
 
 def _v015_quality_expected_layout() -> dict[str, object]:
@@ -521,6 +523,16 @@ def _inspect_frontres_v015_policy_quality_payload(
             "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
         }
+    elif checkpoint_format == FRONTRES_RELATIONAL_CHECKPOINT_FORMAT:
+        contract_identity = {
+            "method_contract_id": "FRS-METHOD-v026",
+            "gain_contract_id": "FRS-GAIN-v009",
+            "optimization_contract_id": "FRS-PPO-v013",
+            "training_contract_id": "FRS-TRAIN-v025",
+            "scalar_target_id": "none",
+            "physics_schema_id": "hierarchical-relational-evidence-v1",
+            "grouped_schema_id": "relational-preference-edge-v1",
+        }
     elif checkpoint_format == _V019_POLICY_CHECKPOINT_FORMAT:
         contract_identity = {
             "method_contract_id": "FRS-METHOD-v020",
@@ -562,9 +574,13 @@ def _inspect_frontres_v015_policy_quality_payload(
         raise RuntimeError("quality policy has an incompatible v015 contract or layout identity")
     model_state = checkpoint.get("model_state_dict")
     critic_state = model_state.get("critic") if isinstance(model_state, Mapping) else None
-    if not isinstance(critic_state, Mapping):
+    if checkpoint_format != FRONTRES_RELATIONAL_CHECKPOINT_FORMAT and not isinstance(critic_state, Mapping):
         raise RuntimeError("quality policy requires a Critic payload for calibration")
-    critic_fingerprint = _v015_state_dict_fingerprint(critic_state, label="quality policy Critic")
+    critic_fingerprint = (
+        _v015_state_dict_fingerprint(critic_state, label="quality policy Critic")
+        if isinstance(critic_state, Mapping)
+        else None
+    )
     critic_input_dim: int | None = None
     critic_value_kind: str | None = None
     critic_action_conditioned: bool | None = None
@@ -636,16 +652,69 @@ def _inspect_frontres_v015_policy_quality_payload(
             for value in critic_state.values()
         ):
             raise RuntimeError("quality policy requires an exact 449D state-value Critic payload")
-    if identity.get("grouped_loss") != {
-        "advantage_normalization": "grouped_scale_only",
-        "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
-        "policy_rows_per_attempt": 1,
-    }:
+    expected_grouped_loss = (
+        {
+            "advantage_normalization": "pairwise_edge",
+            "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
+            "policy_rows_per_attempt": 1,
+        }
+        if checkpoint_format == FRONTRES_RELATIONAL_CHECKPOINT_FORMAT
+        else {
+            "advantage_normalization": "grouped_scale_only",
+            "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
+            "policy_rows_per_attempt": 1,
+        }
+    )
+    if identity.get("grouped_loss") != expected_grouped_loss:
         raise RuntimeError("quality policy has an incompatible grouped-loss identity")
-    if identity.get("physics_schema_id") != "clean-anchored-contact-zmp-survival-v1" or identity.get(
+    expected_physics_schema = (
+        "hierarchical-relational-evidence-v1"
+        if checkpoint_format == FRONTRES_RELATIONAL_CHECKPOINT_FORMAT
+        else "clean-anchored-contact-zmp-survival-v1"
+    )
+    expected_grouped_schema = (
+        "relational-preference-edge-v1"
+        if checkpoint_format == FRONTRES_RELATIONAL_CHECKPOINT_FORMAT
+        else "grouped-all-attempt-scalar-v1"
+    )
+    if identity.get("physics_schema_id") != expected_physics_schema or identity.get(
         "grouped_schema_id"
-    ) != "grouped-all-attempt-scalar-v1":
+    ) != expected_grouped_schema:
         raise RuntimeError("quality policy has an incompatible v007 scalar/Physics identity")
+    if checkpoint_format == FRONTRES_RELATIONAL_CHECKPOINT_FORMAT:
+        curriculum = identity.get("curriculum")
+        if not isinstance(curriculum, Mapping) or not isinstance(curriculum.get("absolute_iteration"), int):
+            raise RuntimeError("relational quality policy requires an iteration identity")
+        transaction = identity.get("transaction")
+        if not isinstance(transaction, Mapping) or transaction.get("state") not in {"idle", "committed"}:
+            raise RuntimeError("relational quality policy requires a completed transaction boundary")
+        model_state = checkpoint.get("model_state_dict")
+        if not isinstance(model_state, Mapping) or not isinstance(model_state.get("residual_actor"), Mapping):
+            raise RuntimeError("relational quality policy requires residual Actor state")
+        actor_fingerprint, distribution_key, distribution_fingerprint = _v015_quality_model_identity(
+            checkpoint, label="relational quality policy"
+        )
+        return FrontRESActiveQualityCheckpointIdentity(
+            route="policy",
+            format=str(checkpoint_format),
+            file_sha256=file_sha256,
+            method_contract_id=contract_identity["method_contract_id"],
+            training_contract_id=contract_identity["training_contract_id"],
+            gain_contract_id=contract_identity["gain_contract_id"],
+            ppo_contract_id=contract_identity["optimization_contract_id"],
+            future_intent_layout=tuple(_v015_quality_expected_layout().items()),
+            action_kind="delta_se3",
+            action_dim=6,
+            action_semantics="direct-world-full6-v1",
+            normalizer_key="obs_norm_state_dict",
+            actor_fingerprint=actor_fingerprint,
+            distribution_key=distribution_key,
+            distribution_fingerprint=distribution_fingerprint,
+            normalizer_fingerprint="relational-normalizer-validated-at-load",
+            critic_fingerprint=None,
+            critic_value_kind="inert-legacy-compat",
+            critic_action_conditioned=False,
+        )
     curriculum = identity.get("curriculum")
     if not isinstance(curriculum, Mapping):
         raise RuntimeError("quality policy has no FRS-TRAIN-v015 curriculum identity")
@@ -655,7 +724,7 @@ def _inspect_frontres_v015_policy_quality_payload(
     if checkpoint_format in {
         FRONTRES_ACTIVE_CHECKPOINT_FORMAT,
         _V019_POLICY_CHECKPOINT_FORMAT,
-    } and value_normalizer_state.update_count != iteration:
+    } and value_normalizer_state is not None and value_normalizer_state.update_count != iteration:
         raise RuntimeError("quality policy Critic normalizer count differs from checkpoint iteration")
     expected = resolve_frontres_k_stage_identity(
         schedule=schedule if isinstance(schedule, (tuple, list)) else (),
@@ -795,6 +864,7 @@ validate_frontres_v015_normalizer_state = _validate_v015_normalizer_state
 __all__ = (
     "EMPIRICAL_NORMALIZER_STATE_KEYS",
     "FRONTRES_ACTIVE_CHECKPOINT_FORMAT",
+    "FRONTRES_RELATIONAL_CHECKPOINT_FORMAT",
     "FRONTRES_LEGACY_POLICY_CHECKPOINT_FORMAT",
     "FRONTRES_V019_POLICY_CHECKPOINT_FORMAT",
     "FRONTRES_ACTIVE_CHECKPOINT_IDENTITY_KEY",

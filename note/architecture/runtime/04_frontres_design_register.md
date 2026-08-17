@@ -37,6 +37,7 @@ HSL-v2 Actor initialization
 | FRS-DP-05 | Frozen GMT | Frozen 770D GMT executes the repaired continuation for K steps. |
 | FRS-DP-06 | Paired Rollouts | One Clean and one fixed Noisy baseline are read-only anchors for all M4 current Repair attempts. |
 | FRS-DP-07 | Repair Gain | `G_total=G_I+lambda_RA*G_P-beta*C_repair`; utility is per-attempt symmetric log. |
+| FRS-DP-07R | Relational Gain | Active-pre-training `BETTER/WORSE/SAME/INCOMPARABLE` plus Actor-only pairwise PPO under METHOD-v026/GAIN-v009/PPO-v013/TRAIN-v025; live quality remains unconfirmed. |
 | FRS-DP-08 | HSL Warmup | HSL-v2 initializes Actor/std and Actor-prefix normalizer only. |
 | FRS-DP-09 | Actor & Critic Warmup | Actor and Critic update together from low DR; Actor LR `3e-7 -> 1e-6`, Critic LR `1e-5`, B8/M4. Critic target is the current transaction's exact-M4 mean. |
 | FRS-DP-10 | Future Motion Context | Actor 158D, Critic 449D action-pre support-conditioned state, GMT 770D; no action-conditioned or variance-head Critic. |
@@ -88,3 +89,23 @@ Easy/Medium/Hard/Broken-tail `20/30/40/10`.
   remain distinct diagnostics.
 - Gain, K/DR, LR, optimizer count, Actor/Critic architecture and simulator are
   unchanged.
+
+## Pending Semantic Transition: Relational Gain
+
+Status: `proposal-not-active` / `TRANSITION-BLOCKED` on 2026-08-16.
+
+The candidate hierarchical Gain preserves the confirmed behavioral partial
+order and returns `BETTER`, `WORSE`, `SAME`, or `INCOMPARABLE`. It is not the
+active training objective. `FRS-GAIN-v008` remains the sole production Gain
+contract, and the existing PPO consumer still receives scalar `G_total`,
+symlog utility, M4 target, and scalar Actor advantage.
+
+The candidate masked pairwise credit defines the Actor-side learning signal.
+The scalar state-value Critic is retired on this route: a fully ordered M4 has
+zero-sum edge credit, and the current state-value mean would add no information.
+Activation requires a coordinated Contract migration, a public module-alignment
+replay, and a formal checkpoint/route review. Until then, this proposal must not be
+connected to the live training path or used to start a new training campaign.
+This engineering unit ends at `PRE-TRAINING-READY`: Codex may prepare and audit
+the code and exact command, but the user owns synchronization, checkpoint
+generation, live execution, and training.

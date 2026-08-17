@@ -8,6 +8,12 @@ from typing import Any
 import torch
 
 from rsl_rl.frontres.frontres_gain import FrontRESRecoveryAwareGainInput
+from rsl_rl.frontres.frontres_hierarchical_gain_candidate import (
+    Outcome,
+    RelationalTrainingBatch,
+    Thresholds,
+    build_relational_training_batch,
+)
 
 
 @dataclass(frozen=True)
@@ -25,6 +31,8 @@ class FrontRESExecutedKTrajectory:
     zmp_margin: torch.Tensor
     survival: torch.Tensor
     valid_mask: torch.Tensor
+    relational_outcome: Outcome | None = None
+    env_origin: torch.Tensor | None = None
 
     def validate(self) -> None:
         if self.joint_pos.ndim != 3 or int(self.joint_pos.shape[-1]) != 29:
@@ -69,6 +77,13 @@ class FrontRESExecutedKTrajectory:
         finite_zmp = torch.isfinite(self.zmp_margin.float())
         if bool(torch.isinf(self.zmp_margin.float()).any()):
             raise ValueError("v017 ZMP may be finite or semantic N/A, never infinite")
+        if self.env_origin is not None and (
+            not isinstance(self.env_origin, torch.Tensor)
+            or tuple(self.env_origin.shape) != (k_steps, batch_size, 3)
+            or self.env_origin.requires_grad
+            or not bool(torch.isfinite(self.env_origin.float()).all())
+        ):
+            raise ValueError("v017 environment origin must be detached finite [K,B,3]")
 
 
 @dataclass(frozen=True)
@@ -230,6 +245,62 @@ class FrontRESSealedRecoveryAwareGainBatch:
             {value.policy_snapshot_id for value in self.baselines}
         ) != 1:
             raise ValueError("v017 sealed Gain batch requires one transaction and frozen policy")
+
+    def relational_training_batches(
+        self,
+        thresholds: Thresholds = Thresholds(),
+    ) -> tuple[RelationalTrainingBatch, ...]:
+        """Build one exact-M relational batch per sealed Scenario.
+
+        The raw-to-Outcome owner consumes only the sealed Clean/Repair
+        trajectories and full-6D action. Explicit fixture Outcomes remain
+        supported for deterministic module tests.
+        """
+
+        self.validate()
+        ordered = tuple(sorted(self.attempts, key=lambda value: (value.source_index, value.trial_index)))
+        batches: list[RelationalTrainingBatch] = []
+        for source_index in range(len(self.baselines)):
+            source_attempts = tuple(value for value in ordered if int(value.source_index) == source_index)
+            if len(source_attempts) != int(self.active_m):
+                raise ValueError("FRS-GAIN-v009 requires exact-M Repair attempts per Scenario")
+            baseline = self.baselines[source_index]
+            outcomes: list[Outcome] = []
+            for value in source_attempts:
+                outcome = value.repair.relational_outcome
+                if outcome is None:
+                    from rsl_rl.frontres.frontres_relational_outcome import (
+                        build_frontres_relational_outcome,
+                    )
+
+                    outcome = build_frontres_relational_outcome(
+                        clean=baseline.clean,
+                        repair=value.repair,
+                        expected_support=baseline.expected_support,
+                        repair_action=value.policy_action,
+                        thresholds=thresholds,
+                    )
+                if not isinstance(outcome, Outcome):
+                    raise ValueError("FRS-GAIN-v009 requires one complete relational Outcome per Repair attempt")
+                outcomes.append(outcome)
+            batch = build_relational_training_batch(outcomes, thresholds)
+            if batch.status == "INVALID":
+                raise ValueError("FRS-GAIN-v009 invalid Outcome evidence closes the transaction")
+            batches.append(batch)
+        return tuple(batches)
+
+    def relational_preference_edges(
+        self,
+        thresholds: Thresholds = Thresholds(),
+    ) -> tuple[tuple[int, int], ...]:
+        """Project per-Scenario local edges into the sealed global row order."""
+
+        batches = self.relational_training_batches(thresholds)
+        edges: list[tuple[int, int]] = []
+        for source_index, batch in enumerate(batches):
+            offset = source_index * int(self.active_m)
+            edges.extend((offset + winner, offset + loser) for winner, loser in batch.preference_edges)
+        return tuple(edges)
 
     def to_gain_input(self) -> FrontRESRecoveryAwareGainInput:
         """Alias each immutable baseline to its M Repair rows without re-execution."""

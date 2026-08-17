@@ -476,5 +476,56 @@ def main() -> None:
     print("frontres_v016_checkpoint_contract: v19 replay-v5 round-trip and legacy reject", flush=True)
 
 
+def test_relational_checkpoint_v20_round_trip() -> None:
+    layout, checkpointing, policy_base = _load_owners()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        gmt_path = root / "gmt.pt"
+        gmt_path.write_bytes(b"frozen GMT relational artifact")
+
+        def relational_runner(iteration: int):
+            runner = _runner(layout, policy_base, iteration=iteration, gmt_checkpoint_path=gmt_path)
+            runner.alg.frontres_training_objective = "segment_replay_relational"
+            runner.alg.frontres_relational_actor_only = True
+            runner.alg.frontres_method_contract_id = "FRS-METHOD-v026"
+            runner.alg.frontres_gain_contract_id = "FRS-GAIN-v009"
+            runner.alg.frontres_optimization_contract_id = "FRS-PPO-v013"
+            runner.alg.frontres_training_contract_id = "FRS-TRAIN-v025"
+            runner.alg.frontres_segment_advantage_normalization = "pairwise_edge"
+            runner.alg.frontres_critic_value_normalization = "none"
+            runner.alg.frontres_critic_support_context_id = "none"
+            for parameter in runner.alg.policy.critic.parameters():
+                parameter.requires_grad_(False)
+            runner.alg.optimizer = torch.optim.Adam(
+                [{
+                    "params": list(runner.alg.policy.residual_actor.parameters()),
+                    "lr": 3.0e-7,
+                    "frontres_role": "actor",
+                    "frontres_step_count": 0,
+                }]
+            )
+            runner._frontres_outer_scenario_replay = checkpointing.FrontRESRelationalScenarioReplay(seed=17)
+            return runner
+
+        path = root / "model_0_relational.pt"
+        source = relational_runner(0)
+        checkpointing.save_runner(source, str(path))
+        payload = torch.load(path, weights_only=False)
+        identity = payload["frontres_v015_checkpoint_identity"]
+        assert identity["format"] == "frontres-v025-checkpoint-v20"
+        assert identity["scalar_target_id"] == "none"
+        assert identity["transaction"] == {"state": "idle"}
+        assert "frontres_critic_value_normalizer_state_dict" not in payload
+        assert payload["frontres_outer_scenario_replay_state_dict"]["schema"] == "frontres-relational-scenario-replay-v1"
+
+        target = relational_runner(0)
+        checkpointing.load_runner(target, str(path), load_optimizer=True)
+        assert target.current_learning_iteration == 0
+        assert target._frontres_outer_scenario_replay.state_dict()["schema"] == "frontres-relational-scenario-replay-v1"
+        assert [group["frontres_role"] for group in target.alg.optimizer.param_groups] == ["actor"]
+        print("frontres_v025_checkpoint_contract: checkpoint-v20 relational round-trip ok", flush=True)
+
+
 if __name__ == "__main__":
     main()
+    test_relational_checkpoint_v20_round_trip()

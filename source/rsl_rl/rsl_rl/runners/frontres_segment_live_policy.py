@@ -28,7 +28,11 @@ import torch
 from rsl_rl.algorithms import FrontRESUnified
 
 
-from rsl_rl.algorithms.frontres_segment_ppo import FrontRESSegmentPPOBatch, FrontRESSegmentPPOConfig, compute_frontres_segment_ppo_loss
+from rsl_rl.algorithms.frontres_segment_ppo import (
+    FrontRESSegmentPPOBatch,
+    FrontRESSegmentPPOConfig,
+    compute_frontres_segment_ppo_loss,
+)
 
 
 from rsl_rl.frontres.frontres_segment_warmup import frontres_segment_warmup_phase
@@ -263,6 +267,8 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
     Evidence: contract-confirmed by frontres_segment_live_single_update_contract.py.
     Gap: one fake/live-boundary update does not prove long live training quality.
     """
+    if bool(getattr(runner.alg, "frontres_relational_actor_only", False)):
+        return run_frontres_relational_actor_update(runner, storage_batch)
     runner.train_mode()
     # B1: Convert storage evidence into the algorithm-owned batch contract.
     ppo_batch = storage_batch.to_ppo_batch(FrontRESSegmentPPOBatch)
@@ -409,6 +415,61 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
     print_ppo_audit(runner, result=ppo_result)
     runner.eval_mode()
     return ppo_result
+
+
+def run_frontres_relational_actor_update(runner: Any, storage_batch: Any) -> object:
+    """Run one explicit relational Actor-only update.
+
+    This owner accepts only preference edges produced by the relational Gain
+    adapter.  It rejects a scalar fallback, a Critic-owned optimizer group, or
+    a no-edge transaction; the latter performs no optimizer step.
+    """
+
+    if not bool(getattr(runner.alg, "frontres_relational_actor_only", False)):
+        raise RuntimeError("relational Actor update requires frontres_relational_actor_only=True")
+    from rsl_rl.algorithms.frontres_segment_ppo import (
+        FrontRESRelationalPPOBatch,
+        FrontRESRelationalPPOConfig,
+        compute_frontres_relational_actor_loss,
+    )
+    runner.train_mode()
+    ppo_batch = storage_batch.to_grouped_ppo_candidate_batch(FrontRESRelationalPPOBatch)
+    edges = tuple(getattr(storage_batch, "preference_edges", ()) or ())
+    policy_adapter = FrontRESSegmentLivePolicyAdapter(
+        runner.alg,
+        privileged_observations=storage_batch.privileged_observations,
+        actor_only=True,
+    )
+    cfg = FrontRESRelationalPPOConfig(
+        clip_param=float(getattr(runner.alg, "clip_param", 0.2)),
+        max_log_ratio=20.0,
+    )
+    result = compute_frontres_relational_actor_loss(policy_adapter, ppo_batch, edges, cfg)
+    optimizer = runner.alg.optimizer
+    optimizer_roles = {
+        str(group.get("frontres_role", ""))
+        for group in getattr(optimizer, "param_groups", ())
+    }
+    if optimizer_roles != {"actor"}:
+        raise RuntimeError(
+            "FRS-TRAIN-v025 relational route requires an Actor-only optimizer; "
+            f"got roles={sorted(optimizer_roles)!r}"
+        )
+    critic = getattr(runner.alg.policy, "critic", None)
+    if critic is not None and any(bool(param.requires_grad) for param in critic.parameters()):
+        raise RuntimeError("FRS-TRAIN-v025 relational route requires frozen Critic parameters")
+    if result.should_step:
+        optimizer.zero_grad()
+        result.total_loss.backward()
+        actor_parameters = tuple(
+            parameter
+            for group in optimizer.param_groups
+            for parameter in group.get("params", ())
+        )
+        torch.nn.utils.clip_grad_norm_(actor_parameters, float(getattr(runner.alg, "max_grad_norm", 1.0)))
+        optimizer.step()
+    runner.eval_mode()
+    return result
 
 
 # Public policy/update seams used by storage and formal transaction owners.

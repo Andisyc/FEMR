@@ -24,9 +24,16 @@ def _should_print_once_or_verbose(owner: Any, flag_name: str) -> bool:
 class FrontRESSegmentLivePolicyAdapter:
     """Project the production FrontRES policy into the Segment-PPO interface."""
 
-    def __init__(self, alg: Any, privileged_observations: torch.Tensor | None):
+    def __init__(
+        self,
+        alg: Any,
+        privileged_observations: torch.Tensor | None,
+        *,
+        actor_only: bool = False,
+    ):
         self.alg = alg
         self.privileged_observations = privileged_observations
+        self.actor_only = bool(actor_only)
 
     def evaluate_segment_actions(self, observations: torch.Tensor, actions: torch.Tensor) -> dict[str, torch.Tensor]:
         if bool(getattr(self.alg, "use_estimate_ref_vel", False)):
@@ -86,7 +93,11 @@ class FrontRESSegmentLivePolicyAdapter:
             )
         return {
             "log_prob": log_prob,
-            "value": self.alg.policy.evaluate(value_obs).reshape(-1),
+            "value": (
+                torch.zeros(actions.shape[0], device=actions.device, dtype=actions.dtype)
+                if self.actor_only
+                else self.alg.policy.evaluate(value_obs).reshape(-1)
+            ),
             "entropy": entropy if isinstance(entropy, torch.Tensor) else None,
             "mean": mean_6d,
             "sigma": std_6d,

@@ -245,6 +245,7 @@ class FrontRESSegmentStorageBatch:
     audit_identity_state: str = "UNCONFIRMED"
     transaction_metadata: Any | None = None
     transaction_row_indices: torch.Tensor | None = None
+    preference_edges: tuple[tuple[int, int], ...] = ()
 
     def to_ppo_batch(self, batch_cls: Callable[..., Any]) -> Any:
         """把 finalized Segment storage 转换为 legacy PPO batch contract.
@@ -313,10 +314,54 @@ class FrontRESSegmentStorageBatch:
             payload["privileged_observations"] = self.privileged_observations
             payload["transaction_metadata"] = self.transaction_metadata
             payload["transaction_row_indices"] = _storage_batch_transaction_row_indices(self)
+        payload["preference_edges"] = tuple(self.preference_edges)
         return batch_cls(**payload)
 
 
-def _storage_batch_transaction_row_indices(batch: FrontRESSegmentStorageBatch) -> torch.Tensor | None:
+@dataclass(frozen=True)
+class FrontRESRelationalStorageBatch:
+    """Sealed policy rows and preference edges without scalar training fields."""
+
+    observations: torch.Tensor
+    actions: torch.Tensor
+    old_log_probs: torch.Tensor
+    valid_mask: torch.Tensor
+    segment_ids: torch.Tensor
+    old_means: torch.Tensor | None = None
+    old_sigmas: torch.Tensor | None = None
+    privileged_observations: torch.Tensor | None = None
+    transaction_metadata: Any | None = None
+    transaction_row_indices: torch.Tensor | None = None
+    preference_edges: tuple[tuple[int, int], ...] = ()
+
+    def to_grouped_ppo_candidate_batch(self, batch_cls: Callable[..., Any]) -> Any:
+        if not isinstance(self.transaction_metadata, FrontRESV015GroupedCandidateMetadata):
+            raise ValueError("relational candidate requires sealed transaction metadata")
+        self.transaction_metadata.validate()
+        row_indices = _storage_batch_transaction_row_indices(self)
+        expected = torch.arange(
+            self.transaction_metadata.batch_size,
+            device=self.segment_ids.device,
+            dtype=torch.long,
+        )
+        if row_indices is None or not torch.equal(torch.sort(row_indices).values, expected):
+            raise ValueError("relational candidate requires one complete sealed transaction")
+        return batch_cls(
+            observations=self.observations,
+            actions=self.actions,
+            old_log_probs=self.old_log_probs,
+            valid_mask=self.valid_mask,
+            segment_ids=self.segment_ids,
+            old_means=self.old_means,
+            old_sigmas=self.old_sigmas,
+            privileged_observations=self.privileged_observations,
+            transaction_metadata=self.transaction_metadata,
+            transaction_row_indices=row_indices,
+            preference_edges=tuple(self.preference_edges),
+        )
+
+
+def _storage_batch_transaction_row_indices(batch: Any) -> torch.Tensor | None:
     """Resolve sealed transaction rows at the immutable batch boundary."""
 
     metadata = batch.transaction_metadata

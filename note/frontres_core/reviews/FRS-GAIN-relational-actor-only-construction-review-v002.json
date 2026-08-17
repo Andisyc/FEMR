@@ -1,0 +1,77 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-GAIN-RELATIONAL-ACTOR-ONLY-20260817",
+  "mode": "construction",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "REQUEST_CHANGES",
+  "scope": {
+    "requested": ["Review relational Gain, preference-edge PPO, optimizer isolation, and persistence before training"],
+    "preserved": ["Legacy scalar route", "No training or server execution", "INCOMPARABLE remains non-scalar"],
+    "forbidden": ["Scalar Critic fallback", "Old checkpoint-v19 resume", "Claiming formal readiness from S1 tests"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-07R-relational-gain-interface-proposal-v001",
+    "contract": "FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025 candidate migration",
+    "checkout": "a89377bc1c9d9d3f9cb0eb0f474c30b011a85609+relational-actor-only-20260817",
+    "review_object": "sha256:6b6f6ea2f66ecf5ae49ae62176ba0686d0c6cb3cb419f3a8e2ed243d4cd2435d"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Construction review"},
+    "source_edits": {"status": "approved", "scope": "Pre-training relational implementation", "receipt": "User requested one-shot code construction stopping before training"},
+    "report_write": {"status": "approved", "scope": "Persist review receipt", "receipt": "User invoked code-construction and workflow-governance"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py",
+    "content_hash": "sha256:6b6f6ea2f66ecf5ae49ae62176ba0686d0c6cb3cb419f3a8e2ed243d4cd2435d",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "Active FrontRES engineering discipline"
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "Comparator owns relations; PPO owner consumes only directed edges; checkpoint owner publishes fresh relational identity."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "Preference edges and immutable result objects form the narrow training boundary."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "Framework-free comparator does not import runners; runner depends on algorithm public APIs."},
+    {"name": "state-lifecycle", "disposition": "fail", "evidence": "Official formal transaction still builds scalar Gain storage and does not yet produce relational edges from raw trajectory evidence."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "Legacy scalar default remains unchanged; relational selection is explicit."},
+    {"name": "evidence-boundary", "disposition": "fail", "evidence": "S1 synthetic alignment is current, but the runtime producer lacks the full raw L0-L3 evidence carrier."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "Directed edge indices are range, validity, uniqueness, and acyclicity checked before loss construction."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "Actor-only optimizer role and frozen Critic are enforced; no-edge batches perform no step."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "checkpoint-v20 identity rejects scalar target/normalizer and old checkpoint-v19 before mutation."}
+  ],
+  "findings": [
+    {
+      "finding_id": "CRE-FRS-GAIN-REL-002",
+      "severity": "P1",
+      "status": "open",
+      "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py:_build_frontres_v015_local_transaction_request",
+      "evidence": [
+        {"kind": "source", "locator": "formal transaction candidate storage", "observation": "The official request still calls the scalar FRS-GAIN-v008 storage adapter with no relational Outcome producer."},
+        {"kind": "test", "locator": "frontres_relational_ppo_alignment.py", "observation": "Only S1 synthetic edge loss is proven; no official pseudo-transaction reaches this adapter."}
+      ],
+      "named_diagnostic": "Pinch Point",
+      "responsibility_at_risk": "Official relation-evidence producer and transaction commit lifecycle",
+      "preserved_behavior": "Keep training blocked and reject scalar fallback",
+      "smallest_safe_change": "Add one trajectory-to-Outcome adapter at the formal evidence boundary and route its exact-M edges through the existing candidate storage field.",
+      "required_tests": ["Official offline pseudo-transaction", "Missing-field zero-write", "No-edge zero-write", "Fresh checkpoint-v20 pre-mutation rejection"],
+      "stop_condition": "Do not issue PRE-TRAINING-READY or a training command until the official route consumes relational edges."
+    }
+  ],
+  "residual_risks": ["Thresholds remain uncalibrated against real post-migration telemetry."],
+  "blockers": [],
+  "claims": {
+    "maintainability": "not-reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}

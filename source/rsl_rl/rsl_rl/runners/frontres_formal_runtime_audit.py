@@ -260,15 +260,27 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
             "live_update_loop_only", "offline_eval_only", "sequence_offline_eval_only",
         )
     )
-    assert getattr(runner.alg, "frontres_training_objective", "") == "segment_replay_hrl"
+    relational = bool(getattr(alg, "frontres_relational_actor_only", False))
+    expected_objective = "segment_replay_relational" if relational else "segment_replay_hrl"
+    assert getattr(runner.alg, "frontres_training_objective", "") == expected_objective
     assert bool(getattr(boundary, "live_train_enabled", False)) and not alternate
-    required_identity = {
-        "frontres_method_contract_id": "FRS-METHOD-v025",
-        "frontres_gain_contract_id": "FRS-GAIN-v008",
-        "frontres_optimization_contract_id": "FRS-PPO-v012",
-        "frontres_training_contract_id": "FRS-TRAIN-v024",
-        "frontres_critic_support_context_id": "action-pre-support-plan-kmax32-v1",
-    }
+    required_identity = (
+        {
+            "frontres_method_contract_id": "FRS-METHOD-v026",
+            "frontres_gain_contract_id": "FRS-GAIN-v009",
+            "frontres_optimization_contract_id": "FRS-PPO-v013",
+            "frontres_training_contract_id": "FRS-TRAIN-v025",
+            "frontres_critic_support_context_id": "none",
+        }
+        if relational
+        else {
+            "frontres_method_contract_id": "FRS-METHOD-v025",
+            "frontres_gain_contract_id": "FRS-GAIN-v008",
+            "frontres_optimization_contract_id": "FRS-PPO-v012",
+            "frontres_training_contract_id": "FRS-TRAIN-v024",
+            "frontres_critic_support_context_id": "action-pre-support-plan-kmax32-v1",
+        }
+    )
     for name, expected in required_identity.items():
         assert getattr(alg, name, None) == expected, f"AUDIT-B01 requires {name}={expected}"
     offsets = tuple(int(value) for value in (getattr(alg, "frontres_future_offsets", ()) or ()))
@@ -281,21 +293,23 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
         for group in optimizer_groups
         if isinstance(group, Mapping)
     }
-    assert len(optimizer_groups) == 2 and set(optimizer_by_role) == {"actor", "critic"}, (
-        "AUDIT-B01 requires exact Actor/Critic optimizer groups"
-    )
+    expected_roles = {"actor"} if relational else {"actor", "critic"}
+    assert len(optimizer_groups) == len(expected_roles) and set(optimizer_by_role) == expected_roles
     actor_lr = float(optimizer_by_role["actor"].get("lr", float("nan")))
-    critic_lr = float(optimizer_by_role["critic"].get("lr", float("nan")))
-    assert actor_lr == 3.0e-7 and critic_lr == 1.0e-5, (
-        "AUDIT-B01 requires initial Actor/Critic LR=3e-7/1e-5"
-    )
+    critic_lr = 0.0 if relational else float(optimizer_by_role["critic"].get("lr", float("nan")))
+    assert actor_lr == 3.0e-7 and (relational or critic_lr == 1.0e-5)
     value_normalizer_state = getattr(alg, "frontres_critic_value_normalizer_state", None)
-    assert getattr(alg, "frontres_critic_value_normalization", None) == FRONTRES_VALUE_NORMALIZATION_ID
-    assert float(getattr(alg, "frontres_critic_value_normalizer_decay", float("nan"))) == FRONTRES_VALUE_NORMALIZER_DECAY
-    assert float(getattr(alg, "frontres_critic_value_normalizer_scale_floor", float("nan"))) == FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR
-    assert isinstance(value_normalizer_state, FrontRESValueNormalizerState)
-    value_normalizer_state.validate()
-    assert value_normalizer_state.update_count == int(getattr(runner, "current_learning_iteration", -1))
+    if relational:
+        assert getattr(alg, "frontres_critic_value_normalization", None) == "none"
+        normalizer_update_count = 0
+    else:
+        assert getattr(alg, "frontres_critic_value_normalization", None) == FRONTRES_VALUE_NORMALIZATION_ID
+        assert float(getattr(alg, "frontres_critic_value_normalizer_decay", float("nan"))) == FRONTRES_VALUE_NORMALIZER_DECAY
+        assert float(getattr(alg, "frontres_critic_value_normalizer_scale_floor", float("nan"))) == FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR
+        assert isinstance(value_normalizer_state, FrontRESValueNormalizerState)
+        value_normalizer_state.validate()
+        assert value_normalizer_state.update_count == int(getattr(runner, "current_learning_iteration", -1))
+        normalizer_update_count = value_normalizer_state.update_count
     assert int(num_learning_iterations) == 1, (
         "AUDIT-B01 is admitted only for one bounded transaction invocation"
     )
@@ -305,14 +319,18 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
         "AUDIT-B01",
         limit=1,
         checkpoint=checkpoint_path,
-        contracts="FRS-METHOD-v025/FRS-GAIN-v008/FRS-PPO-v012/FRS-TRAIN-v024",
+        contracts=(
+            "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025"
+            if relational
+            else "FRS-METHOD-v025/FRS-GAIN-v008/FRS-PPO-v012/FRS-TRAIN-v024"
+        ),
         future_offsets=offsets,
         actor_lr=actor_lr,
         critic_lr=critic_lr,
-        critic_value_normalization=FRONTRES_VALUE_NORMALIZATION_ID,
-        critic_value_normalizer_decay=FRONTRES_VALUE_NORMALIZER_DECAY,
-        critic_value_normalizer_scale_floor=FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR,
-        critic_value_normalizer_update_count=value_normalizer_state.update_count,
+        critic_value_normalization="none" if relational else FRONTRES_VALUE_NORMALIZATION_ID,
+        critic_value_normalizer_decay=0.0 if relational else FRONTRES_VALUE_NORMALIZER_DECAY,
+        critic_value_normalizer_scale_floor=0.0 if relational else FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR,
+        critic_value_normalizer_update_count=normalizer_update_count,
         active_k=8,
         active_m=4,
         envs=64,
@@ -1104,21 +1122,51 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
     if not formal_runtime_audit_enabled(runner):
         return
     # B1: inspect the complete in-memory checkpoint-v16 envelope before serialization.
-    required = (
+    common_required = (
         "model_state_dict",
         "optimizer_state_dict",
         "iter",
         "frontres_segment_sampler_state_dict",
         "frontres_segment_k_curriculum",
-        "frontres_critic_value_normalizer_state_dict",
         "frontres_v015_checkpoint_identity",
+    )
+    identity = payload.get("frontres_v015_checkpoint_identity")
+    relational = isinstance(identity, Mapping) and identity.get("format") == "frontres-v025-checkpoint-v20"
+    required = (
+        common_required + ("frontres_v013_rng_state", "frontres_outer_scenario_replay_state_dict")
+        if relational
+        else common_required + ("frontres_critic_value_normalizer_state_dict",)
     )
     missing = [key for key in required if key not in payload]
     assert not missing, f"formal Stage 3 checkpoint missing audit fields: {missing}"
 
     # B2: cross-check checkpoint-v16 identity without treating optional normalizers as unconditional.
-    identity = payload["frontres_v015_checkpoint_identity"]
     assert isinstance(identity, Mapping), "formal Stage 3 checkpoint identity must be a mapping"
+    if relational:
+        assert identity.get("method_contract_id") == "FRS-METHOD-v026"
+        assert identity.get("gain_contract_id") == "FRS-GAIN-v009"
+        assert identity.get("optimization_contract_id") == "FRS-PPO-v013"
+        assert identity.get("training_contract_id") == "FRS-TRAIN-v025"
+        assert identity.get("scalar_target_id") == "none"
+        assert identity.get("physics_schema_id") == "hierarchical-relational-evidence-v1"
+        assert identity.get("grouped_schema_id") == "relational-preference-edge-v1"
+        assert identity.get("critic") == {"value_kind": "inert-legacy-compat", "target_id": "none", "trainable": False}
+        assert identity.get("critic_value_normalizer") == {"identity": "none"}
+        assert "frontres_critic_value_normalizer_state_dict" not in payload
+        assert payload["frontres_outer_scenario_replay_state_dict"].get("schema") == "frontres-relational-scenario-replay-v1"
+        groups = payload["optimizer_state_dict"].get("param_groups")
+        assert isinstance(groups, list) and len(groups) == 1 and groups[0].get("frontres_role") == "actor"
+        transaction = identity.get("transaction")
+        assert isinstance(transaction, Mapping) and transaction.get("state") in {"idle", "committed"}
+        if transaction.get("state") == "idle":
+            assert int(payload["iter"]) == 0
+        print(
+            "[AUDIT-PERSIST-01] "
+            f"path={path} iter={int(payload['iter'])} contracts=FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025 "
+            "scalar_target=none replay=frontres-relational-scenario-replay-v1",
+            flush=True,
+        )
+        return
     assert identity.get("format") == "frontres-v024-checkpoint-v19", "formal audit requires checkpoint-v19"
     assert identity.get("method_contract_id") == "FRS-METHOD-v025", "formal audit requires FRS-METHOD-v025"
     assert identity.get("gain_contract_id") == "FRS-GAIN-v008", "formal audit requires FRS-GAIN-v008"
@@ -1234,6 +1282,27 @@ def print_checkpoint_reload_audit(
     identity = payload.get("frontres_v015_checkpoint_identity")
     assert isinstance(identity, Mapping) and dict(identity) == dict(validated_identity)
     assert len(file_sha256) == 64
+    if identity.get("format") == "frontres-v025-checkpoint-v20":
+        transaction = identity.get("transaction")
+        curriculum = identity.get("curriculum")
+        groups = payload.get("optimizer_state_dict", {}).get("param_groups")
+        assert isinstance(transaction, Mapping) and transaction.get("state") in {"idle", "committed"}
+        assert isinstance(curriculum, Mapping) and int(curriculum.get("absolute_iteration", -1)) == int(payload.get("iter", -2))
+        assert isinstance(groups, list) and len(groups) == 1 and groups[0].get("frontres_role") == "actor"
+        emit_formal_runtime_probe(
+            "AUDIT-B08",
+            limit=1,
+            path=path,
+            readback=1,
+            file_sha256=file_sha256,
+            checkpoint_format=identity["format"],
+            contracts=("FRS-METHOD-v026", "FRS-GAIN-v009", "FRS-PPO-v013", "FRS-TRAIN-v025"),
+            iteration=payload.get("iter"),
+            actor_lr=float(groups[0]["lr"]),
+            transaction_state=transaction.get("state"),
+            runner_mutated=0,
+        )
+        return
     assert identity.get("format") == "frontres-v024-checkpoint-v19"
     critic = identity.get("critic")
     layout = identity.get("future_intent_layout")

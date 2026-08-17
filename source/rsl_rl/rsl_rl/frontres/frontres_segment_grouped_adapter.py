@@ -8,6 +8,7 @@ import torch
 
 from rsl_rl.frontres.frontres_return_utility import frontres_symmetric_log_utility
 from rsl_rl.frontres.frontres_segment_storage_records import (
+    FrontRESRelationalStorageBatch,
     FrontRESSegmentStorageBatch,
     FrontRESV015GroupedCandidateMetadata,
 )
@@ -126,6 +127,7 @@ def build_frontres_v017_grouped_candidate_storage(
     start_frames: torch.Tensor,
     intent_q29_provenance: str,
     intent_q29_source: str,
+    preference_edges: tuple[tuple[int, int], ...] = (),
 ) -> FrontRESSegmentStorageBatch:
     """Bind owner-produced v008 raw Gain and utility credit to Repair rows."""
 
@@ -189,4 +191,69 @@ def build_frontres_v017_grouped_candidate_storage(
         old_sigmas=stack("policy_sigma"),
         transaction_metadata=metadata,
         transaction_row_indices=torch.arange(count, device=device, dtype=torch.long),
+        preference_edges=tuple(preference_edges),
+    )
+
+
+def build_frontres_v025_relational_candidate_storage(
+    evidence: FrontRESSealedRecoveryAwareGainBatch,
+    *,
+    motion_ids: tuple[str, ...],
+    start_frames: torch.Tensor,
+    intent_q29_provenance: str,
+    intent_q29_source: str,
+) -> FrontRESRelationalStorageBatch:
+    """Bind FRS-GAIN-v009 Outcomes to Actor-only preference-edge storage."""
+
+    if not isinstance(evidence, FrontRESSealedRecoveryAwareGainBatch):
+        raise TypeError("relational grouped storage requires sealed recovery evidence")
+    evidence.validate()
+    attempts = evidence.ordered_attempts
+    count = len(attempts)
+    if len(motion_ids) != count or tuple(start_frames.shape) != (count,):
+        raise ValueError("relational grouped storage motion/start identity must align with Repair rows")
+    preference_edges = evidence.relational_preference_edges()
+
+    def stack(name: str) -> torch.Tensor:
+        return torch.stack([getattr(value, name) for value in attempts], dim=0).detach().clone()
+
+    device = attempts[0].policy_action.device
+    source_index = torch.tensor([value.source_index for value in attempts], device=device, dtype=torch.long)
+    segment_ids = torch.tensor([value.segment_id for value in attempts], device=device, dtype=torch.long)
+    trial_index = torch.tensor([value.trial_index for value in attempts], device=device, dtype=torch.long)
+    horizon_k = torch.tensor([value.horizon_k for value in attempts], device=device, dtype=torch.long)
+    valid_steps = torch.tensor(
+        [int(value.repair.valid_mask[:, 0].sum().item()) for value in attempts],
+        device=device,
+        dtype=torch.long,
+    )
+    metadata = FrontRESV015GroupedCandidateMetadata(
+        transaction_id=attempts[0].transaction_id,
+        policy_snapshot_id=attempts[0].policy_snapshot_id,
+        motion_ids=tuple(str(value) for value in motion_ids),
+        start_frames=start_frames,
+        segment_ids=segment_ids,
+        source_index=source_index,
+        trial_index=trial_index,
+        horizon_k=horizon_k,
+        evidence_valid_step_count=valid_steps,
+        trial_role=("policy",) * count,
+        noisy_segment_hashes=tuple(value.noisy_segment_hash for value in attempts),
+        scenario_ids=tuple(value.scenario_id for value in attempts),
+        x_t_identities=tuple(value.x_t_identity for value in attempts),
+        intent_q29_provenance=str(intent_q29_provenance),
+        intent_q29_source=str(intent_q29_source),
+    )
+    return FrontRESRelationalStorageBatch(
+        observations=stack("policy_observation"),
+        privileged_observations=stack("policy_privileged_observation"),
+        actions=stack("policy_action"),
+        old_log_probs=stack("policy_log_prob").reshape(-1),
+        valid_mask=torch.ones(count, device=device, dtype=torch.bool),
+        segment_ids=segment_ids,
+        old_means=stack("policy_mean"),
+        old_sigmas=stack("policy_sigma"),
+        transaction_metadata=metadata,
+        transaction_row_indices=torch.arange(count, device=device, dtype=torch.long),
+        preference_edges=preference_edges,
     )

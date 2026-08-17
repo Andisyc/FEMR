@@ -1,0 +1,125 @@
+{
+  "schema_version": "workflow-governance/v1",
+  "governance_id": "WFG-FRS-GAIN-RELATIONAL-TRANSITION-20260816",
+  "lifecycle_phase": "design-proposal",
+  "target_phase": "contract-active",
+  "admission": "TRANSITION-BLOCKED",
+  "scope": {
+    "requested": [
+      "record the relational Gain proposal in the Design Inspector",
+      "preserve FRS-GAIN-v008 as the active training Contract",
+      "implement the confirmed relational Actor-only PPO interface",
+      "complete all approved work only up to the pre-training boundary"
+    ],
+    "preserved": [
+      "legacy scalar FRS-METHOD-v025/FRS-GAIN-v008/FRS-PPO-v012/FRS-TRAIN-v024 route",
+      "candidate relational FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025 route",
+      "independent candidate comparator and offline evidence",
+      "current checkpoint and formal-runtime boundaries"
+    ],
+    "forbidden": [
+      "activating the relational route before migration, formal audit, and pre-training gate are closed",
+      "mapping INCOMPARABLE to an invented scalar in production",
+      "starting live training or modifying the active Gain owner",
+      "training, checkpoint generation, live transactions, or policy-quality evaluation in this unit"
+    ]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-DP-07R-relational-gain-interface-proposal-v001",
+    "contract": "FRS-GAIN-v008 active legacy; relational v009/v013/v025 pending migration",
+    "checkout": "a89377bc1c9d9d3f9cb0eb0f474c30b011a85609+dirty-worktree",
+    "entrypoint": "explicit relational owner flag implemented; official route remains gated",
+    "effective_config": "relational Actor-only config implemented; formal route audit pending",
+    "checkpoint": "fresh-training required; deleted checkpoint-v19 will not be restored"
+  },
+  "authority": {
+    "semantic": {"status": "approved", "scope": "execute confirmed relational route up to pre-training gate", "receipt": "user-requested one-shot implementation with explicit stop before training"},
+    "local_reversible": {"status": "approved", "scope": "update proposal and Design Inspector documentation", "receipt": "user-requested documentation update"},
+    "git_actions": {"status": "not-requested", "scope": "no staging, commit, reset, or push"},
+    "external_operations": {"status": "not-requested", "scope": "no server, snapshot, or training operation"},
+    "bounded_live": {"status": "not-requested", "scope": "no live test"},
+    "long_run": {"status": "not-requested", "scope": "no long training"},
+    "destructive": {"status": "not-requested", "scope": "no deletion or overwrite"}
+  },
+  "artifacts": [
+    {
+      "kind": "design-inspector",
+      "artifact_id": "FRS-DESIGN-INSPECTOR-v025-runtime",
+      "path": "../../architecture/runtime/04_frontres_design_inspector.data.json",
+      "lifecycle": "current",
+      "status": "active",
+      "content_hash": "sha256:700957799f61f0bd6f05bcd0cfadce9e48017c499a11ee0350153edbf64063a2",
+      "current": true,
+      "identities": {"project": "FEMR/FrontRES", "design": "FRS-DP-07R-relational-gain-interface-proposal-v001", "contract": "FRS-GAIN-v008 active legacy; relational v009/v013/v025 pending migration"}
+    },
+    {
+      "kind": "contract",
+      "artifact_id": "FRS-GAIN-v008-active",
+      "path": "../../frontres_core/contracts/active/reward/FRS-GAIN-v008-recovery-aware-raw-evidence-utility-boundary.md",
+      "lifecycle": "current",
+      "status": "active",
+      "content_hash": "sha256:dcdaadc60b87c41ae4f1d14f610715eceb83bed4db281e02e61dd068a8b7b3ea",
+      "current": true,
+      "identities": {"project": "FEMR/FrontRES", "design": "FRS-DP-07R-relational-gain-interface-proposal-v001", "contract": "FRS-GAIN-v008 active legacy; relational v009/v013/v025 pending migration"}
+    },
+    {
+      "kind": "contract-proposal",
+      "artifact_id": "FRS-GAIN-RELATIONAL-PROPOSAL-v001",
+      "path": "../../frontres_core/plans/FRS-GAIN-relational-interface-proposal-v001.md",
+      "lifecycle": "volatile",
+      "status": "proposal",
+      "content_hash": "sha256:d8c085d66f5d64619a1921097364123d42eb5173b76ec6977c16db4a61bf7009",
+      "current": true,
+      "identities": {"project": "FEMR/FrontRES", "design": "FRS-DP-07R-relational-gain-interface-proposal-v001", "contract": "FRS-GAIN-v008 active legacy; relational v009/v013/v025 pending migration"}
+    },
+    {
+      "kind": "architecture",
+      "artifact_id": "FRS-DESIGN-REGISTER-v025",
+      "path": "../../architecture/runtime/04_frontres_design_register.md",
+      "lifecycle": "current",
+      "status": "active",
+      "content_hash": "sha256:4567879608c5f9c8f3bec4589905f9d81b1d759b8c168e33ac78db237afcb861",
+      "current": true,
+      "identities": {"project": "FEMR/FrontRES", "design": "FRS-DP-07R-relational-gain-interface-proposal-v001", "contract": "FRS-GAIN-v008 active legacy; relational v009/v013/v025 pending migration", "checkout": "a89377bc1c9d9d3f9cb0eb0f474c30b011a85609+dirty-worktree"}
+    }
+  ],
+  "dependencies": [],
+  "design_review": {
+    "semantic_change": true,
+    "status": "pending",
+    "mapping_complete": false,
+    "rationale": "Actor-only interface is implemented and offline-tested; raw telemetry producer, official dispatch, checkpoint migration, and formal pre-training audit remain."
+  },
+  "open_boundaries": [
+    {
+      "id": "WFG-B-RELATIONAL-PRETRAINING-ROUTE",
+      "kind": "semantic",
+      "status": "open",
+      "reason": "The old scalar Critic is retired on the relational route, but raw evidence production, official transaction dispatch, fresh checkpoint schema, and formal pre-training proof are not closed.",
+      "question": "Can the relational route pass migration and formal pre-training gates without entering training?"
+    }
+  ],
+  "invalidations": [],
+  "recovery": {
+    "read_only_first": true,
+    "protocol_path": "not-applicable; current task continues from existing governed workspace",
+    "files_read": ["AGENTS.md", "note/frontres_core/contracts/README.md", "note/architecture/runtime/04_frontres_design_register.md", "note/architecture/runtime/04_frontres_design_inspector.data.json"],
+    "cwd_match": true,
+    "access_gaps": [],
+    "stale_or_volatile": ["legacy scalar Contract remains active until relational migration is admitted"],
+    "blockers": ["raw evidence producer and official relational transaction dispatch are not formally closed"],
+    "next_safe_action": "complete telemetry, checkpoint migration, and formal pre-training audit; then stop for user synchronization"
+  },
+  "closeout": {
+    "evidence_complete": false,
+    "atlas_synced": false,
+    "stale_interpretations_named": true,
+    "volatile_artifacts_closed": false,
+    "maintainability_status": "candidate-reviewed-pending-route",
+    "maintainability_rationale": "Actor-only adapter is implemented; official transaction and persistence boundaries remain under review.",
+    "formal_route_status": "deferred",
+    "formal_route_rationale": "No checkpoint and no active relational Contract.",
+    "next_decision": "Close telemetry, migration, checkpoint, and formal pre-training gates; no training in this unit"
+  }
+}

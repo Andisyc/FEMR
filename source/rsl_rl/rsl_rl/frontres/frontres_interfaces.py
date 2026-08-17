@@ -73,10 +73,31 @@ class FrontRESActiveContractIdentity:
     critic_support_context: str = FRONTRES_CRITIC_SUPPORT_CONTEXT_ID
     gradient_clip: str = FRONTRES_GRADIENT_CLIP_ID
 
+    @classmethod
+    def relational(cls) -> "FrontRESActiveContractIdentity":
+        return cls(
+            method="FRS-METHOD-v026",
+            gain="FRS-GAIN-v009",
+            optimization="FRS-PPO-v013",
+            training="FRS-TRAIN-v025",
+            scalar_target="none",
+            physics_schema="hierarchical-relational-evidence-v1",
+            grouped_schema="relational-preference-edge-v1",
+            checkpoint_format="frontres-v025-checkpoint-v20",
+            critic_value_kind="inert-legacy-compat",
+            critic_input_dim=449,
+            critic_action_conditioned=False,
+            critic_target="none",
+            return_utility="none",
+            return_utility_scale=0.0,
+            critic_support_context="none",
+            gradient_clip="actor-only-relational-v1",
+        )
+
     def validate(self) -> None:
-        expected = FrontRESActiveContractIdentity()
-        if self != expected:
-            raise ValueError(f"FrontRES v017 contract identity drifted: expected={expected!r} actual={self!r}")
+        expected = (FrontRESActiveContractIdentity(), FrontRESActiveContractIdentity.relational())
+        if self not in expected:
+            raise ValueError(f"FrontRES contract identity drifted: allowed={expected!r} actual={self!r}")
 
 
 @dataclass(frozen=True)

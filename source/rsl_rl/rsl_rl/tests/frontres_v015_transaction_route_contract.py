@@ -29,6 +29,7 @@ modules_package.FrontRESActorCritic = object
 sys.modules.setdefault("rsl_rl.modules", modules_package)
 
 from rsl_rl.algorithms.frontres_segment_ppo import (
+    FrontRESRelationalPPOBatch,
     FRONTRES_VALUE_NORMALIZATION_ID,
     FrontRESSegmentPPOBatch,
     FrontRESValueNormalizerState,
@@ -42,6 +43,11 @@ from rsl_rl.frontres.frontres_return_utility import (
     FRONTRES_RETURN_UTILITY_ID,
     FRONTRES_RETURN_UTILITY_SCALE,
     frontres_symmetric_log_utility,
+)
+from rsl_rl.frontres.frontres_relational_evaluation import FrontRESRelationalEvaluationReport
+from rsl_rl.frontres.frontres_relational_scenario_replay import (
+    FRONTRES_RELATIONAL_REPLAY_SCHEMA,
+    FrontRESRelationalScenarioReplay,
 )
 from rsl_rl.frontres.frontres_segment_storage_records import FrontRESV015GroupedCandidateMetadata
 from rsl_rl.frontres.frontres_segment_warmup import resolve_frontres_k_stage_identity
@@ -544,6 +550,199 @@ def test_exact_one_scalar_commit_updates_actor_and_critic_from_first_transaction
     assert repr(result.diagnostics) == before
 
 
+def test_exact_one_relational_commit_updates_actor_only() -> None:
+    runner, scalar_request, policy = _request(iteration=0)
+    for parameter in policy.critic.parameters():
+        parameter.requires_grad_(False)
+    runner.alg.optimizer = _TrackingAdam([
+        {
+            "params": (*tuple(policy.actor.parameters()), policy.log_std),
+            "lr": 3.0e-7,
+            "frontres_role": "actor",
+        }
+    ])
+    runner.alg.frontres_relational_actor_only = True
+    runner.alg.frontres_segment_advantage_normalization = "pairwise_edge"
+    runner.alg.frontres_method_contract_id = "FRS-METHOD-v026"
+    runner.alg.frontres_gain_contract_id = "FRS-GAIN-v009"
+    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v013"
+    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v025"
+    runner.alg.frontres_scalar_target_id = "none"
+    runner.alg.frontres_physics_schema_id = "hierarchical-relational-evidence-v1"
+    runner.alg.frontres_grouped_schema_id = "relational-preference-edge-v1"
+    runner.alg.frontres_critic_support_context_id = "none"
+
+    identity = resolve_frontres_k_stage_identity(
+        schedule=SCHEDULE,
+        committed_update_iteration=0,
+        max_horizon_k=32,
+    )
+    replay = FrontRESRelationalScenarioReplay(seed=31)
+    runner._frontres_outer_scenario_replay = replay
+    replay_plan = replay.plan(
+        transaction_id=scalar_request.plan.transaction_id,
+        curriculum=identity,
+        num_segments=256,
+        eligible=lambda _value: True,
+        global_family=lambda _value: "local_rp",
+    )
+    new_segments = torch.tensor([
+        value.segment_id for value in replay_plan.selections for _ in range(4)
+    ])
+    plan = replace(scalar_request.plan, segment_ids=new_segments)
+    old_batch = scalar_request.candidate_batches[0]
+    metadata = replace(old_batch.transaction_metadata, segment_ids=new_segments)
+    edges = tuple((source * 4, source * 4 + 1) for source in range(8))
+    batch = FrontRESRelationalPPOBatch(
+        observations=old_batch.observations,
+        actions=old_batch.actions,
+        old_log_probs=old_batch.old_log_probs,
+        valid_mask=old_batch.valid_mask,
+        segment_ids=new_segments,
+        old_means=old_batch.old_means,
+        old_sigmas=old_batch.old_sigmas,
+        privileged_observations=old_batch.privileged_observations,
+        transaction_metadata=metadata,
+        transaction_row_indices=old_batch.transaction_row_indices,
+        preference_edges=edges,
+    )
+    pair_counts = tuple(
+        value for _source in range(8) for value in (1, 1, 0, 0)
+    )
+    report = FrontRESRelationalEvaluationReport(
+        transaction_id=plan.transaction_id,
+        policy_row_count=32,
+        scenario_ids=tuple(metadata.scenario_ids),
+        noisy_segment_hashes=tuple(metadata.noisy_segment_hashes),
+        source_statuses=("READY",) * 8,
+        preference_edges=edges,
+        comparable_pair_count_by_row=pair_counts,
+    )
+    report.validate()
+    keys = tuple(
+        FrontRESScenarioKey(
+            motion_id=f"motion-{index}",
+            start_frame=4 * (index + 1),
+            segment_id=value.segment_id,
+            x_t_identity=f"x-{index}",
+            perturbation_family=value.perturbation_family,
+            perturbation_strength=value.perturbation_strength,
+            perturbation_seed=value.perturbation_seed,
+            noisy_segment_hash=f"hash-{index}",
+            horizon_k=8,
+            future_intent_identity=f"future-{value.segment_id}",
+            planned_support_identity=f"support-{value.segment_id}",
+        )
+        for index, value in enumerate(replay_plan.selections)
+    )
+    request = replace(
+        scalar_request,
+        plan=plan,
+        candidate_batches=(batch,),
+        diagnostic_reports=(report,),
+        relational_actor_only=True,
+        outer_replay_plan=replay_plan,
+        outer_replay_scenario_keys=keys,
+    )
+    actor_before = {name: value.detach().clone() for name, value in policy.actor.state_dict().items()}
+    critic_before = {name: value.detach().clone() for name, value in policy.critic.state_dict().items()}
+    open_frontres_checkpoint_transaction_barrier(runner)
+    result = run_frontres_formal_transaction_update(runner, request)
+    assert result.optimizer_step_delta == 1
+    assert result.ppo_result.edge_count == 8
+    assert any(not torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
+    assert all(torch.equal(value, critic_before[name]) for name, value in policy.critic.state_dict().items())
+    assert result.diagnostics["outer_replay"]["schema"] == FRONTRES_RELATIONAL_REPLAY_SCHEMA
+    reset_frontres_checkpoint_transaction(runner)
+
+
+def test_relational_no_edge_transaction_is_zero_write() -> None:
+    runner, scalar_request, policy = _request(iteration=0)
+    for parameter in policy.critic.parameters():
+        parameter.requires_grad_(False)
+    runner.alg.optimizer = _TrackingAdam([{
+        "params": (*tuple(policy.actor.parameters()), policy.log_std),
+        "lr": 3.0e-7,
+        "frontres_role": "actor",
+    }])
+    for name, value in {
+        "frontres_relational_actor_only": True,
+        "frontres_segment_advantage_normalization": "pairwise_edge",
+        "frontres_method_contract_id": "FRS-METHOD-v026",
+        "frontres_gain_contract_id": "FRS-GAIN-v009",
+        "frontres_optimization_contract_id": "FRS-PPO-v013",
+        "frontres_training_contract_id": "FRS-TRAIN-v025",
+        "frontres_scalar_target_id": "none",
+        "frontres_physics_schema_id": "hierarchical-relational-evidence-v1",
+        "frontres_grouped_schema_id": "relational-preference-edge-v1",
+        "frontres_critic_support_context_id": "none",
+    }.items():
+        setattr(runner.alg, name, value)
+    identity = resolve_frontres_k_stage_identity(schedule=SCHEDULE, committed_update_iteration=0, max_horizon_k=32)
+    replay = FrontRESRelationalScenarioReplay(seed=37)
+    runner._frontres_outer_scenario_replay = replay
+    replay_plan = replay.plan(
+        transaction_id=scalar_request.plan.transaction_id,
+        curriculum=identity,
+        num_segments=256,
+        eligible=lambda _value: True,
+        global_family=lambda _value: "local_rp",
+    )
+    segments = torch.tensor([value.segment_id for value in replay_plan.selections for _ in range(4)])
+    plan = replace(scalar_request.plan, segment_ids=segments)
+    old_batch = scalar_request.candidate_batches[0]
+    metadata = replace(old_batch.transaction_metadata, segment_ids=segments)
+    batch = replace(
+        old_batch,
+        segment_ids=segments,
+        transaction_metadata=metadata,
+        returns=torch.zeros(32),
+        advantages=torch.zeros(32),
+        preference_edges=(),
+    )
+    report = FrontRESRelationalEvaluationReport(
+        transaction_id=plan.transaction_id,
+        policy_row_count=32,
+        scenario_ids=tuple(metadata.scenario_ids),
+        noisy_segment_hashes=tuple(metadata.noisy_segment_hashes),
+        source_statuses=("NO_COMPARABLE_PAIRS",) * 8,
+        preference_edges=(),
+        comparable_pair_count_by_row=(0,) * 32,
+    )
+    keys = tuple(
+        FrontRESScenarioKey(
+            motion_id=f"motion-{index}", start_frame=4 * (index + 1), segment_id=value.segment_id,
+            x_t_identity=f"x-{index}", perturbation_family=value.perturbation_family,
+            perturbation_strength=value.perturbation_strength, perturbation_seed=value.perturbation_seed,
+            noisy_segment_hash=f"hash-{index}", horizon_k=8,
+            future_intent_identity=f"future-{value.segment_id}", planned_support_identity=f"support-{value.segment_id}",
+        )
+        for index, value in enumerate(replay_plan.selections)
+    )
+    request = replace(
+        scalar_request,
+        plan=plan,
+        candidate_batches=(batch,),
+        diagnostic_reports=(report,),
+        relational_actor_only=True,
+        outer_replay_plan=replay_plan,
+        outer_replay_scenario_keys=keys,
+    )
+    actor_before = {name: value.detach().clone() for name, value in policy.actor.state_dict().items()}
+    replay_before = copy.deepcopy(replay.state_dict())
+    open_frontres_checkpoint_transaction_barrier(runner)
+    try:
+        run_frontres_formal_transaction_update(runner, request)
+    except Exception as error:
+        assert "NO_COMPARABLE_PAIRS" in str(error)
+    else:
+        raise AssertionError("relationless transaction performed an update")
+    assert runner.alg.optimizer.frontres_step_count == 0
+    assert all(torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
+    _assert_nested_state_equal(replay.state_dict(), replay_before)
+    reset_frontres_checkpoint_transaction(runner)
+
+
 def test_k_transitions_keep_one_critic_and_restart_nonzero_joint_adaptation() -> None:
     runner, _unused, policy = _request(iteration=0)
     actor_parameters = _prime_actor_optimizer_history(runner)
@@ -728,6 +927,8 @@ def main() -> None:
     torch.manual_seed(0)
     test_formal_request_owns_the_grouped_ppo_batch_dependency()
     test_exact_one_scalar_commit_updates_actor_and_critic_from_first_transaction()
+    test_exact_one_relational_commit_updates_actor_only()
+    test_relational_no_edge_transaction_is_zero_write()
     test_k_transitions_keep_one_critic_and_restart_nonzero_joint_adaptation()
     test_coupled_ramp_identity_reaches_transaction_and_telemetry()
     test_partial_transaction_rejects_before_update()
@@ -736,7 +937,7 @@ def main() -> None:
     test_real_counter_shape_rolls_back_without_writing_read_only_property()
     test_post_commit_audit_failure_also_rolls_back_replay_and_optimizer()
     test_phase_reset_routes_mode_through_sealed_reset_owner()
-    print("frontres_v015_transaction_route_contract: v024 current-visit outer replay exact-one ok", flush=True)
+    print("frontres_v015_transaction_route_contract: v024 scalar and v025 relational exact-one ok", flush=True)
 
 
 if __name__ == "__main__":

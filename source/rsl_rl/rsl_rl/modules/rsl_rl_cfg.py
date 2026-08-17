@@ -317,6 +317,7 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     frontres_restore_debug_print_interval: int = 10
     """Iteration interval for low-frequency FrontRES restore consistency prints. <=0 disables prints."""
     frontres_training_objective: str = "supervised_restore"
+    frontres_relational_actor_only: bool = False
     """FrontRES update objective; formal Stage 3 overrides this with Segment Replay PPO."""
     frontres_segment_replay_enabled: bool = False
     """Enable the formal Segment Replay HRL route."""

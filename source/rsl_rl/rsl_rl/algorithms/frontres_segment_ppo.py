@@ -45,6 +45,41 @@ class FrontRESSegmentPPOConfig:
 
 
 @dataclass(frozen=True)
+class FrontRESRelationalPPOConfig:
+    """Configuration for the relational Actor-only preference update.
+
+    This is deliberately separate from the scalar-Gain configuration.  A
+    relational batch has no state-value target: only directed, human-approved
+    preference edges contribute to the clipped Actor surrogate.
+    """
+
+    clip_param: float = 0.2
+    max_log_ratio: float = 20.0
+
+
+@dataclass(frozen=True)
+class FrontRESRelationalPPOResult:
+    total_loss: torch.Tensor
+    actor_loss: torch.Tensor
+    entropy: torch.Tensor
+    edge_count: int
+    valid_count: int
+    actor_credit: torch.Tensor
+    status: str
+
+    @property
+    def should_step(self) -> bool:
+        return self.status == "READY" and self.edge_count > 0
+
+    def diagnostics(self) -> dict[str, float]:
+        return {
+            "segment/relational_edge_count": float(self.edge_count),
+            "segment/relational_valid_row_count": float(self.valid_count),
+            "segment/relational_should_step": float(self.should_step),
+        }
+
+
+@dataclass(frozen=True)
 class FrontRESSegmentPPOBatch:
     observations: torch.Tensor
     actions: torch.Tensor
@@ -63,6 +98,139 @@ class FrontRESSegmentPPOBatch:
     # consumed only by the candidate grouped-loss mode below.
     transaction_metadata: Any | None = None
     transaction_row_indices: torch.Tensor | None = None
+    preference_edges: tuple[tuple[int, int], ...] = ()
+
+
+@dataclass(frozen=True)
+class FrontRESRelationalPPOBatch:
+    """Actor-only batch with no reward, return, advantage, or value target."""
+
+    observations: torch.Tensor
+    actions: torch.Tensor
+    old_log_probs: torch.Tensor
+    valid_mask: torch.Tensor
+    segment_ids: torch.Tensor | None = None
+    old_means: torch.Tensor | None = None
+    old_sigmas: torch.Tensor | None = None
+    privileged_observations: torch.Tensor | None = None
+    transaction_metadata: Any | None = None
+    transaction_row_indices: torch.Tensor | None = None
+    preference_edges: tuple[tuple[int, int], ...] = ()
+
+
+def compute_frontres_relational_actor_loss(
+    policy: Any,
+    batch: FrontRESRelationalPPOBatch,
+    preference_edges: tuple[tuple[int, int], ...],
+    cfg: FrontRESRelationalPPOConfig | None = None,
+) -> FrontRESRelationalPPOResult:
+    """Compute a clipped PPO Actor loss from a partial-order edge set.
+
+    ``(winner, loser)`` is the only semantic input.  Each edge contributes
+    ``+1`` to the winner and ``-1`` to the loser; SAME and INCOMPARABLE pairs
+    are absent.  The edge count, rather than row count, is the normalization
+    unit.  No scalar return, value target, or Critic gradient is constructed.
+    """
+
+    cfg = FrontRESRelationalPPOConfig() if cfg is None else cfg
+    if not math.isfinite(float(cfg.clip_param)) or float(cfg.clip_param) < 0.0:
+        raise ValueError("relational PPO clip_param must be finite and non-negative")
+    if not math.isfinite(float(cfg.max_log_ratio)) or float(cfg.max_log_ratio) <= 0.0:
+        raise ValueError("relational PPO max_log_ratio must be finite and positive")
+    _validate_relational_batch(batch)
+    policy_eval = _evaluate_policy(policy, batch)
+    _validate_policy_eval(policy_eval, batch)
+    batch_size = int(batch.actions.shape[0])
+    actor_credit = batch.actions.new_zeros((batch_size,))
+    if not preference_edges:
+        zero = batch.actions.new_zeros(())
+        return FrontRESRelationalPPOResult(
+            total_loss=zero,
+            actor_loss=zero,
+            entropy=zero,
+            edge_count=0,
+            valid_count=0,
+            actor_credit=actor_credit,
+            status="NO_COMPARABLE_PAIRS",
+        )
+
+    normalized_edges: list[tuple[int, int]] = []
+    for edge in preference_edges:
+        if not isinstance(edge, tuple) or len(edge) != 2:
+            raise ValueError("relational preference edges must be (winner, loser) pairs")
+        winner, loser = edge
+        if not isinstance(winner, int) or not isinstance(loser, int):
+            raise ValueError("relational preference edge indices must be integers")
+        if winner == loser or not (0 <= winner < batch_size) or not (0 <= loser < batch_size):
+            raise ValueError("relational preference edge index is out of range or self-referential")
+        normalized_edges.append((winner, loser))
+    if len(set(normalized_edges)) != len(normalized_edges):
+        raise ValueError("relational preference edges must be unique")
+    outgoing: dict[int, set[int]] = {}
+    indegree = [0 for _ in range(batch_size)]
+    for winner, loser in normalized_edges:
+        outgoing.setdefault(winner, set()).add(loser)
+        indegree[loser] += 1
+    frontier = [index for index, degree in enumerate(indegree) if degree == 0]
+    visited = 0
+    while frontier:
+        node = frontier.pop()
+        visited += 1
+        for loser in outgoing.get(node, ()):
+            indegree[loser] -= 1
+            if indegree[loser] == 0:
+                frontier.append(loser)
+    involved = {index for edge in normalized_edges for index in edge}
+    uninvolved = batch_size - len(involved)
+    if visited - uninvolved != len(involved):
+        raise ValueError("relational preference edges must form an acyclic partial order")
+    valid_mask = batch.valid_mask.detach().bool()
+    if any(not bool(valid_mask[winner]) or not bool(valid_mask[loser]) for winner, loser in normalized_edges):
+        raise ValueError("relational preference edges cannot reference invalid policy rows")
+
+    finite = torch.isfinite(policy_eval.log_prob) & torch.isfinite(batch.old_log_probs)
+    if not bool(finite.all().item()):
+        raise ValueError("relational PPO received non-finite Actor log probabilities")
+    for winner, loser in normalized_edges:
+        actor_credit[winner] += 1.0
+        actor_credit[loser] -= 1.0
+
+    log_ratio = (policy_eval.log_prob - batch.old_log_probs.detach()).clamp(
+        -float(cfg.max_log_ratio), float(cfg.max_log_ratio)
+    )
+    ratio = torch.exp(log_ratio)
+    clipped_ratio = ratio.clamp(1.0 - float(cfg.clip_param), 1.0 + float(cfg.clip_param))
+    edge_rows = actor_credit != 0.0
+    surrogate = torch.minimum(ratio * actor_credit, clipped_ratio * actor_credit)
+    actor_loss = -surrogate[edge_rows].sum() / float(len(normalized_edges))
+    entropy = _masked_entropy(policy_eval.entropy, edge_rows, actor_loss)
+    return FrontRESRelationalPPOResult(
+        total_loss=actor_loss,
+        actor_loss=actor_loss,
+        entropy=entropy,
+        edge_count=len(normalized_edges),
+        valid_count=int(edge_rows.sum().item()),
+        actor_credit=actor_credit.detach(),
+        status="READY",
+    )
+
+
+def _validate_relational_batch(batch: FrontRESRelationalPPOBatch) -> None:
+    if not isinstance(batch, FrontRESRelationalPPOBatch):
+        raise TypeError("relational Actor loss requires FrontRESRelationalPPOBatch")
+    if batch.observations.ndim != 2 or batch.actions.ndim != 2:
+        raise ValueError("relational observations and actions must be rank-2")
+    rows = int(batch.actions.shape[0])
+    if rows <= 0 or int(batch.observations.shape[0]) != rows or tuple(batch.actions.shape[1:]) != (6,):
+        raise ValueError("relational batch requires aligned nonempty observations and [B,6] actions")
+    for name in ("old_log_probs", "valid_mask"):
+        value = getattr(batch, name)
+        if value.ndim != 1 or int(value.numel()) != rows:
+            raise ValueError(f"relational {name} must be row-aligned")
+    if not bool(torch.isfinite(batch.observations).all()) or not bool(torch.isfinite(batch.actions).all()):
+        raise ValueError("relational policy inputs must be finite")
+    if not bool(torch.isfinite(batch.old_log_probs).all()):
+        raise ValueError("relational old log probabilities must be finite")
 
 
 @dataclass(frozen=True)

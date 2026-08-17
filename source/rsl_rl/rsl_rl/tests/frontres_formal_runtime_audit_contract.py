@@ -743,6 +743,31 @@ def test_termination_term_snapshot_preserves_term_and_role_identity() -> None:
     assert snapshot["anchor_ori"] == {"policy": 0, "candidate": 2, "noisy": 0, "clean": 1}
 
 
+def test_relational_formal_route_audit_accepts_actor_only_identity() -> None:
+    runner = _runner()
+    for parameter in runner.alg.policy.critic.parameters():
+        parameter.requires_grad_(False)
+    runner.alg.optimizer = torch.optim.Adam(
+        [{
+            "params": list(runner.alg.policy.residual_actor.parameters()),
+            "lr": 3.0e-7,
+            "frontres_role": "actor",
+            "frontres_step_count": 0,
+        }]
+    )
+    runner.alg.frontres_relational_actor_only = True
+    runner.alg.frontres_training_objective = "segment_replay_relational"
+    runner.alg.frontres_method_contract_id = "FRS-METHOD-v026"
+    runner.alg.frontres_gain_contract_id = "FRS-GAIN-v009"
+    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v013"
+    runner.alg.frontres_training_contract_id = "FRS-TRAIN-v025"
+    runner.alg.frontres_critic_support_context_id = "none"
+    runner.alg.frontres_critic_value_normalization = "none"
+    with contextlib.redirect_stdout(io.StringIO()) as buffer:
+        audit.print_formal_route_audit(runner, num_learning_iterations=1)
+    assert "FRS-GAIN-v009" in buffer.getvalue()
+
+
 if __name__ == "__main__":
     test_return_audit_uses_policy_gain_rows_only()
     test_structured_phase_b_snapshots_cover_all_formal_boundaries()
@@ -756,4 +781,5 @@ if __name__ == "__main__":
     test_reset_lifecycle_audit_is_role_aware_and_separates_timeout_from_termination()
     test_reset_pair_root_error_removes_per_environment_world_origins()
     test_termination_term_snapshot_preserves_term_and_role_identity()
+    test_relational_formal_route_audit_accepts_actor_only_identity()
     print("frontres_formal_runtime_audit_contract: ok")

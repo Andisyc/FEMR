@@ -1,0 +1,39 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-GAIN-RELATIONAL-ACTOR-ONLY-20260817-V003",
+  "mode": "construction",
+  "verdict": "PRE-TRAINING-READY",
+  "scope": {
+    "requested": ["Integrate hierarchical relational Gain through the official Stage-3 boundary and stop before training"],
+    "preserved": ["Full-6D Actor", "Frozen GMT", "B8 x M4 exact-one transaction", "Legacy scalar characterization"],
+    "forbidden": ["Scalar fallback on relational route", "Trainable Critic", "Training or live execution by Codex"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025/FRS-EVAL-v007",
+    "checkout": "a89377bc1c9d9d3f9cb0eb0f474c30b011a85609+dirty-worktree",
+    "review_object": "sha256:08b49fc72d5a590bcabc67fdb2a84fdc8cb3352a0a81644f51ac9e5a515fe2e4"
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "Trajectory Outcome, comparator, edge PPO, Replay, transaction, and persistence each have one owner."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "FrontRESRelationalPPOBatch has no scalar reward, return, advantage, old value, or Critic target fields."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "Pure Outcome/comparator modules do not depend on runner IO; composition remains in the formal transaction owner."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "No-edge is zero-write; exact-one Actor step atomically commits relation Replay and receipt."},
+    {"name": "persistence", "disposition": "pass", "evidence": "checkpoint-v20 CPU save/load round-trip preserves Actor-only optimizer, Replay, RNG, schedule, GMT and normalizers."},
+    {"name": "entrypoint", "disposition": "pass", "evidence": "relational_train launcher preflight selects the explicit relation flag; old scalar checkpoint identity fails strict v20 validation."},
+    {"name": "regression", "disposition": "pass", "evidence": "FrontRES Segment Replay aggregate Contract suite passed 60/60."}
+  ],
+  "findings": [],
+  "residual_risks": [
+    "Capture/stability thresholds are design-confirmed but not calibrated by post-migration real telemetry.",
+    "Simulator execution, convergence, policy quality and deployment behavior are untested.",
+    "The compatibility Critic remains serialized for model layout but is frozen and optimizer-excluded."
+  ],
+  "claims": {
+    "maintainability": "reviewed-no-open-finding",
+    "module_correctness": "offline-confirmed",
+    "formal_route": "configuration-and-cpu-transaction-confirmed-runtime-unconfirmed",
+    "policy_quality": "not-claimed",
+    "training": "not-run"
+  }
+}

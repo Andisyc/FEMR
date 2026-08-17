@@ -141,7 +141,7 @@ class FrontRESSegmentRunnerBoundary:
                 )
         requested = not evaluation_only and (
             bool(alg_cfg.get("frontres_segment_replay_enabled", False))
-            or objective == "segment_replay_hrl"
+            or objective in {"segment_replay_hrl", "segment_replay_relational"}
         )
         return cls(
             requested=requested,

@@ -23,6 +23,9 @@ from rsl_rl.frontres.frontres_outer_scenario_replay import (
     frontres_tensor_identity,
     isolated_frontres_perturbation_rng,
 )
+from rsl_rl.frontres.frontres_relational_scenario_replay import (
+    FrontRESRelationalScenarioReplay,
+)
 from rsl_rl.frontres.frontres_segment_legacy_scenario import (
     FrontRESFixedNoisyScenarioLifecycle,
     FrontRESNoisyReferenceMaterialization,
@@ -129,7 +132,12 @@ def initialize_frontres_segment_live_sampler(runner: Any) -> None:
         bool(getattr(runner.alg, "frontres_formal_transaction_enabled", False))
         and getattr(runner, "_frontres_outer_scenario_replay", None) is None
     ):
-        runner._frontres_outer_scenario_replay = FrontRESOuterScenarioReplay(
+        replay_cls = (
+            FrontRESRelationalScenarioReplay
+            if bool(getattr(runner.alg, "frontres_relational_actor_only", False))
+            else FrontRESOuterScenarioReplay
+        )
+        runner._frontres_outer_scenario_replay = replay_cls(
             global_frac=float(getattr(runner.alg, "frontres_segment_sampler_global_frac", 0.4)),
             replay_frac=float(getattr(runner.alg, "frontres_segment_sampler_replay_frac", 0.5)),
             review_frac=float(getattr(runner.alg, "frontres_segment_sampler_review_frac", 0.1)),

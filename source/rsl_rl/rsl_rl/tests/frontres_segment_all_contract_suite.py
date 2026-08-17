@@ -335,7 +335,7 @@ CONTRACTS = (
     ContractTarget(
         name="v017_transaction_route",
         path="source/rsl_rl/rsl_rl/tests/frontres_v015_transaction_route_contract.py",
-        expected_marker="frontres_v015_transaction_route_contract: v024 current-visit outer replay exact-one ok",
+        expected_marker="frontres_v015_transaction_route_contract: v024 scalar and v025 relational exact-one ok",
         path_class="core_param_path",
         requires_torch=True,
     ),

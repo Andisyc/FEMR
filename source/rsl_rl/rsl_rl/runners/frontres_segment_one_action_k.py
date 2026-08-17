@@ -333,6 +333,11 @@ def _stack_v017_execution_frames(
         zmp_margin=torch.stack([value.zmp_margin for value in frames], dim=0),
         survival=torch.stack(survival, dim=0),
         valid_mask=torch.stack(valid, dim=0),
+        env_origin=(
+            torch.stack([value.env_origin for value in frames], dim=0)
+            if all(isinstance(value.env_origin, torch.Tensor) for value in frames)
+            else None
+        ),
     )
     expected = torch.stack([value.expected_support for value in frames], dim=0)
     trajectory.validate()
@@ -394,6 +399,13 @@ def select_frontres_v017_trajectory_rows(
                 "zmp_margin",
                 "survival",
                 "valid_mask",
+            )
+        }
+        | {
+            "env_origin": (
+                trajectory.env_origin.index_select(1, ids).detach().clone()
+                if isinstance(trajectory.env_origin, torch.Tensor)
+                else None
             )
         }
     )

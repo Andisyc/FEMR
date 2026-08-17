@@ -142,6 +142,7 @@ class FrontRESUnified:
         frontres_supervised_lr_cosine_iters: int = 1000,
         frontres_restore_debug_print_interval: int = 10,
         frontres_training_objective: str = "supervised_restore",
+        frontres_relational_actor_only: bool = False,
         frontres_segment_replay_enabled: bool = False,
         frontres_policy_quality_eval_only: bool = False,
         frontres_segment_live_runner_enabled: bool = False,
@@ -225,16 +226,27 @@ class FrontRESUnified:
 
         self.policy = policy.to(self.device)
 
+        relational_actor_only = bool(
+            frontres_relational_actor_only
+            or str(frontres_training_objective).lower() == "segment_replay_relational"
+        )
+        if relational_actor_only and not frontres_formal_transaction_enabled:
+            raise ValueError("relational Actor-only mode requires formal transaction isolation")
         strict_split_lr = bool(frontres_formal_transaction_enabled and not frontres_policy_quality_eval_only)
         if strict_split_lr:
             if str(schedule).lower() != "fixed":
                 raise ValueError("FRS-TRAIN-v021 requires schedule='fixed' for Stage-3 training")
             actor_lr = self._require_positive_finite_lr(learning_rate, name="actor_learning_rate")
-            critic_lr = self._require_positive_finite_lr(critic_learning_rate, name="critic_learning_rate")
+            critic_lr = (
+                None
+                if relational_actor_only
+                else self._require_positive_finite_lr(critic_learning_rate, name="critic_learning_rate")
+            )
             trainable_params = self._collect_trainable_param_groups(
                 policy,
                 actor_learning_rate=actor_lr,
                 critic_learning_rate=critic_lr,
+                actor_only=relational_actor_only,
             )
         else:
             actor_lr = self._require_positive_finite_lr(learning_rate, name="learning_rate")
@@ -286,6 +298,7 @@ class FrontRESUnified:
         self.frontres_supervised_lr_cosine_iters = int(frontres_supervised_lr_cosine_iters)
         self.frontres_restore_debug_print_interval = int(frontres_restore_debug_print_interval)
         self.frontres_training_objective = str(frontres_training_objective).lower()
+        self.frontres_relational_actor_only = relational_actor_only
         self.frontres_segment_replay_enabled = bool(frontres_segment_replay_enabled)
         self.frontres_policy_quality_eval_only = bool(frontres_policy_quality_eval_only)
         self.frontres_segment_live_runner_enabled = bool(frontres_segment_live_runner_enabled)
@@ -297,26 +310,42 @@ class FrontRESUnified:
         self.frontres_segment_live_update_loop_only = bool(frontres_segment_live_update_loop_only)
         self.frontres_segment_live_train_enabled = bool(frontres_segment_live_train_enabled)
         self.frontres_formal_transaction_enabled = bool(frontres_formal_transaction_enabled)
-        self.frontres_method_contract_id = "FRS-METHOD-v025"
-        self.frontres_gain_contract_id = "FRS-GAIN-v008"
-        self.frontres_optimization_contract_id = "FRS-PPO-v012"
-        self.frontres_training_contract_id = "FRS-TRAIN-v024"
+        if self.frontres_relational_actor_only:
+            self.frontres_method_contract_id = "FRS-METHOD-v026"
+            self.frontres_gain_contract_id = "FRS-GAIN-v009"
+            self.frontres_optimization_contract_id = "FRS-PPO-v013"
+            self.frontres_training_contract_id = "FRS-TRAIN-v025"
+        else:
+            self.frontres_method_contract_id = "FRS-METHOD-v025"
+            self.frontres_gain_contract_id = "FRS-GAIN-v008"
+            self.frontres_optimization_contract_id = "FRS-PPO-v012"
+            self.frontres_training_contract_id = "FRS-TRAIN-v024"
         self.frontres_dr_curriculum_schema_id = "nested-k-dr-four-class-v1"
-        self.frontres_scalar_target_id = "symmetric-log-recovery-aware-utility-v1"
-        self.frontres_physics_schema_id = "clean-anchored-contact-zmp-survival-v1"
-        self.frontres_grouped_schema_id = "grouped-all-attempt-scalar-v1"
-        self.frontres_critic_value_kind = "state_value"
+        self.frontres_scalar_target_id = "none" if self.frontres_relational_actor_only else "symmetric-log-recovery-aware-utility-v1"
+        self.frontres_physics_schema_id = (
+            "hierarchical-relational-evidence-v1"
+            if self.frontres_relational_actor_only
+            else "clean-anchored-contact-zmp-survival-v1"
+        )
+        self.frontres_grouped_schema_id = (
+            "relational-preference-edge-v1" if self.frontres_relational_actor_only else "grouped-all-attempt-scalar-v1"
+        )
+        self.frontres_critic_value_kind = "inert-legacy-compat" if self.frontres_relational_actor_only else "state_value"
         self.frontres_critic_input_dim = 449
         self.frontres_critic_action_conditioned = False
-        self.frontres_critic_target_id = "scenario-current-exact-m4-mean-symlog-v1"
-        self.frontres_return_utility_id = "symmetric-log-gain-g0-1-v1"
+        self.frontres_critic_target_id = "none" if self.frontres_relational_actor_only else "scenario-current-exact-m4-mean-symlog-v1"
+        self.frontres_return_utility_id = "none" if self.frontres_relational_actor_only else "symmetric-log-gain-g0-1-v1"
         self.frontres_return_utility_scale = 1.0
-        self.frontres_critic_support_context_id = "action-pre-support-plan-kmax32-v1"
-        self.frontres_gradient_clip_identity = "separate-actor-critic-v1"
+        self.frontres_critic_support_context_id = (
+            "none" if self.frontres_relational_actor_only else "action-pre-support-plan-kmax32-v1"
+        )
+        self.frontres_gradient_clip_identity = (
+            "actor-only-relational-v1" if self.frontres_relational_actor_only else "separate-actor-critic-v1"
+        )
         self.frontres_critic_value_normalization = str(frontres_critic_value_normalization).lower()
         self.frontres_critic_value_normalizer_decay = float(frontres_critic_value_normalizer_decay)
         self.frontres_critic_value_normalizer_scale_floor = float(frontres_critic_value_normalizer_scale_floor)
-        if self.frontres_formal_transaction_enabled:
+        if self.frontres_formal_transaction_enabled and not self.frontres_relational_actor_only:
             if self.frontres_critic_value_normalization != FRONTRES_VALUE_NORMALIZATION_ID:
                 raise ValueError(
                     f"FRS-TRAIN-v021 requires frontres_critic_value_normalization={FRONTRES_VALUE_NORMALIZATION_ID}"
@@ -333,7 +362,7 @@ class FrontRESUnified:
             frontres_segment_actor_joint_lr,
             name="frontres_segment_actor_joint_lr",
         )
-        if self.frontres_formal_transaction_enabled and (
+        if self.frontres_formal_transaction_enabled and not self.frontres_relational_actor_only and (
             self.actor_learning_rate != 3.0e-7
             or self.frontres_segment_actor_joint_lr != 1.0e-6
             or self.critic_learning_rate != 1.0e-5
@@ -380,7 +409,9 @@ class FrontRESUnified:
         self.frontres_gain_beta = float(frontres_gain_beta)
         if not math.isfinite(self.frontres_gain_beta) or self.frontres_gain_beta < 0.0:
             raise ValueError("FRS-GAIN-v008 beta must be finite and non-negative")
-        if self.frontres_segment_advantage_normalization not in ("none", "scale_only", "standard", "grouped_scale_only"):
+        if self.frontres_segment_advantage_normalization not in (
+            "none", "scale_only", "standard", "grouped_scale_only", "pairwise_edge"
+        ):
             raise ValueError(
                 "frontres_segment_advantage_normalization must be one of "
                 "'none', 'scale_only', 'standard', or 'grouped_scale_only'"
@@ -390,7 +421,8 @@ class FrontRESUnified:
                 raise ValueError("FRS-GAIN-v008 formal route requires the frozen beta_init=0.02")
             if not self.frontres_segment_k_curriculum:
                 raise ValueError("FRS-TRAIN-v021 formal transaction requires an explicit K x M x DR curriculum")
-            if self.frontres_segment_advantage_normalization != "grouped_scale_only":
+            expected_normalization = "pairwise_edge" if self.frontres_relational_actor_only else "grouped_scale_only"
+            if self.frontres_segment_advantage_normalization != expected_normalization:
                 raise ValueError("v015 formal transaction requires grouped_scale_only normalization")
             if (
                 self.lambda_supervised != 0.0
@@ -571,13 +603,19 @@ class FrontRESUnified:
         return lr
 
     @staticmethod
-    def _collect_trainable_param_groups(policy, *, actor_learning_rate: float, critic_learning_rate: float):
+    def _collect_trainable_param_groups(
+        policy,
+        *,
+        actor_learning_rate: float,
+        critic_learning_rate: float | None,
+        actor_only: bool = False,
+    ):
         if not isinstance(policy, (ResidualActorCritic, FrontRESActorCritic)):
             raise TypeError("FRS-TRAIN-v021 Stage-3 optimizer requires a FrontRES Actor/Critic policy")
         actor_params = list(policy.residual_actor.parameters())
         critic_params = list(policy.critic.parameters())
         if not actor_params or not critic_params:
-            raise ValueError("FRS-TRAIN-v021 requires non-empty Actor and Critic parameter groups")
+            raise ValueError("FrontRES formal optimizer requires non-empty Actor and Critic modules")
         if hasattr(policy, "std") and getattr(policy.std, "requires_grad", False):
             raise ValueError("FRS-TRAIN-v021 task-space policy std must remain fixed")
         if hasattr(policy, "log_std") and getattr(policy.log_std, "requires_grad", False):
@@ -586,6 +624,17 @@ class FrontRESUnified:
         critic_ids = {id(parameter) for parameter in critic_params}
         if actor_ids.intersection(critic_ids):
             raise ValueError("FRS-TRAIN-v021 Actor and Critic optimizer groups must be disjoint")
+        if actor_only:
+            for parameter in critic_params:
+                parameter.requires_grad_(False)
+            trainable_ids = {id(parameter) for parameter in policy.parameters() if parameter.requires_grad}
+            if trainable_ids != actor_ids:
+                raise ValueError("FRS-TRAIN-v025 Actor-only optimizer must exhaust Actor parameters only")
+            print(
+                f"[FrontRESUnified] Relational optimizer updates Actor only (lr={actor_learning_rate:.6g}); "
+                "Critic is frozen compatibility state"
+            )
+            return [{"params": actor_params, "lr": actor_learning_rate, "frontres_role": "actor"}]
         trainable_ids = {id(parameter) for parameter in policy.parameters() if parameter.requires_grad}
         if trainable_ids != actor_ids.union(critic_ids):
             raise ValueError(
@@ -624,14 +673,16 @@ class FrontRESUnified:
         print(f"  Objective={self.frontres_training_objective}")
         if self.frontres_training_objective == "supervised_restore":
             print("  L = L_supervised_restore  (full-6D HSL proposal update)")
-        elif self.frontres_training_objective == "segment_replay_hrl":
+        elif self.frontres_training_objective in ("segment_replay_hrl", "segment_replay_relational"):
             if self.frontres_policy_quality_eval_only:
                 print("  Mode = read-only policy-quality evaluation  (all updates disabled)")
+            elif self.frontres_relational_actor_only:
+                print("  L = relational Segment Replay  (Actor-only preference edges; Critic inert)")
             else:
                 print("  L = Segment Replay HRL  (dedicated runner loop; legacy update disabled)")
         else:
             raise ValueError(
-                f"FrontRESUnified only supports supervised_restore or segment_replay_hrl, "
+                f"FrontRESUnified only supports supervised_restore, segment_replay_hrl, or segment_replay_relational, "
                 f"got {self.frontres_training_objective!r}"
             )
         print("=" * 80)

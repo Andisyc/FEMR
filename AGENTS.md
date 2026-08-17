@@ -59,25 +59,22 @@ The intended training flow is:
 3. Stage 3 Segment Replay PPO
    - Initialize the same 6D actor from HSL, then optimize direct Delta SE(3)
      repair with one-action-K paired evidence, sealed B8 x M4 replay,
-     outer prioritized sealed-Scenario replay across transactions, and exactly
-     one grouped optimizer update per committed transaction.
-   - The reward owner publishes one raw Recovery-Aware `G_total` per Repair.
-     The optimization owner applies fixed symmetric-log utility independently
-     to each valid attempt before the current transaction's exact-M4 Critic
-     mean and current-attempt Actor advantage.
-     The 449D support-conditioned scalar Critic predicts expected utility, not
-     raw Gain and not action-conditioned `Q(s,a)`. Actor and Critic retain
-     separate gradient clipping before the same exact-one Adam step. There is
-     no active constraint-gradient projection or KKT authority.
-   - Under TRAIN-v024 the single Adam owns two named groups. Critic LR remains
-     `1e-5`; Actor LR is the actual optimizer-group LR, starting at `3e-7`,
-     ramping to `1e-6`, and resetting to `3e-7` at each K transition.
+     relational sealed-Scenario replay across transactions, and exactly one
+     Actor optimizer update per committed transaction.
+   - The active fresh-training reward owner publishes a hierarchical Outcome
+     and `BETTER/WORSE/SAME/INCOMPARABLE` relations within each Scenario. It
+     publishes no scalar Gain, return, advantage, Critic target, or value loss.
+     `INVALID` fails closed; no comparable edge is zero-write and recollect.
+   - Under TRAIN-v025 the Adam owns only the Actor group. The compatibility
+     449D Critic is frozen and excluded from the optimizer. Actor LR is the
+     actual optimizer-group LR, starting at `3e-7`, ramping to `1e-6`, and
+     resetting to `3e-7` at each K transition.
    - Outer Scenario replay keeps an unbounded archive but a bounded per-K active
      pool (`64 -> 128 -> 256`). Each active Scenario must receive at least four
      committed fresh M4 visits at the current K before breadth expansion. Replay
-     retains Scenario identity and latest priorities, but no historical utility
-     window or cross-policy numerical target. DR and replay breadth never expand
-     in the same phase.
+     retains Scenario identity, latest edge density, visits and staleness, but
+     no utility, value, Critic calibration or cross-policy numerical target. DR
+     and replay breadth never expand in the same phase.
 
 ## Perturbation Curriculum
 
@@ -100,42 +97,39 @@ Do not use the full environment reward for Segment gain or PPO return.
 Teleoperation, velocity-command, generic tracking, and unrelated task terms are
 not repair evidence.
 
-The accepted raw Stage-3 evidence is the unique Recovery-Aware value published
-by the active reward Contract:
+The active fresh Stage-3 evidence is the hierarchical relation published by
+FRS-GAIN-v009:
 
 ```text
-G_total = G_I + lambda_RA * G_P - beta * C_repair
-return_K = G_total
-U(G_total) = sign(G_total) * log1p(abs(G_total))
-critic_target = mean(current transaction's exact M4 U(G_total))
-advantage_m = U(G_total_m) - V_old(s)
+Outcome = (Survival, severe_contact, recovery_quality, Intent_error, repair_cost)
+compare(A, B) in {BETTER, WORSE, SAME, INCOMPARABLE, INVALID}
+edge(i, j) iff compare(i, j) = BETTER
+Actor_credit_i = out_degree(i) - in_degree(i)
+Critic_target = none
 ```
 
-`G_I` and `G_P` are signed Noisy-to-Repair improvements measured relative to
-the same executed Clean anchor. `lambda_RA` is determined by remaining Physics
-pressure in the Noisy and Repair outcomes. Missing or malformed evidence fails
-the transaction closed; valid actual no-load is a Contact violation with
-role-specific ZMP N/A. Clean continuation is GMT/Physics-evaluator evidence only
-and never actor input. Repair cost covers full-6D magnitude and temporal change.
-There is no rho, second actor/Critic/optimizer, constraint projection, KKT dual,
-scalar Physics fallback, or epsilon gate.
+Missing or malformed evidence fails the transaction closed. Survival, expected
+support no-load, unplanned support switch and illegal contact are hierarchical
+and cannot be compensated by lower-level tracking quality. Recovery quality
+uses exact quantized Pareto comparison over Capture Margin/trend, applicable
+ZMP, Clean-relative linear/angular dynamics error and support drift. Intent and
+full-6D repair cost are compared only after stable Physics. There is no scalar
+fallback, second score, trainable Critic, constraint projection, KKT dual, or
+epsilon gate. FRS-GAIN-v008 remains a legacy compatibility route only.
 
 Important diagnostics:
 
-- raw Gain, transformed utility, current-M4 target, current-M4 outcome variance,
-  mean uncertainty, value, advantage and Critic calibration;
-- Critic value loss, committed non-amplifying target scale, committed moments
-  and exact update-count transition;
+- per-Repair level, severe-contact vector, Recovery vector, Intent vector,
+  repair cost, relation status, edge count and Actor incidence credit;
+- no-edge/invalid zero-write status and exact update-count transition;
 - expected/actual Contact and loaded-support phase-ZMP applicability/violation;
 - survival, sustained lateral lean, and unplanned support changes;
-- Recovery-Aware components `G_I`, `G_P`, `P_N`, `P_R`, `lambda_RA`, cost and
-  final `G_total`;
 - action magnitude/non-collapse and actor/Critic parameter deltas;
-- scenario/noisy hash, group mass, exact-one update and committed receipt.
+- scenario/noisy hash, edge density, exact-one Actor update and committed receipt.
 
-Negative scalar objective is not by itself a Physics failure. Inspect paired
-Intent improvement and repair cost separately from Contact/phase-ZMP/survival
-constraints, then locate the first invalid owner before changing the method.
+An incomparable pair is not a failure and must not become zero scalar reward.
+Inspect the first differing hierarchy level and the evidence validity owner
+before changing the method.
 
 ## Validation Experiments
 
