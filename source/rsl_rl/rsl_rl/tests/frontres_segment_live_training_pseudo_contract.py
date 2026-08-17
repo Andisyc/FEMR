@@ -684,6 +684,36 @@ def test_formal_k_stage_handoff_rejects_missing_checkpoint_owner() -> None:
         ) = originals
 
 
+def test_relational_formal_summary_does_not_require_scalar_ppo_fields() -> None:
+    summary = {
+        "relational": True,
+        "frontres_transaction_telemetry": {
+            "transaction_id": "tx-relational",
+            "return_utility_id": "none",
+            "edge_count": 3,
+        },
+        "ppo_valid_count": 16,
+        "relational_edge_count": 3,
+        "relational_status": "COMMITTED",
+        "transaction_id": "tx-relational",
+        "segment_count": 8,
+        "policy_attempt_count": 32,
+        "optimizer_step_delta": 1,
+    }
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        live_training_module._print_v015_formal_train_summary(
+            types.SimpleNamespace(current_learning_iteration=0),
+            local_iteration=1,
+            num_learning_iterations=1,
+            summary=summary,
+        )
+    rendered = output.getvalue()
+    assert "[FrontRES v025 Relational Formal Train]" in rendered
+    assert "edges=3" in rendered
+    assert "grouped_attempts" not in rendered
+
+
 def main() -> None:
     test_pseudo_live_training_runs_two_iterations_and_saves_checkpoints()
     test_pseudo_live_training_zero_iterations_does_not_touch_update_loop()
@@ -700,6 +730,7 @@ def main() -> None:
     test_resume_progress_separates_absolute_and_local_iterations()
     test_formal_k_stage_boundary_saves_then_requires_new_env_width()
     test_formal_k_stage_handoff_rejects_missing_checkpoint_owner()
+    test_relational_formal_summary_does_not_require_scalar_ppo_fields()
     print("result: PASS")
 
 

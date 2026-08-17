@@ -325,6 +325,8 @@ class FrontRESActiveTelemetryView:
             "critic_input_dim",
             "critic_action_conditioned",
             "critic_target_id",
+            "return_utility_id",
+            "return_utility_scale",
             "critic_support_context_id",
             "gradient_clip_identity",
             "actor_observation_dim",
@@ -366,6 +368,8 @@ class FrontRESActiveTelemetryView:
                 critic_input_dim=int(values["critic_input_dim"]),
                 critic_action_conditioned=bool(values["critic_action_conditioned"]),
                 critic_target=str(values["critic_target_id"]),
+                return_utility=str(values["return_utility_id"]),
+                return_utility_scale=float(values["return_utility_scale"]),
                 critic_support_context=str(values["critic_support_context_id"]),
                 gradient_clip=str(values["gradient_clip_identity"]),
             ),
@@ -407,7 +411,11 @@ class FrontRESActiveTelemetryView:
             raise ValueError("FrontRES telemetry requires transaction identity")
         if self.optimizer_step_delta != 1 or self.update_count != 1:
             raise ValueError("FrontRES telemetry requires exact-one update identity")
-        if not 3.0e-7 <= self.actor_learning_rate <= 1.0e-6 or self.critic_learning_rate != 1.0e-5:
+        relational = self.identity == FrontRESActiveContractIdentity.relational()
+        if relational:
+            if not 3.0e-7 <= self.actor_learning_rate <= 1.0e-6 or self.critic_learning_rate != 0.0:
+                raise ValueError("FRS-TRAIN-v025 telemetry requires Actor LR in [3e-7,1e-6] and Critic LR=0")
+        elif not 3.0e-7 <= self.actor_learning_rate <= 1.0e-6 or self.critic_learning_rate != 1.0e-5:
             raise ValueError("FRS-TRAIN-v024 telemetry requires Actor LR in [3e-7,1e-6] and Critic LR=1e-5")
         if self.actor_observation_dim != 158 or self.gmt_observation_dim != 770:
             raise ValueError("FRS-TRAIN-v024 telemetry requires Actor/GMT dimensions 158/770")
@@ -422,8 +430,19 @@ class FrontRESActiveTelemetryView:
             or self.actor_gradient_post_clip_norm > self.gradient_clip_max_norm + 1.0e-6
             or self.critic_gradient_post_clip_norm > self.gradient_clip_max_norm + 1.0e-6
         ):
-            raise ValueError("FRS-PPO-v012 telemetry has invalid separate gradient clipping facts")
-        if (
+            raise ValueError("FrontRES telemetry has invalid gradient clipping facts")
+        if relational:
+            if (
+                self.critic_value_normalization_id != "none"
+                or self.critic_value_scale != 0.0
+                or self.critic_value_normalizer_decay != 0.0
+                or self.critic_value_normalizer_scale_floor != 0.0
+                or self.critic_value_normalizer_update_count_before != 0
+                or self.critic_value_normalizer_update_count_after != 0
+                or self.critic_gradient_post_clip_norm != 0.0
+            ):
+                raise ValueError("FRS-TRAIN-v025 telemetry must not contain Critic value-normalizer facts")
+        elif (
             self.critic_value_normalization_id != FRONTRES_VALUE_NORMALIZATION_ID
             or self.critic_value_normalizer_decay != FRONTRES_VALUE_NORMALIZER_DECAY
             or self.critic_value_normalizer_scale_floor != FRONTRES_VALUE_NORMALIZER_SCALE_FLOOR

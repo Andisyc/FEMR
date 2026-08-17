@@ -256,14 +256,24 @@ def _print_v015_formal_train_summary(
         + json.dumps(dict(telemetry), sort_keys=True, separators=(",", ":"), allow_nan=False),
         flush=True,
     )
+    if bool(summary.get("relational", False)):
+        update_facts = (
+            f"valid={summary['ppo_valid_count']} edges={summary['relational_edge_count']} "
+            f"relation_status={summary['relational_status']}"
+        )
+        label = "[FrontRES v025 Relational Formal Train] "
+    else:
+        update_facts = (
+            f"valid={summary['ppo_valid_count']} grouped_attempts={summary['grouped_attempt_count']}"
+        )
+        label = "[FrontRES v017 Formal Train] "
     print(
-        "[FrontRES v017 Formal Train] "
-        f"absolute_iter={runner.current_learning_iteration} "
+        label
+        + f"absolute_iter={runner.current_learning_iteration} "
         f"local={local_iteration}/{num_learning_iterations} "
         f"transaction={summary['transaction_id']} "
         f"segments={summary['segment_count']} attempts={summary['policy_attempt_count']} "
-        f"valid={summary['ppo_valid_count']} grouped_attempts={summary['grouped_attempt_count']} "
-        f"step_delta={summary['optimizer_step_delta']} committed=1",
+        f"{update_facts} step_delta={summary['optimizer_step_delta']} committed=1",
         flush=True,
     )
 

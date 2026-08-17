@@ -21,7 +21,7 @@
   },
   "identities": {
     "design": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025/FRS-EVAL-v007",
-    "checkout": "145f195f170a5487ce6632b48df552808ba78d28+formal-audit-repair",
+    "checkout": "7e7d842ae6edb3df4fc63a29cafc0e6394263704+relational-telemetry-failure",
     "entrypoint": "run/run_frontres_stage3_segment_hrl.sh relational_train -> scripts/rsl_rl/train.py -> OnPolicyRunner.load_frontres_hsl_initializer",
     "effective_config": "segment_replay_relational/pairwise_edge/Actor-only/B8xM4/K8/bounded-one-update",
     "checkpoint": "fresh HSL-v2 initializer -> relational checkpoint-v20"
@@ -55,15 +55,15 @@
   "causal_closure": {
     "required": true,
     "status": "LOCALIZED",
-    "rationale": "the second official route passed HSL, simulator construction, Actor sampling, and frozen GMT, then failed before optimizer update at a scalar-only formal audit assertion",
-    "owner_or_invariant": "frontres_formal_runtime_audit._print_one_action_k_audit_facts must validate the closed scalar or relational identity selected by frontres_relational_actor_only",
-    "evidence_ref": "FRS_TRAIN_V025_RELATIONAL_BOUNDED1_20260817.log: _print_one_action_k_audit_facts line 654 expected state_value on the relational route",
-    "falsifier": "the actual relational algorithm publishes state_value, or the audit already accepts inert-legacy-compat with target none"
+    "rationale": "the third official route committed a real relational Actor update, then the post-commit telemetry projection accessed scalar-only PPO fields before iteration advance and checkpoint save",
+    "owner_or_invariant": "frontres_segment_training_telemetry must project either a relational Actor-only result or a scalar Actor/Critic result without mixing their evidence schemas",
+    "evidence_ref": "FRS_TRAIN_V025_RELATIONAL_BOUNDED1_20260817.log: build_frontres_formal_update_summary accessed missing FrontRESRelationalPPOResult.value_loss after step_delta=1",
+    "falsifier": "the relational PPO result defines value_loss or the committed-result projection already accepts the relational result"
   },
   "dependencies": [],
   "next_action": {
     "class": "none",
-    "description": "",
+    "description": "offline telemetry repair unit is complete; any user-controlled server retry is a separate live action",
     "reversible": true,
     "costly": false,
     "externally_visible": false,
@@ -90,6 +90,12 @@
       "status": "closed",
       "fact": "the shared one-action-K formal audit still requires the legacy scalar Critic identity on the relational route",
       "closure": "The audit now selects one of two closed identities, requires relational Actor-only/frozen-Critic ownership, rejects mixed targets, and passes 61/61 plus official relational preflight."
+    },
+    {
+      "id": "OFFLINE-V025-TELEMETRY-4",
+      "status": "closed",
+      "fact": "post-commit telemetry and its public view still require scalar PPO/Critic fields on the relational route",
+      "closure": "Relational results now publish edge/Actor-credit evidence with no scalar Gain, return, target, grouped-attempt, or value-loss fields. Exact committed-result, relational summary, public-interface, checkpoint-v20, 61/61 aggregate contracts, and the official relational startup preflight all pass."
     }
   ],
   "live_only_unknowns": [],
@@ -112,6 +118,16 @@
       "command": "user-controlled relational_train bounded one-update launch after HSL repair",
       "failure_classification": "offline-fixable",
       "first_invalid_boundary": "frontres_formal_runtime_audit._print_one_action_k_audit_facts scalar-only Critic identity assertion",
+      "evidence_ref": "FRS_TRAIN_V025_RELATIONAL_BOUNDED1_20260817.log"
+    },
+    {
+      "attempt_id": "FRS-V025-BOUNDED1-20260817-A3",
+      "ordinal": 3,
+      "action_class": "bounded-live",
+      "status": "failed",
+      "command": "user-controlled relational_train bounded one-update launch after formal-audit repair",
+      "failure_classification": "offline-fixable",
+      "first_invalid_boundary": "frontres_segment_training_telemetry.build_frontres_formal_update_summary scalar-only PPO result projection",
       "evidence_ref": "FRS_TRAIN_V025_RELATIONAL_BOUNDED1_20260817.log"
     }
   ]

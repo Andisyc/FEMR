@@ -1,0 +1,54 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v025-BOUNDED1-TELEMETRY-PLAN-20260817",
+  "mode": "plan",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "READY",
+  "scope": {
+    "requested": ["Close the post-commit relational telemetry failure and all same-consumer scalar assumptions before another live attempt"],
+    "preserved": ["legacy scalar telemetry", "relational Actor-only semantics", "exact-one receipt and checkpoint-v20 lifecycle"],
+    "forbidden": ["fabricated scalar evidence", "Gain/PPO/checkpoint semantic changes", "live or training execution by Codex"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-07R@FRS-METHOD-v026",
+    "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025/FRS-EVAL-v007",
+    "checkout": "7e7d842ae6edb3df4fc63a29cafc0e6394263704+bounded1-third-log",
+    "review_object": "sha256:88edb5bb64d03544222b25767cdba5607ded4fcaac8da448d88037e58979a7a6"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Relational telemetry repair plan"},
+    "source_edits": {"status": "approved", "scope": "Telemetry projection, public view, final audit, formal log, and direct tests", "receipt": "User requested complete repair on 2026-08-17"},
+    "report_write": {"status": "approved", "scope": "Plan, retry ledger, and review receipts", "receipt": "User requested the repair be saved"}
+  },
+  "review_object": {
+    "kind": "plan",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/plans/FRS-TRAIN-v025-bounded1-relational-telemetry-repair-plan.md",
+    "content_hash": "sha256:88edb5bb64d03544222b25767cdba5607ded4fcaac8da448d88037e58979a7a6",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "The plan changes the existing telemetry Pinch Point and its public validation without adding a second semantic owner."
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "The existing telemetry module owns the route-specific projection."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "The existing typed telemetry view validates either of the two active/compatibility identities."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "Deterministic projection consumes immutable result/report facts and no simulator implementation."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "Telemetry remains read-only after commit and before iteration advance/checkpoint save."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "The Effect Sketch is limited to result projection, typed validation, final audit, and formal logging."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Offline closure does not claim a completed live transaction or policy quality."},
+    {"name": "proof-route", "disposition": "pass", "evidence": "Exact RED/GREEN, mixed schema rejection, scalar characterization, checkpoint, aggregate, and official preflight are required."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "No training tensor is recomputed; relation edges and row identities come from sealed reports."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "Relation telemetry exposes only Actor gradient and explicitly validates zero Critic LR/gradient/normalizer."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "The plan retains exact-one receipt validation before checkpoint-v20 save."}
+  ],
+  "findings": [],
+  "residual_risks": ["A fresh real post-fix transaction remains user-controlled runtime evidence."],
+  "blockers": [],
+  "claims": {"maintainability": "reviewed", "semantic_correctness": "not-claimed", "module_correctness": "not-claimed", "runtime_root_cause": "not-claimed", "formal_route": "not-claimed", "policy_quality": "not-claimed"},
+  "dependencies": []
+}

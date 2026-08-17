@@ -8,6 +8,7 @@ from typing import Any
 
 from rsl_rl.frontres.frontres_interfaces import FRONTRES_CHECKPOINT_FORMAT, FrontRESActiveTelemetryView
 from rsl_rl.frontres.frontres_local_evaluation import FrontRESV017LocalEvaluationReport
+from rsl_rl.frontres.frontres_relational_evaluation import FrontRESRelationalEvaluationReport
 from rsl_rl.frontres.frontres_value_normalization import (
     FRONTRES_VALUE_NORMALIZATION_ID,
     FRONTRES_VALUE_NORMALIZER_DECAY,
@@ -29,6 +30,7 @@ def build_frontres_formal_update_summary(result: Any) -> dict[str, Any]:
     diagnostics = getattr(result, "diagnostics", None)
     if ppo is None or not isinstance(diagnostics, Mapping):
         raise TypeError("v017 formal summary requires PPO result and immutable diagnostics")
+    relational = str(diagnostics.get("scalar_target_id", "")) == "none"
     summary = {
         "transaction_id": str(getattr(result, "transaction_id", "")),
         "policy_snapshot_id": str(getattr(result, "policy_snapshot_id", "")),
@@ -49,24 +51,148 @@ def build_frontres_formal_update_summary(result: Any) -> dict[str, Any]:
         "physics_schema_id": str(diagnostics.get("physics_schema_id", "")),
         "grouped_schema_id": str(diagnostics.get("grouped_schema_id", "")),
         "training_iteration": int(diagnostics.get("training_iteration", -1)),
+        "curriculum_fingerprint": str(diagnostics.get("curriculum_fingerprint", "")),
+        "k_stage_index": int(diagnostics.get("k_stage_index", -1)),
+        "k_stage_iteration": int(diagnostics.get("k_stage_iteration", -1)),
+        "warmup_phase": str(diagnostics.get("warmup_phase", "")),
+        "warmup_phase_iteration": int(diagnostics.get("warmup_phase_iteration", -1)),
+        "actor_loss_weight": float(diagnostics.get("actor_loss_weight", float("nan"))),
+        "dr_stage_fingerprint": str(diagnostics.get("dr_stage_fingerprint", "")),
+        "dr_progress": float(diagnostics.get("dr_progress", float("nan"))),
+        "d_cap": float(diagnostics.get("d_cap", float("nan"))),
+        "dr_class_by_segment": tuple(diagnostics.get("dr_class_by_segment", ())),
+        "dr_strength_by_segment": tuple(float(value) for value in diagnostics.get("dr_strength_by_segment", ())),
         "active_k": int(diagnostics.get("active_k", -1)),
         "active_m": int(diagnostics.get("active_m", -1)),
         "warmup_phase": str(diagnostics.get("warmup_phase", "")),
-        "actor_loss_weight": float(diagnostics.get("actor_loss_weight", float("nan"))),
+        "actor_loss_weight": float(diagnostics.get("actor_loss_weight", 1.0)),
         "actor_learning_rate": _finite(diagnostics, "actor_learning_rate"),
         "critic_learning_rate": _finite(diagnostics, "critic_learning_rate"),
         "ppo_total_loss_mean": float(ppo.total_loss.detach().cpu().item()),
         "ppo_actor_loss_mean": float(ppo.actor_loss.detach().cpu().item()),
-        "ppo_value_loss_mean": float(ppo.value_loss.detach().cpu().item()),
-        "ppo_approx_kl_mean": float(ppo.approx_kl),
-        "ppo_clip_frac_mean": float(ppo.clip_frac),
-        "grouped_motion_count": int(ppo.grouped_motion_count),
-        "grouped_segment_count": int(ppo.grouped_segment_count),
-        "grouped_attempt_count": int(ppo.grouped_attempt_count),
-        "grouped_valid_step_count": int(ppo.grouped_valid_step_count),
+        "relational": relational,
     }
+    if relational:
+        summary.update(
+            {
+                "relational_edge_count": int(getattr(ppo, "edge_count", 0)),
+                "relational_status": str(getattr(ppo, "status", "")),
+                "relational_entropy_mean": float(ppo.entropy.detach().cpu().item()),
+            }
+        )
+    else:
+        summary.update(
+            {
+                "ppo_value_loss_mean": float(ppo.value_loss.detach().cpu().item()),
+                "ppo_approx_kl_mean": float(ppo.approx_kl),
+                "ppo_clip_frac_mean": float(ppo.clip_frac),
+                "grouped_motion_count": int(ppo.grouped_motion_count),
+                "grouped_segment_count": int(ppo.grouped_segment_count),
+                "grouped_attempt_count": int(ppo.grouped_attempt_count),
+                "grouped_valid_step_count": int(ppo.grouped_valid_step_count),
+            }
+        )
     summary["frontres_transaction_telemetry"] = build_frontres_transaction_telemetry(result, ppo=ppo)
     return summary
+
+
+def _build_relational_transaction_telemetry(result: Any, *, ppo: Any, diagnostics: Mapping[str, Any]) -> dict[str, Any]:
+    reports = diagnostics.get("v009_relational_reports")
+    if not isinstance(reports, tuple) or not reports:
+        raise RuntimeError("FRS-TRAIN-v025 telemetry requires immutable relational reports")
+    scenario_ids: list[str] = []
+    noisy_hashes: list[str] = []
+    comparable_counts: list[int] = []
+    edges: tuple[tuple[int, int], ...] | None = None
+    transaction_id = str(getattr(result, "transaction_id", ""))
+    for report in reports:
+        if not isinstance(report, FrontRESRelationalEvaluationReport):
+            raise TypeError("FRS-TRAIN-v025 telemetry rejects scalar local reports")
+        report.validate()
+        if report.transaction_id != transaction_id:
+            raise RuntimeError("FRS-TRAIN-v025 telemetry reports mix transaction identity")
+        scenario_ids.extend(report.scenario_ids)
+        noisy_hashes.extend(report.noisy_segment_hashes)
+        comparable_counts.extend(report.comparable_pair_count_by_row)
+        if edges is None:
+            edges = tuple(report.preference_edges)
+        elif tuple(report.preference_edges) != edges:
+            raise RuntimeError("FRS-TRAIN-v025 telemetry reports mix preference edges")
+    row_count = int(getattr(result, "policy_attempt_count", -1))
+    if len(scenario_ids) != row_count or len(noisy_hashes) != row_count:
+        raise RuntimeError("FRS-TRAIN-v025 telemetry lost relational row identity")
+    edges = tuple(edges or ())
+    if edges != tuple(diagnostics.get("preference_edges", ())):
+        raise RuntimeError("FRS-TRAIN-v025 telemetry edges disagree with committed diagnostics")
+    actor_credit = tuple(float(value) for value in ppo.actor_credit.detach().cpu().tolist())
+    if len(actor_credit) != row_count or not all(math.isfinite(value) for value in actor_credit):
+        raise RuntimeError("FRS-TRAIN-v025 telemetry requires finite row-aligned Actor credit")
+    telemetry = {
+        "transaction_id": transaction_id,
+        "policy_snapshot_id": str(getattr(result, "policy_snapshot_id", "")),
+        "method_contract_id": "FRS-METHOD-v026",
+        "gain_contract_id": "FRS-GAIN-v009",
+        "optimization_contract_id": "FRS-PPO-v013",
+        "training_contract_id": "FRS-TRAIN-v025",
+        "scalar_target_id": "none",
+        "physics_schema_id": "hierarchical-relational-evidence-v1",
+        "grouped_schema_id": "relational-preference-edge-v1",
+        "checkpoint_format": "frontres-v025-checkpoint-v20",
+        "critic_value_kind": "inert-legacy-compat",
+        "critic_input_dim": 449,
+        "critic_action_conditioned": False,
+        "critic_target_id": "none",
+        "critic_support_context_id": "none",
+        "return_utility_id": "none",
+        "return_utility_scale": 0.0,
+        "gradient_clip_identity": "actor-only-relational-v1",
+        "gradient_clip_max_norm": _finite(diagnostics, "gradient_clip_max_norm"),
+        "actor_observation_dim": 158,
+        "gmt_observation_dim": 770,
+        "critic_value_normalization_id": "none",
+        "critic_value_scale": 0.0,
+        "critic_value_normalizer_decay": 0.0,
+        "critic_value_normalizer_scale_floor": 0.0,
+        "critic_value_normalizer_update_count_before": 0,
+        "critic_value_normalizer_update_count_after": 0,
+        "actor_gradient_post_clip_norm": _finite(diagnostics, "actor_gradient_post_clip_norm"),
+        "critic_gradient_post_clip_norm": 0.0,
+        "active_k": int(diagnostics.get("active_k", -1)),
+        "active_m": int(diagnostics.get("active_m", -1)),
+        "selected_segment_count": int(diagnostics.get("selected_segment_count", -1)),
+        "policy_row_count": row_count,
+        "role_row_count": int(diagnostics.get("role_row_count", 2 * row_count)),
+        "optimizer_step_delta": int(getattr(result, "optimizer_step_delta", -1)),
+        "update_count": int(getattr(result, "update_invocation_count", 0)),
+        "actor_learning_rate": _finite(diagnostics, "actor_learning_rate"),
+        "critic_learning_rate": 0.0,
+        "training_iteration": int(diagnostics.get("training_iteration", -1)),
+        "curriculum_fingerprint": str(diagnostics.get("curriculum_fingerprint", "")),
+        "k_stage_index": int(diagnostics.get("k_stage_index", -1)),
+        "k_stage_iteration": int(diagnostics.get("k_stage_iteration", -1)),
+        "warmup_phase": str(diagnostics.get("warmup_phase", "")),
+        "warmup_phase_iteration": int(diagnostics.get("warmup_phase_iteration", -1)),
+        "actor_loss_weight": float(diagnostics.get("actor_loss_weight", 0.0)),
+        "dr_stage_fingerprint": str(diagnostics.get("dr_stage_fingerprint", "")),
+        "dr_progress": float(diagnostics.get("dr_progress", 0.0)),
+        "d_cap": float(diagnostics.get("d_cap", 0.0)),
+        "dr_class_by_segment": tuple(diagnostics.get("dr_class_by_segment", ())),
+        "dr_strength_by_segment": tuple(diagnostics.get("dr_strength_by_segment", ())),
+        "edge_count": int(diagnostics.get("edge_count", getattr(ppo, "edge_count", -1))),
+        "valid_count": int(getattr(ppo, "valid_count", -1)),
+        "status": str(getattr(ppo, "status", "")),
+        "preference_edges": edges,
+        "actor_credit": actor_credit,
+        "scenario_ids": tuple(scenario_ids),
+        "noisy_segment_hashes": tuple(noisy_hashes),
+        "comparable_pair_count_by_row": tuple(comparable_counts),
+        "outer_replay": diagnostics.get("outer_replay"),
+        "return_feedback": False,
+        "priority_feedback": False,
+        "ppo_feedback": False,
+    }
+    FrontRESActiveTelemetryView.from_mapping(telemetry)
+    return telemetry
 
 
 def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, Any]:
@@ -75,6 +201,8 @@ def build_frontres_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, 
     diagnostics = getattr(result, "diagnostics", None)
     if not isinstance(diagnostics, Mapping):
         raise RuntimeError("v017 telemetry requires sealed transaction diagnostics")
+    if str(diagnostics.get("scalar_target_id", "")) == "none":
+        return _build_relational_transaction_telemetry(result, ppo=ppo, diagnostics=diagnostics)
     reports = diagnostics.get("v007_recovery_aware_reports")
     if not isinstance(reports, tuple) or not reports:
         raise RuntimeError("v017 telemetry requires immutable recovery-aware reports")
@@ -533,7 +661,14 @@ def require_frontres_committed_result(runner: Any, result: Any) -> dict[str, Any
         summary["update_count"] != 1
         or summary["optimizer_step_delta"] != 1
         or summary["optimizer_step_after"] != summary["optimizer_step_before"] + 1
-        or summary["grouped_attempt_count"] != summary["policy_attempt_count"]
+        or (
+            summary["relational"]
+            and summary["relational_edge_count"] <= 0
+        )
+        or (
+            not summary["relational"]
+            and summary["grouped_attempt_count"] != summary["policy_attempt_count"]
+        )
     ):
         raise RuntimeError("v017 formal result is not one complete grouped update")
     state = getattr(runner, "_frontres_checkpoint_transaction_state", None)
@@ -553,7 +688,7 @@ def require_frontres_committed_result(runner: Any, result: Any) -> dict[str, Any
     ):
         if receipt.get(name) != telemetry.get(name):
             raise RuntimeError(f"v017 receipt/telemetry mismatch for {name}")
-    if telemetry["warmup_phase"] == "low_dr_joint_init" and telemetry["k_stage_iteration"] == 0:
+    if not summary["relational"] and telemetry["warmup_phase"] == "low_dr_joint_init" and telemetry["k_stage_iteration"] == 0:
         actor_delta = telemetry["actor_std_parameter_delta"]
         critic_delta = telemetry["critic_parameter_delta"]
         if (

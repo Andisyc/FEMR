@@ -280,6 +280,8 @@ def test_schema_and_identity(interfaces) -> None:
         "optimization_contract_id": "FRS-PPO-v012",
         "training_contract_id": "FRS-TRAIN-v024",
         "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
+        "return_utility_id": "symmetric-log-gain-g0-1-v1",
+        "return_utility_scale": 1.0,
         "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
         "grouped_schema_id": "grouped-all-attempt-scalar-v1",
         "checkpoint_format": "frontres-v024-checkpoint-v19",

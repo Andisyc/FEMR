@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 import torch
 
+from rsl_rl.frontres.frontres_interfaces import FrontRESActiveTelemetryView
 from rsl_rl.frontres.frontres_value_normalization import (
     FRONTRES_VALUE_NORMALIZATION_ID,
     FRONTRES_VALUE_NORMALIZER_DECAY,
@@ -788,6 +789,61 @@ def print_phase_b_telemetry_audit(runner: Any, *, telemetry: Mapping[str, Any]) 
     """Validate the final immutable serializer used by the formal transaction."""
 
     if not formal_runtime_audit_enabled(runner):
+        return
+    if telemetry.get("scalar_target_id") == "none":
+        FrontRESActiveTelemetryView.from_mapping(telemetry)
+        rows = int(telemetry.get("policy_row_count", -1))
+        scenario_ids = tuple(str(value) for value in telemetry.get("scenario_ids", ()))
+        noisy_hashes = tuple(str(value) for value in telemetry.get("noisy_segment_hashes", ()))
+        edges = tuple(tuple(int(index) for index in edge) for edge in telemetry.get("preference_edges", ()))
+        actor_credit = tuple(float(value) for value in telemetry.get("actor_credit", ()))
+        assert rows == 32 and len(scenario_ids) == len(noisy_hashes) == len(actor_credit) == rows
+        assert len(set(scenario_ids)) == 8 and all(
+            len(set(scenario_ids[start : start + 4])) == 1 for start in range(0, rows, 4)
+        )
+        assert len(set(noisy_hashes)) == 8 and all(
+            len(set(noisy_hashes[start : start + 4])) == 1 for start in range(0, rows, 4)
+        )
+        assert edges and len(edges) == int(telemetry.get("edge_count", -1))
+        assert all(0 <= winner < rows and 0 <= loser < rows and winner != loser for winner, loser in edges)
+        assert all(math.isfinite(value) for value in actor_credit)
+        assert math.isclose(sum(actor_credit), 0.0, rel_tol=0.0, abs_tol=1.0e-6)
+        outer_replay = telemetry.get("outer_replay")
+        assert isinstance(outer_replay, Mapping)
+        assert outer_replay.get("schema") == "frontres-relational-scenario-replay-v1"
+        assert int(outer_replay.get("state_delta", -1)) == 1
+        emit_formal_runtime_probe(
+            "AUDIT-B02",
+            limit=1,
+            transaction_id=telemetry.get("transaction_id"),
+            scenario_ids=scenario_ids,
+            noisy_hashes=noisy_hashes,
+            policy_rows=rows,
+            role_rows=telemetry.get("role_row_count"),
+        )
+        emit_formal_runtime_probe(
+            "AUDIT-B05",
+            limit=1,
+            relation="hierarchical-partial-order",
+            edges=len(edges),
+            valid=telemetry.get("valid_count"),
+            status=telemetry.get("status"),
+            actor_credit=actor_credit,
+            scalar_target="none",
+            critic_target="none",
+        )
+        emit_formal_runtime_probe(
+            "AUDIT-B07",
+            limit=1,
+            update_count=telemetry.get("update_count"),
+            optimizer_step_delta=telemetry.get("optimizer_step_delta"),
+            actor_lr=telemetry.get("actor_learning_rate"),
+            critic_lr=telemetry.get("critic_learning_rate"),
+            actor_gradient_post_clip=telemetry.get("actor_gradient_post_clip_norm"),
+            critic_gradient_post_clip=telemetry.get("critic_gradient_post_clip_norm"),
+            replay_schema=outer_replay.get("schema"),
+            replay_state_delta=outer_replay.get("state_delta"),
+        )
         return
     rows = int(telemetry.get("policy_row_count", -1))
     active_m = int(telemetry.get("active_m", -1))

@@ -1,0 +1,61 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v025-BOUNDED1-TELEMETRY-FINAL-20260817",
+  "mode": "final-gate",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "FINAL_GATE_PASS",
+  "scope": {
+    "requested": ["Close the post-commit relational telemetry failure and all same-consumer scalar assumptions before another live attempt"],
+    "preserved": ["legacy scalar telemetry", "relational Actor-only semantics", "exact-one receipt and checkpoint-v20 lifecycle"],
+    "forbidden": ["fabricated scalar evidence", "Gain/PPO/checkpoint semantic changes", "live or training execution by Codex"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-07R@FRS-METHOD-v026",
+    "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025/FRS-EVAL-v007",
+    "checkout": "7e7d842ae6edb3df4fc63a29cafc0e6394263704+bounded1-third-log",
+    "review_object": "sha256:d55814c22fdfb611b8b2b0a81156ffa8d5e8c40ad3e5d40e6ed497ed594d4349"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Relational telemetry repair diff"},
+    "source_edits": {"status": "approved", "scope": "Telemetry projection, public view, final audit, formal log, and direct tests", "receipt": "User requested complete repair on 2026-08-17"},
+    "report_write": {"status": "approved", "scope": "Plan, retry ledger, and review receipts", "receipt": "User requested the repair be saved"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_training_telemetry.py",
+    "content_hash": "sha256:d55814c22fdfb611b8b2b0a81156ffa8d5e8c40ad3e5d40e6ed497ed594d4349",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "The existing telemetry Pinch Point now projects two explicit result identities without adding another owner."
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "The existing telemetry module owns scalar-versus-relational projection."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "The typed telemetry view validates both allowed identities and rejects mixed Critic state."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "Projection consumes immutable reports and result objects only."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "The exact-one receipt is validated before summary, checkpoint, and iteration advance."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "No Gain comparator, PPO update, Replay rule, launcher, or checkpoint schema was changed."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Relational telemetry contains edges and Actor credit, never fabricated scalar Gain, return, target, or value loss."},
+    {"name": "proof-route", "disposition": "pass", "evidence": "Exact transaction, relational summary, public interface, runtime audit, checkpoint-v20, 61/61 aggregate suite, and official startup preflight pass."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "Relation edges, row identities, and Actor incidence credit are copied from sealed reports without recomputation."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "Relation route validates Actor LR and zero Critic LR/gradient/normalizer state."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "checkpoint-v20 relational save/resume contract passes."}
+  ],
+  "findings": [],
+  "residual_risks": ["A fresh real post-fix transaction remains user-controlled runtime evidence."],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}

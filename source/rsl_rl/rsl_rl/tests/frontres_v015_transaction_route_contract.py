@@ -56,7 +56,10 @@ from rsl_rl.runners.frontres_segment_formal_transaction import run_frontres_form
 from rsl_rl.runners.frontres_segment_runtime_types import open_frontres_checkpoint_transaction_barrier
 from rsl_rl.runners.frontres_segment_runtime_types import reset_frontres_checkpoint_transaction
 from rsl_rl.runners.frontres_segment_runtime_types import FrontRESFormalTransactionRequest
-from rsl_rl.runners.frontres_segment_training_telemetry import build_frontres_transaction_telemetry
+from rsl_rl.runners.frontres_segment_training_telemetry import (
+    build_frontres_transaction_telemetry,
+    require_frontres_committed_result,
+)
 from rsl_rl.runners.frontres_segment_transaction import (
     FrontRESFormalTransactionPlan,
     capture_frontres_frozen_policy_snapshot,
@@ -653,6 +656,22 @@ def test_exact_one_relational_commit_updates_actor_only() -> None:
     assert any(not torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
     assert all(torch.equal(value, critic_before[name]) for name, value in policy.critic.state_dict().items())
     assert result.diagnostics["outer_replay"]["schema"] == FRONTRES_RELATIONAL_REPLAY_SCHEMA
+    summary = require_frontres_committed_result(runner, result)
+    assert summary["relational"] is True
+    assert summary["relational_edge_count"] == 8
+    telemetry = summary["frontres_transaction_telemetry"]
+    assert telemetry["return_utility_id"] == "none"
+    assert telemetry["critic_value_normalization_id"] == "none"
+    assert telemetry["critic_learning_rate"] == 0.0
+    for forbidden in (
+        "gain_total",
+        "raw_returns",
+        "critic_value_targets",
+        "ppo_value_loss_mean",
+        "grouped_attempt_count",
+    ):
+        assert forbidden not in telemetry
+        assert forbidden not in summary
     reset_frontres_checkpoint_transaction(runner)
 
 
