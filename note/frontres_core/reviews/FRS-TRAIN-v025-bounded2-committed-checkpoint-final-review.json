@@ -1,0 +1,53 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v025-BOUNDED2-CHECKPOINT-FINAL-20260818",
+  "mode": "final-gate",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "FINAL_GATE_PASS",
+  "scope": {
+    "requested": ["Close the valid committed v025 receipt rejection during checkpoint-v20 save"],
+    "preserved": ["checkpoint-v19 scalar receipt validation", "idle checkpoint-v20 round-trip", "v025 Actor-only transaction semantics"],
+    "forbidden": ["receipt conversion or fallback", "checkpoint schema change", "Gain/PPO/Replay change", "live execution by Codex"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-07R@FRS-METHOD-v026",
+    "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025/FRS-EVAL-v007",
+    "checkout": "673af80edfcaa7679ea5628008f117dc64d42ed2+bounded2-checkpoint-fix",
+    "review_object": "sha256:a60200d9ea48690842eb4b0eea88a17ebd1158f457d022e8d3bec013da06a1a1"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Committed checkpoint-v20 repair diff"},
+    "source_edits": {"status": "approved", "scope": "Checkpoint receipt identity routing and persistence tests", "receipt": "User requested complete repair on 2026-08-18"},
+    "report_write": {"status": "approved", "scope": "Plan and review receipts", "receipt": "Required repository engineering evidence"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py",
+    "content_hash": "sha256:a60200d9ea48690842eb4b0eea88a17ebd1158f457d022e8d3bec013da06a1a1",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "The existing checkpoint Unit of Work now receives an explicit identity from each checkpoint builder; no second owner or fallback was added."
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "Checkpoint builders select their exact identity and the existing receipt validator remains the sole validation owner."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "The private payload Pinch Point now requires an explicit expected identity; callers cannot silently receive a scalar default."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "Persistence depends only on stable contract fields and immutable receipt data."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "Idle and committed checkpoint-v20 save/reload pass; mixed receipt rejects before the target file exists."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "Only checkpoint identity routing and its persistence characterization changed."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Offline persistence evidence does not claim post-fix live success or policy quality."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "No tensor is recomputed or changed; Actor, normalizer, optimizer, and Replay payloads use the existing checkpoint-v20 path."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "The fix is post-commit and does not alter gradients, optimizer groups, update count, or Actor credit."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "Committed iteration-1 checkpoint-v20 is saved, inspected, and strictly reloaded; checkpoint-v19 remains characterized."}
+  ],
+  "findings": [],
+  "residual_risks": ["A fresh real post-fix checkpoint write remains user-controlled runtime evidence."],
+  "blockers": [],
+  "claims": {"maintainability": "reviewed", "semantic_correctness": "not-claimed", "module_correctness": "not-claimed", "runtime_root_cause": "not-claimed", "formal_route": "not-claimed", "policy_quality": "not-claimed"},
+  "dependencies": []
+}

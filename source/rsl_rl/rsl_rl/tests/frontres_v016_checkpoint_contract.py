@@ -154,6 +154,21 @@ def _receipt(checkpointing, *, training_iteration: int) -> dict[str, object]:
     return value
 
 
+def _relational_receipt(checkpointing, *, training_iteration: int) -> dict[str, object]:
+    value = _receipt(checkpointing, training_iteration=training_iteration)
+    value["receipt"].update(
+        method_contract_id="FRS-METHOD-v026",
+        gain_contract_id="FRS-GAIN-v009",
+        optimization_contract_id="FRS-PPO-v013",
+        training_contract_id="FRS-TRAIN-v025",
+        scalar_target_id="none",
+        physics_schema_id="hierarchical-relational-evidence-v1",
+        grouped_schema_id="relational-preference-edge-v1",
+        valid_policy_row_count=20,
+    )
+    return value
+
+
 def _expect_error(call, text: str) -> None:
     try:
         call()
@@ -523,6 +538,34 @@ def test_relational_checkpoint_v20_round_trip() -> None:
         assert target.current_learning_iteration == 0
         assert target._frontres_outer_scenario_replay.state_dict()["schema"] == "frontres-relational-scenario-replay-v1"
         assert [group["frontres_role"] for group in target.alg.optimizer.param_groups] == ["actor"]
+
+        committed_path = root / "model_1_relational_committed.pt"
+        committed_source = relational_runner(1)
+        setattr(
+            committed_source,
+            checkpointing._V015_TRANSACTION_STATE_ATTR,
+            _relational_receipt(checkpointing, training_iteration=0),
+        )
+        checkpointing.save_runner(committed_source, str(committed_path))
+        committed_payload = torch.load(committed_path, weights_only=False)
+        committed_identity = committed_payload["frontres_v015_checkpoint_identity"]
+        assert committed_identity["format"] == "frontres-v025-checkpoint-v20"
+        assert committed_identity["transaction"]["state"] == "committed"
+        assert committed_identity["transaction"]["receipt"]["training_contract_id"] == "FRS-TRAIN-v025"
+        committed_target = relational_runner(0)
+        checkpointing.load_runner(committed_target, str(committed_path), load_optimizer=True)
+        assert committed_target.current_learning_iteration == 1
+
+        mixed_path = root / "model_1_relational_mixed.pt"
+        mixed_source = relational_runner(1)
+        mixed_receipt = _relational_receipt(checkpointing, training_iteration=0)
+        mixed_receipt["receipt"]["gain_contract_id"] = "FRS-GAIN-v008"
+        setattr(mixed_source, checkpointing._V015_TRANSACTION_STATE_ATTR, mixed_receipt)
+        _expect_error(
+            lambda: checkpointing.save_runner(mixed_source, str(mixed_path)),
+            "legacy contract identity",
+        )
+        assert not mixed_path.exists()
         print("frontres_v025_checkpoint_contract: checkpoint-v20 relational round-trip ok", flush=True)
 
 

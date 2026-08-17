@@ -1,0 +1,66 @@
+{
+  "schema_version": "one-shot-execution/v1",
+  "unit_id": "OSE-FRS-TRAIN-v025-BOUNDED2-CHECKPOINT-REPAIR-V001",
+  "closure_mode": "engineering",
+  "terminal_outcome": "close the committed checkpoint-v20 receipt identity failure and stop before the next user-controlled live run",
+  "admission": "COMPLETE",
+  "scope": {
+    "requested": ["repair the bounded-2 relational checkpoint save failure without another partial live fix"],
+    "preserved": ["checkpoint-v19 scalar identity", "checkpoint-v20 schema", "relational Actor-only update and Replay semantics"],
+    "forbidden": ["live or training execution by Codex", "receipt conversion or fallback", "Gain/PPO/Replay/MOSAIC changes"]
+  },
+  "identities": {
+    "design": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025/FRS-EVAL-v007",
+    "checkout": "673af80edfcaa7679ea5628008f117dc64d42ed2+bounded2-checkpoint-fix",
+    "entrypoint": "run/run_frontres_stage3_segment_hrl.sh relational_train -> save_runner -> checkpoint-v20",
+    "effective_config": "segment_replay_relational/pairwise_edge/Actor-only/B8xM4/K8/bounded-one-update",
+    "checkpoint": "fresh HSL-v2 initializer -> committed relational checkpoint-v20"
+  },
+  "authority": {
+    "local_reversible": {"status": "approved", "scope": "localized production repair, regression tests, offline audit, and receipts"},
+    "git_actions": {"status": "not-requested", "scope": "no stage, commit, push, pull, reset, or clean"},
+    "external_operations": {"status": "not-requested", "scope": "no server access, transfer, simulator, or network action"},
+    "bounded_live": {"status": "not-requested", "scope": "the user retains authority for the next bounded server attempt"},
+    "long_run": {"status": "not-requested", "scope": "no long training"},
+    "destructive": {"status": "not-required", "scope": "no destructive operation"}
+  },
+  "causal_closure": {
+    "required": true,
+    "status": "LOCALIZED",
+    "rationale": "the bounded-2 route completed one Actor update and telemetry, then checkpoint-v20 save validated its v025 receipt against the validator's default v024 scalar identity",
+    "owner_or_invariant": "each checkpoint identity builder must explicitly provide the exact receipt contract identity to the shared persistence validator",
+    "evidence_ref": "FRS_TRAIN_V025_RELATIONAL_BOUNDED2_20260818.log: _v015_committed_transaction_receipt rejected the committed v025 receipt as legacy",
+    "falsifier": "a committed v025 receipt passes the pre-repair checkpoint-v20 save or the failing call already supplies the v025 expected identity"
+  },
+  "dependencies": [],
+  "next_action": {
+    "class": "none",
+    "description": "offline checkpoint repair unit is complete; any server retry is a separate user-controlled live action",
+    "reversible": true,
+    "costly": false,
+    "externally_visible": false,
+    "destroys_evidence": false,
+    "decision_boundary": {"kind": "none"}
+  },
+  "offline_gaps": [
+    {
+      "id": "OFFLINE-V025-CHECKPOINT-5",
+      "status": "closed",
+      "fact": "checkpoint-v20 committed save used the legacy v024 receipt identity default",
+      "closure": "Both checkpoint builders now pass an explicit exact identity. Committed v025 save/reload, mixed rejection before file creation, scalar v024 characterization, 61/61 aggregate contracts, and official relational startup preflight pass."
+    }
+  ],
+  "live_only_unknowns": [],
+  "attempts": [
+    {
+      "attempt_id": "FRS-V025-BOUNDED2-20260818-A1",
+      "ordinal": 1,
+      "action_class": "bounded-live",
+      "status": "failed",
+      "command": "user-controlled relational_train bounded one-update launch",
+      "failure_classification": "offline-fixable",
+      "first_invalid_boundary": "frontres_checkpointing._v015_transaction_checkpoint_payload omitted the v025 expected receipt identity",
+      "evidence_ref": "FRS_TRAIN_V025_RELATIONAL_BOUNDED2_20260818.log"
+    }
+  ]
+}

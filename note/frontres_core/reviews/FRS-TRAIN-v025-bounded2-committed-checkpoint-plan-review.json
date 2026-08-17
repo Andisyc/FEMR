@@ -1,0 +1,54 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v025-BOUNDED2-CHECKPOINT-PLAN-20260818",
+  "mode": "plan",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "READY",
+  "scope": {
+    "requested": ["Close the valid committed v025 receipt rejection during checkpoint-v20 save"],
+    "preserved": ["checkpoint-v19 scalar receipt validation", "idle checkpoint-v20 round-trip", "v025 Actor-only transaction semantics"],
+    "forbidden": ["receipt conversion or fallback", "checkpoint schema change", "Gain/PPO/Replay change", "live execution by Codex"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-07R@FRS-METHOD-v026",
+    "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025/FRS-EVAL-v007",
+    "checkout": "673af80edfcaa7679ea5628008f117dc64d42ed2+bounded2-log",
+    "review_object": "sha256:4ffaebb283d8c70c892ab578ce5f7f1bf5d099964e8e0b28178d767bb48f951d"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Committed checkpoint-v20 repair plan"},
+    "source_edits": {"status": "approved", "scope": "Checkpoint receipt identity routing and persistence tests", "receipt": "User requested complete repair on 2026-08-18"},
+    "report_write": {"status": "approved", "scope": "Plan and review receipts", "receipt": "Required repository engineering evidence"}
+  },
+  "review_object": {
+    "kind": "plan",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/plans/FRS-TRAIN-v025-bounded2-committed-checkpoint-repair-plan.md",
+    "content_hash": "sha256:4ffaebb283d8c70c892ab578ce5f7f1bf5d099964e8e0b28178d767bb48f951d",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "The plan repairs the existing transaction persistence Pinch Point without adding a second identity owner."
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "Existing checkpoint builders select the exact receipt identity; the existing validator remains its sole owner."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "The payload helper gains one explicit expected identity and returns the same validated transaction payload."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "Checkpoint builders depend on stable contract identities and no simulator or training internals are introduced."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "Committed, idle, partial, incompatible, save, and reload states are included."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "Effect Sketch is limited to checkpoint identity builders, transaction payload validation, and persistence tests."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Offline persistence closure does not claim policy quality or a successful post-fix live run."},
+    {"name": "proof-route", "disposition": "pass", "evidence": "Exact RED/GREEN committed save, scalar characterization, mixed rejection, reload, aggregate suite, and official preflight are required."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "No model tensor changes; persisted Actor/normalizer/Replay tensors retain checkpoint-v20 ownership."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "The repair occurs after the exact-one Actor update and does not touch optimizer or gradients."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "A real committed receipt, atomic save, strict identity inspection, and fresh reload are the primary proof."}
+  ],
+  "findings": [],
+  "residual_risks": ["A fresh real post-fix checkpoint write remains user-controlled runtime evidence."],
+  "blockers": [],
+  "claims": {"maintainability": "reviewed", "semantic_correctness": "not-claimed", "module_correctness": "not-claimed", "runtime_root_cause": "not-claimed", "formal_route": "not-claimed", "policy_quality": "not-claimed"},
+  "dependencies": []
+}

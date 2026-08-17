@@ -535,7 +535,18 @@ def _build_v025_relational_checkpoint_identity(
         committed_update_iteration=iteration,
         max_horizon_k=int(getattr(alg, "frontres_segment_max_horizon_k", 0)),
     )
-    transaction = _v015_transaction_checkpoint_payload(runner)
+    transaction = _v015_transaction_checkpoint_payload(
+        runner,
+        expected_contract_identity={
+            "method_contract_id": "FRS-METHOD-v026",
+            "gain_contract_id": "FRS-GAIN-v009",
+            "optimization_contract_id": "FRS-PPO-v013",
+            "training_contract_id": "FRS-TRAIN-v025",
+            "scalar_target_id": "none",
+            "physics_schema_id": "hierarchical-relational-evidence-v1",
+            "grouped_schema_id": "relational-preference-edge-v1",
+        },
+    )
     schedule_tuple = frontres_k_stage_schedule_tuple(schedule)
     _validate_v013_receipt_curriculum(
         transaction,
@@ -1058,7 +1069,11 @@ def load_frontres_hsl_initializer(runner: Any, path: str) -> dict[str, Any]:
     return receipt
 
 
-def _v015_transaction_checkpoint_payload(runner: Any) -> dict[str, Any]:
+def _v015_transaction_checkpoint_payload(
+    runner: Any,
+    *,
+    expected_contract_identity: Mapping[str, str],
+) -> dict[str, Any]:
     """拒绝 in-flight work, 不序列化 partial candidate batch 或 reference."""
 
     state = getattr(runner, _V015_TRANSACTION_STATE_ATTR, None)
@@ -1068,7 +1083,8 @@ def _v015_transaction_checkpoint_payload(runner: Any) -> dict[str, Any]:
             return {
                 "state": "committed",
                 "receipt": _v015_committed_transaction_receipt(
-                    {"state": "committed", "receipt": last_receipt}
+                    {"state": "committed", "receipt": last_receipt},
+                    expected_contract_identity=expected_contract_identity,
                 ),
             }
         return {"state": "idle"}
@@ -1080,12 +1096,19 @@ def _v015_transaction_checkpoint_payload(runner: Any) -> dict[str, Any]:
             return {
                 "state": "committed",
                 "receipt": _v015_committed_transaction_receipt(
-                    {"state": "committed", "receipt": last_receipt}
+                    {"state": "committed", "receipt": last_receipt},
+                    expected_contract_identity=expected_contract_identity,
                 ),
             }
         return {"state": "idle"}
     if phase == "committed":
-        return {"state": "committed", "receipt": _v015_committed_transaction_receipt(state)}
+        return {
+            "state": "committed",
+            "receipt": _v015_committed_transaction_receipt(
+                state,
+                expected_contract_identity=expected_contract_identity,
+            ),
+        }
     if phase in {"collecting", "sealed", "failed"}:
         raise RuntimeError(
             "v015 checkpoint save rejects an in-flight formal transaction; "
@@ -1197,7 +1220,18 @@ def _build_v015_checkpoint_identity(
     if configured_fingerprint and configured_fingerprint != curriculum.schedule_fingerprint:
         raise RuntimeError("FRS-TRAIN-v024 checkpoint curriculum fingerprint drifted after config resolution")
     schedule_tuple = frontres_k_stage_schedule_tuple(schedule)
-    transaction = _v015_transaction_checkpoint_payload(runner)
+    transaction = _v015_transaction_checkpoint_payload(
+        runner,
+        expected_contract_identity={
+            "method_contract_id": "FRS-METHOD-v025",
+            "gain_contract_id": "FRS-GAIN-v008",
+            "optimization_contract_id": "FRS-PPO-v012",
+            "training_contract_id": "FRS-TRAIN-v024",
+            "scalar_target_id": "symmetric-log-recovery-aware-utility-v1",
+            "physics_schema_id": "clean-anchored-contact-zmp-survival-v1",
+            "grouped_schema_id": "grouped-all-attempt-scalar-v1",
+        },
+    )
     _validate_v013_receipt_curriculum(
         transaction,
         schedule=schedule_tuple,
