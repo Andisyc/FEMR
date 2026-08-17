@@ -1,0 +1,124 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v025-BOUNDED1-DEBUG-FINAL-20260817",
+  "mode": "final-gate",
+  "profiles": [
+    "standard",
+    "module-boundary",
+    "repository-discipline",
+    "research-ml"
+  ],
+  "verdict": "FINAL_GATE_PASS",
+  "scope": {
+    "requested": [
+      "Close the failed relational HSL cold-start and all offline preflight gaps before another user-controlled live attempt"
+    ],
+    "preserved": [
+      "HSL-v2 restores Actor, distribution state, and 158D prefix normalizer only",
+      "legacy scalar Stage-3 uses grouped_scale_only",
+      "relational Stage-3 uses pairwise_edge, Actor-only optimization, and checkpoint-v20"
+    ],
+    "forbidden": [
+      "MOSAIC host changes",
+      "scalar fallback or checkpoint-v19 on the relational route",
+      "live, simulator, server, training, Git, or destructive actions by Codex"
+    ]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-07R@FRS-METHOD-v026",
+    "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025/FRS-EVAL-v007",
+    "checkout": "146646d4bcef9fb1a28b6ce6410949278e477626+bounded1-debug-fix",
+    "review_object": "sha256:5fe3d501fcc42df68d6aff3038e60115e07b10f87d13b8fb1ad9baa4d58ddb4e"
+  },
+  "authority": {
+    "review": {
+      "status": "read-only",
+      "scope": "Final maintainability and evidence-boundary review"
+    },
+    "source_edits": {
+      "status": "approved",
+      "scope": "Localized checkpoint validation and launcher preflight isolation repair",
+      "receipt": "User requested one complete repair before another live test on 2026-08-17"
+    },
+    "report_write": {
+      "status": "approved",
+      "scope": "Persist final repair and review receipts",
+      "receipt": "User requested all fixes and evidence be saved"
+    }
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py",
+    "content_hash": "sha256:5fe3d501fcc42df68d6aff3038e60115e07b10f87d13b8fb1ad9baa4d58ddb4e",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "The repair retains one checkpoint owner and isolates contract-process environment at the launcher shell boundary."
+  },
+  "dimensions": [
+    {
+      "name": "responsibility-ownership",
+      "disposition": "pass",
+      "evidence": "Checkpointing remains the sole HSL identity and restore owner; the launcher remains the sole contract-process environment owner."
+    },
+    {
+      "name": "public-interface",
+      "disposition": "pass",
+      "evidence": "No public Python interface or checkpoint schema changed; callers still use load_frontres_hsl_initializer and relational_train."
+    },
+    {
+      "name": "dependency-direction",
+      "disposition": "pass",
+      "evidence": "Production does not import tests; the launcher executes the declared suite with two test-only control variables isolated."
+    },
+    {
+      "name": "state-lifecycle",
+      "disposition": "pass",
+      "evidence": "Mixed objective, reduction, and Actor ownership identities reject before any Actor, Critic, optimizer, sampler, Replay, transaction, or normalizer mutation."
+    },
+    {
+      "name": "change-surface",
+      "disposition": "pass",
+      "evidence": "The diff changes one checkpoint predicate, one launcher subprocess environment, focused tests, aggregate coverage, and matching evidence text only."
+    },
+    {
+      "name": "evidence-boundary",
+      "disposition": "pass",
+      "evidence": "The final claim is training-preflight readiness only; simulator execution, convergence, policy quality, and Formal PASS remain unclaimed."
+    },
+    {
+      "name": "tensor-provenance",
+      "disposition": "pass",
+      "evidence": "The relational positive test proves exact source Actor/std/prefix restoration while Critic and privileged normalizer remain at their pre-load values."
+    },
+    {
+      "name": "gradient-update-boundary",
+      "disposition": "pass",
+      "evidence": "The initializer performs zero optimizer loads or steps; the formal relation transaction separately proves exactly one Actor update and frozen Critic."
+    },
+    {
+      "name": "persistence-evaluation",
+      "disposition": "pass",
+      "evidence": "checkpoint-v20 strict round-trip, legacy rejection, 61/61 aggregate suite, and the combined official relational preflight all passed."
+    }
+  ],
+  "findings": [],
+  "residual_risks": [
+    "The first real post-fix IsaacLab relational transaction remains user-controlled runtime evidence and cannot be proven locally."
+  ],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}

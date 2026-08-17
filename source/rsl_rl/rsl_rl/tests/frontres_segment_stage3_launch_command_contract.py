@@ -119,6 +119,21 @@ def test_g5_s4_bounded_launch_freezes_64_1_1_and_audit() -> None:
     assert "--frontres_formal_runtime_audit" in command
 
 
+def test_g5_s4_bounded_relational_launch_selects_actor_only_route() -> None:
+    result = _run_preflight(
+        "relational_train",
+        {"FRONTRES_G5_S4_BOUNDED": "1"},
+        bounds=("64", "1", "1"),
+    )
+    assert result.returncode == 0, result.stderr
+    command = _command_line(result)
+    assert "--num_envs=64" in command
+    assert "--max_iterations 1" in command
+    assert "--frontres_segment_live_update_steps 1" in command
+    assert "--frontres_formal_runtime_audit" in command
+    assert "--frontres_relational_actor_only" in command
+
+
 def test_stage3_train_launch_accepts_explicit_checkpoint_interval() -> None:
     result = _run_preflight(
         "train",
@@ -311,6 +326,7 @@ def test_stage3_launch_rejects_retired_optimizer_modes() -> None:
 if __name__ == "__main__":
     test_stage3_train_launch_preflight_builds_femr_command()
     test_g5_s4_bounded_launch_freezes_64_1_1_and_audit()
+    test_g5_s4_bounded_relational_launch_selects_actor_only_route()
     test_stage3_train_launch_accepts_explicit_checkpoint_interval()
     test_g5_s4_launch_rejects_legacy_resume_and_wrong_bounds()
     test_strict_v023_resume_replaces_hsl_initializer()

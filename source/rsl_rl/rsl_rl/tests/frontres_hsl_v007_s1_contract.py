@@ -914,6 +914,83 @@ def test_t_stage3_explicit_hsl_initializer_actor_only() -> None:
         assert receipt["format"] == "frontres-v017-hsl-proposal-v2"
         assert receipt["restored"] == ("residual_actor", "std", "frontres_prefix_norm_state_dict")
 
+        relational = _stage3_hsl_initializer_runner(checkpointing, layout, gmt_path, seed=49)
+        relational.alg.frontres_training_objective = "segment_replay_relational"
+        relational.alg.frontres_segment_advantage_normalization = "pairwise_edge"
+        relational.alg.frontres_relational_actor_only = True
+        relational_before = _checkpoint_mutable_state(relational)
+        relational_sampler = relational._frontres_segment_sampler
+
+        relational_receipt = checkpointing.load_frontres_hsl_initializer(
+            relational, str(checkpoint_path)
+        )
+        relational_loaded = _checkpoint_mutable_state(relational)
+        for name in ("actor", "prefix"):
+            assert all(
+                torch.equal(lhs, rhs)
+                for lhs, rhs in zip(relational_loaded[name], source_state[name])
+            )
+        assert torch.equal(relational_loaded["std"], source_state["std"])
+        assert all(
+            torch.equal(lhs, rhs)
+            for lhs, rhs in zip(relational_loaded["critic"], relational_before["critic"])
+        )
+        assert all(
+            torch.equal(lhs, rhs)
+            for lhs, rhs in zip(relational_loaded["privileged"], relational_before["privileged"])
+        )
+        assert relational.alg.optimizer.load_calls == 0
+        assert relational._frontres_segment_sampler is relational_sampler
+        assert relational_receipt["format"] == "frontres-v017-hsl-proposal-v2"
+
+        identity_rejection_cases = (
+            (
+                "scalar-pairwise",
+                "grouped_scale_only",
+                lambda runner: setattr(
+                    runner.alg, "frontres_segment_advantage_normalization", "pairwise_edge"
+                ),
+            ),
+            (
+                "relational-grouped",
+                "pairwise_edge",
+                lambda runner: (
+                    setattr(runner.alg, "frontres_training_objective", "segment_replay_relational"),
+                    setattr(runner.alg, "frontres_relational_actor_only", True),
+                ),
+            ),
+            (
+                "relational-scalar-owner",
+                "Actor-only",
+                lambda runner: (
+                    setattr(runner.alg, "frontres_training_objective", "segment_replay_relational"),
+                    setattr(runner.alg, "frontres_segment_advantage_normalization", "pairwise_edge"),
+                    setattr(runner.alg, "frontres_relational_actor_only", False),
+                ),
+            ),
+            (
+                "scalar-relational-owner",
+                "scalar Stage-3",
+                lambda runner: setattr(
+                    runner.alg, "frontres_relational_actor_only", True
+                ),
+            ),
+        )
+        for index, (_name, message, mutate) in enumerate(identity_rejection_cases):
+            case = _stage3_hsl_initializer_runner(checkpointing, layout, gmt_path, seed=70 + index)
+            mutate(case)
+            before = _checkpoint_mutable_state(case)
+            sampler = case._frontres_segment_sampler
+            _expect_error(
+                RuntimeError,
+                lambda r=case: checkpointing.load_frontres_hsl_initializer(
+                    r, str(checkpoint_path)
+                ),
+                message,
+            )
+            _assert_checkpoint_state_equal(_checkpoint_mutable_state(case), before)
+            assert case._frontres_segment_sampler is sampler
+
         rejected = _stage3_hsl_initializer_runner(checkpointing, layout, gmt_path, seed=53)
         rejected.current_learning_iteration = 1
         before = _checkpoint_mutable_state(rejected)
@@ -951,7 +1028,7 @@ def test_t_stage3_explicit_hsl_initializer_actor_only() -> None:
             assert case._frontres_segment_sampler is sampler
 
     print(
-        "[T-Stage3-HSL-init] explicit HSL-v2 restores actor/std/158D prefix only; generic load and post-iteration migration reject unchanged",
+        "[T-Stage3-HSL-init] scalar and relational HSL-v2 restore actor/std/158D prefix only; mixed identity, generic load, and post-iteration migration reject unchanged",
         flush=True,
     )
 
@@ -1115,14 +1192,14 @@ def test_t_hsl_loss_reject() -> None:
         lambda: unified.validate_frontres_v015_stage3_supervision_config(
             future_offsets=(1, 2), lambda_supervised=1.0, lambda_supervised_min=0.0
         ),
-        "FRS-TRAIN-v019",
+        "FRS-TRAIN-v021",
     )
     _expect_error(
         ValueError,
         lambda: unified.validate_frontres_v015_stage3_supervision_config(
             future_offsets=(1, 2), lambda_supervised=0.0, lambda_supervised_min=0.2
         ),
-        "FRS-TRAIN-v019",
+        "FRS-TRAIN-v021",
     )
     unified.validate_frontres_v015_stage3_supervision_config(
         future_offsets=(1, 2), lambda_supervised=0.0, lambda_supervised_min=0.0
@@ -1270,7 +1347,7 @@ def test_t_hsl_direct_write_reject() -> None:
             is_task_space_mode=True,
             n_train=1,
         ),
-        "FRS-TRAIN-v019",
+        "FRS-TRAIN-v021",
     )
     runner.alg.lambda_supervised = 0.0
     rollout_step._write_supervised_target_before_step(

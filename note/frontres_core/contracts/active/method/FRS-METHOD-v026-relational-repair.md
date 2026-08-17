@@ -50,6 +50,6 @@ scalar checkpoint-v19 is rejected before mutation.
 
 FRS-METHOD-v025 remains a characterized scalar compatibility route. It is not
 the default for the next fresh campaign. Active-pre-training means the
-composition root, CPU contracts, persistence round-trip, and 60-test suite are
+composition root, CPU contracts, persistence round-trip, and 61-test suite are
 closed. It does not claim simulator execution, threshold calibration,
 convergence, policy quality, deployment quality, or Formal PASS.

@@ -981,12 +981,28 @@ def _validate_v015_stage3_hsl_initializer_runtime(runner: Any) -> None:
     alg = getattr(runner, "alg", None)
     if str(getattr(runner, "training_type", "")) != "frontres" or alg is None:
         raise RuntimeError("v015 HSL initializer requires a FrontRES Stage-3 runner")
-    if str(getattr(alg, "frontres_training_objective", "")) != "segment_replay_hrl":
-        raise RuntimeError("v015 HSL initializer requires the segment_replay_hrl objective")
+    objective = str(getattr(alg, "frontres_training_objective", ""))
+    reduction = str(getattr(alg, "frontres_segment_advantage_normalization", ""))
+    relational_actor_only = bool(getattr(alg, "frontres_relational_actor_only", False))
+    expected_reductions = {
+        "segment_replay_hrl": "grouped_scale_only",
+        "segment_replay_relational": "pairwise_edge",
+    }
+    if objective not in expected_reductions:
+        raise RuntimeError(
+            "v015 HSL initializer requires an active scalar or relational Stage-3 objective"
+        )
+    if reduction != expected_reductions[objective]:
+        raise RuntimeError(
+            f"v015 HSL initializer requires {expected_reductions[objective]} "
+            f"for objective={objective}"
+        )
+    if objective == "segment_replay_relational" and not relational_actor_only:
+        raise RuntimeError("relational Stage-3 HSL initializer requires Actor-only ownership")
+    if objective == "segment_replay_hrl" and relational_actor_only:
+        raise RuntimeError("scalar Stage-3 HSL initializer rejects relational Actor-only ownership")
     if not bool(getattr(alg, "frontres_formal_transaction_enabled", False)):
         raise RuntimeError("v015 HSL initializer requires the formal transaction configuration")
-    if str(getattr(alg, "frontres_segment_advantage_normalization", "")) != "grouped_scale_only":
-        raise RuntimeError("v015 HSL initializer requires grouped_scale_only configuration")
     if tuple(int(value) for value in (getattr(alg, "frontres_future_offsets", ()) or ())) != (1, 2):
         raise RuntimeError("v015 HSL initializer requires future_offsets=(1, 2)")
     if str(getattr(alg, "frontres_future_intent_layout_version", "")) != FRONTRES_FUTURE_INTENT_LAYOUT_VERSION:

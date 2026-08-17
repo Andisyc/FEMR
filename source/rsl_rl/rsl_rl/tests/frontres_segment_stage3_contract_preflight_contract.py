@@ -13,7 +13,9 @@ SCRIPT = ROOT / "run" / "run_frontres_stage3_segment_hrl.sh"
 SUITE = ROOT / "source" / "rsl_rl" / "rsl_rl" / "tests" / "frontres_segment_all_contract_suite.py"
 
 
-def _run_contract_preflight(mode: str = "train") -> subprocess.CompletedProcess[str]:
+def _run_contract_preflight(
+    mode: str = "train", *, bounded: bool = False
+) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         checkpoint = tmp_path / "stage1_model.pt"
@@ -24,6 +26,8 @@ def _run_contract_preflight(mode: str = "train") -> subprocess.CompletedProcess[
         motion_path.mkdir()
         cache_path.mkdir()
         suite_stub.write_text(
+            "import os\n"
+            "print('[probe step10] child_env: bounded=' + os.environ.get('FRONTRES_G5_S4_BOUNDED', 'missing') + ' recursive=' + os.environ.get('FRONTRES_STAGE3_RUN_CONTRACTS', 'missing'))\n"
             "print('[probe step10] stub_contract_suite: ok')\n"
             "print('frontres_segment_all_contract_suite: ok')\n"
         )
@@ -31,6 +35,7 @@ def _run_contract_preflight(mode: str = "train") -> subprocess.CompletedProcess[
         env["CACHE_DIR"] = str(cache_path)
         env["FRONTRES_STAGE_PREFLIGHT_ONLY"] = "1"
         env["FRONTRES_STAGE3_RUN_CONTRACTS"] = "1"
+        env["FRONTRES_G5_S4_BOUNDED"] = "1" if bounded else "0"
         env["FRONTRES_STAGE3_CONTRACT_SUITE"] = str(suite_stub)
         env["FRONTRES_STAGE3_CONTRACT_PYTHON"] = sys.executable
         env["FRONTRES_V015_K_CURRICULUM"] = "8:4:200:500:1300:lower-k8:0.5:linear-coupled-v1:700:2.381,16:4:300:300:900:lower-k16:0.6:linear-coupled-v1:600:2.381,32:4:400:300:625:lower-k32:0.7:linear-coupled-v1:700:2.381"
@@ -62,7 +67,7 @@ def _line_index(lines: list[str], needle: str) -> int:
 
 
 def test_contract_gate_runs_before_stage3_command_preflight() -> None:
-    result = _run_contract_preflight()
+    result = _run_contract_preflight(bounded=True)
     lines = result.stdout.splitlines()
     start_i = _line_index(lines, "[FrontRES Stage3 contract preflight] START")
     suite_i = _line_index(lines, "frontres_segment_all_contract_suite: ok")
@@ -92,6 +97,7 @@ def test_contract_gate_runs_before_stage3_command_preflight() -> None:
     assert "--frontres_segment_live_single_update_only" not in command_line
     assert SUITE.exists()
     assert "[probe step10] stub_contract_suite: ok" in result.stdout
+    assert "[probe step10] child_env: bounded=0 recursive=0" in result.stdout
     assert "frontres_segment_all_contract_suite: ok" in result.stdout
 
 

@@ -1,0 +1,102 @@
+{
+  "schema_version": "one-shot-execution/v1",
+  "unit_id": "OSE-FRS-TRAIN-v025-BOUNDED1-RETRY-V001",
+  "closure_mode": "engineering",
+  "terminal_outcome": "close every offline-discoverable relational HSL cold-start guard and stop before the user-controlled retry",
+  "admission": "COMPLETE",
+  "scope": {
+    "requested": [
+      "repair the failed relational bounded startup once and close the complete offline path before another live attempt"
+    ],
+    "preserved": [
+      "HSL-v2 restores only Actor, distribution state, and the 158D prefix normalizer",
+      "legacy scalar Stage-3 accepts segment_replay_hrl with grouped_scale_only",
+      "relational Stage-3 uses an Actor-only optimizer and checkpoint-v20"
+    ],
+    "forbidden": [
+      "live or training execution by Codex",
+      "scalar fallback or checkpoint-v19 on the relational route",
+      "Critic, optimizer, Replay, GMT, or MOSAIC mutation by the HSL initializer"
+    ]
+  },
+  "identities": {
+    "design": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025/FRS-EVAL-v007",
+    "checkout": "146646d4bcef9fb1a28b6ce6410949278e477626+dirty-log-only-before-fix",
+    "entrypoint": "run/run_frontres_stage3_segment_hrl.sh relational_train -> scripts/rsl_rl/train.py -> OnPolicyRunner.load_frontres_hsl_initializer",
+    "effective_config": "segment_replay_relational/pairwise_edge/Actor-only/B8xM4/K8/bounded-one-update",
+    "checkpoint": "fresh HSL-v2 initializer -> relational checkpoint-v20"
+  },
+  "authority": {
+    "local_reversible": {
+      "status": "approved",
+      "scope": "localized production repair, regression tests, offline audit, review, and saved receipts"
+    },
+    "git_actions": {
+      "status": "not-requested",
+      "scope": "no stage, commit, push, pull, reset, or clean"
+    },
+    "external_operations": {
+      "status": "not-requested",
+      "scope": "no server access, transfer, simulator, or network action"
+    },
+    "bounded_live": {
+      "status": "not-requested",
+      "scope": "the user retains authority for the next bounded server attempt"
+    },
+    "long_run": {
+      "status": "not-requested",
+      "scope": "no long training"
+    },
+    "destructive": {
+      "status": "not-required",
+      "scope": "no destructive operation"
+    }
+  },
+  "causal_closure": {
+    "required": true,
+    "status": "LOCALIZED",
+    "rationale": "the official route constructed the correct relational algorithm and failed before checkpoint mutation",
+    "owner_or_invariant": "frontres_checkpointing._validate_v015_stage3_hsl_initializer_runtime must admit each active Stage-3 objective only with its matching reduction and ownership identity",
+    "evidence_ref": "FRS_TRAIN_V025_RELATIONAL_BOUNDED1_20260817.log: runner.load_frontres_hsl_initializer -> v015 objective rejection",
+    "falsifier": "a relational fake runner with pairwise_edge passes the current HSL initializer or the traceback occurs before the checkpointing owner"
+  },
+  "dependencies": [],
+  "next_action": {
+    "class": "none",
+    "description": "",
+    "reversible": true,
+    "costly": false,
+    "externally_visible": false,
+    "destroys_evidence": false,
+    "decision_boundary": {
+      "kind": "none"
+    }
+  },
+  "offline_gaps": [
+    {
+      "id": "OFFLINE-V025-HSL-1",
+      "status": "closed",
+      "fact": "relational HSL-v2 cold-start identity was rejected by a scalar-only runtime guard",
+      "closure": "Relational objective, pairwise reduction, and Actor-only ownership now pass strict pre-mutation validation; mixed identities fail unchanged."
+    },
+    {
+      "id": "OFFLINE-V025-PREFLIGHT-2",
+      "status": "closed",
+      "fact": "bounded launcher variables leaked into nested contract subprocesses",
+      "closure": "The contract subprocess receives bounded=0 and recursive-preflight=0 while the parent training command retains bounded=1."
+    }
+  ],
+  "live_only_unknowns": [],
+  "attempts": [
+    {
+      "attempt_id": "FRS-V025-BOUNDED1-20260817-A1",
+      "ordinal": 1,
+      "action_class": "bounded-live",
+      "status": "failed",
+      "command": "user-controlled relational_train bounded one-update launch",
+      "failure_classification": "offline-fixable",
+      "first_invalid_boundary": "frontres_checkpointing._validate_v015_stage3_hsl_initializer_runtime objective whitelist",
+      "evidence_ref": "FRS_TRAIN_V025_RELATIONAL_BOUNDED1_20260817.log"
+    }
+  ]
+}

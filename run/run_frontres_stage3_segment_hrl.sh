@@ -226,9 +226,10 @@ if [[ ${#EXTRA_TRAIN_ARGS[@]} -gt 0 ]]; then
 fi
 
 if [[ "${FRONTRES_STAGE3_RUN_CONTRACTS:-0}" == "1" ]]; then
-  echo "[FrontRES Stage3 contract preflight] START suite=${CONTRACT_SUITE} python=${CONTRACT_PYTHON}"
+ echo "[FrontRES Stage3 contract preflight] START suite=${CONTRACT_SUITE} python=${CONTRACT_PYTHON}"
+ env FRONTRES_G5_S4_BOUNDED=0 FRONTRES_STAGE3_RUN_CONTRACTS=0 \
   "${CONTRACT_PYTHON}" "${CONTRACT_SUITE}"
-  echo "[FrontRES Stage3 contract preflight] PASS suite=${CONTRACT_SUITE}"
+ echo "[FrontRES Stage3 contract preflight] PASS suite=${CONTRACT_SUITE}"
 fi
 
 if [[ ! -d "${MOTION_PATH}" ]]; then

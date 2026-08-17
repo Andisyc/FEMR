@@ -368,6 +368,13 @@ CONTRACTS = (
         requires_torch=True,
     ),
     ContractTarget(
+        name="hsl_v2_stage3_initializer",
+        path="source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s1_contract.py",
+        expected_marker="frontres_hsl_v007_s1_contract: ok",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
         name="hsl_rollout_target_audit",
         path="source/rsl_rl/rsl_rl/tests/frontres_hsl_rollout_target_contract.py",
         expected_marker="frontres_hsl_rollout_target_contract: v007 reject ok",

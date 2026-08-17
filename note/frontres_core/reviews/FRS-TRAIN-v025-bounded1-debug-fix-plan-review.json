@@ -1,0 +1,129 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v025-BOUNDED1-DEBUG-PLAN-20260817",
+  "mode": "plan",
+  "profiles": [
+    "standard",
+    "module-boundary",
+    "repository-discipline",
+    "research-ml"
+  ],
+  "verdict": "READY",
+  "scope": {
+    "requested": [
+      "Close the failed relational HSL cold-start and all same-path offline guards before another user-controlled live attempt"
+    ],
+    "preserved": [
+      "HSL-v2 actor, distribution, and 158D prefix-only restore",
+      "legacy scalar Stage-3 cold-start",
+      "relational Actor-only optimization and checkpoint-v20 identity"
+    ],
+    "forbidden": [
+      "MOSAIC host changes",
+      "scalar fallback or checkpoint-v19 on the relational route",
+      "live, simulator, server, or training execution by Codex"
+    ]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-07R@FRS-METHOD-v026",
+    "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025/FRS-EVAL-v007",
+    "checkout": "146646d4bcef9fb1a28b6ce6410949278e477626+bounded1-log-and-plan",
+    "review_object": "sha256:76b8676911b89611df6bf4a4162c6d430d48b368ac728c4f644918861e6bb911"
+  },
+  "authority": {
+    "review": {
+      "status": "read-only",
+      "scope": "Localized runtime-repair plan review"
+    },
+    "source_edits": {
+      "status": "approved",
+      "scope": "Checkpoint-owner repair and affected regression tests",
+      "receipt": "User requested one complete repair before another live test on 2026-08-17"
+    },
+    "report_write": {
+      "status": "approved",
+      "scope": "Persist plan, retry ledger, and final review receipts",
+      "receipt": "User requested all fixes and evidence be saved"
+    }
+  },
+  "review_object": {
+    "kind": "plan",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/plans/FRS-TRAIN-v025-bounded1-debug-fix-plan.md",
+    "content_hash": "sha256:76b8676911b89611df6bf4a4162c6d430d48b368ac728c4f644918861e6bb911",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "The active contract requires one owner, pre-mutation failure, characterization, official connectivity, and persistence evidence."
+  },
+  "dimensions": [
+    {
+      "name": "responsibility-ownership",
+      "disposition": "pass",
+      "evidence": "The existing checkpointing owner already validates and restores HSL-v2; the repair changes only its Stage-3 runtime identity predicate."
+    },
+    {
+      "name": "public-interface",
+      "disposition": "pass",
+      "evidence": "load_frontres_hsl_initializer(runner, path) and its receipt remain unchanged; callers learn no new fact."
+    },
+    {
+      "name": "dependency-direction",
+      "disposition": "pass",
+      "evidence": "Checkpointing consumes public algorithm identity fields and does not import training entrypoints, tests, or simulator objects."
+    },
+    {
+      "name": "state-lifecycle",
+      "disposition": "pass",
+      "evidence": "All objective and reduction checks remain before file restore; negative combinations must leave Actor, Critic, optimizer, Replay, and normalizers unchanged."
+    },
+    {
+      "name": "change-surface",
+      "disposition": "pass",
+      "evidence": "The Effect Sketch narrows at the Stage-3 HSL runtime validator; no wrapper, schema, or alternate route is added."
+    },
+    {
+      "name": "evidence-boundary",
+      "disposition": "pass",
+      "evidence": "The unit stops after local module, checkpoint, transaction, entrypoint, aggregate, and formal-offline checks and makes no live or policy-quality claim."
+    },
+    {
+      "name": "proof-route",
+      "disposition": "pass",
+      "evidence": "TDD adds a relational positive case plus cross-objective fail-closed cases, then runs HSL, checkpoint-v20, formal transaction, official entrypoint, aggregate suite, and preflight."
+    },
+    {
+      "name": "tensor-provenance",
+      "disposition": "pass",
+      "evidence": "The initializer continues to restore only validated residual_actor tensors, distribution state, and exact 158D prefix normalizer state."
+    },
+    {
+      "name": "gradient-update-boundary",
+      "disposition": "pass",
+      "evidence": "HSL initialization performs no optimizer step; relational optimizer ownership remains verified separately as one Actor group with frozen Critic."
+    },
+    {
+      "name": "persistence-evaluation",
+      "disposition": "pass",
+      "evidence": "Fresh HSL-v2 initialization is separated from checkpoint-v20 resume; scalar checkpoint-v19 remains rejected by the relational checkpoint owner before mutation."
+    }
+  ],
+  "findings": [],
+  "residual_risks": [
+    "IsaacLab simulator construction and the first real relational transaction remain runtime-only and user-controlled after offline closure."
+  ],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}
