@@ -155,7 +155,16 @@ def _build_relational_transaction_telemetry(result: Any, *, ppo: Any, diagnostic
         "critic_value_normalizer_scale_floor": 0.0,
         "critic_value_normalizer_update_count_before": 0,
         "critic_value_normalizer_update_count_after": 0,
+        "actor_gradient_pre_clip_norm": _finite(diagnostics, "actor_gradient_pre_clip_norm"),
         "actor_gradient_post_clip_norm": _finite(diagnostics, "actor_gradient_post_clip_norm"),
+        "actor_gradient_clip_coefficient": _finite(diagnostics, "actor_gradient_clip_coefficient"),
+        "actor_gradient_nonzero_parameter_count": int(
+            diagnostics.get("actor_gradient_nonzero_parameter_count", 0)
+        ),
+        "actor_parameter_delta_l2": _finite(diagnostics, "actor_parameter_delta_l2"),
+        "action_l2_mean": _finite(diagnostics, "action_l2_mean"),
+        "action_l2_max": _finite(diagnostics, "action_l2_max"),
+        "action_nonzero_fraction": _finite(diagnostics, "action_nonzero_fraction"),
         "critic_gradient_post_clip_norm": 0.0,
         "active_k": int(diagnostics.get("active_k", -1)),
         "active_m": int(diagnostics.get("active_m", -1)),

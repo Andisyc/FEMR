@@ -583,6 +583,17 @@ def _execute_frontres_relational_transaction_update(
         raise RuntimeError("FRS-TRAIN-v025 did not publish its committed receipt")
     replay_telemetry = outer_replay.commit(replay_candidate, receipt=receipt)
     parameter_delta = _parameter_delta_stats(optimizer_params, parameter_snapshots)
+    valid_actions = ppo_batch.actions.detach().float()[ppo_batch.valid_mask.detach().bool()]
+    action_l2 = torch.linalg.vector_norm(valid_actions, dim=1)
+    action_nonzero_fraction = float((valid_actions.abs() > 0.0).float().mean().cpu().item())
+    gradient_clip_coefficient = (
+        1.0 if gradient_pre_clip_norm <= max_grad_norm else max_grad_norm / gradient_pre_clip_norm
+    )
+    gradient_nonzero_parameter_count = sum(
+        int(bool(torch.any(value.grad.detach() != 0.0).item()))
+        for value in actor_parameters
+        if value.grad is not None
+    )
     diagnostics = {
         "transaction_id": request.plan.transaction_id,
         "policy_snapshot_id": request.plan.policy_snapshot_id,
@@ -600,6 +611,7 @@ def _execute_frontres_relational_transaction_update(
         "gradient_pre_clip_norm": gradient_pre_clip_norm,
         "gradient_post_clip_norm": gradient_post_clip_norm,
         "gradient_clip_identity": "actor-only-relational-v1",
+        "actor_gradient_pre_clip_norm": gradient_pre_clip_norm,
         "optimizer_step_delta": 1,
         "actor_learning_rate": actor_learning_rate,
         "critic_learning_rate": 0.0,
@@ -617,8 +629,14 @@ def _execute_frontres_relational_transaction_update(
         "critic_value_normalizer_update_count_before": 0,
         "critic_value_normalizer_update_count_after": 0,
         "gradient_clip_max_norm": max_grad_norm,
+        "actor_gradient_clip_coefficient": gradient_clip_coefficient,
+        "actor_gradient_nonzero_parameter_count": gradient_nonzero_parameter_count,
         "actor_gradient_post_clip_norm": gradient_post_clip_norm,
         "critic_gradient_post_clip_norm": 0.0,
+        "action_l2_mean": float(action_l2.mean().cpu().item()),
+        "action_l2_max": float(action_l2.max().cpu().item()),
+        "action_nonzero_fraction": action_nonzero_fraction,
+        "actor_parameter_delta_l2": float(parameter_delta.get("param_delta_l2", 0.0)),
         "training_iteration": curriculum.absolute_iteration,
         "curriculum_fingerprint": curriculum.schedule_fingerprint,
         "k_stage_index": curriculum.stage_index,
