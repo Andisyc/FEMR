@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from rsl_rl.frontres.frontres_hierarchical_gain_candidate import Outcome
+from rsl_rl.frontres.frontres_relational_outcome import build_frontres_relational_outcome
 from rsl_rl.frontres.frontres_segment_evidence import FrontRESSealedRecoveryAwareGainBatch
 
 
@@ -50,7 +51,20 @@ def build_frontres_relational_evaluation_report(
     evidence.validate()
     attempts = evidence.ordered_attempts
     batches = evidence.relational_training_batches()
-    outcomes = tuple(value.repair.relational_outcome for value in attempts)
+    # The batch builder validates the same evidence for relation edges, but its
+    # local materialization is intentionally immutable. Re-materialize the
+    # producer-owned Outcome here so telemetry remains row-aligned without
+    # mutating sealed attempt objects.
+    baselines = tuple(evidence.baselines)
+    outcomes = tuple(
+        build_frontres_relational_outcome(
+            clean=baselines[int(value.source_index)].clean,
+            repair=value.repair,
+            expected_support=baselines[int(value.source_index)].expected_support,
+            repair_action=value.policy_action,
+        )
+        for value in attempts
+    )
     if any(not isinstance(value, Outcome) for value in outcomes):
         raise ValueError("relational report requires materialized Outcome evidence")
     counts = tuple(
