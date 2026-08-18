@@ -14,6 +14,7 @@ _runners_package.__path__ = [str(_RUNNERS_DIR)]
 sys.modules.setdefault("rsl_rl.runners", _runners_package)
 
 from rsl_rl.frontres.frontres_relational_evaluation import FrontRESRelationalEvaluationReport
+from rsl_rl.frontres.frontres_hierarchical_gain_candidate import Outcome
 from rsl_rl.runners.frontres_segment_training_telemetry import (
     build_frontres_transaction_telemetry,
 )
@@ -30,6 +31,7 @@ def _report(transaction_id: str):
         source_statuses=("READY",) * 8,
         comparable_pair_count_by_row=(1,) * 32,
         preference_edges=((0, 1),),
+        outcomes=(Outcome(),) * 32,
     )
 
 
@@ -95,6 +97,14 @@ def main() -> None:
         assert math.isclose(float(telemetry[name]), expected)
     assert telemetry["actor_gradient_nonzero_parameter_count"] == 7
     assert telemetry["critic_gradient_post_clip_norm"] == 0.0
+    assert telemetry["outcome_schema_id"] == "frs-gain-v009-outcome-v1"
+    assert len(telemetry["relational_outcomes"]) == 32
+    first_outcome = telemetry["relational_outcomes"][0]
+    assert first_outcome["survival_ok"] is True
+    assert first_outcome["expected_support_no_load"] == 0.0
+    assert first_outcome["zmp_applicable"] is True
+    assert first_outcome["intent_error"] == (0.10, 0.10)
+    assert first_outcome["repair_cost"] == 0.10
     print("frontres_relational_training_diagnostics_alignment: OBJECTIVE-ALIGNED")
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import asdict
 from collections.abc import Mapping
 from typing import Any
 
@@ -103,6 +104,7 @@ def _build_relational_transaction_telemetry(result: Any, *, ppo: Any, diagnostic
     scenario_ids: list[str] = []
     noisy_hashes: list[str] = []
     comparable_counts: list[int] = []
+    outcomes: list[dict[str, Any]] = []
     edges: tuple[tuple[int, int], ...] | None = None
     transaction_id = str(getattr(result, "transaction_id", ""))
     for report in reports:
@@ -114,6 +116,10 @@ def _build_relational_transaction_telemetry(result: Any, *, ppo: Any, diagnostic
         scenario_ids.extend(report.scenario_ids)
         noisy_hashes.extend(report.noisy_segment_hashes)
         comparable_counts.extend(report.comparable_pair_count_by_row)
+        report_outcomes = getattr(report, "outcomes", ())
+        if not isinstance(report_outcomes, tuple) or len(report_outcomes) != int(report.policy_row_count):
+            raise RuntimeError("FRS-TRAIN-v025 telemetry requires row-aligned Outcome evidence")
+        outcomes.extend(asdict(value) for value in report_outcomes)
         if edges is None:
             edges = tuple(report.preference_edges)
         elif tuple(report.preference_edges) != edges:
@@ -195,6 +201,8 @@ def _build_relational_transaction_telemetry(result: Any, *, ppo: Any, diagnostic
         "scenario_ids": tuple(scenario_ids),
         "noisy_segment_hashes": tuple(noisy_hashes),
         "comparable_pair_count_by_row": tuple(comparable_counts),
+        "outcome_schema_id": "frs-gain-v009-outcome-v1",
+        "relational_outcomes": tuple(outcomes),
         "outer_replay": diagnostics.get("outer_replay"),
         "return_feedback": False,
         "priority_feedback": False,

@@ -35,6 +35,7 @@ from rsl_rl.algorithms.frontres_segment_ppo import (
     FrontRESValueNormalizerState,
 )
 from rsl_rl.frontres.frontres_local_evaluation import FrontRESV017LocalEvaluationReport
+from rsl_rl.frontres.frontres_hierarchical_gain_candidate import Outcome
 from rsl_rl.frontres.frontres_outer_scenario_replay import (
     FrontRESOuterScenarioReplay,
     FrontRESScenarioKey,
@@ -620,6 +621,7 @@ def test_exact_one_relational_commit_updates_actor_only() -> None:
         source_statuses=("READY",) * 8,
         preference_edges=edges,
         comparable_pair_count_by_row=pair_counts,
+        outcomes=(Outcome(),) * 32,
     )
     report.validate()
     keys = tuple(
@@ -727,6 +729,7 @@ def test_relational_no_edge_transaction_is_zero_write() -> None:
         source_statuses=("NO_COMPARABLE_PAIRS",) * 8,
         preference_edges=(),
         comparable_pair_count_by_row=(0,) * 32,
+        outcomes=(Outcome(),) * 32,
     )
     keys = tuple(
         FrontRESScenarioKey(

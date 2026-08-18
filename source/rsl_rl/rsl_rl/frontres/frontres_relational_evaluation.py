@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from rsl_rl.frontres.frontres_hierarchical_gain_candidate import Outcome
 from rsl_rl.frontres.frontres_segment_evidence import FrontRESSealedRecoveryAwareGainBatch
 
 
@@ -16,6 +17,7 @@ class FrontRESRelationalEvaluationReport:
     source_statuses: tuple[str, ...]
     preference_edges: tuple[tuple[int, int], ...]
     comparable_pair_count_by_row: tuple[int, ...]
+    outcomes: tuple[Outcome, ...] = ()
 
     def validate(self) -> None:
         rows = int(self.policy_row_count)
@@ -33,6 +35,10 @@ class FrontRESRelationalEvaluationReport:
             isinstance(value, bool) or int(value) < 0 for value in self.comparable_pair_count_by_row
         ):
             raise ValueError("relational report requires nonnegative row-aligned pair counts")
+        if self.outcomes and (
+            len(self.outcomes) != rows or any(not isinstance(value, Outcome) for value in self.outcomes)
+        ):
+            raise ValueError("relational report requires row-aligned Outcome evidence")
         for winner, loser in self.preference_edges:
             if winner == loser or not (0 <= int(winner) < rows) or not (0 <= int(loser) < rows):
                 raise ValueError("relational report contains an invalid preference edge")
@@ -44,6 +50,9 @@ def build_frontres_relational_evaluation_report(
     evidence.validate()
     attempts = evidence.ordered_attempts
     batches = evidence.relational_training_batches()
+    outcomes = tuple(value.repair.relational_outcome for value in attempts)
+    if any(not isinstance(value, Outcome) for value in outcomes):
+        raise ValueError("relational report requires materialized Outcome evidence")
     counts = tuple(
         int(value)
         for batch in batches
@@ -57,6 +66,7 @@ def build_frontres_relational_evaluation_report(
         source_statuses=tuple(value.status for value in batches),
         preference_edges=evidence.relational_preference_edges(),
         comparable_pair_count_by_row=counts,
+        outcomes=outcomes,
     )
     report.validate()
     return report
