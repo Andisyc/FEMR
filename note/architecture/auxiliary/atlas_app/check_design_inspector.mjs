@@ -66,7 +66,7 @@ const registryRows = [...registry.matchAll(
  blockId: match[4],
 }));
 const cardsById = new Map(review.cards.map((card) => [card.designId, card]));
-if (registryRows.length !== 11 || cardsById.size !== registryRows.length) {
+if (registryRows.length !== 12 || cardsById.size !== registryRows.length) {
  throw new Error(`Transaction index/register mismatch cards=${cardsById.size} registry=${registryRows.length}`);
 }
 
@@ -188,10 +188,10 @@ for (const requiredStep of [
   }
 }
 const expectedSegmentReplayHeadings = [
-  "两层职责：当前 M4 估计，外层 Scenario 重访",
+  "两层职责：当前 M4 关系，外层 Scenario 重访",
   "Replay 单位：同一个 sealed Scenario",
   "旧结果不作为训练样本",
-  "当前校准价值：只追逐当前 M4 置信区间外的误差",
+  "当前关系价值：重访仍产生可比较边的 Scenario",
   "DR 兼容池：先定当前难度类别，再选 Replay",
   "重放时机：B8 固定 slot curriculum",
   "有界 active pool：先重复，再扩张",
@@ -237,7 +237,7 @@ for (const required of [
  "FrontRES 在 t 仅输出一次 Delta SE(3)",
  "冻结 FrontRES，由 GMT 执行 K 步",
  "收集期间不执行 optimizer update",
- "完整封存后执行一次 grouped update",
+ "完整封存后执行一次 v014 preference update",
  "全局 schedule 固定为 K8/M4、K16/M4、K32/M4",
  "K64 当前未激活",
  "928D", "158D", "770D", "q29[t+1]", "q29[t+2]",
@@ -245,7 +245,7 @@ for (const required of [
 "未来窗口固定为 t+1 与 t+2 两帧",
 "每帧只提取 29D 内部关节 Intent，共 58D",
 "两帧均来自同一条 sealed Noisy/deployment reference",
-"封存 8 x M4 条 PPO row",
+"封存 8 x M4 条 Actor row",
 "固定位置权重 tau_k=k/K",
 "能区分正在恢复和正在恶化",
 "每个 z_j 就是一项归一化后的 r_j",
@@ -254,13 +254,12 @@ for (const required of [
 "每个 sealed scenario 只执行一次 zero-action Noisy Rollout",
 "所有有效 Segment 始终保留非零 global 采样概率",
 "能够从缓存直接恢复 x_t 的 Segment 不因起始帧靠后而被降权",
- "E_V=max(|V_old(s)-target|-h95,0)",
- "E_A 也只表示本次 Repair 间差异",
- "联合预热使用 1 new + 6 E_V + 1 stale；Joint 使用 1 new + 4 E_A + 2 E_V + 1 stale",
+ "edge density 是调度证据，不是 Actor target",
+ "1 个 admission、6 个 edge-density revisit、1 个 stale review",
  "Easy/Medium/Hard/Broken-tail=20/30/40/10",
  "池为空时回退为当前类别的 global discovery",
- "按最新 current-policy priority 加 staleness 选择",
-"任何历史 utility、动作、log probability 或 advantage 都禁止进入当前训练",
+ "当前 K 的最新 edge density、lifetime committed visit、staleness",
+"不能复用历史边或历史 log-prob",
 "同一扰动类型、强度、artifact 和 noisy_segment_hash",
 "失败、partial、rejected 或 mixed Transaction 的 delta 必须为零",
 "平移与旋转都解释为 world-frame residual",
@@ -280,9 +279,9 @@ for (const required of [
 "分别裁剪到 0.5，再由同一个 Adam exactly one step",
 "不能 resume checkpoint-v18 或更早版本",
 "Replay priority 与 visits 按 K 隔离",
-"每个 K 都拥有一轮独立的 DR Curriculum",
-"Actor 与 Critic 从较小 Actor influence 开始共同适应",
-"从联合预热的第一笔 Transaction 起就按 Easy/Medium/Hard/Broken-tail=20/30/40/10 抽取四类",
+ "每个 K 都重新从较低 d_cap 推进 DR",
+ "K 切换不重置 Actor 参数、不重置 Adam 一阶/二阶矩",
+ "前 100 笔 committed Transaction 使用 3e-7",
 "Replay 只能从当前难度区间选择",
 "不再建立独立 Physics projection",
 ]) {

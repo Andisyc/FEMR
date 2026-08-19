@@ -534,6 +534,65 @@ def frontres_segment_warmup_phase(
     return phase
 
 
+def frontres_actor_only_learning_rate_phase(
+    *,
+    committed_transaction_iteration: int,
+    init_transactions: int,
+    ramp_transactions: int,
+) -> FrontRESSegmentWarmupPhase:
+    """Compute the candidate Actor-only LR from global committed progress.
+
+    This pure candidate boundary deliberately has no K-stage input. It does not
+    install the LR, mutate optimizer state, or replace the active v013 route.
+    """
+
+    integer_inputs = {
+        "committed_transaction_iteration": committed_transaction_iteration,
+        "init_transactions": init_transactions,
+        "ramp_transactions": ramp_transactions,
+    }
+    for name, value in integer_inputs.items():
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise TypeError(f"{name} must be an integer")
+    if committed_transaction_iteration < 0:
+        raise ValueError("committed_transaction_iteration must be non-negative")
+    if not 50 <= init_transactions <= 100:
+        raise ValueError("init_transactions must be in [50,100]")
+    if ramp_transactions < 2:
+        raise ValueError("ramp_transactions must be at least two")
+
+    if committed_transaction_iteration < init_transactions:
+        return FrontRESSegmentWarmupPhase(
+            name="actor_only_init",
+            phase_iteration=committed_transaction_iteration,
+            actor_loss_weight=1.0,
+            actor_learning_rate=FRONTRES_V022_ACTOR_LR_INIT,
+            critic_update_enabled=False,
+        )
+
+    ramp_iteration = committed_transaction_iteration - init_transactions
+    if ramp_iteration < ramp_transactions:
+        progress = float(ramp_iteration) / float(ramp_transactions - 1)
+        actor_lr = FRONTRES_V022_ACTOR_LR_INIT + (
+            FRONTRES_V022_ACTOR_LR_JOINT - FRONTRES_V022_ACTOR_LR_INIT
+        ) * progress
+        return FrontRESSegmentWarmupPhase(
+            name="actor_only_ramp",
+            phase_iteration=ramp_iteration,
+            actor_loss_weight=1.0,
+            actor_learning_rate=float(actor_lr),
+            critic_update_enabled=False,
+        )
+
+    return FrontRESSegmentWarmupPhase(
+        name="actor_only_stable",
+        phase_iteration=ramp_iteration - ramp_transactions,
+        actor_loss_weight=1.0,
+        actor_learning_rate=FRONTRES_V022_ACTOR_LR_JOINT,
+        critic_update_enabled=False,
+    )
+
+
 __all__ = [
     "FRONTRES_V011_K_M_SCHEDULE",
     "FRONTRES_V011_MAX_ABSOLUTE_ITERATION",
@@ -546,6 +605,7 @@ __all__ = [
     "FrontRESKStageSpec",
     "FrontRESDRStrengthSample",
     "FrontRESSegmentWarmupPhase",
+    "frontres_actor_only_learning_rate_phase",
     "frontres_k_stage_schedule_fingerprint",
     "frontres_k_stage_schedule_tuple",
     "frontres_segment_warmup_phase",

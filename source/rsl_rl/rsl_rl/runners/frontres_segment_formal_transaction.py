@@ -32,6 +32,7 @@ from rsl_rl.algorithms.frontres_segment_ppo import (
     FrontRESSegmentPPOBatch,
     FrontRESSegmentPPOConfig,
     compute_frontres_relational_actor_loss,
+    compute_frontres_relational_preference_loss,
     compute_frontres_segment_ppo_loss,
     install_frontres_v006_scalar_gradients,
     step_frontres_v005_scalar_optimizer,
@@ -70,7 +71,11 @@ from rsl_rl.frontres.frontres_relational_evaluation import (
 )
 
 
-from rsl_rl.frontres.frontres_segment_warmup import require_frontres_v013_campaign_schedule, resolve_frontres_k_stage_identity
+from rsl_rl.frontres.frontres_segment_warmup import (
+    frontres_actor_only_learning_rate_phase,
+    require_frontres_v013_campaign_schedule,
+    resolve_frontres_k_stage_identity,
+)
 
 
 from rsl_rl.frontres.training_schedule import resolve_frontres_mode_state
@@ -288,6 +293,10 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
     if alg is None or not bool(getattr(alg, "frontres_formal_transaction_enabled", False)):
         raise RuntimeError("v017 formal transaction route requires frontres_formal_transaction_enabled=True")
     relational = bool(getattr(alg, "frontres_relational_actor_only", False))
+    preference_v014 = (
+        str(getattr(alg, "frontres_training_objective", ""))
+        == "segment_replay_relational_preference_v014"
+    )
     expected_normalization = "pairwise_edge" if relational else "grouped_scale_only"
     if str(getattr(alg, "frontres_segment_advantage_normalization", "")).lower() != expected_normalization:
         raise RuntimeError(f"formal transaction route requires {expected_normalization} normalization")
@@ -329,7 +338,7 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
         {
             "frontres_method_contract_id": "FRS-METHOD-v026",
             "frontres_gain_contract_id": "FRS-GAIN-v009",
-            "frontres_optimization_contract_id": "FRS-PPO-v013",
+            "frontres_optimization_contract_id": "FRS-PPO-v014" if preference_v014 else "FRS-PPO-v013",
             "frontres_training_contract_id": "FRS-TRAIN-v025",
             "frontres_scalar_target_id": "none",
             "frontres_physics_schema_id": "hierarchical-relational-evidence-v1",
@@ -354,7 +363,7 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
             raise RuntimeError(f"v017 formal transaction requires {name}={expected}")
     if relational:
         if str(getattr(alg, "frontres_segment_advantage_normalization", "")) != "pairwise_edge":
-            raise RuntimeError("FRS-PPO-v013 formal transaction requires pairwise_edge normalization")
+            raise RuntimeError("relational formal transaction requires pairwise_edge normalization")
         return alg
     if float(getattr(alg, "frontres_gain_beta", float("nan"))) != 0.02:
         raise RuntimeError("FRS-GAIN-v008 formal transaction requires frozen beta_init=0.02")
@@ -477,8 +486,22 @@ def _execute_frontres_relational_transaction_update(
     critic = getattr(policy, "critic", None)
     if critic is not None and any(bool(value.requires_grad) for value in critic.parameters()):
         raise RuntimeError("FRS-TRAIN-v025 requires frozen Critic parameters")
+    preference_v014 = (
+        str(getattr(alg, "frontres_training_objective", ""))
+        == "segment_replay_relational_preference_v014"
+    )
+    optimization_contract_id = "FRS-PPO-v014" if preference_v014 else "FRS-PPO-v013"
     optimizer_step_before = _v015_formal_optimizer_step_count(optimizer)
     curriculum = _v015_resolve_curriculum_identity(runner, alg)
+    lr_phase = (
+        frontres_actor_only_learning_rate_phase(
+            committed_transaction_iteration=curriculum.absolute_iteration,
+            init_transactions=int(getattr(alg, "frontres_actor_only_lr_init_transactions", 100)),
+            ramp_transactions=int(getattr(alg, "frontres_actor_only_lr_ramp_transactions", 50)),
+        )
+        if preference_v014
+        else curriculum.phase
+    )
     if (
         request.training_iteration != curriculum.absolute_iteration
         or request.curriculum_fingerprint != curriculum.schedule_fingerprint
@@ -486,7 +509,8 @@ def _execute_frontres_relational_transaction_update(
         or request.active_k != curriculum.active_k
         or request.active_m != curriculum.active_m
         or request.k_stage_iteration != curriculum.stage_iteration
-        or request.warmup_phase_name != curriculum.phase.name
+        or request.warmup_phase_name != lr_phase.name
+        or not math.isclose(float(request.warmup_actor_learning_rate), lr_phase.actor_learning_rate, abs_tol=1e-15)
         or request.dr_stage_fingerprint != curriculum.dr_stage_fingerprint
         or not math.isclose(float(request.dr_progress), curriculum.dr_progress, abs_tol=1.0e-12)
         or not math.isclose(float(request.d_cap), curriculum.d_cap, abs_tol=1.0e-12)
@@ -495,7 +519,7 @@ def _execute_frontres_relational_transaction_update(
         raise RuntimeError("FRS-TRAIN-v025 transaction changed its sealed K x M x DR identity")
     if request.plan.active_m != 4 or request.plan.selected_segment_count != 8:
         raise RuntimeError("FRS-TRAIN-v025 requires one complete B8 x M4 transaction")
-    actor_learning_rate = float(curriculum.phase.actor_learning_rate)
+    actor_learning_rate = float(lr_phase.actor_learning_rate)
     if not math.isfinite(actor_learning_rate) or actor_learning_rate <= 0.0:
         raise RuntimeError("FRS-TRAIN-v025 requires a positive finite scheduled Actor LR")
     optimizer_groups[0]["lr"] = actor_learning_rate
@@ -515,18 +539,25 @@ def _execute_frontres_relational_transaction_update(
             "FRS-GAIN-v009 produced NO_COMPARABLE_PAIRS; transaction remains zero-write"
         )
     policy_evaluator = _v015_formal_policy_evaluator(request, alg, ppo_batch)
-    ppo_result = compute_frontres_relational_actor_loss(
-        policy_evaluator,
-        ppo_batch,
-        edges,
-        FrontRESRelationalPPOConfig(
-            clip_param=float(getattr(alg, "clip_param", 0.2)),
-            max_log_ratio=20.0,
-        ),
-    )
+    if preference_v014:
+        ppo_result = compute_frontres_relational_preference_loss(
+            policy_evaluator,
+            ppo_batch,
+            edges,
+        )
+    else:
+        ppo_result = compute_frontres_relational_actor_loss(
+            policy_evaluator,
+            ppo_batch,
+            edges,
+            FrontRESRelationalPPOConfig(
+                clip_param=float(getattr(alg, "clip_param", 0.2)),
+                max_log_ratio=20.0,
+            ),
+        )
     if not ppo_result.should_step:
         raise FrontRESV015RejectedTransactionEvidence(
-            "FRS-PPO-v013 found no valid preference edge; transaction remains zero-write"
+            f"{optimization_contract_id} found no valid preference edge; transaction remains zero-write"
         )
     replay_candidate = outer_replay.stage(
         request.outer_replay_plan,
@@ -554,13 +585,13 @@ def _execute_frontres_relational_transaction_update(
         raise RuntimeError("FRS-TRAIN-v025 Actor optimizer has no trainable parameters")
     gradients = tuple(value.grad for value in actor_parameters if isinstance(value.grad, torch.Tensor))
     if not gradients or any(not bool(torch.isfinite(value).all().item()) for value in gradients):
-        raise FloatingPointError("FRS-PPO-v013 requires finite nonempty Actor gradients")
+        raise FloatingPointError(f"{optimization_contract_id} requires finite nonempty Actor gradients")
     gradient_pre_clip_norm = float(
         torch.sqrt(sum(value.detach().float().square().sum() for value in gradients)).cpu().item()
     )
     max_grad_norm = float(getattr(alg, "max_grad_norm", float("nan")))
     if max_grad_norm != 0.5:
-        raise RuntimeError("FRS-PPO-v013 requires Actor max_grad_norm=0.5")
+        raise RuntimeError(f"{optimization_contract_id} requires Actor max_grad_norm=0.5")
     torch.nn.utils.clip_grad_norm_(actor_parameters, max_grad_norm)
     gradient_post_clip_norm = float(
         torch.sqrt(sum(value.grad.detach().float().square().sum() for value in actor_parameters if value.grad is not None)).cpu().item()
@@ -600,7 +631,15 @@ def _execute_frontres_relational_transaction_update(
         "method_contract_id": "FRS-METHOD-v026",
         "training_contract_id": "FRS-TRAIN-v025",
         "gain_contract_id": "FRS-GAIN-v009",
-        "optimization_contract_id": "FRS-PPO-v013",
+        "optimization_contract_id": optimization_contract_id,
+        **(
+            {
+                "loss_identity": "pairwise-softplus-logprob-v1",
+                "lr_curriculum_identity": "actor-global-100-50-v1",
+            }
+            if preference_v014
+            else {}
+        ),
         "scalar_target_id": "none",
         "physics_schema_id": "hierarchical-relational-evidence-v1",
         "grouped_schema_id": "relational-preference-edge-v1",
@@ -1496,6 +1535,16 @@ def _build_frontres_v015_local_transaction_request(
         dr_strength_tensor = getattr(dr_plan, "source_perturbation_strength", None)
         if len(dr_classes) != 8 or not isinstance(dr_strength_tensor, torch.Tensor) or int(dr_strength_tensor.numel()) != 8:
             raise RuntimeError("FRS-TRAIN-v024 formal request requires eight sealed Scenario DR class/strength rows")
+        lr_phase = (
+            frontres_actor_only_learning_rate_phase(
+                committed_transaction_iteration=sealed_curriculum.absolute_iteration,
+                init_transactions=int(getattr(alg, "frontres_actor_only_lr_init_transactions", 100)),
+                ramp_transactions=int(getattr(alg, "frontres_actor_only_lr_ramp_transactions", 50)),
+            )
+            if str(getattr(alg, "frontres_training_objective", ""))
+            == "segment_replay_relational_preference_v014"
+            else sealed_curriculum.phase
+        )
         return FrontRESFormalTransactionRequest(
             plan=plan,
             candidate_batches=(candidate_batch,),
@@ -1506,9 +1555,9 @@ def _build_frontres_v015_local_transaction_request(
             active_m=sealed_curriculum.active_m,
             k_stage_iteration=sealed_curriculum.stage_iteration,
             training_iteration=sealed_iteration,
-            warmup_phase_name=sealed_curriculum.phase.name,
-            warmup_actor_loss_weight=sealed_curriculum.phase.actor_loss_weight,
-            warmup_actor_learning_rate=sealed_curriculum.phase.actor_learning_rate,
+            warmup_phase_name=lr_phase.name,
+            warmup_actor_loss_weight=lr_phase.actor_loss_weight,
+            warmup_actor_learning_rate=lr_phase.actor_learning_rate,
             dr_stage_fingerprint=sealed_curriculum.dr_stage_fingerprint,
             dr_progress=sealed_curriculum.dr_progress,
             d_cap=sealed_curriculum.d_cap,

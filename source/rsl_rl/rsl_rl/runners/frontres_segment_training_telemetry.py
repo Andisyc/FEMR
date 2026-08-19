@@ -133,17 +133,32 @@ def _build_relational_transaction_telemetry(result: Any, *, ppo: Any, diagnostic
     actor_credit = tuple(float(value) for value in ppo.actor_credit.detach().cpu().tolist())
     if len(actor_credit) != row_count or not all(math.isfinite(value) for value in actor_credit):
         raise RuntimeError("FRS-TRAIN-v025 telemetry requires finite row-aligned Actor credit")
+    optimization_contract_id = str(
+        diagnostics.get("optimization_contract_id", "FRS-PPO-v013")
+    )
+    if optimization_contract_id not in {"FRS-PPO-v013", "FRS-PPO-v014"}:
+        raise RuntimeError("FRS-TRAIN-v025 telemetry received unknown optimization identity")
     telemetry = {
         "transaction_id": transaction_id,
         "policy_snapshot_id": str(getattr(result, "policy_snapshot_id", "")),
         "method_contract_id": "FRS-METHOD-v026",
         "gain_contract_id": "FRS-GAIN-v009",
-        "optimization_contract_id": "FRS-PPO-v013",
+        "optimization_contract_id": optimization_contract_id,
         "training_contract_id": "FRS-TRAIN-v025",
         "scalar_target_id": "none",
         "physics_schema_id": "hierarchical-relational-evidence-v1",
         "grouped_schema_id": "relational-preference-edge-v1",
         "checkpoint_format": "frontres-v025-checkpoint-v20",
+        **(
+            {
+                "loss_identity": str(diagnostics.get("loss_identity", "")),
+                "lr_curriculum_identity": str(
+                    diagnostics.get("lr_curriculum_identity", "")
+                ),
+            }
+            if optimization_contract_id == "FRS-PPO-v014"
+            else {}
+        ),
         "critic_value_kind": "inert-legacy-compat",
         "critic_input_dim": 449,
         "critic_action_conditioned": False,

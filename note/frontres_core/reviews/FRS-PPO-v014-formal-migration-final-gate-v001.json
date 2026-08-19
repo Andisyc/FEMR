@@ -1,0 +1,64 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-PPO-v014-FINAL-GATE-001",
+  "mode": "final-gate",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "FINAL_GATE_PASS",
+  "scope": {
+    "requested": ["Implement the accepted FRS-PPO-v014 selector, preference Loss consumer, global Actor LR consumer, telemetry identity, checkpoint identity, and pre-training launcher boundary."],
+    "preserved": ["FRS-PPO-v013 compatibility route", "FRS-GAIN-v009 relation semantics", "full-6D action and exact-one transaction update", "no training or live execution"],
+    "forbidden": ["scalar Gain or Critic target reintroduction", "mixed v013/v014 checkpoint restore", "server or simulator execution"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-07R / FRS-DP-09R / FRS-PPO-v014",
+    "contract": "FRS-METHOD-v026 / FRS-GAIN-v009 / FRS-PPO-v014 / FRS-TRAIN-v025",
+    "checkout": "dirty-worktree-preserved",
+    "review_object": "sha256:8687ea7620b418a17c166e886393be590f017735b063ac294b14cf0f560d0418"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "final maintainability gate for the authorized offline migration"},
+    "source_edits": {"status": "approved", "scope": "same authorized migration owners", "receipt": "user-requested execution"},
+    "report_write": {"status": "approved", "scope": "this final-gate receipt", "receipt": "code-construction completion"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py",
+    "content_hash": "sha256:2cfc1b73b83d08c7394460ca0bec101d96e13f69e69f2b46e5c551c14cde811a",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "Selector remains in train.py; Loss in segment_ppo; LR in warmup; transaction, telemetry and checkpoint owners consume explicit identity."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "MODE=relational_preference_train and --frontres_relational_preference_v014 select exactly one v014 route."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "Production code imports the semantic Loss owner; legacy fake probe modules were extended only with compatibility stubs."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "Exact-one transaction, zero-edge zero-write, global committed-iteration LR, atomic checkpoint write and v013/v014 cross-load rejection are tested."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "Changes are limited to selector, algorithm, transaction, telemetry, checkpoint, launcher, contracts, Inspector and focused characterization tests."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Offline pseudo and contract evidence is reported separately from simulator, live, convergence and policy-quality claims."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "v014 tests preserve current log-prob inputs, full-6D rows, Actor-only optimizer ownership, finite checks and LR sensitivity."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "Preference Loss, actual Adam step, global LR curriculum and 0.5 safety boundary are covered by pseudo optimizer tests."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "Checkpoint-v20 writes and reloads v014 identity, Loss/LR identity, K/RNG state and rejects v013/v014 mixing."}
+  ],
+  "findings": [],
+  "residual_risks": [
+    "The aggregate suite and fake transaction do not prove simulator physics or learned policy quality.",
+    "No server synchronization, live test, long training, convergence or Formal PASS was performed.",
+    "The existing worktree contains unrelated user changes and artifacts; none were reverted."
+  ],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed",
+    "training": "not-claimed"
+  },
+  "dependencies": []
+}

@@ -511,8 +511,14 @@ def _build_v025_relational_checkpoint_identity(
 
     fields = _v015_checkpoint_layout_fields(runner)
     alg = getattr(runner, "alg", None)
-    if str(getattr(alg, "frontres_training_objective", "")) != "segment_replay_relational":
+    objective = str(getattr(alg, "frontres_training_objective", ""))
+    if objective not in {
+        "segment_replay_relational",
+        "segment_replay_relational_preference_v014",
+    }:
         raise RuntimeError("checkpoint-v20 requires the relational training objective")
+    preference_v014 = objective == "segment_replay_relational_preference_v014"
+    optimization_contract_id = "FRS-PPO-v014" if preference_v014 else "FRS-PPO-v013"
     if str(getattr(alg, "frontres_segment_advantage_normalization", "")) != "pairwise_edge":
         raise RuntimeError("checkpoint-v20 requires pairwise_edge normalization")
     optimizer_groups = {
@@ -540,7 +546,7 @@ def _build_v025_relational_checkpoint_identity(
         expected_contract_identity={
             "method_contract_id": "FRS-METHOD-v026",
             "gain_contract_id": "FRS-GAIN-v009",
-            "optimization_contract_id": "FRS-PPO-v013",
+            "optimization_contract_id": optimization_contract_id,
             "training_contract_id": "FRS-TRAIN-v025",
             "scalar_target_id": "none",
             "physics_schema_id": "hierarchical-relational-evidence-v1",
@@ -559,7 +565,7 @@ def _build_v025_relational_checkpoint_identity(
         "training_contract_id": "FRS-TRAIN-v025",
         "dr_curriculum_schema_id": "nested-k-dr-four-class-v1",
         "gain_contract_id": "FRS-GAIN-v009",
-        "optimization_contract_id": "FRS-PPO-v013",
+        "optimization_contract_id": optimization_contract_id,
         "scalar_target_id": "none",
         "physics_schema_id": "hierarchical-relational-evidence-v1",
         "grouped_schema_id": "relational-preference-edge-v1",
@@ -577,11 +583,35 @@ def _build_v025_relational_checkpoint_identity(
             "combined_dim": 928,
             "prefix_stats_fingerprint": _v015_tensor_fingerprint(extra_mean, extra_std),
         },
-        "grouped_loss": {
-            "advantage_normalization": "pairwise_edge",
-            "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
-            "policy_rows_per_attempt": 1,
-        },
+        "grouped_loss": (
+            {
+                "advantage_normalization": "pairwise_edge",
+                "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
+                "policy_rows_per_attempt": 1,
+                "loss_identity": "pairwise-softplus-logprob-v1",
+            }
+            if preference_v014
+            else {
+                "advantage_normalization": "pairwise_edge",
+                "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
+                "policy_rows_per_attempt": 1,
+            }
+        ),
+        **(
+            {
+                "actor_lr_curriculum": {
+                    "identity": "actor-global-100-50-v1",
+                    "init_transactions": int(
+                        getattr(alg, "frontres_actor_only_lr_init_transactions", 100)
+                    ),
+                    "ramp_transactions": int(
+                        getattr(alg, "frontres_actor_only_lr_ramp_transactions", 50)
+                    ),
+                }
+            }
+            if preference_v014
+            else {}
+        ),
         "curriculum": {
             "schedule": schedule_tuple,
             "schedule_fingerprint": curriculum.schedule_fingerprint,
@@ -848,7 +878,11 @@ def _validate_v015_hsl_checkpoint_resume(
     if set(checkpoint) != _V015_HSL_TOP_LEVEL_KEYS:
         raise RuntimeError("proposal-only HSL checkpoint requires the exact payload field set")
     expected_runtime_objectives = (
-        {"segment_replay_hrl", "segment_replay_relational"}
+        {
+            "segment_replay_hrl",
+            "segment_replay_relational",
+            "segment_replay_relational_preference_v014",
+        }
         if stage3_initializer
         else {"supervised_restore"}
     )
@@ -998,6 +1032,7 @@ def _validate_v015_stage3_hsl_initializer_runtime(runner: Any) -> None:
     expected_reductions = {
         "segment_replay_hrl": "grouped_scale_only",
         "segment_replay_relational": "pairwise_edge",
+        "segment_replay_relational_preference_v014": "pairwise_edge",
     }
     if objective not in expected_reductions:
         raise RuntimeError(
@@ -1008,7 +1043,10 @@ def _validate_v015_stage3_hsl_initializer_runtime(runner: Any) -> None:
             f"v015 HSL initializer requires {expected_reductions[objective]} "
             f"for objective={objective}"
         )
-    if objective == "segment_replay_relational" and not relational_actor_only:
+    if objective in {
+        "segment_replay_relational",
+        "segment_replay_relational_preference_v014",
+    } and not relational_actor_only:
         raise RuntimeError("relational Stage-3 HSL initializer requires Actor-only ownership")
     if objective == "segment_replay_hrl" and relational_actor_only:
         raise RuntimeError("scalar Stage-3 HSL initializer rejects relational Actor-only ownership")
@@ -1337,12 +1375,18 @@ def _validate_v015_checkpoint_resume(
             "legacy or unversioned checkpoints are forbidden"
         )
     if _uses_v025_relational_checkpoint_identity(runner):
+        expected_optimization = str(
+            getattr(getattr(runner, "alg", None), "frontres_optimization_contract_id", "")
+        )
+        if expected_optimization not in {"FRS-PPO-v013", "FRS-PPO-v014"}:
+            raise RuntimeError("checkpoint-v20 requires an explicit relational optimization identity")
+        preference_v014 = expected_optimization == "FRS-PPO-v014"
         required = {
             "format": FRONTRES_RELATIONAL_CHECKPOINT_FORMAT,
             "method_contract_id": "FRS-METHOD-v026",
             "training_contract_id": "FRS-TRAIN-v025",
             "gain_contract_id": "FRS-GAIN-v009",
-            "optimization_contract_id": "FRS-PPO-v013",
+            "optimization_contract_id": expected_optimization,
             "scalar_target_id": "none",
             "physics_schema_id": "hierarchical-relational-evidence-v1",
             "grouped_schema_id": "relational-preference-edge-v1",
@@ -1353,12 +1397,27 @@ def _validate_v015_checkpoint_resume(
         }
         if any(identity.get(name) != value for name, value in required.items()):
             raise RuntimeError("checkpoint-v20 has an incompatible relational identity")
-        if identity.get("grouped_loss") != {
+        expected_grouped_loss = {
             "advantage_normalization": "pairwise_edge",
             "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
             "policy_rows_per_attempt": 1,
-        }:
+        }
+        if preference_v014:
+            expected_grouped_loss["loss_identity"] = "pairwise-softplus-logprob-v1"
+        if identity.get("grouped_loss") != expected_grouped_loss:
             raise RuntimeError("checkpoint-v20 has an incompatible pairwise loss identity")
+        if preference_v014:
+            expected_lr_curriculum = {
+                "identity": "actor-global-100-50-v1",
+                "init_transactions": int(
+                    getattr(runner.alg, "frontres_actor_only_lr_init_transactions", 100)
+                ),
+                "ramp_transactions": int(
+                    getattr(runner.alg, "frontres_actor_only_lr_ramp_transactions", 50)
+                ),
+            }
+            if identity.get("actor_lr_curriculum") != expected_lr_curriculum:
+                raise RuntimeError("checkpoint-v20 has an incompatible Actor LR curriculum identity")
         model_state = checkpoint.get("model_state_dict")
         if not isinstance(model_state, Mapping) or not isinstance(model_state.get("residual_actor"), Mapping):
             raise RuntimeError("checkpoint-v20 requires residual Actor state")
@@ -1931,7 +1990,11 @@ def save_runner(self, path: str, infos=None):
         "optimizer_state_dict": self.alg.optimizer.state_dict(),
         "iter": self.current_learning_iteration,
         "infos": infos,}
-    if getattr(self.alg, "frontres_training_objective", "") in {"segment_replay_hrl", "segment_replay_relational"}:
+    if getattr(self.alg, "frontres_training_objective", "") in {
+        "segment_replay_hrl",
+        "segment_replay_relational",
+        "segment_replay_relational_preference_v014",
+    }:
         saved_dict["frontres_segment_k_curriculum"] = frontres_k_stage_schedule_tuple(
             tuple(getattr(self.alg, "frontres_segment_k_curriculum", ()) or ())
         )

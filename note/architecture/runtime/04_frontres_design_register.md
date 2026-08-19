@@ -1,7 +1,8 @@
 # FrontRES Design Inspector Register
 
-Status: aligned to FRS-METHOD-v025 / FRS-GAIN-v008 / FRS-PPO-v012 /
-FRS-TRAIN-v024 / FRS-EVAL-v006 on 2026-08-12.
+Status: aligned to FRS-METHOD-v026 / FRS-GAIN-v009 / FRS-PPO-v014 /
+FRS-TRAIN-v025 on 2026-08-19. FRS-DP-09 remains a retired historical card;
+FRS-DP-09R is the active-pre-training Actor-only Curriculum card.
 
 Interactive page: `../02_frontres_design_inspector.html`
 
@@ -32,15 +33,16 @@ HSL-v2 Actor initialization
 | FRS-DP-01 | Perturbation Data | One sealed `local_rp` artifact per Scenario; four relative DR classes under current `d_cap`; full-6D action remains available. |
 | FRS-DP-01P | Perturbation Probing | `2.381` is the measured frozen-GMT ceiling for this setup, not an online controller. |
 | FRS-DP-02 | Segment Replay | Outer Replay selects sealed Scenarios for fresh current-Actor M4 execution; it stores latest priorities and visits, never historical utility targets. |
-| FRS-DP-03 | K-step Curriculum | `K8/M4 -> K16/M4 -> K32/M4`; each K restarts lower DR and Actor LR while retaining learned parameters. |
+| FRS-DP-03 | K-step Curriculum | `K8/M4 -> K16/M4 -> K32/M4`; each K changes consequence horizon and DR coverage without resetting Actor or Adam state. |
 | FRS-DP-04 | FrontRES 6D Repair | The 158D Actor emits one unclamped full-6D world-frame Delta SE(3) at `t`. |
 | FRS-DP-05 | Frozen GMT | Frozen 770D GMT executes the repaired continuation for K steps. |
 | FRS-DP-06 | Paired Rollouts | One Clean and one fixed Noisy baseline are read-only anchors for all M4 current Repair attempts. |
-| FRS-DP-07 | Repair Gain | `G_total=G_I+lambda_RA*G_P-beta*C_repair`; utility is per-attempt symmetric log. |
-| FRS-DP-07R | Relational Gain | Active-pre-training `BETTER/WORSE/SAME/INCOMPARABLE` plus Actor-only pairwise PPO under METHOD-v026/GAIN-v009/PPO-v013/TRAIN-v025; live quality remains unconfirmed. |
+| FRS-DP-07 | Repair Gain | (退役历史卡) Historical scalar `G_total=G_I+lambda_RA*G_P-beta*C_repair`; retained for provenance, not consumed by the current relational route. |
+| FRS-DP-07R | Relational Gain | Active-pre-training `BETTER/WORSE/SAME/INCOMPARABLE`; v014 uses `L_{pref}=|E|^{-1}sum softplus(-(log pi_w-log pi_l))`; v013 remains retired-compatible only. |
 | FRS-DP-08 | HSL Warmup | HSL-v2 initializes Actor/std and Actor-prefix normalizer only. |
-| FRS-DP-09 | Actor & Critic Warmup | Actor and Critic update together from low DR; Actor LR `3e-7 -> 1e-6`, Critic LR `1e-5`, B8/M4. Critic target is the current transaction's exact-M4 mean. |
-| FRS-DP-10 | Future Motion Context | Actor 158D, Critic 449D action-pre support-conditioned state, GMT 770D; no action-conditioned or variance-head Critic. |
+| FRS-DP-09 | Actor & Critic Warmup (退役) | Historical Actor/Critic, scalar target and K-local LR reset card; retained for provenance only. |
+| FRS-DP-09R | Actor-only Curriculum | Initial `3e-7 -> 1e-6` ramp once; K transitions preserve Actor/Adam state and keep `1e-6`; DR restarts without becoming an LR controller. The candidate Loss and LR are pre-training decisions, not a live activation claim. |
+| FRS-DP-10 | Future Motion Context | Actor 158D remains; retired 449D action-pre Critic context is not consumed by TRAIN-v025. |
 
 ## Replay Statistics
 

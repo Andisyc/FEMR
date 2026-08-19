@@ -262,14 +262,22 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
         )
     )
     relational = bool(getattr(alg, "frontres_relational_actor_only", False))
-    expected_objective = "segment_replay_relational" if relational else "segment_replay_hrl"
+    optimization_contract_id = str(getattr(alg, "frontres_optimization_contract_id", ""))
+    if relational:
+        expected_objective = {
+            "FRS-PPO-v013": "segment_replay_relational",
+            "FRS-PPO-v014": "segment_replay_relational_preference_v014",
+        }.get(optimization_contract_id)
+        assert expected_objective is not None, "AUDIT-B01 requires a known relational optimization identity"
+    else:
+        expected_objective = "segment_replay_hrl"
     assert getattr(runner.alg, "frontres_training_objective", "") == expected_objective
     assert bool(getattr(boundary, "live_train_enabled", False)) and not alternate
     required_identity = (
         {
             "frontres_method_contract_id": "FRS-METHOD-v026",
             "frontres_gain_contract_id": "FRS-GAIN-v009",
-            "frontres_optimization_contract_id": "FRS-PPO-v013",
+            "frontres_optimization_contract_id": optimization_contract_id,
             "frontres_training_contract_id": "FRS-TRAIN-v025",
             "frontres_critic_support_context_id": "none",
         }
@@ -321,7 +329,7 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
         limit=1,
         checkpoint=checkpoint_path,
         contracts=(
-            "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025"
+            f"FRS-METHOD-v026/FRS-GAIN-v009/{optimization_contract_id}/FRS-TRAIN-v025"
             if relational
             else "FRS-METHOD-v025/FRS-GAIN-v008/FRS-PPO-v012/FRS-TRAIN-v024"
         ),
@@ -653,9 +661,10 @@ def _print_one_action_k_audit_facts(
     policy = getattr(getattr(runner, "alg", None), "policy", None)
     alg = getattr(runner, "alg", None)
     relational = bool(getattr(alg, "frontres_relational_actor_only", False))
+    relational_objective = str(getattr(alg, "frontres_training_objective", ""))
     critic_identity = (
         {
-            "frontres_training_objective": "segment_replay_relational",
+            "frontres_training_objective": relational_objective,
             "frontres_scalar_target_id": "none",
             "frontres_segment_advantage_normalization": "pairwise_edge",
             "frontres_critic_value_kind": "inert-legacy-compat",
@@ -1226,7 +1235,8 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
     if relational:
         assert identity.get("method_contract_id") == "FRS-METHOD-v026"
         assert identity.get("gain_contract_id") == "FRS-GAIN-v009"
-        assert identity.get("optimization_contract_id") == "FRS-PPO-v013"
+        optimization_contract_id = identity.get("optimization_contract_id")
+        assert optimization_contract_id in {"FRS-PPO-v013", "FRS-PPO-v014"}
         assert identity.get("training_contract_id") == "FRS-TRAIN-v025"
         assert identity.get("scalar_target_id") == "none"
         assert identity.get("physics_schema_id") == "hierarchical-relational-evidence-v1"
@@ -1243,7 +1253,7 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
             assert int(payload["iter"]) == 0
         print(
             "[AUDIT-PERSIST-01] "
-            f"path={path} iter={int(payload['iter'])} contracts=FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v013/FRS-TRAIN-v025 "
+            f"path={path} iter={int(payload['iter'])} contracts=FRS-METHOD-v026/FRS-GAIN-v009/{optimization_contract_id}/FRS-TRAIN-v025 "
             "scalar_target=none replay=frontres-relational-scenario-replay-v1",
             flush=True,
         )
@@ -1377,7 +1387,12 @@ def print_checkpoint_reload_audit(
             readback=1,
             file_sha256=file_sha256,
             checkpoint_format=identity["format"],
-            contracts=("FRS-METHOD-v026", "FRS-GAIN-v009", "FRS-PPO-v013", "FRS-TRAIN-v025"),
+            contracts=(
+                "FRS-METHOD-v026",
+                "FRS-GAIN-v009",
+                str(identity.get("optimization_contract_id")),
+                "FRS-TRAIN-v025",
+            ),
             iteration=payload.get("iter"),
             actor_lr=float(groups[0]["lr"]),
             transaction_state=transaction.get("state"),

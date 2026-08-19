@@ -228,7 +228,10 @@ class FrontRESFormalTransactionRequest:
             raise ValueError("FRS-TRAIN-v021 formal transaction active_m must be at least two")
         if self.plan.active_m != int(self.active_m) or self.plan.selected_segment_count != 8:
             raise ValueError("FRS-TRAIN-v024 formal transaction plan does not match exact B8 x M identity")
-        if self.warmup_phase_name not in {"low_dr_joint_init", "coupled_ramp", "joint"}:
+        if self.warmup_phase_name not in {
+            "low_dr_joint_init", "coupled_ramp", "joint",
+            "actor_only_init", "actor_only_ramp", "actor_only_stable",
+        }:
             raise ValueError("FRS-TRAIN-v021 formal transaction has an invalid warmup phase")
         if float(self.warmup_actor_loss_weight) != 1.0:
             raise ValueError("FRS-TRAIN-v024 formal transaction actor loss weight must remain one")

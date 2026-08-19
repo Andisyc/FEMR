@@ -1,0 +1,65 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-PPO-v014-MIGRATION-PLAN-001",
+  "mode": "plan",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "READY",
+  "scope": {
+    "requested": ["Plan coexistence migration of v014 Preference Loss and Actor-only global LR curriculum."],
+    "preserved": ["v013 route OFF behavior", "Gain/Replay/DR semantics", "exact-one update and full-6D action"],
+    "forbidden": ["direct replacement without identity migration", "mixed v013/v014 checkpoint state", "live training before formal audit"]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-DP-09R / FRS-PPO-v014 migration plan",
+    "contract": "FRS-TRAIN-v025 remains active-pre-training; v014 is planned coexistence route",
+    "checkout": "8ec218a51799519ba5bd36de74d5137ed37f5126+dirty-worktree",
+    "review_object": "sha256:fc685b3d647572e278bb5fefc85e531fd36d8b098643b7452559d026bf05060e"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "donor-target mapping, selector and offline proof route"},
+    "source_edits": {"status": "not-authorized", "scope": "no migration production edits under this plan review", "receipt": "plan review only"},
+    "report_write": {"status": "approved", "scope": "this review receipt", "receipt": "user-requested migration execution"}
+  },
+  "review_object": {
+    "kind": "plan",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/testing/manifests/frontres_v014_preference_lr_migration_v001.json",
+    "content_hash": "sha256:fc685b3d647572e278bb5fefc85e531fd36d8b098643b7452559d026bf05060e",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "../contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "The plan names the relational PPO composition root and existing warmup owner."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "The plan requires one owner selector and explicit v014 telemetry/checkpoint identity."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "Candidate Loss remains below the composition root; no test import into production is proposed."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "Persistence risk is declared affected and mixed versions are forbidden."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "Parameter inventory covers algorithm, curriculum, transaction, telemetry, checkpoint and CLI owners."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "The plan separates module correctness, current v013 official pseudo-route evidence, and the still-required v014 official route audit."},
+    {"name": "proof-route", "disposition": "pass", "evidence": "The next offline gate requires OFF equivalence, v014 ON connectivity, full parameter-set checks and persistence matrix before live work."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "The plan preserves 158D observations, full-6D actions, relation-edge row identity and explicit v014 loss inputs; no new privileged input is admitted."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "The planned route preserves Actor-only ownership, exact-one update and gradient safety boundary."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "The plan forbids mixed-version checkpoint use and requires explicit new identity before route admission."}
+  ],
+  "findings": [],
+  "residual_risks": [
+    "The v014 selector and its official consumers do not yet exist; this receipt authorizes plan progression, not training.",
+    "The current official pseudo-transaction evidence is v013 and cannot be reused as v014 evidence.",
+    "Checkpoint and telemetry schema migration still requires a separate implementation and persistence review."
+  ],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed",
+    "training": "not-claimed"
+  },
+  "dependencies": []
+}

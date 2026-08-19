@@ -1,0 +1,130 @@
+{
+  "schema_version": "human-control-protocol/v1",
+  "control_id": "HCP-FRS-PPO-LOSS-CLIPPING-PSEUDO-001",
+  "mode": "bounded-execution",
+  "state": "COMPLETE",
+  "objective": "Run independent pseudo-data numerical alignment tests for the active v013 relational PPO ratio, ratio clip, minimum surrogate and max-log-ratio boundaries.",
+  "scope": {
+    "requested": [
+      "Test the production public Loss boundary with hand-computable pseudo-data",
+      "Separate old clipped-ratio behavior from the v014 direct preference candidate"
+    ],
+    "preserved": [
+      "FRS-PPO-v013 production implementation",
+      "FRS-PPO-v014 candidate implementation",
+      "Gain, Replay, transaction, checkpoint and live training paths"
+    ],
+    "forbidden": [
+      "No training, simulator, checkpoint IO, server operation or deployment",
+      "No real-log replay in this control unit",
+      "No formula or active-route modification"
+    ]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-PPO-v013 clipped loss and FRS-PPO-v014 direct preference candidate",
+    "contract": "FRS-PPO-v013 active-pre-training; v014 alternate-path candidate",
+    "checkout": "8ec218a51799519ba5bd36de74d5137ed37f5126+dirty-worktree",
+    "task": "019ff9c5-eee2-7c23-946c-0117e1115a78"
+  },
+  "authority": {
+    "source": "user-requested module-alignment-test pseudo-data execution",
+    "current": true,
+    "auto_actions": ["read", "test"],
+    "confirmation_actions": [],
+    "forbidden_actions": ["edit", "checkpoint-io", "simulator", "training", "deployment", "external-operation"],
+    "receipt": "user-requested offline Loss test",
+    "live": {
+      "status": "not-authorized",
+      "scope": "no live action in this control unit"
+    }
+  },
+  "cost_control": {
+    "class": "offline-bounded",
+    "estimate": "under one minute, CPU/GPU-free pseudo-data tests",
+    "update_cadence_seconds": 10,
+    "max_expensive_attempts": 1,
+    "stop_conditions": [
+      "Stop after the focused public-boundary tests and their independent oracle finish",
+      "Stop on the first semantic mismatch or environment failure"
+    ]
+  },
+  "cursor": {
+    "status": "unconfirmed",
+    "source_kind": "chat-history",
+    "current": false,
+    "source": "current bounded test request",
+    "current_gate": "module alignment",
+    "next_gate": "formal/runtime admission only after separate Contract decision"
+  },
+  "evidence": [
+    {
+      "claim": "The active v013 public Loss computes ratio, exponential ratio, ratio clip and minimum surrogate as documented.",
+      "class": "code-confirmed",
+      "source_kind": "source",
+      "locator": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py:154-208",
+      "identity": "FRS-PPO-v013/8ec218a5+dirty",
+      "current": true,
+      "proves": "The tested public owner and exact numerical operations",
+      "does_not_prove": "Runtime reachability or policy quality"
+    },
+    {
+      "claim": "Independent scalar oracle matches the active v013 Loss for ordinary, extreme, max-log-ratio and zero-clip cases.",
+      "class": "contract-confirmed",
+      "source_kind": "test",
+      "locator": "source/rsl_rl/rsl_rl/tests/frontres_relational_ppo_loss_clipping_alignment.py:1",
+      "identity": "FRS-PPO-loss-clipping-S1",
+      "current": true,
+      "proves": "Numerical module alignment and sensitivity to wrong min/sign behavior",
+      "does_not_prove": "Training convergence, optimizer stability on the real network, or formal runtime"
+    },
+    {
+      "claim": "The direct v014 candidate is invariant to stale old log-probabilities on the same pseudo rows.",
+      "class": "contract-confirmed",
+      "source_kind": "test",
+      "locator": "source/rsl_rl/rsl_rl/tests/frontres_relational_ppo_loss_clipping_alignment.py:181-187",
+      "identity": "FRS-PPO-v014-direct-preference-S1",
+      "current": true,
+      "proves": "The candidate does not use the old ratio path",
+      "does_not_prove": "That the candidate is safe to route into active training"
+    }
+  ],
+  "contradictions": [],
+  "attempts": [
+    {
+      "attempt_id": "LOSS-CLIPPING-PSEUDO-001",
+      "action_signature": "run-v013-v014-loss-public-boundary-pseudo-oracle",
+      "result": "succeeded",
+      "failure_class": "none",
+      "expensive": false,
+      "new_evidence": [
+        "normal_loss=-0.066778 equals normal_oracle=-0.066778",
+        "extreme_loss=6643.054688 equals extreme_oracle=6643.056813 within float32 tolerance",
+        "max_log_ratio_capped_loss=161721728.000000",
+        "zero_clip_loss=-0.000000",
+        "direct_old_log_invariance=0.000000"
+      ]
+    }
+  ],
+  "dependencies": [],
+  "blockers": [],
+  "next_step": {
+    "action_class": "none",
+    "admission": "NONE",
+    "action_signature": "stop-after-loss-pseudo-alignment",
+    "description": "Stop at module evidence; do not infer training or runtime readiness.",
+    "required_evidence": [],
+    "stop_condition": "No further action is authorized in this control unit.",
+    "options": []
+  },
+  "completion": {
+    "chain_mapped": true,
+    "evidence_classes": ["code-confirmed", "contract-confirmed"],
+    "unconfirmed_boundaries": [
+      "Real full-network optimizer behavior",
+      "Formal transaction and checkpoint route",
+      "Actor policy quality and convergence"
+    ],
+    "next_decision": "none"
+  }
+}

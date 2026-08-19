@@ -569,6 +569,68 @@ def test_relational_checkpoint_v20_round_trip() -> None:
         print("frontres_v025_checkpoint_contract: checkpoint-v20 relational round-trip ok", flush=True)
 
 
+def test_preference_v014_checkpoint_identity_is_strict() -> None:
+    layout, checkpointing, policy_base = _load_owners()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        gmt_path = root / "gmt.pt"
+        gmt_path.write_bytes(b"frozen GMT v014 artifact")
+
+        def runner_for(optimization_contract_id: str):
+            runner = _runner(layout, policy_base, iteration=0, gmt_checkpoint_path=gmt_path)
+            preference_v014 = optimization_contract_id == "FRS-PPO-v014"
+            runner.alg.frontres_training_objective = (
+                "segment_replay_relational_preference_v014"
+                if preference_v014
+                else "segment_replay_relational"
+            )
+            runner.alg.frontres_relational_actor_only = True
+            runner.alg.frontres_method_contract_id = "FRS-METHOD-v026"
+            runner.alg.frontres_gain_contract_id = "FRS-GAIN-v009"
+            runner.alg.frontres_optimization_contract_id = optimization_contract_id
+            runner.alg.frontres_training_contract_id = "FRS-TRAIN-v025"
+            runner.alg.frontres_segment_advantage_normalization = "pairwise_edge"
+            runner.alg.frontres_critic_value_normalization = "none"
+            runner.alg.frontres_critic_support_context_id = "none"
+            runner.alg.frontres_actor_only_lr_init_transactions = 100
+            runner.alg.frontres_actor_only_lr_ramp_transactions = 50
+            for parameter in runner.alg.policy.critic.parameters():
+                parameter.requires_grad_(False)
+            runner.alg.optimizer = torch.optim.Adam([{
+                "params": list(runner.alg.policy.residual_actor.parameters()),
+                "lr": 3.0e-7,
+                "frontres_role": "actor",
+                "frontres_step_count": 0,
+            }])
+            runner._frontres_outer_scenario_replay = checkpointing.FrontRESRelationalScenarioReplay(seed=19)
+            return runner
+
+        v013_path = root / "model_v013.pt"
+        v014_path = root / "model_v014.pt"
+        checkpointing.save_runner(runner_for("FRS-PPO-v013"), str(v013_path))
+        checkpointing.save_runner(runner_for("FRS-PPO-v014"), str(v014_path))
+
+        v014_identity = torch.load(v014_path, weights_only=False)["frontres_v015_checkpoint_identity"]
+        assert v014_identity["optimization_contract_id"] == "FRS-PPO-v014"
+        assert v014_identity["grouped_loss"]["loss_identity"] == "pairwise-softplus-logprob-v1"
+        assert v014_identity["actor_lr_curriculum"] == {
+            "identity": "actor-global-100-50-v1",
+            "init_transactions": 100,
+            "ramp_transactions": 50,
+        }
+        checkpointing.load_runner(runner_for("FRS-PPO-v014"), str(v014_path), load_optimizer=True)
+        _expect_error(
+            lambda: checkpointing.load_runner(runner_for("FRS-PPO-v013"), str(v014_path), load_optimizer=True),
+            "incompatible relational identity",
+        )
+        _expect_error(
+            lambda: checkpointing.load_runner(runner_for("FRS-PPO-v014"), str(v013_path), load_optimizer=True),
+            "incompatible relational identity",
+        )
+        print("frontres_v014_checkpoint_contract: strict v013/v014 isolation ok", flush=True)
+
+
 if __name__ == "__main__":
     main()
     test_relational_checkpoint_v20_round_trip()
+    test_preference_v014_checkpoint_identity_is_strict()

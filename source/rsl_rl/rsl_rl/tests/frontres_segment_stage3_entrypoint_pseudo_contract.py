@@ -170,6 +170,8 @@ def _alg_cfg() -> SimpleNamespace:
     return SimpleNamespace(
         frontres_training_objective="unset",
         frontres_relational_actor_only=False,
+        frontres_actor_only_lr_init_transactions=100,
+        frontres_actor_only_lr_ramp_transactions=50,
         frontres_segment_replay_enabled=False,
         frontres_policy_quality_eval_only=False,
         frontres_segment_live_runner_enabled=False,
@@ -232,6 +234,7 @@ def _args(**overrides) -> SimpleNamespace:
     values = {
         "frontres_stage": "stage3_segment_hrl",
         "frontres_relational_actor_only": False,
+        "frontres_relational_preference_v014": False,
         "frontres_segment_live_sentinel_only": False,
         "frontres_segment_live_probe_only": False,
         "frontres_segment_live_storage_write_only": False,
@@ -425,6 +428,35 @@ def test_stage3_policy_quality_config_is_formal_and_read_only() -> None:
         assert "frontres_segment_k_curriculum" in str(exc)
     else:
         raise AssertionError("ordinary Stage-3 training must require an explicit v009 K curriculum")
+
+
+def test_stage3_v014_selector_installs_one_complete_preference_lr_route() -> None:
+    agent_cfg = _agent_cfg()
+    _apply_frontres_stage_preset(
+        agent_cfg,
+        _args(frontres_relational_preference_v014=True),
+    )
+    alg = agent_cfg.algorithm
+    assert alg.frontres_training_objective == "segment_replay_relational_preference_v014"
+    assert alg.frontres_relational_actor_only is True
+    assert alg.frontres_actor_only_lr_init_transactions == 100
+    assert alg.frontres_actor_only_lr_ramp_transactions == 50
+    assert alg.frontres_segment_advantage_normalization == "pairwise_edge"
+    assert alg.frontres_critic_value_normalization == "none"
+
+    mixed = _agent_cfg()
+    try:
+        _apply_frontres_stage_preset(
+            mixed,
+            _args(
+                frontres_relational_actor_only=True,
+                frontres_relational_preference_v014=True,
+            ),
+        )
+    except ValueError as exc:
+        assert "only one relational optimization selector" in str(exc)
+    else:
+        raise AssertionError("Stage 3 must reject mixed v013/v014 selector state")
 
 
 def test_stage3_rejects_noncanonical_future_offsets_before_config_mutation() -> None:
@@ -663,6 +695,7 @@ if __name__ == "__main__":
     test_stage3_default_enters_live_train_config_without_zeroing_iterations()
     test_stage3_relational_config_is_fresh_actor_only()
     test_stage3_policy_quality_config_is_formal_and_read_only()
+    test_stage3_v014_selector_installs_one_complete_preference_lr_route()
     test_stage3_rejects_noncanonical_future_offsets_before_config_mutation()
     test_retired_optimizer_flags_reject_before_stage3_config_mutation()
     test_stage2_hsl_warmup_constructs_proposal_only_6d_policy()

@@ -154,6 +154,12 @@ parser.add_argument(
     help="Use FRS-GAIN-v009 / FRS-PPO-v013 relational Actor-only Stage-3 training.",
 )
 parser.add_argument(
+    "--frontres_relational_preference_v014",
+    action="store_true",
+    default=False,
+    help="Use FRS-PPO-v014 Preference Loss with the Actor-only global LR curriculum.",
+)
+parser.add_argument(
     "--frontres_specialist_mode",
     type=str,
     choices=("rp", "local_rp", "rp_only", "strong_rp", "rp_z", "z_rp", "vertical_contact"),
@@ -892,7 +898,13 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     action_gain_direction_arg = bool(
         getattr(args_cli, "frontres_action_gain_direction_collect_only", False)
     )
-    relational_actor_only = bool(getattr(args_cli, "frontres_relational_actor_only", False))
+    relational_v013 = bool(getattr(args_cli, "frontres_relational_actor_only", False))
+    relational_preference_v014 = bool(
+        getattr(args_cli, "frontres_relational_preference_v014", False)
+    )
+    if relational_v013 and relational_preference_v014:
+        raise ValueError("Stage 3 accepts only one relational optimization selector")
+    relational_actor_only = relational_v013 or relational_preference_v014
     hsl_live_smoke_arg = bool(getattr(args_cli, "frontres_hsl_live_smoke", False))
     hsl_initializer_arg = str(
         getattr(args_cli, "frontres_v015_hsl_initializer_checkpoint", "") or ""
@@ -903,7 +915,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     if (hsl_initializer_arg or v015_resume_arg) and stage != "stage3_segment_hrl":
         raise ValueError("v018 HSL initialization/full resume requires --frontres_stage stage3_segment_hrl")
     if relational_actor_only and stage != "stage3_segment_hrl":
-        raise ValueError("--frontres_relational_actor_only requires Stage 3")
+        raise ValueError("relational optimization selectors require Stage 3")
     if hsl_initializer_arg and v015_resume_arg:
         raise ValueError("v018 HSL initialization and checkpoint-v14 full resume are mutually exclusive")
     if hsl_live_smoke_arg and stage != "stage1_hsl":
@@ -1058,9 +1070,17 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(
             alg_cfg,
             "frontres_training_objective",
-            "segment_replay_relational" if relational_actor_only else "segment_replay_hrl",
+            (
+                "segment_replay_relational_preference_v014"
+                if relational_preference_v014
+                else "segment_replay_relational"
+                if relational_actor_only
+                else "segment_replay_hrl"
+            ),
         )
         _set_if_present(alg_cfg, "frontres_relational_actor_only", relational_actor_only)
+        _set_if_present(alg_cfg, "frontres_actor_only_lr_init_transactions", 100)
+        _set_if_present(alg_cfg, "frontres_actor_only_lr_ramp_transactions", 50)
         evaluation_only = policy_quality_eval_arg or action_gain_direction_arg
         _set_if_present(alg_cfg, "frontres_segment_replay_enabled", not evaluation_only)
         _set_if_present(alg_cfg, "frontres_policy_quality_eval_only", evaluation_only)

@@ -524,10 +524,13 @@ def _inspect_frontres_v015_policy_quality_payload(
             "grouped_schema_id": "grouped-all-attempt-scalar-v1",
         }
     elif checkpoint_format == FRONTRES_RELATIONAL_CHECKPOINT_FORMAT:
+        optimization_contract_id = identity.get("optimization_contract_id")
+        if optimization_contract_id not in {"FRS-PPO-v013", "FRS-PPO-v014"}:
+            raise RuntimeError("quality policy requires a known relational optimization identity")
         contract_identity = {
             "method_contract_id": "FRS-METHOD-v026",
             "gain_contract_id": "FRS-GAIN-v009",
-            "optimization_contract_id": "FRS-PPO-v013",
+            "optimization_contract_id": optimization_contract_id,
             "training_contract_id": "FRS-TRAIN-v025",
             "scalar_target_id": "none",
             "physics_schema_id": "hierarchical-relational-evidence-v1",

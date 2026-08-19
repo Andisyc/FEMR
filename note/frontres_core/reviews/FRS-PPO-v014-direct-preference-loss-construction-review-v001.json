@@ -1,0 +1,153 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-PPO-v014-DIRECT-PREFERENCE-LOSS-001",
+  "mode": "construction",
+  "profiles": ["standard", "module-boundary", "research-ml"],
+  "verdict": "CONSTRUCTION_PASS",
+  "scope": {
+    "requested": [
+      "Add an isolated direct pairwise log-probability loss candidate for the confirmed relational edge semantics."
+    ],
+    "preserved": [
+      "FRS-PPO-v013 clipped Actor loss and its public behavior",
+      "FRS-GAIN-v009 Outcome comparison, edge construction, Replay and Actor-only ownership",
+      "Current formal transaction, live policy route, checkpoint and telemetry identities"
+    ],
+    "forbidden": [
+      "Do not route v014 through the active v013 transaction",
+      "Do not change Gain, Replay, optimizer ownership or gradient clipping policy",
+      "Do not start training, remote execution or live evaluation"
+    ]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-PPO-v014 direct preference loss candidate",
+    "contract": "FRS-PPO-v013 remains active; v014 is alternate-path candidate only",
+    "checkout": "8ec218a51799519ba5bd36de74d5137ed37f5126+dirty-worktree",
+    "review_object": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "construction diff and focused tests"},
+    "source_edits": {"status": "approved", "scope": "candidate loss owner and its independent S1 tests", "receipt": "user-requested code-construction objective"},
+    "report_write": {"status": "approved", "scope": "this construction receipt", "receipt": "code-construction completion receipt"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "../../../source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py",
+    "content_hash": "sha256:bc62d0d0470c25f9e737553c2f32ce96dbbb691d9e3e63af7b29ca04d38aa92d",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "../contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true
+  },
+  "dimensions": [
+    {
+      "name": "responsibility-ownership",
+      "disposition": "pass",
+      "evidence": "compute_frontres_relational_preference_loss owns only direct edge loss; Gain and transaction owners are untouched."
+    },
+    {
+      "name": "public-interface",
+      "disposition": "pass",
+      "evidence": "Public inputs are policy, sealed FrontRESRelationalPPOBatch and directed edges; v014 returns a distinct FrontRESRelationalPreferenceResult with explicit contract_id."
+    },
+    {
+      "name": "dependency-direction",
+      "disposition": "pass",
+      "evidence": "The candidate depends on the existing policy evaluator and shared edge validator; no runner or simulator dependency is introduced."
+    },
+    {
+      "name": "state-lifecycle",
+      "disposition": "pass",
+      "evidence": "The candidate is pure loss computation; no optimizer, Replay, checkpoint or transaction mutation is reachable."
+    },
+    {
+      "name": "change-surface",
+      "disposition": "pass",
+      "evidence": "v013 remains callable and its alignment test passes after the shared validator extraction; no active route import changed."
+    },
+    {
+      "name": "evidence-boundary",
+      "disposition": "pass",
+      "evidence": "S1 pseudo-data tests cover direct semantics, row permutation, invalid edges, all-row finite fail-closed and repeated optimizer-step finiteness; no live or policy-quality claim is made."
+    },
+    {
+      "name": "tensor-provenance",
+      "disposition": "pass",
+      "evidence": "Existing batch validation preserves [B,6] actions, aligned observations, valid masks and finite old log-prob compatibility fields; candidate checks all current log-prob outputs."
+    },
+    {
+      "name": "gradient-update-boundary",
+      "disposition": "pass",
+      "evidence": "Only pairwise current log-prob differences enter the candidate loss; no Critic target or optimizer call is present. Multi-step pseudo-update remains finite."
+    },
+    {
+      "name": "persistence-evaluation",
+      "disposition": "not-applicable",
+      "evidence": "The candidate is intentionally not wired to persistence, formal transaction or evaluation routes."
+    }
+  ],
+  "findings": [],
+  "residual_risks": [
+    "The direct loss has not been admitted into the active v013 Contract or runner; a separate v014 migration and formal-runtime audit are required before any training use.",
+    "The pseudo multi-step check demonstrates finite behavior for one tiny Gaussian fixture, not convergence or distribution safety for the real Actor.",
+    "The existing production max_grad_norm=0.5 policy is unchanged and has not been re-tuned or removed."
+  ],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "dependency-receipt",
+    "module_correctness": "dependency-receipt",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed",
+    "training": "not-claimed"
+  },
+  "dependencies": [
+    {
+      "producer": "module-alignment-test",
+      "kind": "module-correctness",
+      "status": "pass",
+      "schema_version": "module-alignment-test/v1",
+      "manifest_path": "../../testing/manifests/frontres_relational_gain_module_alignment_v001.json",
+      "manifest_hash": "sha256:5ae6e1caeeb54e4e8b26ec2d45acc2d3f29d42b69f6b8341ed1f55dc95452461",
+      "current": true,
+      "identities": {
+        "project": "FEMR/FrontRES",
+        "design": "FRS-PPO-v014 direct preference loss candidate",
+        "contract": "FRS-PPO-v013 remains active; v014 is alternate-path candidate only",
+        "checkout": "8ec218a51799519ba5bd36de74d5137ed37f5126+dirty-worktree"
+      },
+      "validation": {
+        "exit_code": 0,
+        "current": true,
+        "command": "PYTHONPATH=source/rsl_rl frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_preference_loss_alignment.py",
+        "identity": "frontres_relational_preference_loss_alignment: MODULE-CORRECT"
+      }
+    },
+    {
+      "producer": "module-alignment-test",
+      "kind": "legacy-characterization",
+      "status": "pass",
+      "schema_version": "module-alignment-test/v1",
+      "manifest_path": "../../testing/manifests/frontres_relational_gain_module_alignment_v001.json",
+      "manifest_hash": "sha256:5ae6e1caeeb54e4e8b26ec2d45acc2d3f29d42b69f6b8341ed1f55dc95452461",
+      "current": true,
+      "identities": {
+        "project": "FEMR/FrontRES",
+        "design": "FRS-PPO-v014 direct preference loss candidate",
+        "contract": "FRS-PPO-v013 remains active; v014 is alternate-path candidate only",
+        "checkout": "8ec218a51799519ba5bd36de74d5137ed37f5126+dirty-worktree"
+      },
+      "validation": {
+        "exit_code": 0,
+        "current": true,
+        "command": "PYTHONPATH=source/rsl_rl frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_relational_ppo_alignment.py",
+        "identity": "frontres_relational_ppo_alignment: OBJECTIVE-ALIGNED"
+      }
+    }
+  ]
+}

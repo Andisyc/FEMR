@@ -1,12 +1,15 @@
 ---
 contract_id: FRS-PPO-v013
-status: active-pre-training
+status: retired-compatible
 effective_date: 2026-08-17
-updated_date: 2026-08-17
+updated_date: 2026-08-19
 supersedes: FRS-PPO-v012-for-relational-route
 scope: Clipped Actor PPO from same-Scenario preference edges; no value loss
 ---
 # Relational Actor-Only PPO
+
+This clipped-ratio relation route is retained for characterization and old
+checkpoint compatibility. FRS-PPO-v014 is the active fresh-training authority.
 
 The input is a complete sealed transaction with policy rows and directed
 preference edges. Edges are the only learning label. No scalar Gain, return,

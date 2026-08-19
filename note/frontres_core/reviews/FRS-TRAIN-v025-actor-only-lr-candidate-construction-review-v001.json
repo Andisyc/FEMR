@@ -1,0 +1,72 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-TRAIN-v025-ACTOR-ONLY-LR-CANDIDATE-001",
+  "mode": "construction",
+  "profiles": ["standard", "module-boundary", "research-ml"],
+  "verdict": "CONSTRUCTION_PASS",
+  "scope": {
+    "requested": ["Add an isolated Actor-only learning-rate curriculum candidate and semantic pseudo-data test."],
+    "preserved": [
+      "FRS-PPO-v013 formal route and the existing coupled warmup scheduler",
+      "Candidate v014 Preference Loss, Gain, Replay, DR and optimizer state",
+      "No K-local learning-rate reset"
+    ],
+    "forbidden": [
+      "Do not wire the candidate into the formal transaction or runner",
+      "Do not mutate optimizer, checkpoint, Replay or curriculum state",
+      "Do not start training or live evaluation"
+    ]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-DP-09R Actor-only Curriculum candidate",
+    "contract": "FRS-TRAIN-v025 remains active-pre-training; candidate is not routed",
+    "checkout": "8ec218a51799519ba5bd36de74d5137ed37f5126+dirty-worktree",
+    "review_object": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "candidate curriculum diff and focused evidence"},
+    "source_edits": {"status": "approved", "scope": "candidate LR owner and S1 pseudo-data test", "receipt": "user-requested candidate implementation"},
+    "report_write": {"status": "approved", "scope": "this construction receipt", "receipt": "code-construction completion receipt"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "../../../source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py",
+    "content_hash": "sha256:b31615eb25939c0dc05aecb94b288cffbfd82b56e37a50d249f43336c37b4c66",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "../contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "The existing warmup/curriculum owner contains one pure candidate LR decision."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "Inputs are global committed progress and explicit init/ramp durations; output is an immutable phase value."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "The pure owner depends on no runner, optimizer, simulator, Replay or K-stage adapter."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "The function has no mutation; rejected inputs fail before producing a phase."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "No production consumer imports the candidate and the legacy warmup characterization remains green."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "S1 cases cover exact values, boundaries, invalid inputs and a K-local-reset sensitivity mutant; formal routing and learning quality are not claimed."},
+    {"name": "tensor-provenance", "disposition": "not-applicable", "evidence": "This scheduler accepts scalar integer progress and emits no tensor."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "The candidate computes LR only and cannot call backward, clip gradients or step an optimizer."},
+    {"name": "persistence-evaluation", "disposition": "not-applicable", "evidence": "Persistence and evaluation integration are intentionally outside this isolated candidate."}
+  ],
+  "findings": [],
+  "residual_risks": [
+    "The exact init and ramp durations remain caller-supplied within the accepted bounds; formal configuration identity is not yet defined.",
+    "The candidate is not wired into checkpoint/resume or the formal transaction and therefore cannot be used for training yet.",
+    "Offline schedule correctness does not establish Actor learning quality."
+  ],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed",
+    "training": "not-claimed"
+  },
+  "dependencies": []
+}

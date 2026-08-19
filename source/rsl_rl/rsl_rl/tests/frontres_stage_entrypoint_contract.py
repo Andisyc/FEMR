@@ -181,7 +181,9 @@ def main() -> None:
         'agent_cfg.experiment_name = "g1_flat_frontres_stage3_segment_hrl"',
         'agent_cfg.is_full_resume = False',
         'agent_cfg.supervised_warmup_iterations = 0',
-        '"segment_replay_relational" if relational_actor_only else "segment_replay_hrl"',
+        '"segment_replay_relational_preference_v014"',
+        'if relational_preference_v014',
+        'else "segment_replay_relational"',
         '_set_if_present(alg_cfg, "frontres_relational_actor_only", relational_actor_only)',
         'evaluation_only = policy_quality_eval_arg or action_gain_direction_arg',
         '_set_if_present(alg_cfg, "frontres_policy_quality_eval_only", evaluation_only)',
@@ -432,7 +434,9 @@ def main() -> None:
     assert '--resume_student_checkpoint "${HSL_CHECKPOINT}"' not in stage3
     assert 'STAGE3_IS_FULL_RESUME' not in stage3
     assert 'v020 Stage 3 forbids legacy resume arguments' in stage3
-    assert 'G5-S4 bounded Stage 3 requires train or relational_train mode, 64 envs, 1 iteration, and 1 update' in stage3
+    assert 'G5-S4 bounded Stage 3 requires a train mode, 64 envs, 1 iteration, and 1 update' in stage3
+    assert 'relational_preference_train)' in stage3
+    assert 'MODE_ARGS=(--frontres_relational_preference_v014)' in stage3
     assert 'CHECKPOINT_INTERVAL="${FRONTRES_CHECKPOINT_INTERVAL:-1}"' in stage3
     assert 'TRAIN_CMD+=(--frontres_checkpoint_interval "${CHECKPOINT_INTERVAL}")' in stage3
     assert '--frontres_formal_runtime_audit' in stage3

@@ -2,7 +2,7 @@
   "layout": "design_transaction_inspector",
   "defaultZoom": 0.8,
   "title": "FrontRES Design Inspector",
-  "subtitle": "标量 METHOD-v025 与关系型 METHOD-v026 并存；METHOD-v026 用层级关系训练 Actor，不构造标量 Gain 或 Critic target",
+  "subtitle": "当前 Inspector 对齐 METHOD-v026 / GAIN-v009 / PPO-v014 / TRAIN-v025；旧标量、v013 clipped-ratio 与联合 Actor-Critic 设计保留为退役兼容证据",
   "cards": [
     {
       "designId": "FRS-DP-07R",
@@ -15,16 +15,15 @@
           "heading": "关系型 Actor-only 训练接口",
           "text": "同一当前事务内只统计可比较 Pair；SAME 与 INCOMPARABLE 不产生 Actor 方向，N_i=0 时该 attempt 没有 Actor credit。该接口不定义 Critic target；INVALID 使整批 fail closed。",
           "latex": [
-            "W_i=\\#\\{j:i\\succ j\\},\\quad L_i=\\#\\{j:j\\succ i\\},\\quad N_i=W_i+L_i",
-            "c_i=\\begin{cases}W_i-L_i,&N_i>0\\\\\\mathrm{undefined},&N_i=0\\end{cases}",
-            "actor\\_mask_i=[N_i>0];\\quad SAME,INCOMPARABLE\\not\\Rightarrow c_i=0",
-            "r_i=\\exp(\\log\\pi_\\theta(a_i|s_i)-\\log\\pi_{old}(a_i|s_i))",
-            "L_{pair}=-\\frac{1}{|E|}\\sum_i\\min\\left(r_ic_i,\\operatorname{clip}(r_i,1-\\epsilon,1+\\epsilon)c_i\\right)",
+            "E=\\{(w,l):w\\succ l\\},\\qquad d_{wl}=\\log\\pi_\\theta(a_w|s_w)-\\log\\pi_\\theta(a_l|s_l)",
+            "L_{pref}=\\frac{1}{|E|}\\sum_{(w,l)\\in E}\\operatorname{softplus}(-d_{wl})",
+            "SAME,INCOMPARABLE\\not\\Rightarrow (w,l)\\in E;\\quad |E|=0\\Rightarrow zero\\text{-}write",
+            "\\log\\pi_{old}\\text{ is persisted for compatibility but is not an input to }L_{pref}",
             "\\text{relational route has no scalar Gain, advantage, return, value loss, or Critic target}"
           ]
         },
         {
-          "heading": "候选公式：证据到层级",
+          "heading": "证据到层级",
           "text": "先把每个 Repair 压缩为结构化证据，再按层级比较；层级不同直接返回 BETTER/WORSE，不允许下层指标补偿上层失败。",
           "latex": [
             "P_X=(S_X,H_X,C_X),\\qquad S_X=(s_X,f_X),\\quad H_X=(h_X^{load},h_X^{switch},h_X^{illegal})",
@@ -32,17 +31,37 @@
             "L_3\\succ L_2\\succ L_1\\succ L_0"
           ],
           "table": {
-            "columns": ["层级", "进入条件", "层级含义"],
+            "columns": [
+              "层级",
+              "进入条件",
+              "层级含义"
+            ],
             "rows": [
-              ["L0", "survival_ok=0", "物理生存失败"],
-              ["L1", "Survival 成功且 H 非零", "严重接触/支撑违规"],
-              ["L2", "H=0 且 Stable=0", "可生存但恢复未稳定"],
-              ["L3", "Stable=1", "恢复稳定后才比较 Intent/成本"]
+              [
+                "L0",
+                "survival_ok=0",
+                "物理生存失败"
+              ],
+              [
+                "L1",
+                "Survival 成功且 H 非零",
+                "严重接触/支撑违规"
+              ],
+              [
+                "L2",
+                "H=0 且 Stable=0",
+                "可生存但恢复未稳定"
+              ],
+              [
+                "L3",
+                "Stable=1",
+                "恢复稳定后才比较 Intent/成本"
+              ]
             ]
           }
         },
         {
-          "heading": "候选公式：L1 严重违规",
+          "heading": "L1 严重违规",
           "text": "L1 只允许逐分量 Pareto；失载、换脚和非法接触不能相互抵消。",
           "latex": [
             "H_X=(h_1,h_2,h_3)=(no\\_load,unplanned\\_switch,illegal\\_contact\\_duration)",
@@ -51,7 +70,7 @@
           ]
         },
         {
-          "heading": "候选公式：L2 恢复质量",
+          "heading": "L2 恢复质量",
           "text": "L2 只比较恢复质量向量；所有维度都必须不差，且至少一维改善，才称为 BETTER。",
           "latex": [
             "L_X=(m_X,\\dot m_X,z_X,-e_X^{lin},-e_X^{ang},-d_X^{support})",
@@ -63,7 +82,7 @@
           ]
         },
         {
-          "heading": "候选公式：L3 稳定后的任务质量",
+          "heading": "L3 稳定后的任务质量",
           "text": "只有进入 L3 后，任务跟踪和修复成本才有比较资格；Physics 稳定性不是成本项。",
           "latex": [
             "Stable(X)=[m_X\\ge0.02]\\land[\\dot m_X\\ge0]\\land[z_X=\\mathrm{N/A}\\lor z_X\\ge0.01]\\land[e_X^{lin}\\le0.10]",
@@ -71,18 +90,42 @@
             "I_X=(-err_{X,1}^{intent},\\ldots,-err_{X,d}^{intent});\\quad I_A\\equiv I_B\\Rightarrow compare(-cost_A,-cost_B)"
           ],
           "table": {
-            "columns": ["条件", "阈值", "方向"],
+            "columns": [
+              "条件",
+              "阈值",
+              "方向"
+            ],
             "rows": [
-              ["Capture Margin", "m_X≥0.02", "越大越好"],
-              ["Margin trend", "ṁ_X≥0", "越大越好"],
-              ["ZMP（适用时）", "z_X≥0.01", "越大越好"],
-              ["线/角动量误差", "e_lin≤0.10；e_ang≤0.10", "越小越好"],
-              ["支撑漂移 / 稳定保持", "d_support≤0.05；hold≥4", "漂移越小、保持越长"]
+              [
+                "Capture Margin",
+                "m_X≥0.02",
+                "越大越好"
+              ],
+              [
+                "Margin trend",
+                "ṁ_X≥0",
+                "越大越好"
+              ],
+              [
+                "ZMP（适用时）",
+                "z_X≥0.01",
+                "越大越好"
+              ],
+              [
+                "线/角动量误差",
+                "e_lin≤0.10；e_ang≤0.10",
+                "越小越好"
+              ],
+              [
+                "支撑漂移 / 稳定保持",
+                "d_support≤0.05；hold≥4",
+                "漂移越小、保持越长"
+              ]
             ]
           }
         },
         {
-          "heading": "候选输出与失效规则",
+          "heading": "输出与失效规则",
           "text": "输出是关系而不是总分；INVALID 不得被当作 SAME、零收益或可训练样本。",
           "latex": [
             "compare(A,B)\\in\\{BETTER,WORSE,SAME,INCOMPARABLE,INVALID\\}",
@@ -96,10 +139,13 @@
         },
         {
           "heading": "治理结论",
-          "text": "PRE-TRAINING-CANDIDATE：关系型路径只可推进到训练前工程审计。通过后必须停止并交还用户，不由 Codex 启动 live test 或训练；真实阈值和策略质量仍未验证。"
+          "text": "ACTIVE-PRE-TRAINING：关系型 v014 路径已推进到训练前离线工程证据。代码同步、live test 和训练仍由用户控制；真实阈值、收敛与策略质量尚未验证。"
         }
       ],
-      "highlightSteps": ["seal-scenarios", "gmt-execute-k"],
+      "highlightSteps": [
+        "seal-scenarios",
+        "gmt-execute-k"
+      ],
       "chips": []
     },
     {
@@ -127,7 +173,7 @@
         },
         {
           "heading": "5. DR 与 K 的关系",
-          "text": "每个 K 都有自己的一轮 DR Curriculum：K8 从较低 DR 推进到较高 DR；切换 K16 后，DR 回到较低但仍有修复信号的水平，Actor 与 Critic 从较小 Actor influence 开始共同适应，再同步提高 DR 与 Actor influence；K32 同样重新开始。这里重置的是训练难度与 Actor influence，不是 Actor、Critic 或已学能力。"
+          "text": "每个 K 都使用当前 Actor-only 关系训练的难度课程：K 切换只降低 DR 上限并重新覆盖 Easy/Medium/Hard/Broken-tail，不重置 Actor、Adam 状态或关系接口。Actor 学习率不因 K 重新降档；K 只延长同一个 Repair 的后果观察窗口。"
         },
         {
           "heading": "6. Global Segment 选择",
@@ -137,12 +183,32 @@
           "heading": "7. 四类训练分布",
           "text": "四档是扰动强度分类：Easy 保持低难度修复和 Demo 质量；Medium 提供明显且通常可修复的普通学习样本；Hard 接近当前可修复前沿；Broken tail 越过前沿，只少量暴露失败边界。它不同于 Safe / Repairable / Broken / Harmful 这套实际执行结果分类，二者不能混用。",
           "table": {
-            "columns": ["训练分布", "强度区间与权重", "训练作用"],
+            "columns": [
+              "训练分布",
+              "强度区间与权重",
+              "训练作用"
+            ],
             "rows": [
-              ["Easy", "0 到 0.25 d_cap；20%", "轻微扰动，保持基础修复与 Demo 质量"],
-              ["Medium", "0.25 d_cap 到 0.70 d_cap；30%", "明显但通常可修复，提供普通学习信号"],
-              ["Hard", "0.70 d_cap 到 d_cap；40%", "接近可修复前沿，提供主要困难恢复证据"],
-              ["Broken tail", "d_cap 到 min(1.10 d_cap, 2.381)；10%", "略微越过前沿，暴露失败边界但不能主导训练"]
+              [
+                "Easy",
+                "0 到 0.25 d_cap；20%",
+                "轻微扰动，保持基础修复与 Demo 质量"
+              ],
+              [
+                "Medium",
+                "0.25 d_cap 到 0.70 d_cap；30%",
+                "明显但通常可修复，提供普通学习信号"
+              ],
+              [
+                "Hard",
+                "0.70 d_cap 到 d_cap；40%",
+                "接近可修复前沿，提供主要困难恢复证据"
+              ],
+              [
+                "Broken tail",
+                "d_cap 到 min(1.10 d_cap, 2.381)；10%",
+                "略微越过前沿，暴露失败边界但不能主导训练"
+              ]
             ]
           }
         },
@@ -151,7 +217,10 @@
           "text": "d_cap 是当前 K 阶段按显式 committed progress 逐步接近 frozen GMT 边界的强度上限，不是从 survival 在线估计的 g_K。四档分别承担保持基础修复、普通学习、前沿学习和失败边界暴露。训练始终保留四类覆盖，不把全部样本替换成最大扰动；一个 sealed Segment 只采样一次档位与强度，Noisy 和全部 Repair 复用，Gain 与 PPO 不反向控制该分布。"
         }
       ],
-      "highlightSteps": ["seal-scenarios", "gmt-execute-k"],
+      "highlightSteps": [
+        "seal-scenarios",
+        "gmt-execute-k"
+      ],
       "chips": []
     },
     {
@@ -159,23 +228,23 @@
       "blockId": "SR-01",
       "title": "Segment Replay",
       "color": "#47749f",
-      "responsibility": "外层 Replay 只选择值得由当前 Actor 重新执行的 sealed Scenario；Critic 每次只学习本 Transaction 的当前 M4 均值，不累计旧策略 utility。",
+      "responsibility": "外层 Replay 只选择值得由当前 Actor 重新执行的 sealed Scenario；保留 identity、edge density、visit 与 staleness，不保存 utility、value 或 Critic calibration。",
       "details": [
         {
-          "heading": "两层职责：当前 M4 估计，外层 Scenario 重访",
-          "text": "外层 Replay 先选八个 sealed Scenario；每个被选中的 Scenario 都必须由当前 frozen pi_old 重新执行 exact M=4 次 Repair。当前 4 个 utility 的算术均值直接形成 Critic target；Actor 只使用本次 32 个 attempt 的 advantage，整笔仍只有一次 grouped update。"
+          "heading": "两层职责：当前 M4 关系，外层 Scenario 重访",
+          "text": "外层 Replay 先选八个 sealed Scenario；每个被选中的 Scenario 都必须由当前 frozen policy 重新执行 exact M=4 次 Repair。当前 Outcome 只形成 same-Scenario preference edges；Actor 用这些边执行一次 v014 update，不构造 Critic target 或 advantage。"
         },
         {
           "heading": "Replay 单位：同一个 sealed Scenario",
-          "text": "Replay 保存的不是裸 segment_id，而是 motion/frame、x_t、扰动类型、强度与 seed/artifact hash、noisy_segment_hash、K、future Intent 和 planned support 共同定义的 ScenarioKey。重新选择同一 segment_id 却重采样 DR，不算重放同一个 Critic 状态。"
+          "text": "Replay 保存的不是裸 segment_id，而是 motion/frame、x_t、扰动类型、强度与 seed/artifact hash、noisy_segment_hash、K 和 future Intent 共同定义的 ScenarioKey。重新选择同一 segment_id 却重采样 DR，不算重访同一 Scenario。"
         },
         {
           "heading": "旧结果不作为训练样本",
-          "text": "Replay 只持久化 ScenarioKey、当前 K 的最新 E_V/E_A priority、lifetime committed visit、staleness、active/archive/capacity、RNG 和 receipt。旧 visit 的 utility、policy mean/sigma、KL、窗口均值和 reset 不再保存，也不能进入 Critic target、normalizer 或 Actor loss。"
+          "text": "Replay 只持久化 ScenarioKey、当前 K 的最新 edge density、lifetime committed visit、staleness、active/archive/capacity、RNG 和 receipt。旧 visit 的 utility、value、policy log-prob、advantage 和 numerical target 不保存，也不能进入当前 v014 Loss。"
         },
         {
-          "heading": "当前校准价值：只追逐当前 M4 置信区间外的误差",
-          "text": "只用当前 M4 计算 target、sample variance、SE 与 h95，再令 E_V=max(|V_old(s)-target|-h95,0)。variance 只修正 Replay priority，不改变 target。Low-DR 与 Coupled Ramp 仍使用 6 个 E_V slot，Joint 仍保留 2 个；E_A 也只表示本次 Repair 间差异。"
+          "heading": "当前关系价值：重访仍产生可比较边的 Scenario",
+          "text": "每次 fresh M4 只更新当前 K 的 edge density、visit 和 staleness。edge density 是调度证据，不是 Actor target；重访时必须重新执行 Actor，不能复用历史边或历史 log-prob。"
         },
         {
           "heading": "DR 兼容池：先定当前难度类别，再选 Replay",
@@ -183,7 +252,7 @@
         },
         {
           "heading": "重放时机：B8 固定 slot curriculum",
-          "text": "联合预热的八个 slot 固定为 1 个新 Scenario、6 个 E_V Replay、1 个 stale review；Joint Optimize 固定为 1 个新 Scenario、4 个 E_A Replay、2 个 E_V Replay、1 个 stale review。固定 slot 代替 40/50/10 随机混合，使每笔更新都含足够重复状态，同时保留受控新样本。"
+          "text": "八个 slot 固定为 1 个 admission、6 个 edge-density revisit、1 个 stale review。固定 slot 让每笔事务同时包含新 Scenario、仍有关系信号的重访和长期未访问样本。"
         },
         {
           "heading": "有界 active pool：先重复，再扩张",
@@ -191,10 +260,18 @@
         },
         {
           "heading": "提交边界：成功后才更新 Replay 状态",
-          "text": "当前 M4 先形成 Replay candidate 与八个 target，PPO 消费 target 后仍只执行一次 grouped scalar update。最新 E_V/E_A、membership、capacity、visit、staleness 与 RNG 只随成功 receipt 原子提交并进入 checkpoint-v19/replay-v5；失败、partial、rejected 或 mixed Transaction 的 delta 必须为零。"
+          "text": "当前 M4 先形成 Replay candidate 与 preference edges，v014 消费 edges 后只执行一次 Actor update。最新 edge density、membership、capacity、visit、staleness 与 RNG 只随成功 receipt 原子提交并进入 checkpoint-v20；失败、partial、rejected 或 mixed Transaction 的 delta 必须为零。"
         }
       ],
-      "highlightSteps": ["select-segments", "seal-scenarios", "restore-xt", "sample-attempts", "seal-policy-rows", "grouped-update", "commit-state"],
+      "highlightSteps": [
+        "select-segments",
+        "seal-scenarios",
+        "restore-xt",
+        "sample-attempts",
+        "seal-policy-rows",
+        "grouped-update",
+        "commit-state"
+      ],
       "chips": []
     },
     {
@@ -210,7 +287,7 @@
         },
         {
           "heading": "K 延长后果，M 增加候选",
-          "text": "K 决定一次 Repair 的后果要观察多久；M 决定同一情境要尝试多少种 Repair。M 固定为 4，保证每个 K 的 Critic target 都由四个 frozen-pi_old 样本估计；K 的推进仍只改变后果 horizon。"
+          "text": "K 决定一次 Repair 的后果要观察多久；M 决定同一情境要尝试多少种 Repair。M 固定为 4，为同一 Scenario 提供可比较候选；K 的推进只改变后果 horizon，不改变关系比较器。"
         },
         {
           "heading": "K64 当前不启用",
@@ -234,10 +311,14 @@
         },
         {
           "heading": "双层 Curriculum：外层推进 K，内层重新推进 DR",
-          "text": "必须先完整封存当前 Transaction、执行 exact-one update 并提交训练状态，才能切换 K/M。每个 K 都拥有一轮独立的 DR Curriculum：从联合预热的第一笔 Transaction 起就按 Easy/Medium/Hard/Broken-tail=20/30/40/10 抽取四类，但四类的绝对强度都受当前较低 d_cap 限制，不等到预热结束才突然引入 Hard/Broken-tail。随后 d_cap 与 Actor influence 逐步提高；进入 Joint Optimize 后覆盖当前 K 的完整训练分布。切换 K16/K32 时保留 Actor/Critic，降低 d_cap，把 Actor weight 重置为较小非零值，并重新使用 Critic 均值校准 Replay。Replay 只能从当前难度区间选择，不能把 DR Curriculum 拖回早期强度；2.381 仍只是最终参考上限。"
+          "text": "必须先完整封存当前 Transaction、执行 exact-one Actor update 并提交训练状态，才能切换 K/M。每个 K 都重新从较低 d_cap 推进 DR，并继续按 Easy/Medium/Hard/Broken-tail=20/30/40/10 覆盖四类。切换 K16/K32 时保留 Actor、Adam 和全局 LR，只降低 d_cap；Replay 只能从当前难度区间选择，不能把 DR Curriculum 拖回早期强度；2.381 仍只是最终参考上限。"
         }
       ],
-      "highlightSteps": ["resolve-km", "gmt-execute-k", "commit-state"],
+      "highlightSteps": [
+        "resolve-km",
+        "gmt-execute-k",
+        "commit-state"
+      ],
       "chips": []
     },
     {
@@ -256,7 +337,9 @@
         "full-6D 输出不使用按扰动类型设置的 mask、per-axis scale、tanh、clip 或 clamp。向上 dz 不做硬裁剪，而由 HSL 初始方向、Clean-anchored K-step 后果与 full-6D repair cost 共同抑制；这是软偏向，不冒充绝对禁止。",
         "rho、confidence、acceptance、第二个 actor 与第二个 Critic 均不属于当前接口。"
       ],
-      "highlightSteps": ["frontres-action"],
+      "highlightSteps": [
+        "frontres-action"
+      ],
       "chips": []
     },
     {
@@ -273,7 +356,9 @@
         "Clean continuation 只供 GMT 与 Physics evaluator 使用，不回流为 actor future。",
         "FrontRES 不替代 GMT，也不学习新的 tracker。"
       ],
-      "highlightSteps": ["gmt-execute-k"],
+      "highlightSteps": [
+        "gmt-execute-k"
+      ],
       "chips": []
     },
     {
@@ -308,7 +393,9 @@
           "text": "固定并复用 Clean 与 Noisy，可以消除 attempt 间重采样 baseline 造成的额外噪声，但不宣称 simulator 的动力学随机性完全抵消；当前设计容忍剩余 rollout 噪声。"
         }
       ],
-      "highlightSteps": ["paired-evidence"],
+      "highlightSteps": [
+        "paired-evidence"
+      ],
       "chips": []
     },
     {
@@ -316,7 +403,7 @@
       "blockId": "Q-01",
       "title": "Repair Gain",
       "color": "#a75555",
-      "responsibility": "Gain 保留每个 Repair 的 raw 实际结果；固定 symlog utility 压缩重尾，并由 Actor 与 Critic 共同消费。",
+      "responsibility": "退役历史卡：Gain 保留每个 Repair 的 raw 实际结果；固定 symlog utility 压缩重尾，并由 Actor 与 Critic 共同消费。当前关系型路线不再使用该 scalar Gain、utility 或 Critic target。",
       "details": [
         {
           "heading": "Intent、Physics 与 Segment Replay",
@@ -329,25 +416,57 @@
         {
           "heading": "Clean 锚点与归一化",
           "text": "Clean 定义正确动作阶段、预期支撑、正常动态倾斜与目标姿态。D_j 是第 j 项相对 Clean 的剩余问题，不是统一几何距离。固定 S_j 把米、弧度、时间或接触事件换成稳定语义单位；它不从当前 Noisy-Clean gap 或 M 个候选重算，避免近零分母放大动力学噪声、恢复比例抹掉绝对失衡程度和候选集合改变排序标准。r_j 不裁剪到 [0,1]，严重状态仍可区分。",
-          "latex": ["r_j(X \\mid \\mathrm{Clean}) = \\frac{D_j(X, \\mathrm{Clean})}{S_j}"]
+          "latex": [
+            "r_j(X \\mid \\mathrm{Clean}) = \\frac{D_j(X, \\mathrm{Clean})}{S_j}"
+          ]
         },
         {
           "heading": "K-step 时间方向累积",
           "text": "连续证据仍累积完整 K-step 后果并按有效时间归一化，但固定位置权重 tau_k=k/K 让后段残差更重要，因此能区分正在恢复和正在恶化。[4,3,2,1] 与 [1,2,3,4] 的普通均值同为 2.5，时间方向值分别为 2.0 与 3.0。tau 不是可调参数。Contact 与 survival 保留事件/暴露语义，早期非法接触或失败不能因位置靠前而被弱化；缺失证据也不能缩小分母获益。",
-          "latex": ["D_j^{\\rightarrow}(X,C)=\\frac{\\sum_{k=1}^{K}a_{j,k}\\tau_k e_{j,k}(X,C)}{\\sum_{k=1}^{K}a_{j,k}\\tau_k},\\quad \\tau_k=\\frac{k}{K}"]
+          "latex": [
+            "D_j^{\\rightarrow}(X,C)=\\frac{\\sum_{k=1}^{K}a_{j,k}\\tau_k e_{j,k}(X,C)}{\\sum_{k=1}^{K}a_{j,k}\\tau_k},\\quad \\tau_k=\\frac{k}{K}"
+          ]
         },
         {
           "heading": "Intent 项",
           "text": "Intent 比较 Noisy/Repair 的实际执行轨迹与 Clean rollout，而不是比较可能数值相同的 q29 reference。水平全局漂移被移除，持续倾斜和相对姿态错误保留；加速度初期只做诊断，避免有限差分噪声进入 Gain。",
           "table": {
-            "columns": ["项目", "D_j 的物理含义", "固定 S_j"],
+            "columns": [
+              "项目",
+              "D_j 的物理含义",
+              "固定 S_j"
+            ],
             "rows": [
-              ["Root orientation", "K-step root orientation geodesic error，直接暴露持续侧倾", "0.087 rad（5°）"],
-              ["Joint pose", "执行 q29 相对 Clean rollout 的逐关节 RMS error", "0.087 rad（5°）"],
-              ["Key-body pose", "去除水平全局漂移后的手、脚、躯干位置 error", "0.10 m"],
-              ["Linear velocity", "root-local body linear-velocity error", "0.75 m/s"],
-              ["Angular velocity", "joint/body angular-velocity error", "2.0 rad/s"],
-              ["Root height", "相对 Clean 的 root-height error，识别下沉或悬浮", "0.05 m"]
+              [
+                "Root orientation",
+                "K-step root orientation geodesic error，直接暴露持续侧倾",
+                "0.087 rad（5°）"
+              ],
+              [
+                "Joint pose",
+                "执行 q29 相对 Clean rollout 的逐关节 RMS error",
+                "0.087 rad（5°）"
+              ],
+              [
+                "Key-body pose",
+                "去除水平全局漂移后的手、脚、躯干位置 error",
+                "0.10 m"
+              ],
+              [
+                "Linear velocity",
+                "root-local body linear-velocity error",
+                "0.75 m/s"
+              ],
+              [
+                "Angular velocity",
+                "joint/body angular-velocity error",
+                "2.0 rad/s"
+              ],
+              [
+                "Root height",
+                "相对 Clean 的 root-height error，识别下沉或悬浮",
+                "0.05 m"
+              ]
             ]
           }
         },
@@ -355,12 +474,32 @@
           "heading": "Physics 项",
           "text": "Physics 检查 Repair 是否保持 Clean rollout 的预期支撑语义，而不是只奖励不摔倒。持续倾斜但无需额外补偿属于 Intent；额外迈步、拖脚或改变支撑属于 Physics。",
           "table": {
-            "columns": ["项目", "D_j 的物理含义", "固定 S_j"],
+            "columns": [
+              "项目",
+              "D_j 的物理含义",
+              "固定 S_j"
+            ],
             "rows": [
-              ["Contact phase", "额外/缺失 Contact 或非法支撑切换占预期 foot-time 的比例", "0.10 exposure"],
-              ["Support-foot drift", "loaded foot 的 slip、drag 或非计划支撑位移", "0.03 m"],
-              ["Phase-ZMP", "loaded-support phase 中超出 Clean-conditioned support/recovery envelope 的平均深度", "0.02 m"],
-              ["Survival", "失败后损失的 K-step horizon 比例", "0.10 horizon fraction"]
+              [
+                "Contact phase",
+                "额外/缺失 Contact 或非法支撑切换占预期 foot-time 的比例",
+                "0.10 exposure"
+              ],
+              [
+                "Support-foot drift",
+                "loaded foot 的 slip、drag 或非计划支撑位移",
+                "0.03 m"
+              ],
+              [
+                "Phase-ZMP",
+                "loaded-support phase 中超出 Clean-conditioned support/recovery envelope 的平均深度",
+                "0.02 m"
+              ],
+              [
+                "Survival",
+                "失败后损失的 K-step horizon 比例",
+                "0.10 horizon fraction"
+              ]
             ]
           }
         },
@@ -387,7 +526,10 @@
           ]
         }
       ],
-      "highlightSteps": ["build-objectives", "grouped-update"],
+      "highlightSteps": [
+        "build-objectives",
+        "grouped-update"
+      ],
       "chips": []
     },
     {
@@ -405,7 +547,9 @@
         "HSL 只在 Stage-3 cold start 前初始化一次，之后不再提供 supervised target。",
         "严格 Stage-3 resume 与 HSL initializer 互斥。"
       ],
-      "highlightSteps": ["init-hsl"],
+      "highlightSteps": [
+        "init-hsl"
+      ],
       "chips": []
     },
     {
@@ -413,21 +557,37 @@
       "blockId": "M-05",
       "title": "Actor & Critic Warmup",
       "color": "#725781",
-      "responsibility": "Actor 与 Critic 从较低 DR 共同适应；Actor 使用当前 M4 advantage，Critic 每笔只读取 B8 个当前 exact-M4 平均 utility target。",
+      "responsibility": "退役历史卡：Actor 与 Critic 从较低 DR 共同适应；Actor 使用当前 M4 advantage，Critic 每笔只读取 B8 个当前 exact-M4 平均 utility target。",
       "details": [
         {
           "heading": "Critic 的职责：预测状态难度，不预测指定动作",
-          "text": "Critic 保持 V(s)：Critic 不判断哪一个动作更好；它预测在当前 sealed state 下，从冻结 pi_old 采样一次 Repair 所能得到的期望 U(G_total)。同一 Segment 的 M 个 Repair 共享一个 baseline；每个动作自己的 utility 决定它高于还是低于参考线。raw G_total 仍用于物理审计；6D Repair action 不进入 Critic，因此不会变成 Q(s,a)。"
+          "text": "Critic 保持 V(s)：Critic 不判断哪一个动作更好；它预测在当前 sealed state 下，从冻结 pi_old 采样一次 Repair 所能得到的期望 U(G_total)。同一 Segment 的 M 个 Repair 共享一个 baseline；每个动作自己的 utility 决定它高于还是低于参考线。raw G_total 仍用于物理审计；6D Repair action 不进入 Critic，因此不会变成 Q(s,a)。 Actor 与 Critic 从较小 Actor influence 开始共同适应。"
         },
         {
           "heading": "共同起步：低 DR 下不设置 Critic-only",
           "text": "每个 K 都从较低但仍有明确修复信号的 DR 分布开始。第一笔 committed Transaction 起 Actor 与 Critic 就同时更新；Actor loss weight 固定为 1，真实 Actor optimizer-group LR 从 3e-7 开始，避免 Adam 抵消单纯 loss scaling。pi_old 仍只在单个 Transaction 的采样与收集期间冻结。",
           "table": {
-            "columns": ["Phase", "Actor / Critic update", "DR"],
+            "columns": [
+              "Phase",
+              "Actor / Critic update",
+              "DR"
+            ],
             "rows": [
-              ["Low-DR Joint Initiation", "Actor LR=3e-7；Actor/Critic 同时更新", "较低且有明确信号"],
-              ["Coupled Ramp", "Actor LR 由 3e-7 线性升至 1e-6", "随同一 K 阶段逐步提高"],
-              ["Joint Optimize", "Actor LR=1e-6；Critic LR=1e-5", "覆盖当前 K 的训练分布"]
+              [
+                "Low-DR Joint Initiation",
+                "Actor LR=3e-7；Actor/Critic 同时更新",
+                "较低且有明确信号"
+              ],
+              [
+                "Coupled Ramp",
+                "Actor LR 由 3e-7 线性升至 1e-6",
+                "随同一 K 阶段逐步提高"
+              ],
+              [
+                "Joint Optimize",
+                "Actor LR=1e-6；Critic LR=1e-5",
+                "覆盖当前 K 的训练分布"
+              ]
             ]
           }
         },
@@ -456,7 +616,84 @@
           "text": "K 增长时保留同一 Actor、Critic 与优化状态，降低 DR，并把 Actor group LR 重置为 3e-7；不冻结 Actor，也不重新初始化 Critic。Replay priority 与 visits 按 K 隔离，新 K 的 active pool 从 64 开始。该 schedule 使用 checkpoint-v19/replay-v5，必须从 HSL-v2 冷启动，不能 resume checkpoint-v18 或更早版本。"
         }
       ],
-      "highlightSteps": ["resolve-km", "grouped-update", "commit-state"],
+      "highlightSteps": [
+        "resolve-km",
+        "grouped-update",
+        "commit-state"
+      ],
+      "chips": []
+    },
+    {
+      "designId": "FRS-DP-09R",
+      "blockId": "M-05R",
+      "title": "Actor-only Curriculum",
+      "color": "#3f6f9f",
+      "responsibility": "在不重置 Actor 或 Adam 状态的前提下，控制关系型 Actor 的初始适应、K 阶段迁移和 DR 难度；Critic、标量 target 与联合 warmup 不属于当前接口。FRS-PPO-v014 是正式训练前入口。",
+      "details": [
+        {
+          "heading": "1. 训练对象与禁止项",
+          "text": "当前 TRAIN-v025 只优化 Actor。关系边是唯一训练方向；v014 使用成对偏好 Loss，不构造 scalar Gain、return、advantage、value target 或 Critic loss。对每条 BETTER 边 (w,l)，以 winner 与 loser 的当前 log-prob 差形成 softplus 损失；SAME、INCOMPARABLE 不产生边，INVALID 直接 fail closed。每笔 sealed Transaction 最多提交一次 Actor optimizer update。",
+          "latex": [
+            "E=\\{(w,l):w\\succ l\\},\\qquad m_{w,l}=\\log\\pi_\\theta(a_w|s_w)-\\log\\pi_\\theta(a_l|s_l)",
+            "L_{pref}(\\theta)=\\frac{1}{|E|}\\sum_{(w,l)\\in E}\\operatorname{softplus}(-\\beta m_{w,l}),\\qquad \\beta=1",
+            "\\theta_{t+1}=\\operatorname{Adam}(\\theta_t,\\nabla_\\theta L_{actor};\\,\\eta_t)",
+            "\\nabla_\\theta L_{pref}\\text{ 不接收 Critic target、old-policy ratio 或 scalar utility}"
+          ]
+        },
+        {
+          "heading": "2. 初始适应阶段",
+          "text": "只在训练最开始保留低学习率适应期，让 Actor 从 HSL 初始化切换到真实关系边；不设置 Critic-only 阶段。前 100 笔 committed Transaction 使用 3e-7。",
+          "latex": [
+            "\\eta_t=3\\times10^{-7},\\quad 0\\le t<T_{init}",
+            "T_{init}=100\\\\text{ 个 committed Transaction}"
+          ]
+        },
+        {
+          "heading": "3. 学习率爬升与稳定区",
+          "text": "初始适应后用 50 笔 committed Transaction 做一次线性爬升，达到 1e-6 后保持稳定；不再为每个 K 重复低学习率和爬升。",
+          "latex": [
+            "\\eta_t=3\\times10^{-7}+(10^{-6}-3\\times10^{-7})\\,p_t,\\\\quad p_t\\in[0,1]",
+            "\\eta_t=10^{-6}\\quad\\text{after the initial ramp}"
+          ]
+        },
+        {
+          "heading": "4. K 阶段迁移",
+          "text": "K8、K16、K32 仍表示不同后果观察窗口，但 K 切换不重置 Actor 参数、不重置 Adam 一阶/二阶矩、不重新进入低学习率 warmup。切换时只重新封存当前 K 的 Scenario 与 DR 课程。",
+          "latex": [
+            "K\\in\\{8,16,32\\},\\qquad \\theta_{K^+}=\\theta_{K^-}",
+            "m_{K^+}=m_{K^-},\\quad v_{K^+}=v_{K^-},\\quad \\eta_{K^+}=10^{-6}"
+          ]
+        },
+        {
+          "heading": "5. DR 课程与 K 解耦",
+          "text": "K 切换后只把 DR 上限临时降到仍有明确关系信号的范围，再按 Easy/Medium/Hard/Broken-tail=20/30/40/10 重新覆盖当前 K。DR 不是学习率控制器，关系 Loss 也不反向修改采样难度。",
+          "latex": [
+            "\\Pr(\\text{Easy,Medium,Hard,Broken})=(0.20,0.30,0.40,0.10)",
+            "d_{cap,K^+}<d_{cap,K^-}\\text{ only as a bounded curriculum reset}"
+          ]
+        },
+        {
+          "heading": "6. 更新安全边界",
+          "text": "保留全局 Actor gradient norm=0.5 和 exact-one update。裁剪只是优化安全边界，不是 Curriculum 的学习信号；每笔事务必须同时记录裁剪前范数、裁剪系数、参数步长和 policy change/KL。",
+          "latex": [
+            "g\\leftarrow g\\min\\left(1,\\frac{0.5}{\\lVert g\\rVert_2+10^{-6}}\\right)",
+            "\\Delta\\theta_t=\\operatorname{AdamStep}(g_t,\\eta_t),\\\\qquad\\operatorname{updates}(Transaction)=1"
+          ]
+        },
+        {
+          "heading": "7. 停止条件与诊断",
+          "text": "如果达到稳定学习率后参数步长仍接近零，先检查关系边数量、裁剪触发率、Actor sigma、KL 和有效 Transaction 数；不自动提高学习率，也不把 K 阶段重新改回联合 Critic warmup。",
+          "latex": [
+            "\\text{diagnose before changing }\\eta:\\\\quad |E|,\\;\\Pr(\\text{clip}),\\;\\sigma_\\theta,\\;\\mathrm{KL}(\\pi_{old},\\pi_\\theta),\\;\\lVert\\Delta\\theta\\rVert_2"
+          ]
+        }
+      ],
+      "highlightSteps": [
+        "resolve-km",
+        "sample-attempts",
+        "grouped-update",
+        "commit-state"
+      ],
       "chips": []
     },
     {
@@ -464,18 +701,22 @@
       "blockId": "M-11",
       "title": "Future Motion Context",
       "color": "#3c7485",
-      "responsibility": "Actor 与 state-value Critic 共享 sealed Noisy q29 Intent；Critic 另外读取动作前支撑条件，仍不读取 6D Repair action 或 Repair 后结果。",
+      "responsibility": "Actor 读取 sealed Noisy q29 Intent；当前 Actor-only 路径不构造 state-value Critic 或动作前支撑条件 target。",
       "details": [
         "未来窗口固定为 t+1 与 t+2 两帧。每帧只提取 29D 内部关节 Intent，共 58D。",
         "两帧均来自同一条 sealed Noisy/deployment reference；root-only perturbation 使 q29 数值偶然等于 Clean calibration 时，provenance 仍然是 Noisy。",
         "Actor input 保持当前 100D 加 future Intent 58D，共 158D。",
-        "Critic input 为当前 289D privileged observation、同一 future Intent 58D 与动作前支撑上下文 102D，共 449D。环境的原始 privileged observation 仍是 289D。",
+        "旧 449D Critic 输入与动作前支撑上下文只属于退役 Actor-Critic 路径；Critic input 为当前 289D privileged observation、同一 future Intent 58D 与动作前支撑上下文 102D，共 449D。TRAIN-v025 的 Actor-only 关系接口不消费它。",
         "102D 支撑上下文包含当前实际 Contact/载荷/ZMP 与最多 32 步计划支撑及 valid mask；Repair 后结果、noise label、perturbation timing、evaluator result 与 6D Repair action 均不进入 Critic。",
         "H=2 只为当前 Actor action 与 Critic state value 提供未来运动条件；K=8/16/32 仍只评价 executable consequences。",
-        "同一 Segment 的 M4 次尝试只读复用同一个 449D Critic state，不重采样或变异；因此共享一个 old value baseline。",
+        "同一 Segment 的 M4 次尝试仍共享 158D Actor 输入；不再共享旧的 449D value baseline。",
         "冻结 GMT 仍只接收原有 770D suffix；新增 future Intent 不改变 GMT 或部署 authority。"
       ],
-      "highlightSteps": ["seal-scenarios", "frontres-action", "grouped-update"],
+      "highlightSteps": [
+        "seal-scenarios",
+        "frontres-action",
+        "grouped-update"
+      ],
       "chips": []
     }
   ],
@@ -491,19 +732,19 @@
         "id": "resolve-km",
         "phase": "pre",
         "label": "确定 K/M 与联合适应阶段",
-        "detail": "每个 K 从 low-DR joint initiation 进入 coupled ramp，再进入 joint optimize；Actor/Critic 全程共同更新"
+        "detail": "K 只决定后果窗口和 DR 阶段；Actor LR 使用全局 committed iteration，不在 K 切换时重置"
       },
       {
         "id": "select-segments",
         "phase": "collection",
         "label": "按 Replay Curriculum 选择八个 Scenario",
-        "detail": "联合预热使用 1 new + 6 E_V + 1 stale；Joint 使用 1 new + 4 E_A + 2 E_V + 1 stale；八个状态互不重复"
+        "detail": "使用 1 admission + 6 edge-density revisit + 1 stale review；八个 Scenario identity 互不重复"
       },
       {
         "id": "seal-scenarios",
         "phase": "collection",
         "label": "封存每个 Segment 的 scenario",
-        "detail": "固定 x_t、首帧 Noisy artifact、供 Actor/Critic 共享的两帧 Noisy 内部 Intent、Clean continuation、K 与 hash"
+        "detail": "固定 x_t、首帧 Noisy artifact、Actor 的两帧 Noisy 内部 Intent、Clean continuation、K 与 hash"
       },
       {
         "id": "restore-xt",
@@ -538,20 +779,20 @@
       {
         "id": "build-objectives",
         "phase": "update",
-        "label": "形成 scalar Recovery-Aware Gain",
-        "detail": "Gain 保留每个 attempt 的 raw G_total；固定 symlog utility 在 M4 聚合前逐 attempt 计算"
+        "label": "形成层级 Outcome 与关系边",
+        "detail": "GAIN-v009 输出 BETTER/WORSE/SAME/INCOMPARABLE/INVALID；只有 BETTER 形成 same-Scenario directed edge"
       },
       {
         "id": "seal-policy-rows",
         "phase": "update",
-        "label": "封存 8 x M4 条 PPO row",
-        "detail": "八个 Critic 状态各有四个 Repair attempt，共 32 条 policy row；Clean 与 Noisy 只提供 evaluator evidence"
+        "label": "封存 8 x M4 条 Actor row",
+        "detail": "八个 Scenario 各有四个 Repair attempt，共 32 条 current-policy row；Clean 与 Noisy 只提供关系证据"
       },
       {
         "id": "grouped-update",
         "phase": "update",
-        "label": "完整封存后执行一次 grouped update",
-        "detail": "每个当前 attempt 用 U(G_total) 减本 Scenario 共享 V(s)；Critic 拟合八个当前 exact-M4 均值 target；安装真实 Actor group LR 后分别裁剪并 exact-one step"
+        "label": "完整封存后执行一次 v014 preference update",
+        "detail": "对每条 BETTER edge 计算 winner/loser 当前 log-prob 差的 softplus；安装全局 Actor LR，裁剪 Actor gradient 后 exact-one step"
       },
       {
         "id": "commit-state",

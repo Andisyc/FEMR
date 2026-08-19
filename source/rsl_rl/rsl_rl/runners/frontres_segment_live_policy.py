@@ -35,7 +35,10 @@ from rsl_rl.algorithms.frontres_segment_ppo import (
 )
 
 
-from rsl_rl.frontres.frontres_segment_warmup import frontres_segment_warmup_phase
+from rsl_rl.frontres.frontres_segment_warmup import (
+    frontres_actor_only_learning_rate_phase,
+    frontres_segment_warmup_phase,
+)
 
 
 from rsl_rl.runners.frontres_formal_runtime_audit import print_ppo_audit
@@ -431,6 +434,7 @@ def run_frontres_relational_actor_update(runner: Any, storage_batch: Any) -> obj
         FrontRESRelationalPPOBatch,
         FrontRESRelationalPPOConfig,
         compute_frontres_relational_actor_loss,
+        compute_frontres_relational_preference_loss,
     )
     runner.train_mode()
     ppo_batch = storage_batch.to_grouped_ppo_candidate_batch(FrontRESRelationalPPOBatch)
@@ -440,11 +444,18 @@ def run_frontres_relational_actor_update(runner: Any, storage_batch: Any) -> obj
         privileged_observations=storage_batch.privileged_observations,
         actor_only=True,
     )
-    cfg = FrontRESRelationalPPOConfig(
-        clip_param=float(getattr(runner.alg, "clip_param", 0.2)),
-        max_log_ratio=20.0,
+    preference_v014 = (
+        str(getattr(runner.alg, "frontres_training_objective", ""))
+        == "segment_replay_relational_preference_v014"
     )
-    result = compute_frontres_relational_actor_loss(policy_adapter, ppo_batch, edges, cfg)
+    if preference_v014:
+        result = compute_frontres_relational_preference_loss(policy_adapter, ppo_batch, edges)
+    else:
+        cfg = FrontRESRelationalPPOConfig(
+            clip_param=float(getattr(runner.alg, "clip_param", 0.2)),
+            max_log_ratio=20.0,
+        )
+        result = compute_frontres_relational_actor_loss(policy_adapter, ppo_batch, edges, cfg)
     optimizer = runner.alg.optimizer
     optimizer_roles = {
         str(group.get("frontres_role", ""))
@@ -459,6 +470,15 @@ def run_frontres_relational_actor_update(runner: Any, storage_batch: Any) -> obj
     if critic is not None and any(bool(param.requires_grad) for param in critic.parameters()):
         raise RuntimeError("FRS-TRAIN-v025 relational route requires frozen Critic parameters")
     if result.should_step:
+        if preference_v014:
+            lr_phase = frontres_actor_only_learning_rate_phase(
+                committed_transaction_iteration=int(getattr(runner, "current_learning_iteration", 0)),
+                init_transactions=int(getattr(runner.alg, "frontres_actor_only_lr_init_transactions", 100)),
+                ramp_transactions=int(getattr(runner.alg, "frontres_actor_only_lr_ramp_transactions", 50)),
+            )
+            optimizer.param_groups[0]["lr"] = lr_phase.actor_learning_rate
+            runner.alg.learning_rate = lr_phase.actor_learning_rate
+            runner.alg.actor_learning_rate = lr_phase.actor_learning_rate
         optimizer.zero_grad()
         result.total_loss.backward()
         actor_parameters = tuple(

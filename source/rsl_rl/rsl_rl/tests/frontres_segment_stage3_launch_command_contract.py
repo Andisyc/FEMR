@@ -134,6 +134,19 @@ def test_g5_s4_bounded_relational_launch_selects_actor_only_route() -> None:
     assert "--frontres_relational_actor_only" in command
 
 
+def test_g5_s4_bounded_v014_launch_selects_preference_and_global_lr_route() -> None:
+    result = _run_preflight(
+        "relational_preference_train",
+        {"FRONTRES_G5_S4_BOUNDED": "1"},
+        bounds=("64", "1", "1"),
+    )
+    assert result.returncode == 0, result.stderr
+    command = _command_line(result)
+    assert "--frontres_relational_preference_v014" in command
+    assert "--frontres_relational_actor_only" not in command
+    assert "--frontres_formal_runtime_audit" in command
+
+
 def test_stage3_train_launch_accepts_explicit_checkpoint_interval() -> None:
     result = _run_preflight(
         "train",

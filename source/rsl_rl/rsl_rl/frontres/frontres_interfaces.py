@@ -94,8 +94,21 @@ class FrontRESActiveContractIdentity:
             gradient_clip="actor-only-relational-v1",
         )
 
+    @classmethod
+    def relational_preference_v014(cls) -> "FrontRESActiveContractIdentity":
+        return cls(
+            **{
+                **cls.relational().__dict__,
+                "optimization": "FRS-PPO-v014",
+            }
+        )
+
     def validate(self) -> None:
-        expected = (FrontRESActiveContractIdentity(), FrontRESActiveContractIdentity.relational())
+        expected = (
+            FrontRESActiveContractIdentity(),
+            FrontRESActiveContractIdentity.relational(),
+            FrontRESActiveContractIdentity.relational_preference_v014(),
+        )
         if self not in expected:
             raise ValueError(f"FrontRES contract identity drifted: allowed={expected!r} actual={self!r}")
 
@@ -192,7 +205,10 @@ class FrontRESActiveTransactionRequestView:
         ):
             if isinstance(value, bool) or int(value) < 0:
                 raise ValueError(f"FrontRES request {name} must be a nonnegative integer")
-        if self.warmup_phase_name not in {"low_dr_joint_init", "coupled_ramp", "joint"}:
+        if self.warmup_phase_name not in {
+            "low_dr_joint_init", "coupled_ramp", "joint",
+            "actor_only_init", "actor_only_ramp", "actor_only_stable",
+        }:
             raise ValueError("FrontRES request has an invalid TRAIN-v021 phase")
         if float(self.warmup_actor_loss_weight) != 1.0:
             raise ValueError("FrontRES request actor-loss weight must remain one")
@@ -411,7 +427,10 @@ class FrontRESActiveTelemetryView:
             raise ValueError("FrontRES telemetry requires transaction identity")
         if self.optimizer_step_delta != 1 or self.update_count != 1:
             raise ValueError("FrontRES telemetry requires exact-one update identity")
-        relational = self.identity == FrontRESActiveContractIdentity.relational()
+        relational = self.identity in {
+            FrontRESActiveContractIdentity.relational(),
+            FrontRESActiveContractIdentity.relational_preference_v014(),
+        }
         if relational:
             if not 3.0e-7 <= self.actor_learning_rate <= 1.0e-6 or self.critic_learning_rate != 0.0:
                 raise ValueError("FRS-TRAIN-v025 telemetry requires Actor LR in [3e-7,1e-6] and Critic LR=0")

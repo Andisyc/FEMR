@@ -51,7 +51,10 @@ from rsl_rl.frontres.frontres_relational_scenario_replay import (
     FrontRESRelationalScenarioReplay,
 )
 from rsl_rl.frontres.frontres_segment_storage_records import FrontRESV015GroupedCandidateMetadata
-from rsl_rl.frontres.frontres_segment_warmup import resolve_frontres_k_stage_identity
+from rsl_rl.frontres.frontres_segment_warmup import (
+    frontres_actor_only_learning_rate_phase,
+    resolve_frontres_k_stage_identity,
+)
 from rsl_rl.runners import frontres_segment_formal_transaction as formal_transaction
 from rsl_rl.runners.frontres_segment_formal_transaction import run_frontres_formal_transaction_update
 from rsl_rl.runners.frontres_segment_runtime_types import open_frontres_checkpoint_transaction_barrier
@@ -554,7 +557,12 @@ def test_exact_one_scalar_commit_updates_actor_and_critic_from_first_transaction
     assert repr(result.diagnostics) == before
 
 
-def test_exact_one_relational_commit_updates_actor_only() -> None:
+def _assert_exact_one_relational_commit_updates_actor_only(
+    optimization_contract_id: str,
+) -> None:
+    if optimization_contract_id not in {"FRS-PPO-v013", "FRS-PPO-v014"}:
+        raise ValueError("unknown relational optimization contract")
+    preference_v014 = optimization_contract_id == "FRS-PPO-v014"
     runner, scalar_request, policy = _request(iteration=0)
     for parameter in policy.critic.parameters():
         parameter.requires_grad_(False)
@@ -566,10 +574,17 @@ def test_exact_one_relational_commit_updates_actor_only() -> None:
         }
     ])
     runner.alg.frontres_relational_actor_only = True
+    runner.alg.frontres_training_objective = (
+        "segment_replay_relational_preference_v014"
+        if preference_v014
+        else "segment_replay_relational"
+    )
+    runner.alg.frontres_actor_only_lr_init_transactions = 100
+    runner.alg.frontres_actor_only_lr_ramp_transactions = 50
     runner.alg.frontres_segment_advantage_normalization = "pairwise_edge"
     runner.alg.frontres_method_contract_id = "FRS-METHOD-v026"
     runner.alg.frontres_gain_contract_id = "FRS-GAIN-v009"
-    runner.alg.frontres_optimization_contract_id = "FRS-PPO-v013"
+    runner.alg.frontres_optimization_contract_id = optimization_contract_id
     runner.alg.frontres_training_contract_id = "FRS-TRAIN-v025"
     runner.alg.frontres_scalar_target_id = "none"
     runner.alg.frontres_physics_schema_id = "hierarchical-relational-evidence-v1"
@@ -640,12 +655,24 @@ def test_exact_one_relational_commit_updates_actor_only() -> None:
         )
         for index, value in enumerate(replay_plan.selections)
     )
+    lr_phase = (
+        frontres_actor_only_learning_rate_phase(
+            committed_transaction_iteration=0,
+            init_transactions=100,
+            ramp_transactions=50,
+        )
+        if preference_v014
+        else identity.phase
+    )
     request = replace(
         scalar_request,
         plan=plan,
         candidate_batches=(batch,),
         diagnostic_reports=(report,),
         relational_actor_only=True,
+        warmup_phase_name=lr_phase.name,
+        warmup_actor_loss_weight=lr_phase.actor_loss_weight,
+        warmup_actor_learning_rate=lr_phase.actor_learning_rate,
         outer_replay_plan=replay_plan,
         outer_replay_scenario_keys=keys,
     )
@@ -662,6 +689,14 @@ def test_exact_one_relational_commit_updates_actor_only() -> None:
     assert summary["relational"] is True
     assert summary["relational_edge_count"] == 8
     telemetry = summary["frontres_transaction_telemetry"]
+    assert telemetry["optimization_contract_id"] == optimization_contract_id
+    if preference_v014:
+        assert telemetry["loss_identity"] == "pairwise-softplus-logprob-v1"
+        assert telemetry["lr_curriculum_identity"] == "actor-global-100-50-v1"
+        assert result.diagnostics["actor_learning_rate"] == 3.0e-7
+    else:
+        assert "loss_identity" not in telemetry
+        assert "lr_curriculum_identity" not in telemetry
     assert telemetry["return_utility_id"] == "none"
     assert telemetry["critic_value_normalization_id"] == "none"
     assert telemetry["critic_learning_rate"] == 0.0
@@ -675,6 +710,14 @@ def test_exact_one_relational_commit_updates_actor_only() -> None:
         assert forbidden not in telemetry
         assert forbidden not in summary
     reset_frontres_checkpoint_transaction(runner)
+
+
+def test_exact_one_relational_commit_updates_actor_only() -> None:
+    _assert_exact_one_relational_commit_updates_actor_only("FRS-PPO-v013")
+
+
+def test_exact_one_v014_preference_commit_uses_global_lr() -> None:
+    _assert_exact_one_relational_commit_updates_actor_only("FRS-PPO-v014")
 
 
 def test_relational_no_edge_transaction_is_zero_write() -> None:
@@ -950,6 +993,7 @@ def main() -> None:
     test_formal_request_owns_the_grouped_ppo_batch_dependency()
     test_exact_one_scalar_commit_updates_actor_and_critic_from_first_transaction()
     test_exact_one_relational_commit_updates_actor_only()
+    test_exact_one_v014_preference_commit_uses_global_lr()
     test_relational_no_edge_transaction_is_zero_write()
     test_k_transitions_keep_one_critic_and_restart_nonzero_joint_adaptation()
     test_coupled_ramp_identity_reaches_transaction_and_telemetry()

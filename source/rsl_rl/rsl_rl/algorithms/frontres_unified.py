@@ -143,6 +143,8 @@ class FrontRESUnified:
         frontres_restore_debug_print_interval: int = 10,
         frontres_training_objective: str = "supervised_restore",
         frontres_relational_actor_only: bool = False,
+        frontres_actor_only_lr_init_transactions: int = 100,
+        frontres_actor_only_lr_ramp_transactions: int = 50,
         frontres_segment_replay_enabled: bool = False,
         frontres_policy_quality_eval_only: bool = False,
         frontres_segment_live_runner_enabled: bool = False,
@@ -228,7 +230,8 @@ class FrontRESUnified:
 
         relational_actor_only = bool(
             frontres_relational_actor_only
-            or str(frontres_training_objective).lower() == "segment_replay_relational"
+            or str(frontres_training_objective).lower()
+            in {"segment_replay_relational", "segment_replay_relational_preference_v014"}
         )
         if relational_actor_only and not frontres_formal_transaction_enabled:
             raise ValueError("relational Actor-only mode requires formal transaction isolation")
@@ -299,6 +302,12 @@ class FrontRESUnified:
         self.frontres_restore_debug_print_interval = int(frontres_restore_debug_print_interval)
         self.frontres_training_objective = str(frontres_training_objective).lower()
         self.frontres_relational_actor_only = relational_actor_only
+        self.frontres_actor_only_lr_init_transactions = int(frontres_actor_only_lr_init_transactions)
+        self.frontres_actor_only_lr_ramp_transactions = int(frontres_actor_only_lr_ramp_transactions)
+        if not 50 <= self.frontres_actor_only_lr_init_transactions <= 100:
+            raise ValueError("v014 Actor LR init transactions must be in [50,100]")
+        if self.frontres_actor_only_lr_ramp_transactions < 2:
+            raise ValueError("v014 Actor LR ramp transactions must be at least two")
         self.frontres_segment_replay_enabled = bool(frontres_segment_replay_enabled)
         self.frontres_policy_quality_eval_only = bool(frontres_policy_quality_eval_only)
         self.frontres_segment_live_runner_enabled = bool(frontres_segment_live_runner_enabled)
@@ -313,7 +322,11 @@ class FrontRESUnified:
         if self.frontres_relational_actor_only:
             self.frontres_method_contract_id = "FRS-METHOD-v026"
             self.frontres_gain_contract_id = "FRS-GAIN-v009"
-            self.frontres_optimization_contract_id = "FRS-PPO-v013"
+            self.frontres_optimization_contract_id = (
+                "FRS-PPO-v014"
+                if self.frontres_training_objective == "segment_replay_relational_preference_v014"
+                else "FRS-PPO-v013"
+            )
             self.frontres_training_contract_id = "FRS-TRAIN-v025"
         else:
             self.frontres_method_contract_id = "FRS-METHOD-v025"

@@ -2,7 +2,7 @@
 contract_id: FRS-METHOD-v026
 status: active-pre-training
 effective_date: 2026-08-17
-updated_date: 2026-08-17
+updated_date: 2026-08-19
 supersedes: FRS-METHOD-v025-for-fresh-stage3-training
 scope: Hierarchical relational Repair evidence and Actor-only Segment Replay
 ---
@@ -26,7 +26,7 @@ vector, and \(C\) is full-6D repair cost. The comparator publishes only
 transaction closed; `SAME` and `INCOMPARABLE` publish no training edge.
 
 Within each sealed Scenario, directed edges \((i,j)\) mean Repair \(i\) is
-better than Repair \(j\). FRS-PPO-v013 consumes these edges with an Actor-only
+better than Repair \(j\). FRS-PPO-v014 consumes these edges with an Actor-only
 optimizer. It constructs no scalar Gain, return, advantage, Critic target, or
 value loss. A transaction with no comparable edge is zero-write and is
 recollected without advancing Replay, optimizer, curriculum, or checkpoint.
@@ -40,16 +40,16 @@ normalizers, GMT identity, and the last completed transaction boundary.
 The official selector is:
 
 ```text
-frontres_training_objective=segment_replay_relational
+frontres_training_objective=segment_replay_relational_preference_v014
 frontres_relational_actor_only=true
 ```
 
-The launcher exposes this selector as `MODE=relational_train`. A fresh run must
+The launcher exposes this selector as `MODE=relational_preference_train`. A fresh run must
 use the HSL-v2 initializer. A resumed relational run must use checkpoint-v20;
 scalar checkpoint-v19 is rejected before mutation.
 
 FRS-METHOD-v025 remains a characterized scalar compatibility route. It is not
 the default for the next fresh campaign. Active-pre-training means the
-composition root, CPU contracts, persistence round-trip, and 61-test suite are
+composition root, CPU contracts, and persistence round-trip are
 closed. It does not claim simulator execution, threshold calibration,
 convergence, policy quality, deployment quality, or Formal PASS.

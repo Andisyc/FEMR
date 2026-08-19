@@ -1,0 +1,67 @@
+{
+  "schema_version": "migration-new-branch/v1",
+  "migration_id": "FRS-PPO-V014-PREFERENCE-LR-20260819",
+  "mode": "COEXISTENCE",
+  "donor": {
+    "kind": "repository",
+    "repository": "FEMR/FrontRES",
+    "revision": "8ec218a51799519ba5bd36de74d5137ed37f5126",
+    "symbols": ["FRS-PPO-v013", "frontres_segment_formal_transaction", "frontres_segment_warmup_phase"],
+    "license_status": "same-repository",
+    "license_evidence": "internal repository contracts"
+  },
+  "target": {
+    "repository": "FEMR/FrontRES",
+    "base_revision": "8ec218a51799519ba5bd36de74d5137ed37f5126",
+    "checkout": "8ec218a51799519ba5bd36de74d5137ed37f5126+dirty-worktree",
+    "branch_or_worktree": "current governed worktree; no git mutation authorized"
+  },
+  "semantics": {
+    "owner": "FrontRES relational PPO composition root and Actor-only curriculum owner",
+    "included": [
+      "FRS-PPO-v014 pairwise softplus Preference Loss",
+      "global committed-Transaction Actor LR curriculum 3e-7 -> 1e-6",
+      "explicit v014 route identity in telemetry and checkpoint metadata",
+      "strict Actor-only update and no K-local LR reset"
+    ],
+    "excluded": [
+      "Gain comparator changes",
+      "Replay or DR curriculum changes",
+      "automatic conversion of v013 or older checkpoints",
+      "training, live evaluation and remote execution in the plan unit"
+    ],
+    "preserved": [
+      "FRS-PPO-v013 formal route and its checkpoint/telemetry identity when selector is OFF",
+      "FRS-GAIN-v009 Outcome relations and fail-closed invalid evidence",
+      "exact-one optimizer update, full-6D action and global gradient safety boundary"
+    ]
+  },
+  "activation": {
+    "kind": "owner-flag",
+    "owner": "FrontRES relational PPO composition root",
+    "selector": "frontres_training_objective=segment_replay_relational_preference_v014 and frontres_relational_actor_only=true",
+    "baseline_state": "FRS-PPO-v013 relational Actor-only loss with existing checkpoint and telemetry identity",
+    "migrated_state": "FRS-PPO-v014 pairwise softplus loss with Actor-only global LR curriculum and new checkpoint/telemetry identity",
+    "forbidden_mixed_states": [
+      "v014 Loss with v013 optimization_contract_id",
+      "v014 LR curriculum with v013 checkpoint writer or reader",
+      "v014 preference edges sent through the v013 ratio surrogate",
+      "K transition resetting the global v014 LR schedule",
+      "v013 checkpoint-v20 or scalar checkpoint loaded into the v014 route"
+    ]
+  },
+  "parameter_inventory": {
+    "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py, source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py, source/rsl_rl/rsl_rl/runners/frontres_segment_formal_transaction.py, source/rsl_rl/rsl_rl/runners/frontres_segment_training_telemetry.py, source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py, scripts/rsl_rl/train.py",
+    "complete": true,
+    "persistence_risk": "affected"
+  },
+  "state_compatibility": {
+    "affected": true,
+    "mixed_version_policy": "forbidden"
+  },
+  "authority": {
+    "git_actions": {"status": "not-requested", "scope": "no staging, commit, branch, reset or push"},
+    "semantic_change": {"status": "approved", "scope": "execute the migration plan up to the formal pre-training boundary"},
+    "external_code": {"status": "not-required", "scope": "no external donor"}
+  }
+}
