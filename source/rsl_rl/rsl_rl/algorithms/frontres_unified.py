@@ -686,7 +686,11 @@ class FrontRESUnified:
         print(f"  Objective={self.frontres_training_objective}")
         if self.frontres_training_objective == "supervised_restore":
             print("  L = L_supervised_restore  (full-6D HSL proposal update)")
-        elif self.frontres_training_objective in ("segment_replay_hrl", "segment_replay_relational"):
+        elif self.frontres_training_objective in (
+            "segment_replay_hrl",
+            "segment_replay_relational",
+            "segment_replay_relational_preference_v014",
+        ):
             if self.frontres_policy_quality_eval_only:
                 print("  Mode = read-only policy-quality evaluation  (all updates disabled)")
             elif self.frontres_relational_actor_only:
@@ -695,7 +699,8 @@ class FrontRESUnified:
                 print("  L = Segment Replay HRL  (dedicated runner loop; legacy update disabled)")
         else:
             raise ValueError(
-                f"FrontRESUnified only supports supervised_restore, segment_replay_hrl, or segment_replay_relational, "
+                f"FrontRESUnified only supports supervised_restore, segment_replay_hrl, segment_replay_relational, "
+                f"or segment_replay_relational_preference_v014, "
                 f"got {self.frontres_training_objective!r}"
             )
         print("=" * 80)
