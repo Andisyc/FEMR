@@ -167,10 +167,14 @@ class FakeDirect6DFrontRESPolicy(torch.nn.Module):
     def action_std(self):
         return self.distribution.stddev
 
-    def act(self, observations: torch.Tensor):
+    def update_distribution(self, observations: torch.Tensor):
         mean = self.actor(observations)
         std = self.std.expand_as(mean)
         self.distribution = torch.distributions.Normal(mean, std)
+
+    def act(self, observations: torch.Tensor):
+        self.update_distribution(observations)
+        mean = self.distribution.mean
         return mean
 
     def entropy(self):

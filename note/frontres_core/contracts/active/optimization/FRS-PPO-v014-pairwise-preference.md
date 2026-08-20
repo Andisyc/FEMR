@@ -26,13 +26,29 @@ Each sealed row also stores the transaction-start reference distribution:
 \(\mu_i^{ref},\sigma_i^{ref},\log\pi_{ref}(a_i\mid s_i)\). The current
 Actor is evaluated on the same \((s_i,a_i)\). For the task-space Actor, each
 six-dimensional Gaussian must use one positive isotropic standard deviation
-\(\sigma_i\). At the exact-one pre-step boundary, current and sealed
-\((\mu,\sigma)\) must match; an internally consistent but stale reference is
-invalid. Define the reference-relative Fisher-scaled row score
+\(\sigma_i\). Before the Loss is called, the formal transaction must verify
+that the current Actor state hash still equals the sealed policy snapshot; this
+identity check, rather than a second floating-point forward comparison, rejects
+a stale reference. The current and sealed sigma must match exactly within the
+declared numeric tolerance.
+
+A repeated CUDA forward of the same Actor snapshot may differ by small
+floating-point roundoff, including when the same rows are evaluated under a
+different batch shape.
+The score therefore uses a reference-valued, current-gradient mean
 
 \[
-r_i(\theta)=\sigma_i^2\left[
-\log\pi_\theta(a_i\mid s_i)-\log\pi_{ref}(a_i\mid s_i)
+\bar\mu_i(\theta)=\mu_i^{ref}+
+\left(\mu_i(\theta)-\operatorname{stopgrad}(\mu_i(\theta))\right),
+\]
+
+whose forward value is exactly \(\mu_i^{ref}\) and whose derivative is the
+current Actor derivative. Define the reference-relative Fisher-scaled row score
+
+\[
+r_i(\theta)=(\sigma_i^{ref})^2\left[
+\log\mathcal N(a_i;\bar\mu_i(\theta),\sigma_i^{ref})
+-\log\pi_{ref}(a_i\mid s_i)
 \right].
 \]
 
@@ -114,10 +130,12 @@ existing global Actor gradient-norm safety boundary remains \(0.5\); it is not
 a reward, curriculum signal, or substitute for the LR schedule.
 
 If \(|E|=0\), the result is `NO_COMPARABLE_PAIRS` and the transaction is
-zero-write. A trainable or non-isotropic sigma, a current or sealed Gaussian/log-prob
-mismatch, any invalid row, non-finite policy value, malformed edge, or invalid
-evidence fails closed before optimizer, Replay, curriculum, or checkpoint
-mutation.
+zero-write. A stale policy-snapshot hash, trainable or non-isotropic sigma,
+current sigma/reference-sigma mismatch, current or sealed Gaussian/log-prob
+inconsistency, any invalid row, non-finite policy value, malformed edge, or
+invalid evidence fails closed before optimizer, Replay, curriculum, or
+checkpoint mutation. A mean-only floating-point recomputation difference does
+not override a matching policy-snapshot hash.
 
 ## 5. Identity and compatibility
 

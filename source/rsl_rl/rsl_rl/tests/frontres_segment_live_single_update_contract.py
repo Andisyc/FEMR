@@ -170,11 +170,15 @@ class FakeLivePolicy(torch.nn.Module):
         self.actor_obs_trace: list[tuple[int, int]] = []
         self.critic_obs_trace: list[tuple[int, int]] = []
 
-    def act(self, observations: torch.Tensor) -> torch.Tensor:
+    def update_distribution(self, observations: torch.Tensor) -> None:
         self.actor_obs_trace.append(tuple(observations.shape))
         self.last_mean = self.actor(observations)
         self.action_mean = self.last_mean
         self.action_std = torch.ones_like(self.last_mean)
+
+    def act(self, observations: torch.Tensor) -> torch.Tensor:
+        self.update_distribution(observations)
+        assert self.last_mean is not None
         return self.last_mean
 
     def evaluate(self, observations: torch.Tensor) -> torch.Tensor:

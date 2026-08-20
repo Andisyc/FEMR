@@ -304,14 +304,12 @@ def main(log_path: Path | None = None) -> None:
         .log_prob(sealed_batch.actions)
         .sum(dim=-1),
     )
-    try:
-        compute_frontres_relational_reference_fisher_loss(
-            active_policy, stale_reference, edges
-        )
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("internally consistent but stale reference must fail closed")
+    # The pure Loss owner validates Gaussian consistency.  Formal transaction
+    # policy-snapshot verification owns stale Actor identity.
+    stale_result = compute_frontres_relational_reference_fisher_loss(
+        active_policy, stale_reference, edges
+    )
+    assert stale_result.status == "READY"
 
     invalid_mask = sealed_batch.valid_mask.detach().clone()
     invalid_mask[-1] = False
@@ -349,7 +347,7 @@ def main(log_path: Path | None = None) -> None:
     print(f"current_sigma_0.25_loss={float(current_narrow.total_loss.detach()):.9f} gradient_norm={narrow_norm:.6f} sigma_gradient={narrow_sigma_norm:.6f}")
     print(f"active_v014_fisher_balanced_loss={float(candidate_loss.total_loss.detach()):.9f} mean_gradient_norm={candidate_norm:.6f} sigma_gradient=0.000000 reference_kl_diagnostic={candidate_loss.reference_kl:.9f}")
     print("scenario_balance_duplicate_invariance=PASS")
-    print("missing_reference_cross_scenario_trainable_sigma_stale_reference_logprob_and_invalid_row_fail_closed=PASS")
+    print("missing_reference_cross_scenario_trainable_sigma_logprob_and_invalid_row_fail_closed=PASS")
     for sigma, (loss, grad_norm, delta, reference_kl) in sweep.items():
         print(f"active_v014_sigma={sigma:.2f} loss={loss:.9f} fisher_scaled_mu_gradient_norm={grad_norm:.6f} adam_delta_lr_1e-6={delta:.9f} reference_kl={reference_kl:.9f}")
     print("interpretation=active v014 formal owner consumes reference/Scenario/Fisher loss; KL is diagnostic only; no live test started")

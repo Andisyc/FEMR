@@ -40,7 +40,10 @@ class FrontRESSegmentLivePolicyAdapter:
             raise NotImplementedError(
                 "FrontRES Segment single-update sentinel does not yet store ref_vel_estimator observations."
             )
-        self.alg.policy.act(observations)
+        update_distribution = getattr(self.alg.policy, "update_distribution", None)
+        if not callable(update_distribution):
+            raise TypeError("Segment PPO policy evaluation requires policy.update_distribution")
+        update_distribution(observations)
         value_obs = self.privileged_observations if self.privileged_observations is not None else observations
         if actions.ndim != 2 or actions.shape[-1] != 6:
             raise ValueError(f"Segment PPO policy evaluation requires 6D Delta SE actions, got {tuple(actions.shape)}")

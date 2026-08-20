@@ -806,9 +806,10 @@ class _FakePPOEvalPolicy:
         self.action_mean = None
         self.action_std = None
 
-    def act(self, observations: torch.Tensor) -> None:
+    def update_distribution(self, observations: torch.Tensor) -> None:
         self.action_mean = torch.zeros(observations.shape[0], 6)
         self.action_std = torch.ones(observations.shape[0], 6)
+        self.distribution = torch.distributions.Normal(self.action_mean, self.action_std)
 
     def evaluate(self, observations: torch.Tensor) -> torch.Tensor:
         return torch.zeros(observations.shape[0], 1)
