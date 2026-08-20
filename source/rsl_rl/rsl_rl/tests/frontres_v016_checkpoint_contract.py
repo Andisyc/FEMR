@@ -612,7 +612,7 @@ def test_preference_v014_checkpoint_identity_is_strict() -> None:
 
         v014_identity = torch.load(v014_path, weights_only=False)["frontres_v015_checkpoint_identity"]
         assert v014_identity["optimization_contract_id"] == "FRS-PPO-v014"
-        assert v014_identity["grouped_loss"]["loss_identity"] == "pairwise-softplus-logprob-v1"
+        assert v014_identity["grouped_loss"]["loss_identity"] == "pairwise-reference-fisher-scenario-v1"
         assert v014_identity["actor_lr_curriculum"] == {
             "identity": "actor-global-100-50-v1",
             "init_transactions": 100,

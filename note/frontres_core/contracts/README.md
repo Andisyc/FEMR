@@ -28,10 +28,10 @@ claim has been made. Governance receipt:
 ## Confirmed Design Rationale
 
 `../plans/FRS-TRAIN-v024-current-visit-target-one-shot-engineering-plan.md`
-records the confirmed DP02/DP09 correction: outer Replay schedules fresh
+records the historical v024 DP02/DP09 correction: outer Replay schedules fresh
 current-policy Scenario reruns, while the Critic target is only the current
-transaction's exact-M4 utility mean. Active authority is
-METHOD-v025/PPO-v012/TRAIN-v024.
+transaction's exact-M4 utility mean. Its historical authority was
+METHOD-v025/PPO-v012/TRAIN-v024; the active set is the registry above.
 
 ## Concept Figure Design Point Register
 
@@ -49,13 +49,13 @@ Concept Figure. Canonical names and block IDs come from
 | `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v025` / `Preserved boundaries` | `M-10` | Frozen 770D GMT authority is unchanged. |
 | `FRS-DP-06` | Paired Rollouts | `FRS-METHOD-v025`; `FRS-GAIN-v008`; `FRS-EVAL-v006` | `Q-PAIR` | Evaluation remains read-only; every selected Scenario is freshly rerun. |
 | `FRS-DP-07` | Repair Gain | `FRS-GAIN-v008`; `FRS-PPO-v012`; `FRS-EVAL-v006` | `Q-01` | (退役历史卡) Retired scalar Gain/utility route; retained for provenance and not consumed by TRAIN-v025. |
-| `FRS-DP-07R` | Relational Gain | `FRS-METHOD-v026`; `FRS-GAIN-v009`; `FRS-PPO-v014`; `FRS-TRAIN-v025` | `Q-01R` | Active-pre-training relation route; v014 consumes only confirmed preference edges with pairwise softplus Loss. |
+| `FRS-DP-07R` | Relational Gain | `FRS-METHOD-v026`; `FRS-GAIN-v009`; `FRS-PPO-v014`; `FRS-TRAIN-v025` | `Q-01R` | Active-pre-training relation route; v014 consumes only confirmed preference edges with reference-relative, Scenario-balanced, Fisher-scaled preference Loss. |
 | `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v024` / `Campaign identity` | `M-03` | HSL-v2 remains Actor-only initialization. |
 | `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v024` / `Formal transaction`; `FRS-PPO-v012` | `M-05` | Retired historical card; preserved for provenance only and not part of TRAIN-v025. |
 | `FRS-DP-09R` | Actor-only Curriculum | `FRS-TRAIN-v025`; `FRS-PPO-v014` | `M-05R` | Active-pre-training card: global 100-update init plus 50-update ramp, no K-local LR reset, Actor-only exact-one update. |
 | `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v026` / `Actor-only boundary`; `FRS-TRAIN-v025` | `M-11` | Actor 158D remains; retired 449D Critic context is not consumed by the active route. |
 
-## Active Recovery-Aware Contract Migration
+## Historical Recovery-Aware Contract Migration (Superseded)
 
 Human review confirmed the DP07/DP09 utility change on 2026-08-10 after
 TRAIN-v018 K8/M4 retained a large negative Critic bias under heavy-tailed finite
@@ -65,7 +65,7 @@ before the M4 Critic mean. Raw Gain and hard Physics diagnostics remain visible;
 network, observations, K/DR ceiling, Gain arithmetic and simulator are unchanged;
 TRAIN-v024 retains B8/M4 and bounded Replay breadth while removing
 cross-visit numerical target evidence.
-The coordinated active semantic authority is now:
+The coordinated historical semantic authority was:
 
 ```text
 FRS-METHOD-v025
@@ -87,12 +87,12 @@ calibration error beyond the current-M4 confidence interval, and never changes
 PPO mass. Checkpoint-v19 is the only compatible Stage-3 training/resume
 identity and carries target moments/count plus replay-v5
 active/archive/capacity/key/latest-score/visit/staleness/RNG, with no utility
-window or policy anchor. The current
-Engineering Plan and Module Test Cards are the executable-work and oracle
+window or policy anchor. The then-current
+Engineering Plan and Module Test Cards were the executable-work and oracle
 control surfaces; implementation, formal route and live evidence close only at
 their own gates.
 
-TRAIN-v024 local engineering evidence is recorded by the current plan,
+TRAIN-v024 local engineering evidence is recorded by its historical plan,
 checklist, `frontres_train_v024_module_alignment.json` and
 `frontres_train_v024_formal_live_required.json`: TEST-25A--25D, strict
 checkpoint-v19/replay-v5 and the 59/59 Contract suite pass. This is S0--S3
@@ -109,10 +109,10 @@ zero-Replay-mutation proof are post-checkpoint evaluation work, not a TRAIN-v024
 startup dependency. No existing EVAL-v004 artifact is evidence for this route.
 The confirmed proposal at
 `../plans/FRS-METHOD-v018-state-value-future-context-proposal.md` is retained as
-design rationale. The five coordinated method, Gain, optimization, training,
-and evaluation contracts above are now the default semantic authority. No
-prior v10 training or evaluation artifact is evidence for the new formal route
-or policy quality.
+design rationale. Those five coordinated method, Gain, optimization, training,
+and evaluation contracts were the v024 default authority and do not override
+the active Contract Set at the top of this registry. No prior v10 training or
+evaluation artifact is evidence for the active formal route or policy quality.
 
 ## Superseded Runtime Evidence
 

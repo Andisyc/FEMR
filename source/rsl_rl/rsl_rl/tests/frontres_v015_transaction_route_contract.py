@@ -84,10 +84,15 @@ class _PolicyEvaluator:
         self.critic_observations = critic_observations
 
     def evaluate_segment_actions(self, observations: torch.Tensor, actions: torch.Tensor):
+        mean = self.policy.actor(observations).reshape(-1, 1).expand(-1, 6)
+        sigma = self.policy.log_std.detach().exp().expand_as(mean)
+        distribution = torch.distributions.Normal(mean, sigma)
         return {
-            "log_prob": self.policy.actor(observations).reshape(-1) + self.policy.log_std,
+            "log_prob": distribution.log_prob(actions).sum(dim=-1),
             "value": self.policy.critic(self.critic_observations).reshape(-1),
-            "entropy": self.policy.log_std.expand(observations.shape[0]),
+            "entropy": distribution.entropy().sum(dim=-1),
+            "mean": mean,
+            "sigma": sigma,
         }
 
 
@@ -359,18 +364,21 @@ def _request(
     critic_obs[:, 0] = source.to(dtype=torch.float32) + 1.0
     returns = torch.tensor(_report(transaction_id, count=count, horizon_k=identity.active_k).gain_total)
     utility_returns = frontres_symmetric_log_utility(returns)
+    actions = torch.zeros(count, 6)
+    with torch.no_grad():
+        reference = _PolicyEvaluator(policy, critic_obs).evaluate_segment_actions(obs, actions)
     batch = FrontRESSegmentPPOBatch(
         observations=obs,
         privileged_observations=critic_obs,
-        actions=torch.zeros(count, 6),
-        old_log_probs=torch.zeros(count),
+        actions=actions,
+        old_log_probs=reference["log_prob"].detach().clone(),
         old_values=torch.zeros(count),
         returns=returns,
         advantages=utility_returns,
         valid_mask=torch.ones(count, dtype=torch.bool),
         segment_ids=segment,
-        old_means=torch.zeros(count, 6),
-        old_sigmas=torch.ones(count, 6),
+        old_means=reference["mean"].detach().clone(),
+        old_sigmas=reference["sigma"].detach().clone(),
         transaction_metadata=metadata,
         transaction_row_indices=torch.arange(count),
     )
@@ -566,9 +574,13 @@ def _assert_exact_one_relational_commit_updates_actor_only(
     runner, scalar_request, policy = _request(iteration=0)
     for parameter in policy.critic.parameters():
         parameter.requires_grad_(False)
+    actor_optimizer_parameters = tuple(policy.actor.parameters()) if preference_v014 else (
+        *tuple(policy.actor.parameters()),
+        policy.log_std,
+    )
     runner.alg.optimizer = _TrackingAdam([
         {
-            "params": (*tuple(policy.actor.parameters()), policy.log_std),
+            "params": actor_optimizer_parameters,
             "lr": 3.0e-7,
             "frontres_role": "actor",
         }
@@ -678,12 +690,15 @@ def _assert_exact_one_relational_commit_updates_actor_only(
     )
     actor_before = {name: value.detach().clone() for name, value in policy.actor.state_dict().items()}
     critic_before = {name: value.detach().clone() for name, value in policy.critic.state_dict().items()}
+    log_std_before = policy.log_std.detach().clone()
     open_frontres_checkpoint_transaction_barrier(runner)
     result = run_frontres_formal_transaction_update(runner, request)
     assert result.optimizer_step_delta == 1
     assert result.ppo_result.edge_count == 8
     assert any(not torch.equal(value, actor_before[name]) for name, value in policy.actor.state_dict().items())
     assert all(torch.equal(value, critic_before[name]) for name, value in policy.critic.state_dict().items())
+    if preference_v014:
+        assert torch.equal(policy.log_std.detach(), log_std_before)
     assert result.diagnostics["outer_replay"]["schema"] == FRONTRES_RELATIONAL_REPLAY_SCHEMA
     summary = require_frontres_committed_result(runner, result)
     assert summary["relational"] is True
@@ -691,7 +706,7 @@ def _assert_exact_one_relational_commit_updates_actor_only(
     telemetry = summary["frontres_transaction_telemetry"]
     assert telemetry["optimization_contract_id"] == optimization_contract_id
     if preference_v014:
-        assert telemetry["loss_identity"] == "pairwise-softplus-logprob-v1"
+        assert telemetry["loss_identity"] == "pairwise-reference-fisher-scenario-v1"
         assert telemetry["lr_curriculum_identity"] == "actor-global-100-50-v1"
         assert result.diagnostics["actor_learning_rate"] == 3.0e-7
     else:
@@ -988,6 +1003,23 @@ def test_phase_reset_routes_mode_through_sealed_reset_owner() -> None:
     ]
 
 
+def test_v014_direct_live_policy_update_seam_is_retired() -> None:
+    from rsl_rl.runners.frontres_segment_live_policy import run_frontres_relational_actor_update
+
+    runner = SimpleNamespace(
+        alg=SimpleNamespace(
+            frontres_relational_actor_only=True,
+            frontres_training_objective="segment_replay_relational_preference_v014",
+        )
+    )
+    try:
+        run_frontres_relational_actor_update(runner, None)
+    except RuntimeError as exc:
+        assert "formal transaction owner" in str(exc)
+    else:
+        raise AssertionError("FRS-PPO-v014 direct live policy update seam must reject")
+
+
 def main() -> None:
     torch.manual_seed(0)
     test_formal_request_owns_the_grouped_ppo_batch_dependency()
@@ -1003,6 +1035,7 @@ def main() -> None:
     test_real_counter_shape_rolls_back_without_writing_read_only_property()
     test_post_commit_audit_failure_also_rolls_back_replay_and_optimizer()
     test_phase_reset_routes_mode_through_sealed_reset_owner()
+    test_v014_direct_live_policy_update_seam_is_retired()
     print("frontres_v015_transaction_route_contract: v024 scalar and v025 relational exact-one ok", flush=True)
 
 

@@ -588,7 +588,7 @@ def _build_v025_relational_checkpoint_identity(
                 "advantage_normalization": "pairwise_edge",
                 "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
                 "policy_rows_per_attempt": 1,
-                "loss_identity": "pairwise-softplus-logprob-v1",
+                "loss_identity": "pairwise-reference-fisher-scenario-v1",
             }
             if preference_v014
             else {
@@ -1403,7 +1403,7 @@ def _validate_v015_checkpoint_resume(
             "policy_rows_per_attempt": 1,
         }
         if preference_v014:
-            expected_grouped_loss["loss_identity"] = "pairwise-softplus-logprob-v1"
+            expected_grouped_loss["loss_identity"] = "pairwise-reference-fisher-scenario-v1"
         if identity.get("grouped_loss") != expected_grouped_loss:
             raise RuntimeError("checkpoint-v20 has an incompatible pairwise loss identity")
         if preference_v014:

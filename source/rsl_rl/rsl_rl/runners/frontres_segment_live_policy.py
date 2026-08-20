@@ -430,11 +430,18 @@ def run_frontres_relational_actor_update(runner: Any, storage_batch: Any) -> obj
 
     if not bool(getattr(runner.alg, "frontres_relational_actor_only", False)):
         raise RuntimeError("relational Actor update requires frontres_relational_actor_only=True")
+    preference_v014 = (
+        str(getattr(runner.alg, "frontres_training_objective", ""))
+        == "segment_replay_relational_preference_v014"
+    )
+    if preference_v014:
+        raise RuntimeError(
+            "FRS-PPO-v014 requires the formal transaction owner; the direct live policy update seam is retired"
+        )
     from rsl_rl.algorithms.frontres_segment_ppo import (
         FrontRESRelationalPPOBatch,
         FrontRESRelationalPPOConfig,
         compute_frontres_relational_actor_loss,
-        compute_frontres_relational_preference_loss,
     )
     runner.train_mode()
     ppo_batch = storage_batch.to_grouped_ppo_candidate_batch(FrontRESRelationalPPOBatch)
@@ -444,18 +451,11 @@ def run_frontres_relational_actor_update(runner: Any, storage_batch: Any) -> obj
         privileged_observations=storage_batch.privileged_observations,
         actor_only=True,
     )
-    preference_v014 = (
-        str(getattr(runner.alg, "frontres_training_objective", ""))
-        == "segment_replay_relational_preference_v014"
+    cfg = FrontRESRelationalPPOConfig(
+        clip_param=float(getattr(runner.alg, "clip_param", 0.2)),
+        max_log_ratio=20.0,
     )
-    if preference_v014:
-        result = compute_frontres_relational_preference_loss(policy_adapter, ppo_batch, edges)
-    else:
-        cfg = FrontRESRelationalPPOConfig(
-            clip_param=float(getattr(runner.alg, "clip_param", 0.2)),
-            max_log_ratio=20.0,
-        )
-        result = compute_frontres_relational_actor_loss(policy_adapter, ppo_batch, edges, cfg)
+    result = compute_frontres_relational_actor_loss(policy_adapter, ppo_batch, edges, cfg)
     optimizer = runner.alg.optimizer
     optimizer_roles = {
         str(group.get("frontres_role", ""))

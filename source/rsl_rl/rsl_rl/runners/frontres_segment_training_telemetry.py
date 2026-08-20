@@ -138,6 +138,13 @@ def _build_relational_transaction_telemetry(result: Any, *, ppo: Any, diagnostic
     )
     if optimization_contract_id not in {"FRS-PPO-v013", "FRS-PPO-v014"}:
         raise RuntimeError("FRS-TRAIN-v025 telemetry received unknown optimization identity")
+    if optimization_contract_id == "FRS-PPO-v014":
+        if diagnostics.get("loss_identity") != "pairwise-reference-fisher-scenario-v1":
+            raise RuntimeError(
+                "FRS-PPO-v014 telemetry requires pairwise-reference-fisher-scenario-v1"
+            )
+        if int(diagnostics.get("scenario_count", 0)) <= 0:
+            raise RuntimeError("FRS-PPO-v014 telemetry requires a positive Scenario count")
     telemetry = {
         "transaction_id": transaction_id,
         "policy_snapshot_id": str(getattr(result, "policy_snapshot_id", "")),
@@ -152,6 +159,9 @@ def _build_relational_transaction_telemetry(result: Any, *, ppo: Any, diagnostic
         **(
             {
                 "loss_identity": str(diagnostics.get("loss_identity", "")),
+                "reference_kl": _finite(diagnostics, "reference_kl"),
+                "fisher_scale_mean": _finite(diagnostics, "fisher_scale_mean"),
+                "scenario_count": int(diagnostics.get("scenario_count", 0)),
                 "lr_curriculum_identity": str(
                     diagnostics.get("lr_curriculum_identity", "")
                 ),

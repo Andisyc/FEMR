@@ -25,6 +25,7 @@ from rsl_rl.frontres.frontres_value_normalization import (
 
 FRS_RELATIONAL_PREFERENCE_CONTRACT_ID = "FRS-PPO-v014"
 FRS_RELATIONAL_PREFERENCE_BETA = 1.0
+FRS_RELATIONAL_REFERENCE_FISHER_LOSS_ID = "pairwise-reference-fisher-scenario-v1"
 
 
 @dataclass(frozen=True)
@@ -84,7 +85,7 @@ class FrontRESRelationalPPOResult:
 
 @dataclass(frozen=True)
 class FrontRESRelationalPreferenceResult:
-    """Result owned by the non-PPO-ratio FRS-PPO-v014 candidate."""
+    """Result owned by an FRS-PPO-v014 non-PPO-ratio preference loss."""
 
     total_loss: torch.Tensor
     actor_loss: torch.Tensor
@@ -94,6 +95,10 @@ class FrontRESRelationalPreferenceResult:
     actor_credit: torch.Tensor
     status: str
     contract_id: str = FRS_RELATIONAL_PREFERENCE_CONTRACT_ID
+    loss_identity: str = "pairwise-softplus-logprob-v1"
+    reference_kl: float = 0.0
+    fisher_scale_mean: float = 1.0
+    scenario_count: int = 1
 
     @property
     def should_step(self) -> bool:
@@ -104,6 +109,9 @@ class FrontRESRelationalPreferenceResult:
             "segment/preference_edge_count": float(self.edge_count),
             "segment/preference_valid_row_count": float(self.valid_count),
             "segment/preference_should_step": float(self.should_step),
+            "segment/preference_reference_kl": float(self.reference_kl),
+            "segment/preference_fisher_scale_mean": float(self.fisher_scale_mean),
+            "segment/preference_scenario_count": float(self.scenario_count),
         }
 
 
@@ -275,6 +283,146 @@ def compute_frontres_relational_preference_loss(
         status="READY",
         contract_id=FRS_RELATIONAL_PREFERENCE_CONTRACT_ID,
     )
+
+
+def compute_frontres_relational_reference_fisher_loss(
+    policy: Any,
+    batch: FrontRESRelationalPPOBatch,
+    preference_edges: tuple[tuple[int, int], ...],
+) -> FrontRESRelationalPreferenceResult:
+    """Compute the active v014 reference-anchored, Fisher-scaled preference loss.
+
+    ``old_log_probs``, ``old_means`` and ``old_sigmas`` are the frozen
+    transaction-start policy reference.  Comparable edges are first averaged
+    within Scenario and then across Scenarios.  For the task-space Actor the
+    standard deviation is a frozen isotropic scalar; multiplying each row's
+    reference-relative log-probability by ``sigma**2`` removes the diagonal
+    Gaussian mean-Fisher scale before gradients reach the shared Actor. The
+    returned reference KL is diagnostic only: exact-one v014 evaluates it
+    before its one optimizer step, so it is zero by construction and is not
+    added to the actor loss.
+
+    This owner deliberately fails closed when the sealed reference or Scenario
+    identity is absent.  The historical direct function above remains available
+    for v014 characterization tests and is not consumed by the formal route.
+    """
+
+    _validate_relational_batch(batch)
+    if batch.old_means is None or batch.old_sigmas is None:
+        raise ValueError("reference Fisher preference loss requires sealed old_means and old_sigmas")
+    rows = int(batch.actions.shape[0])
+    if tuple(batch.old_means.shape) != (rows, 6) or tuple(batch.old_sigmas.shape) != (rows, 6):
+        raise ValueError("reference Fisher preference references must have shape [B, 6]")
+    if not bool(torch.isfinite(batch.old_means).all().item()) or not bool(torch.isfinite(batch.old_sigmas).all().item()):
+        raise ValueError("reference Fisher preference references must be finite")
+    if batch.old_means.requires_grad or batch.old_sigmas.requires_grad:
+        raise ValueError("reference Fisher preference references must be detached")
+    policy_eval = _evaluate_policy(policy, batch)
+    _validate_policy_eval(policy_eval, batch)
+    if policy_eval.mean is None or policy_eval.sigma is None:
+        raise ValueError("reference Fisher preference loss requires current Actor mean and sigma")
+    if policy_eval.sigma.requires_grad:
+        raise ValueError("reference Fisher preference loss requires fixed Actor sigma")
+    if batch.valid_mask.dtype != torch.bool:
+        raise ValueError("reference Fisher preference valid_mask must be boolean")
+    if not bool(batch.valid_mask.all().item()):
+        raise ValueError("reference Fisher preference requires every sealed policy row to be valid")
+    scenario_ids = _relational_scenario_ids(batch)
+    if len(scenario_ids) != rows or any(not value for value in scenario_ids):
+        raise ValueError("reference Fisher preference requires nonempty row-aligned Scenario identities")
+    normalized_edges = _normalize_relational_preference_edges(batch, preference_edges)
+    actor_credit = batch.actions.new_zeros((int(batch.actions.shape[0]),))
+    current_log_prob = policy_eval.log_prob
+    old_log_prob = batch.old_log_probs.detach()
+    old_mean = batch.old_means.detach()
+    old_sigma = batch.old_sigmas.detach()
+    current_mean = policy_eval.mean
+    current_sigma = policy_eval.sigma
+    tensors = (current_log_prob, old_log_prob, current_mean, current_sigma, old_mean, old_sigma)
+    if any(not bool(torch.isfinite(value).all().item()) for value in tensors):
+        raise ValueError("reference Fisher preference loss received non-finite policy/reference values")
+    if bool((old_sigma <= 0.0).any().item()) or bool((current_sigma <= 0.0).any().item()):
+        raise ValueError("reference Fisher preference loss requires positive policy/reference sigma")
+    if not bool(torch.allclose(current_sigma, current_sigma[..., :1].expand_as(current_sigma), rtol=1.0e-6, atol=1.0e-8)):
+        raise ValueError("reference Fisher preference loss requires isotropic current sigma")
+    if not bool(torch.allclose(old_sigma, old_sigma[..., :1].expand_as(old_sigma), rtol=1.0e-6, atol=1.0e-8)):
+        raise ValueError("reference Fisher preference loss requires isotropic reference sigma")
+    if not bool(torch.allclose(current_mean, old_mean, rtol=1.0e-6, atol=1.0e-7)):
+        raise ValueError("reference Fisher preference requires current mean to match the sealed transaction reference")
+    if not bool(torch.allclose(current_sigma, old_sigma, rtol=1.0e-6, atol=1.0e-8)):
+        raise ValueError("reference Fisher preference requires current sigma to match the sealed transaction reference")
+    expected_current_log_prob = torch.distributions.Normal(
+        current_mean, current_sigma
+    ).log_prob(batch.actions).sum(dim=-1)
+    if not bool(torch.allclose(current_log_prob, expected_current_log_prob, rtol=1.0e-5, atol=1.0e-6)):
+        raise ValueError("reference Fisher preference current log_probs disagree with Gaussian policy")
+    expected_old_log_prob = torch.distributions.Normal(old_mean, old_sigma).log_prob(batch.actions).sum(dim=-1)
+    if not bool(torch.allclose(old_log_prob, expected_old_log_prob, rtol=1.0e-5, atol=1.0e-6)):
+        raise ValueError("reference Fisher preference old_log_probs disagree with sealed Gaussian reference")
+    if not normalized_edges:
+        zero = current_log_prob.sum() * 0.0
+        return FrontRESRelationalPreferenceResult(
+            total_loss=zero,
+            actor_loss=zero,
+            entropy=zero,
+            edge_count=0,
+            valid_count=0,
+            actor_credit=actor_credit,
+            status="NO_COMPARABLE_PAIRS",
+            loss_identity=FRS_RELATIONAL_REFERENCE_FISHER_LOSS_ID,
+            scenario_count=0,
+        )
+    fisher_scale = current_sigma[..., 0].square()
+    relative_log_prob = (current_log_prob - old_log_prob) * fisher_scale
+    edge_losses_by_scenario: dict[str, list[torch.Tensor]] = {}
+    for winner, loser in normalized_edges:
+        if scenario_ids[winner] != scenario_ids[loser]:
+            raise ValueError("reference Fisher preference edges cannot cross Scenario identities")
+        actor_credit[winner] += 1.0
+        actor_credit[loser] -= 1.0
+        margin = relative_log_prob[winner] - relative_log_prob[loser]
+        edge_losses_by_scenario.setdefault(scenario_ids[winner], []).append(
+            torch.nn.functional.softplus(-FRS_RELATIONAL_PREFERENCE_BETA * margin)
+        )
+    scenario_loss = torch.stack(
+        tuple(torch.stack(values).mean() for values in edge_losses_by_scenario.values())
+    ).mean()
+    involved = torch.tensor(
+        sorted({index for edge in normalized_edges for index in edge}),
+        device=current_mean.device,
+        dtype=torch.long,
+    )
+    kl = 0.5 * (
+        ((current_sigma.square() + (current_mean - old_mean).square()) / old_sigma.square())
+        - 1.0
+        + 2.0 * (old_sigma.log() - current_sigma.log())
+    ).sum(dim=-1).index_select(0, involved).mean()
+    actor_loss = scenario_loss
+    if not bool(torch.isfinite(actor_loss).item()):
+        raise ValueError("reference Fisher preference loss produced a non-finite loss")
+    entropy = _masked_entropy(policy_eval.entropy, actor_credit != 0.0, actor_loss)
+    return FrontRESRelationalPreferenceResult(
+        total_loss=actor_loss,
+        actor_loss=actor_loss,
+        entropy=entropy,
+        edge_count=len(normalized_edges),
+        valid_count=len({index for edge in normalized_edges for index in edge}),
+        actor_credit=actor_credit.detach(),
+        status="READY",
+        contract_id=FRS_RELATIONAL_PREFERENCE_CONTRACT_ID,
+        loss_identity=FRS_RELATIONAL_REFERENCE_FISHER_LOSS_ID,
+        reference_kl=float(kl.detach().cpu().item()),
+        fisher_scale_mean=float(fisher_scale.detach().mean().cpu().item()),
+        scenario_count=len(edge_losses_by_scenario),
+    )
+
+
+def _relational_scenario_ids(batch: FrontRESRelationalPPOBatch) -> tuple[str, ...]:
+    metadata = getattr(batch, "transaction_metadata", None)
+    values = getattr(metadata, "scenario_ids", None)
+    if values is None:
+        raise ValueError("reference Fisher preference loss requires transaction_metadata.scenario_ids")
+    return tuple(str(value) for value in values)
 
 
 def _normalize_relational_preference_edges(

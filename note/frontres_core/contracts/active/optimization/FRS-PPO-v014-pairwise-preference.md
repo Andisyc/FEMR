@@ -2,7 +2,7 @@
 contract_id: FRS-PPO-v014
 status: active-pre-training
 effective_date: 2026-08-19
-updated_date: 2026-08-19
+updated_date: 2026-08-20
 supersedes: FRS-PPO-v013-for-fresh-relational-training
 scope: Actor-only pairwise preference optimization from same-Scenario relational edges
 ---
@@ -15,32 +15,77 @@ For an edge \((w,l)\in E\), Repair \(w\) is better than Repair \(l\) under
 the confirmed hierarchical partial order. `SAME` and `INCOMPARABLE` pairs do
 not create edges. `INVALID` fails the transaction closed.
 
-The optimizer owns the full-6D Actor and its trainable action-distribution
-parameters only. The compatibility Critic is frozen, excluded from Adam, and
+The optimizer owns the full-6D Actor mean network only. Task-space sigma is a
+positive isotropic buffer, excluded from Adam; a trainable sigma is invalid for
+this contract. The compatibility Critic is frozen, excluded from Adam, and
 has no target or value loss.
 
 ## 2. Loss
 
-For sealed current-policy rows \((s_i,a_i)\), define
+Each sealed row also stores the transaction-start reference distribution:
+\(\mu_i^{ref},\sigma_i^{ref},\log\pi_{ref}(a_i\mid s_i)\). The current
+Actor is evaluated on the same \((s_i,a_i)\). For the task-space Actor, each
+six-dimensional Gaussian must use one positive isotropic standard deviation
+\(\sigma_i\). At the exact-one pre-step boundary, current and sealed
+\((\mu,\sigma)\) must match; an internally consistent but stale reference is
+invalid. Define the reference-relative Fisher-scaled row score
 
 \[
-d_{wl}(\theta)=\log\pi_\theta(a_w\mid s_w)
-                 -\log\pi_\theta(a_l\mid s_l).
+r_i(\theta)=\sigma_i^2\left[
+\log\pi_\theta(a_i\mid s_i)-\log\pi_{ref}(a_i\mid s_i)
+\right].
 \]
 
-The transaction loss is
+For an edge \((w,l)\), define
 
 \[
-\mathcal L_{\mathrm{pref}}(\theta)
-=\frac{1}{|E|}\sum_{(w,l)\in E}
-\operatorname{softplus}\!\left(-\beta d_{wl}(\theta)\right),
-\qquad \beta=1.
+d_{wl}(\theta)=r_w(\theta)-r_l(\theta).
 \]
 
-This route has no old-policy ratio, exponential ratio, clipped surrogate,
-advantage, scalar Gain, return, or Critic baseline. The old log-prob remains in
-the sealed row only for persistence compatibility and diagnostics; it is not an
-input to \(\mathcal L_{\mathrm{pref}}\).
+The transaction first averages edge losses within each Scenario and then
+averages Scenario losses:
+
+\[
+\mathcal L_{pref}(\theta)=
+\frac{1}{|\mathcal S|}\sum_{S\in\mathcal S}
+\frac{1}{|E_S|}\sum_{(w,l)\in E_S}
+\operatorname{softplus}\!\left(-d_{wl}(\theta)\right).
+\]
+
+The reference KL is reported as a drift diagnostic:
+
+\[
+\mathcal L_{KL}(\theta)=
+\frac{1}{|I_E|}\sum_{i\in I_E}\frac12\sum_{d=1}^{6}
+\left[
+\frac{\sigma_{i,d}^2+(\mu_{i,d}-\mu^{ref}_{i,d})^2}{(\sigma^{ref}_{i,d})^2}
+-1+2\log\frac{\sigma^{ref}_{i,d}}{\sigma_{i,d}}
+\right].
+\]
+
+Here \(I_E\) is the set of valid rows referenced by at least one preference
+edge; uninvolved rows do not contribute even to this diagnostic.
+
+The active objective is
+
+\[
+\mathcal L(\theta)=\mathcal L_{pref}(\theta).
+\]
+
+The row factor \(\sigma_i^2\) removes the diagonal Gaussian mean-Fisher
+scale for this isotropic task-space distribution. It is a row-wise
+approximation, not an exact full-network natural gradient. The historical
+direct log-prob preference function remains only as a characterization
+baseline; it is not consumed by the active formal route.
+
+The formal transaction evaluates this objective once before one optimizer
+step. The current Actor is the sealed transaction reference at that point, so
+the diagnostic KL is zero by construction and is not a one-step trust-region
+solver. Any future multi-step or post-step KL constraint requires a separately
+versioned update contract.
+
+The active route has no old-policy ratio, exponential ratio, clipped surrogate,
+advantage, scalar Gain, return, or Critic baseline.
 
 ## 3. Learning-rate curriculum
 
@@ -62,12 +107,15 @@ Changing K or lowering DR does not reset \(t\), Adam state, or Actor LR.
 
 ## 4. Update and failure boundary
 
-One committed transaction performs exactly one Actor optimizer step. The
+The formal transaction owner is the only v014 update seam; the legacy direct
+live-policy update seam rejects v014. One committed transaction performs
+exactly one Actor optimizer step. The
 existing global Actor gradient-norm safety boundary remains \(0.5\); it is not
 a reward, curriculum signal, or substitute for the LR schedule.
 
 If \(|E|=0\), the result is `NO_COMPARABLE_PAIRS` and the transaction is
-zero-write. Non-finite current log-probability, malformed edges, or invalid
+zero-write. A trainable or non-isotropic sigma, a current or sealed Gaussian/log-prob
+mismatch, any invalid row, non-finite policy value, malformed edge, or invalid
 evidence fails closed before optimizer, Replay, curriculum, or checkpoint
 mutation.
 
@@ -83,7 +131,7 @@ frontres_optimization_contract_id=FRS-PPO-v014
 
 The launcher selector is `MODE=relational_preference_train`. Checkpoint-v20 and
 training telemetry must include `FRS-PPO-v014`,
-`pairwise-softplus-logprob-v1`, and `actor-global-100-50-v1`. v013 and v014
+`pairwise-reference-fisher-scenario-v1`, and `actor-global-100-50-v1`. v013 and v014
 checkpoints are not cross-loadable. FRS-PPO-v013 remains a characterized
 retired-compatible route only.
 

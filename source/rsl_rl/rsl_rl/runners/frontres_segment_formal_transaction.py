@@ -32,7 +32,7 @@ from rsl_rl.algorithms.frontres_segment_ppo import (
     FrontRESSegmentPPOBatch,
     FrontRESSegmentPPOConfig,
     compute_frontres_relational_actor_loss,
-    compute_frontres_relational_preference_loss,
+    compute_frontres_relational_reference_fisher_loss,
     compute_frontres_segment_ppo_loss,
     install_frontres_v006_scalar_gradients,
     step_frontres_v005_scalar_optimizer,
@@ -540,7 +540,7 @@ def _execute_frontres_relational_transaction_update(
         )
     policy_evaluator = _v015_formal_policy_evaluator(request, alg, ppo_batch)
     if preference_v014:
-        ppo_result = compute_frontres_relational_preference_loss(
+        ppo_result = compute_frontres_relational_reference_fisher_loss(
             policy_evaluator,
             ppo_batch,
             edges,
@@ -634,7 +634,6 @@ def _execute_frontres_relational_transaction_update(
         "optimization_contract_id": optimization_contract_id,
         **(
             {
-                "loss_identity": "pairwise-softplus-logprob-v1",
                 "lr_curriculum_identity": "actor-global-100-50-v1",
             }
             if preference_v014
@@ -647,6 +646,10 @@ def _execute_frontres_relational_transaction_update(
         "edge_count": int(ppo_result.edge_count),
         "actor_credit": tuple(float(value) for value in ppo_result.actor_credit.cpu().tolist()),
         "actor_loss": float(ppo_result.actor_loss.detach().cpu().item()),
+        "loss_identity": str(getattr(ppo_result, "loss_identity", "")),
+        "reference_kl": float(getattr(ppo_result, "reference_kl", 0.0)),
+        "fisher_scale_mean": float(getattr(ppo_result, "fisher_scale_mean", 0.0)),
+        "scenario_count": int(getattr(ppo_result, "scenario_count", 0)),
         "gradient_pre_clip_norm": gradient_pre_clip_norm,
         "gradient_post_clip_norm": gradient_post_clip_norm,
         "gradient_clip_identity": "actor-only-relational-v1",

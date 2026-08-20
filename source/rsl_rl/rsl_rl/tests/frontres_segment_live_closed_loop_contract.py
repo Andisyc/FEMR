@@ -50,6 +50,7 @@ def _install_import_stubs():
     ppo_module.compute_frontres_segment_ppo_loss = lambda *_args, **_kwargs: None
     ppo_module.compute_frontres_relational_actor_loss = lambda *_args, **_kwargs: None
     ppo_module.compute_frontres_relational_preference_loss = lambda *_args, **_kwargs: None
+    ppo_module.compute_frontres_relational_reference_fisher_loss = lambda *_args, **_kwargs: None
     ppo_module.install_frontres_v005_scalar_gradients = lambda *_args, **_kwargs: None
     ppo_module.install_frontres_v006_scalar_gradients = lambda *_args, **_kwargs: None
     ppo_module.step_frontres_v005_scalar_optimizer = lambda *_args, **_kwargs: None

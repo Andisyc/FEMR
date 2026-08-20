@@ -2,7 +2,7 @@
 contract_id: FRS-GAIN-v009
 status: active-pre-training
 effective_date: 2026-08-17
-updated_date: 2026-08-17
+updated_date: 2026-08-20
 supersedes: FRS-GAIN-v008-for-relational-route
 scope: Hierarchical Physics/Intent evidence to a fail-closed partial order; no scalar Gain
 ---
@@ -56,15 +56,11 @@ and closes the transaction. A valid non-applicable ZMP is represented by
 ## Training boundary
 
 The relation adapter emits directed edges `(winner, loser)` only for
-`BETTER/WORSE`. `SAME` and `INCOMPARABLE` emit no edge. The downstream PPO
-owner uses edge incidence:
+`BETTER/WORSE`. `SAME` and `INCOMPARABLE` emit no edge. Edge incidence
+(`wins - losses`) is a diagnostic only. This Gain owner does not define an
+Actor Loss, policy ratio, gradient scale, learning rate, or optimizer step;
+those semantics belong exclusively to FRS-PPO-v014 and FRS-TRAIN-v025.
 
-\[
-c_i=\#\{i\text{ wins}\}-\#\{i\text{ loses}\},\qquad
-L_{actor}=-\frac1{|E|}\sum_{i\in E}
-\min\left(r_i c_i,\operatorname{clip}(r_i,1-\epsilon,1+\epsilon)c_i\right).
-\]
-
-This is Actor-only. The scalar state-value Critic and scalar target are inert
-on this route. If a transaction has no valid edge, it performs no optimizer or
-Replay commit and reports `NO_COMPARABLE_PAIRS`.
+The scalar state-value Critic and scalar target are inert on this route. If a
+transaction has no valid edge, it performs no optimizer or Replay commit and
+reports `NO_COMPARABLE_PAIRS`.
