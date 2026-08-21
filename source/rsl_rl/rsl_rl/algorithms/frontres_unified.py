@@ -147,6 +147,7 @@ class FrontRESUnified:
         frontres_actor_only_lr_ramp_transactions: int = 50,
         frontres_segment_replay_enabled: bool = False,
         frontres_policy_quality_eval_only: bool = False,
+        frontres_clean_calibration_collect_only: bool = False,
         frontres_segment_live_runner_enabled: bool = False,
         frontres_segment_live_sentinel_only: bool = False,
         frontres_local_sentinel_only: bool = False,
@@ -235,7 +236,11 @@ class FrontRESUnified:
         )
         if relational_actor_only and not frontres_formal_transaction_enabled:
             raise ValueError("relational Actor-only mode requires formal transaction isolation")
-        strict_split_lr = bool(frontres_formal_transaction_enabled and not frontres_policy_quality_eval_only)
+        strict_split_lr = bool(
+            frontres_formal_transaction_enabled
+            and not frontres_policy_quality_eval_only
+            and not frontres_clean_calibration_collect_only
+        )
         if strict_split_lr:
             if str(schedule).lower() != "fixed":
                 raise ValueError("FRS-TRAIN-v021 requires schedule='fixed' for Stage-3 training")
@@ -310,6 +315,7 @@ class FrontRESUnified:
             raise ValueError("v014 Actor LR ramp transactions must be at least two")
         self.frontres_segment_replay_enabled = bool(frontres_segment_replay_enabled)
         self.frontres_policy_quality_eval_only = bool(frontres_policy_quality_eval_only)
+        self.frontres_clean_calibration_collect_only = bool(frontres_clean_calibration_collect_only)
         self.frontres_segment_live_runner_enabled = bool(frontres_segment_live_runner_enabled)
         self.frontres_segment_live_sentinel_only = bool(frontres_segment_live_sentinel_only)
         self.frontres_local_sentinel_only = bool(frontres_local_sentinel_only)
@@ -469,7 +475,7 @@ class FrontRESUnified:
             raise ValueError("frontres_segment_reset_mode must be 'auto', 'direct', or 'preroll'")
         if self.frontres_training_objective == "segment_replay_hrl":
             # B1: 区分只读 evaluator 和训练 route, 产出唯一可执行 mode.
-            if self.frontres_policy_quality_eval_only:
+            if self.frontres_policy_quality_eval_only or self.frontres_clean_calibration_collect_only:
                 evaluation_conflicts = tuple(
                     name
                     for name, enabled in (
@@ -493,7 +499,7 @@ class FrontRESUnified:
                 if not self.frontres_formal_transaction_enabled:
                     raise ValueError("policy-quality evaluation requires the formal transaction identity")
                 print(
-                    "[FrontRESUnified] Read-only policy-quality evaluator initialized; "
+                    "[FrontRESUnified] Read-only calibration/evaluation route initialized; "
                     "Segment Replay and optimizer dispatch remain disabled.",
                     flush=True,
                 )

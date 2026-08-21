@@ -325,6 +325,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Enable the formal Segment Replay HRL route."""
     frontres_policy_quality_eval_only: bool = False
     """Mark outer read-only quality dispatch without inventing another training objective."""
+    frontres_clean_calibration_collect_only: bool = False
+    """Mark the v010 read-only Clean calibration route; no Replay or optimizer update."""
     frontres_segment_live_runner_enabled: bool = False
     """Allow OnPolicyRunner to enter the live Segment Replay route."""
     frontres_segment_live_sentinel_only: bool = False

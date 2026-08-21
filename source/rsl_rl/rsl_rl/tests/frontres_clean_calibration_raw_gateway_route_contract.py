@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parents[4]
 GATEWAY = ROOT / "source/rsl_rl/rsl_rl/runners/frontres_clean_calibration_gateway.py"
 RUNNER = ROOT / "source/rsl_rl/rsl_rl/runners/on_policy_runner.py"
 TRAIN = ROOT / "scripts/rsl_rl/train.py"
+ALGORITHM = ROOT / "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py"
+BOUNDARY = ROOT / "source/rsl_rl/rsl_rl/runners/frontres_segment_runner_boundary.py"
 
 
 def _function_source(path: Path, name: str) -> str:
@@ -47,11 +49,15 @@ def main() -> None:
 
     runner_source = RUNNER.read_text(encoding="utf-8")
     train_source = TRAIN.read_text(encoding="utf-8")
+    algorithm_source = ALGORITHM.read_text(encoding="utf-8")
+    boundary_source = BOUNDARY.read_text(encoding="utf-8")
     assert "run_frontres_clean_calibration_collect_typed" in runner_source
     assert "prepare_frontres_fixed_k_m4_evaluation_batch" in manifest_connector
     assert "typed_connector" in manifest_connector
     assert "typed_collection_artifact" not in manifest_connector
     assert "--frontres_clean_calibration_collect_only" in train_source
+    assert "frontres_clean_calibration_collect_only" in algorithm_source
+    assert "frontres_clean_calibration_collect_only" in boundary_source
     assert (
         '_set_if_present(alg_cfg, "frontres_policy_quality_eval_only", policy_quality_eval_arg)'
         in train_source

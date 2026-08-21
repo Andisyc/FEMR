@@ -117,7 +117,10 @@ class FrontRESSegmentRunnerBoundary:
     def from_train_cfg(cls, train_cfg: dict[str, Any]) -> "FrontRESSegmentRunnerBoundary":
         alg_cfg = train_cfg.get("algorithm", {})
         objective = str(alg_cfg.get("frontres_training_objective", "")).lower()
-        evaluation_only = bool(alg_cfg.get("frontres_policy_quality_eval_only", False))
+        evaluation_only = bool(
+            alg_cfg.get("frontres_policy_quality_eval_only", False)
+            or alg_cfg.get("frontres_clean_calibration_collect_only", False)
+        )
         if evaluation_only:
             evaluation_conflicts = tuple(
                 name
@@ -136,7 +139,7 @@ class FrontRESSegmentRunnerBoundary:
             )
             if evaluation_conflicts:
                 raise ValueError(
-                    "policy-quality evaluation cannot enable Segment Replay/live training flags: "
+                    "read-only evaluation cannot enable Segment Replay/live training flags: "
                     f"{evaluation_conflicts}"
                 )
         requested = not evaluation_only and (
