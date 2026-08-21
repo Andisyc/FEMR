@@ -514,6 +514,34 @@ def main() -> None:
         assert not result.with_suffix(result.suffix + ".tmp").exists()
 
     runner = _Runner()
+    runner.env.fail_hard_event_on_repeat = 1
+    with tempfile.TemporaryDirectory(prefix="frontres-clean-candidate-fallback-") as directory:
+        manifest = Path(directory) / "manifest.json"
+        result = Path(directory) / "result.json"
+        fallback_manifest = _manifest()
+        fallback_manifest["fallback_source_indices"] = [1]
+        manifest.write_text(json.dumps(fallback_manifest), encoding="utf-8")
+        with (
+            patch(
+                "rsl_rl.runners.frontres_clean_calibration_gateway.ensure_frontres_readonly_reset_support",
+                side_effect=lambda owner: None,
+            ),
+            patch(
+                "rsl_rl.runners.frontres_clean_calibration_gateway.prepare_frontres_raw_contact_views",
+                side_effect=lambda owner: None,
+            ),
+        ):
+            assert _RUN_OFFICIAL_CLEAN_CALIBRATION(
+                _official_args(manifest, result), runner, runner.env
+            ) is True
+        fallback_result = json.loads(result.read_text(encoding="utf-8"))
+        assert fallback_result["status"] == "OK"
+        assert fallback_result["selected_source_index"] == 1
+        assert [row["source_index"] for row in fallback_result["rejected_candidates"]] == [0]
+        assert fallback_result["rejected_candidates"][0]["hard_events"]["expected_support_no_load"] > 0.0
+        assert runner.env.close_count == 1
+
+    runner = _Runner()
     runner.env.fail_hard_event_on_repeat = 2
     with tempfile.TemporaryDirectory(prefix="frontres-clean-hard-event-") as directory:
         manifest = Path(directory) / "manifest.json"
@@ -529,17 +557,21 @@ def main() -> None:
                 side_effect=lambda owner: None,
             ),
         ):
-            try:
-                collect_frontres_clean_calibration_from_manifest(
-                    runner,
-                    manifest_path=str(manifest),
-                    result_path=str(result),
-                )
-            except RuntimeError as exc:
-                assert "hard Physics event" in str(exc)
-            else:
-                raise AssertionError("hard Clean event must fail closed")
-        assert not result.exists()
+            payload = collect_frontres_clean_calibration_from_manifest(
+                runner,
+                manifest_path=str(manifest),
+                result_path=str(result),
+            )
+        assert payload["status"] == "TELEMETRY-GAP"
+        assert payload["selected_source_index"] is None
+        assert tuple(payload["candidate_source_indices"]) == (0,)
+        assert len(payload["rejected_candidates"]) == 1
+        rejection = payload["rejected_candidates"][0]
+        assert rejection["source_index"] == 0
+        assert rejection["repeat_id"] == "repeat-01"
+        assert rejection["hard_events"]["expected_support_no_load"] > 0
+        assert result.is_file()
+        assert json.loads(result.read_text(encoding="utf-8"))["status"] == "TELEMETRY-GAP"
         assert runner.env.command_manager._terms["motion"]._active is False
         assert len(tuple(runner._frontres_segment_dataset.last_batch.frontres_local_scenario_closed_ids)) == 2
 

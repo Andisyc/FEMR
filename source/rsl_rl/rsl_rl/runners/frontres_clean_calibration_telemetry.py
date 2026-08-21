@@ -58,6 +58,20 @@ class FrontRESCleanTelemetryMeasurement:
     hard_events: CleanHardEventEvidence
 
 
+class FrontRESCleanCalibrationHardEventError(RuntimeError):
+    """One candidate Clean window is physically invalid for noise calibration."""
+
+    def __init__(self, *, repeat_id: str, hard_events: CleanHardEventEvidence) -> None:
+        hard_events.validate()
+        self.repeat_id = str(repeat_id)
+        self.hard_events = hard_events
+        values = hard_events.canonical_payload()
+        super().__init__(
+            "raw Clean calibration window contains a hard Physics event: "
+            f"repeat_id={self.repeat_id} hard_events={values}"
+        )
+
+
 def build_clean_calibration_observation(
     *,
     reference: FrontRESCleanRawWindow,
@@ -109,15 +123,25 @@ def build_clean_calibration_measurement(
         expected_support=reference.expected_support,
         repair_action=zero_action,
     )
+    hard_events = CleanHardEventEvidence(
+        survival_ok=bool(outcome.survival_ok),
+        survival_failure_duration=float(outcome.survival_failure_duration),
+        expected_support_no_load=float(outcome.expected_support_no_load),
+        unplanned_support_switch=float(outcome.unplanned_support_switch),
+        illegal_contact_duration=float(outcome.illegal_contact_duration),
+        valid_step_count=int(candidate.trajectory.valid_mask[:, 0].bool().sum().item()),
+        zmp_applicable_step_count=int(candidate.trajectory.zmp_margin[:, 0].isfinite().sum().item()),
+    )
+    hard_events.validate()
     if (
         not outcome.survival_ok
         or outcome.expected_support_no_load > 0.0
         or outcome.unplanned_support_switch > 0.0
         or outcome.illegal_contact_duration > 0.0
     ):
-        raise RuntimeError(
-            "raw Clean calibration window contains a hard Physics event; "
-            "it cannot define measurement-noise tolerance"
+        raise FrontRESCleanCalibrationHardEventError(
+            repeat_id=candidate.repeat_id,
+            hard_events=hard_events,
         )
     observation = CleanCalibrationObservation(
         domain_id=domain_id,
@@ -131,21 +155,12 @@ def build_clean_calibration_measurement(
         angular_momentum_error=float(outcome.angular_momentum_error),
         support_drift=float(outcome.support_drift),
     )
-    hard_events = CleanHardEventEvidence(
-        survival_ok=bool(outcome.survival_ok),
-        survival_failure_duration=float(outcome.survival_failure_duration),
-        expected_support_no_load=float(outcome.expected_support_no_load),
-        unplanned_support_switch=float(outcome.unplanned_support_switch),
-        illegal_contact_duration=float(outcome.illegal_contact_duration),
-        valid_step_count=int(candidate.trajectory.valid_mask[:, 0].bool().sum().item()),
-        zmp_applicable_step_count=int(candidate.trajectory.zmp_margin[:, 0].isfinite().sum().item()),
-    )
-    hard_events.validate()
     return FrontRESCleanTelemetryMeasurement(observation=observation, hard_events=hard_events)
 
 
 __all__ = (
     "FrontRESCleanRawWindow",
+    "FrontRESCleanCalibrationHardEventError",
     "FrontRESCleanTelemetryMeasurement",
     "build_clean_calibration_measurement",
     "build_clean_calibration_observation",

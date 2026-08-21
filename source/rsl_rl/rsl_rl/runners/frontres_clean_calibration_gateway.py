@@ -48,6 +48,7 @@ from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layou
 from rsl_rl.runners.frontres_segment_one_action_k import collect_frontres_v017_no_actor_baseline
 from rsl_rl.modules import FrontRESActorCritic
 from rsl_rl.runners.frontres_clean_calibration_telemetry import (
+    FrontRESCleanCalibrationHardEventError,
     FrontRESCleanRawWindow,
     build_clean_calibration_measurement,
 )
@@ -73,7 +74,7 @@ _CLEAN_MANIFEST_REQUIRED = frozenset(
         "segments",
     }
 )
-_CLEAN_MANIFEST_OPTIONAL = frozenset({"expected_identity"})
+_CLEAN_MANIFEST_OPTIONAL = frozenset({"expected_identity", "fallback_source_indices"})
 
 
 def _hash_payload(value: Any) -> str:
@@ -128,6 +129,19 @@ def _strict_clean_manifest(payload: object) -> dict[str, Any]:
         raise ValueError("clean calibration scenario_source_index must be an integer")
     if payload["scenario_source_index"] not in (0, 1):
         raise ValueError("clean calibration scenario_source_index must select one of the two prepared sources")
+    fallback_indices = payload.get("fallback_source_indices", [])
+    if not isinstance(fallback_indices, list):
+        raise ValueError("clean calibration fallback_source_indices must be a list")
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in fallback_indices):
+        raise ValueError("clean calibration fallback_source_indices must contain integers")
+    if any(value not in (0, 1) for value in fallback_indices):
+        raise ValueError("clean calibration fallback_source_indices must select prepared sources")
+    if len(set(fallback_indices)) != len(fallback_indices):
+        raise ValueError("clean calibration fallback_source_indices must be unique")
+    if payload["scenario_source_index"] in fallback_indices:
+        raise ValueError("clean calibration fallback cannot repeat the primary source")
+    if fallback_indices and payload.get("expected_identity") is not None:
+        raise ValueError("clean calibration fallback cannot reuse one source-specific expected_identity")
     required_item = frozenset(
         {
             "item_id",
@@ -703,31 +717,64 @@ def collect_frontres_clean_calibration_from_manifest(
         raise RuntimeError(f"clean calibration refuses existing result identity: {result_file}")
     payload = json.loads(manifest_file.read_text(encoding="utf-8"))
     manifest = _strict_clean_manifest(payload)
-    prepared: FrontRESCleanCalibrationPreparedOwner | None = None
-    try:
-        ensure_frontres_readonly_reset_support(runner)
-        prepared_raw = prepare_frontres_fixed_k_m4_evaluation_batch(
-            runner,
-            _manifest_items(manifest),
-            attempts_per_segment=4,
-            allowed_horizons=(int(manifest["horizon_k"]),),
-            transaction_namespace=FRONTRES_CLEAN_CALIBRATION_ROUTE_ID,
-            route_label="FRS-EVAL-v010 clean calibration",
-        )
-        prepared = FrontRESCleanCalibrationPreparedOwner.from_prepared(prepared_raw)
-        request = _build_request_from_prepared(runner, manifest, prepared)
-        typed_connector = getattr(runner, "run_frontres_clean_calibration_collect_typed", None)
-        if not callable(typed_connector):
-            raise RuntimeError("clean calibration requires the official typed composition-root connector")
-        receipt = typed_connector(request=request, prepared=prepared)
+    ensure_frontres_readonly_reset_support(runner)
+    candidate_indices = (
+        int(manifest["scenario_source_index"]),
+        *(int(value) for value in manifest.get("fallback_source_indices", [])),
+    )
+    rejected_candidates: list[dict[str, object]] = []
+    result_file.parent.mkdir(parents=True, exist_ok=True)
+    for source_index in candidate_indices:
+        candidate_manifest = dict(manifest)
+        candidate_manifest["scenario_source_index"] = source_index
+        candidate_manifest.pop("fallback_source_indices", None)
+        prepared: FrontRESCleanCalibrationPreparedOwner | None = None
+        try:
+            prepared_raw = prepare_frontres_fixed_k_m4_evaluation_batch(
+                runner,
+                _manifest_items(candidate_manifest),
+                attempts_per_segment=4,
+                allowed_horizons=(int(candidate_manifest["horizon_k"]),),
+                transaction_namespace=FRONTRES_CLEAN_CALIBRATION_ROUTE_ID,
+                route_label="FRS-EVAL-v010 clean calibration",
+            )
+            prepared = FrontRESCleanCalibrationPreparedOwner.from_prepared(prepared_raw)
+            request = _build_request_from_prepared(runner, candidate_manifest, prepared)
+            typed_connector = getattr(runner, "run_frontres_clean_calibration_collect_typed", None)
+            if not callable(typed_connector):
+                raise RuntimeError(
+                    "clean calibration requires the official typed composition-root connector"
+                )
+            receipt = typed_connector(request=request, prepared=prepared)
+        except FrontRESCleanCalibrationHardEventError as exc:
+            rejected_candidates.append(
+                {
+                    "source_index": source_index,
+                    "scenario_id": request.identity.scenario_id,
+                    "repeat_id": exc.repeat_id,
+                    "hard_events": exc.hard_events.canonical_payload(),
+                }
+            )
+            continue
+        finally:
+            if prepared is not None:
+                close_frontres_local_scenarios(prepared.batch)
         result = _receipt_payload(receipt)
-        result_file.parent.mkdir(parents=True, exist_ok=True)
+        result["selected_source_index"] = source_index
+        result["rejected_candidates"] = tuple(rejected_candidates)
         write_frontres_atomic_json(result_file, result)
         return result
-    except BaseException:
-        if prepared is not None:
-            close_frontres_local_scenarios(prepared.batch)
-        raise
+
+    telemetry_gap = {
+        "status": "TELEMETRY-GAP",
+        "route_id": FRONTRES_CLEAN_CALIBRATION_ROUTE_ID,
+        "candidate_source_indices": candidate_indices,
+        "selected_source_index": None,
+        "rejected_candidates": tuple(rejected_candidates),
+        "reason": "all configured Clean candidates contain a hard Physics event",
+    }
+    write_frontres_atomic_json(result_file, telemetry_gap)
+    return telemetry_gap
 
 
 __all__ = (

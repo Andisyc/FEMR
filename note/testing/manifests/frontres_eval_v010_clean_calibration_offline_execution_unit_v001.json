@@ -27,8 +27,8 @@
   "causal_closure": {
     "required": true,
     "status": "STABILIZED",
-    "rationale": "The exact train.py dispatch helper and OnPolicyRunner connectors now execute one manifest-to-final-receipt pseudo transaction with simulator/cache effects isolated.",
-    "owner_or_invariant": "collect_frontres_clean_calibration_from_manifest must close the entire typed read-only lifecycle",
+    "rationale": "The exact train.py dispatch helper and OnPolicyRunner connectors now reject a hard-event Clean candidate, continue to an explicit fallback, and emit one atomic receipt or typed TELEMETRY-GAP with simulator/cache effects isolated.",
+    "owner_or_invariant": "collect_frontres_clean_calibration_from_manifest must keep hard-event evidence out of calibration while closing every candidate lifecycle",
     "evidence_ref": "frontres_clean_calibration_full_chain_pseudo_transaction: OFFICIAL_R1_PSEUDO_PASS",
     "falsifier": "The official R1 pseudo transaction fails, mutates protected state, leaks lifecycle, or leaves partial output"
   },
@@ -54,7 +54,7 @@
       "status": "PHASE_B_READY",
       "schema_version": "formal-runtime-audit/v3",
       "manifest_path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/testing/manifests/frontres_eval_v010_clean_calibration_formal_audit_v001.json",
-      "manifest_hash": "sha256:7dd8481e187bb50dc4ddc6dac4c08ea261f794860024fbf126eebf2d3112a111",
+      "manifest_hash": "sha256:4ece45d1a197817540cf72cf307c47cb1631c6130ed4b2a8257edf6fb2ec6143",
       "current": true,
       "identities": {
         "design": "FRS-EVAL-v010-clean-calibration-v001",
@@ -68,11 +68,11 @@
   ],
   "next_action": {
     "class": "bounded-live",
-    "description": "Run one zero-update official Clean calibration evaluation on the server",
-    "command": "RUN_TAG=OFFLINECLOSED1 PYTHON_BIN=python bash run/run_frontres_clean_calibration_v010.sh",
-    "cost": "16 environments, one selected K8 Scenario, two Clean repeats",
+    "description": "Run one zero-update official Clean calibration evaluation with an explicit fallback candidate",
+    "command": "RUN_TAG=CANDIDATEFALLBACK1 PYTHON_BIN=python bash run/run_frontres_clean_calibration_v010.sh",
+    "cost": "16 environments, at most two selected K8 Scenarios with two Clean repeats each",
     "stop_condition": "stop after the first receipt or first invariant failure; do not retry automatically",
-    "output_path": "FRS_EVAL_V010_CLEAN_CALIBRATION_R1_OFFLINECLOSED1.log and .json",
+    "output_path": "FRS_EVAL_V010_CLEAN_CALIBRATION_R1_CANDIDATEFALLBACK1.log and .json",
     "write_boundary": "evaluation log and atomic JSON only; no checkpoint, Replay or optimizer writes",
     "reversible": true,
     "costly": true,
@@ -87,9 +87,9 @@
     {
       "id": "LIVE-CLEAN-CAL-ISAAC-01",
       "status": "open",
-      "fact": "Real IsaacLab/CUDA reset and contact/ZMP telemetry reaches the same atomic receipt",
+      "fact": "Real IsaacLab/CUDA reset and contact/ZMP telemetry reaches a valid fallback receipt or an atomic typed TELEMETRY-GAP",
       "why_offline_impossible": "The local MOSAIC torch environment has no IsaacLab scene, PhysX contact sensor or server segment cache.",
-      "falsifier": "the official command fails before receipt, mutates protected state, leaks scenarios, or leaves partial output",
+      "falsifier": "the official command crashes on a hard candidate, accepts it as noise, loses event provenance, mutates protected state, leaks scenarios, or leaves partial output",
       "stop_condition": "one receipt or first invariant failure"
     }
   ],
@@ -109,13 +109,27 @@
       "attempt_id": "FRS-EVAL-v010-R1-OFFLINECLOSED1",
       "ordinal": 2,
       "action_class": "bounded-live",
-      "status": "planned",
+      "status": "failed",
       "unknown_id": "LIVE-CLEAN-CAL-ISAAC-01",
       "command": "RUN_TAG=OFFLINECLOSED1 PYTHON_BIN=python bash run/run_frontres_clean_calibration_v010.sh",
+      "failure_classification": "offline-fixable",
       "previous_attempt_id": "FRS-EVAL-v010-R1-server-latest",
       "previous_failure_classification": "offline-fixable",
-      "first_invalid_boundary": "sealed plan device indexing and partial result publication",
-      "narrowing_reason": "both defects are now covered by the exact official R1 pseudo transaction and negative regressions",
+      "first_invalid_boundary": "selected Clean candidate contained a hard Physics event and the campaign had no candidate-level recovery",
+      "narrowing_reason": "the device and atomic-write defects were closed; real telemetry exposed the next distinct campaign-orchestration gap",
+      "offline_closure_receipt": "frontres_clean_calibration_full_chain_pseudo_transaction: OFFICIAL_R1_PSEUDO_PASS"
+    },
+    {
+      "attempt_id": "FRS-EVAL-v010-R1-CANDIDATEFALLBACK1",
+      "ordinal": 3,
+      "action_class": "bounded-live",
+      "status": "planned",
+      "unknown_id": "LIVE-CLEAN-CAL-ISAAC-01",
+      "command": "RUN_TAG=CANDIDATEFALLBACK1 PYTHON_BIN=python bash run/run_frontres_clean_calibration_v010.sh",
+      "previous_attempt_id": "FRS-EVAL-v010-R1-OFFLINECLOSED1",
+      "previous_failure_classification": "offline-fixable",
+      "first_invalid_boundary": "candidate-level hard-event rejection and explicit fallback selection",
+      "narrowing_reason": "the exact official R1 pseudo transaction now proves primary rejection, fallback completion, typed event provenance, exact cleanup and atomic TELEMETRY-GAP",
       "offline_closure_receipt": "frontres_clean_calibration_full_chain_pseudo_transaction: OFFICIAL_R1_PSEUDO_PASS"
     }
   ]

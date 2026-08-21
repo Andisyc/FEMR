@@ -14,6 +14,7 @@ install_frontres_contract_packages(ROOT / "source" / "rsl_rl" / "rsl_rl")
 
 from rsl_rl.frontres.frontres_segment_evidence import FrontRESExecutedKTrajectory
 from rsl_rl.runners.frontres_clean_calibration_telemetry import (
+    FrontRESCleanCalibrationHardEventError,
     FrontRESCleanRawWindow,
     build_clean_calibration_measurement,
 )
@@ -79,8 +80,10 @@ def main() -> None:
             domain_id="pseudo-domain",
             scenario_id="scenario-0",
         )
-    except RuntimeError:
-        pass
+    except FrontRESCleanCalibrationHardEventError as exc:
+        assert exc.repeat_id == "repeat-bad"
+        assert exc.hard_events.expected_support_no_load > 0
+        assert exc.hard_events.survival_ok is True
     else:
         raise AssertionError("hard Clean events must fail closed")
 

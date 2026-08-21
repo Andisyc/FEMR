@@ -1,0 +1,108 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-EVAL-v010-CLEAN-HARD-CANDIDATE-DEBUG-20260821",
+  "mode": "debug-fix",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "DEBUG_FIX_PASS",
+  "scope": {
+    "requested": ["Diagnose and close the repeated live failure without weakening hard Physics validity"],
+    "preserved": [
+      "FRS-GAIN-v009 and TRAIN-v025 semantics",
+      "hard Physics evidence is invalid for Clean noise calibration",
+      "existing Stage-1, reset, transaction, telemetry, adapter and atomic writer owners"
+    ],
+    "forbidden": [
+      "No threshold relaxation or zero-fill",
+      "No Noisy, Repair, Gain, Replay, Critic or optimizer execution",
+      "No real-runtime or policy-quality claim from offline evidence"
+    ]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-EVAL-v010-clean-calibration-v001",
+    "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v014/FRS-TRAIN-v025 plus candidate calibration route",
+    "checkout": "b5289f51b1e9967d31bd7e9575c99955526fc52f+dirty",
+    "review_object": "sha256:9f97e0f20c3b89b50ca840faad29d34dc7b43b8e6287a21832ed03ac3d1d18f5"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Current hard-candidate debug diff"},
+    "source_edits": {"status": "approved", "scope": "v010 gateway, telemetry diagnostic and regressions", "receipt": "User explicitly requested inspection and comprehensive repair"},
+    "report_write": {"status": "approved", "scope": "Debug review and evidence receipts", "receipt": "User explicitly requested execution"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/reviews/FRS-EVAL-v010-clean-calibration-hard-candidate-debug-review-object-v001.md",
+    "content_hash": "sha256:9f97e0f20c3b89b50ca840faad29d34dc7b43b8e6287a21832ed03ac3d1d18f5",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "The correction stays at the existing manifest-to-receipt gateway Pinch Point and reuses the typed telemetry and lifecycle owners."
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "The gateway owns candidate campaign orchestration; the relational outcome owner still decides hard Physics validity."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "The strict manifest admits only explicit unique prepared-source fallback indices and the atomic result identifies selection and rejections."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "The gateway consumes typed telemetry errors and existing reset/materialization/close owners; no training owner depends on calibration."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "Every prepared candidate closes in finally; official pseudo tests prove valid fallback and all-invalid cleanup with no partial artifact."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "The production change is limited to the v010 gateway and telemetry diagnostic type; tests and one server manifest complete the same unit."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Offline evidence proves candidate rejection and fallback composition only; real source validity remains live-only."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "Hard-event values retain repeat, Scenario and selected-source provenance and cannot enter calibration observations."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "The route reaches no loss, backward, optimizer, Replay or Critic owner."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "Success and all-invalid outcomes use the existing atomic no-overwrite writer; injected failures retain cleanup behavior."}
+  ],
+  "findings": [
+    {
+      "finding_id": "CRE-FRS-EVAL-v010-HARD-CANDIDATE-P1",
+      "severity": "P1",
+      "status": "resolved",
+      "location": "source/rsl_rl/rsl_rl/runners/frontres_clean_calibration_gateway.py:collect_frontres_clean_calibration_from_manifest",
+      "evidence": [
+        {"kind": "trace", "locator": "FRS_EVAL_V010_CLEAN_CALIBRATION_R1_20260821.log", "observation": "The official route reached raw telemetry and aborted on one hard Physics candidate."},
+        {"kind": "test", "locator": "frontres_clean_calibration_full_chain_pseudo_transaction.py", "observation": "Primary hard-event rejection now reaches a valid fallback; all-invalid emits atomic TELEMETRY-GAP."}
+      ],
+      "named_diagnostic": "Pinch Point",
+      "responsibility_at_risk": "Campaign orchestration incorrectly promoted a candidate validity failure into a whole-route failure.",
+      "preserved_behavior": "Hard Physics candidates remain invalid and never contribute to noise calibration.",
+      "smallest_safe_change": "Catch only the typed hard-event condition at the manifest gateway, record provenance, and advance only through explicit fallback indices.",
+      "required_tests": ["typed hard-event telemetry", "invalid-primary valid-fallback official pseudo transaction", "all-invalid atomic TELEMETRY-GAP", "Stage-3 and aggregate characterization suites"],
+      "stop_condition": "Any hard candidate becomes calibration evidence, any unrelated exception is swallowed, or any candidate lifecycle leaks."
+    }
+  ],
+  "residual_risks": [
+    "Real source-1 Clean physical validity and CUDA sensor execution remain one bounded live-only fact; an all-invalid result is a valid TELEMETRY-GAP, not calibration success."
+  ],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "dependency-receipt",
+    "runtime_root_cause": "dependency-receipt",
+    "formal_route": "dependency-receipt",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": [
+    {
+      "kind": "module-alignment-manifest",
+      "status": "MODULE-CORRECT",
+      "schema_version": "module-alignment-test/v1",
+      "manifest_path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/testing/manifests/frontres_eval_v010_clean_calibration_module_alignment_v001.json",
+      "manifest_hash": "sha256:3823188b8c8343a256349eb6a69a6aeea4250b9bc0fd5d448058e0fb9e387f46",
+      "current": true,
+      "identities": {
+        "project": "FEMR-FrontRES",
+        "design": "FRS-EVAL-v010-clean-calibration-v001",
+        "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v014/FRS-TRAIN-v025 plus candidate calibration route",
+        "checkout": "b5289f51b1e9967d31bd7e9575c99955526fc52f+dirty"
+      },
+      "validation": {
+        "command": "validate_module_test_manifest.py --expect-design FRS-EVAL-v010-clean-calibration-v001",
+        "exit_code": 0,
+        "identity": "module-alignment-test/v1 VALID",
+        "current": true
+      }
+    }
+  ]
+}
