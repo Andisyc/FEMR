@@ -1,0 +1,129 @@
+[DEBUG] Registered SIGUSR1 stack dump. Use: kill -USR1 <pid>
+[Train] Launching Isaac Sim: device=cuda:0, headless=True, enable_cameras=False
+[Warning] [simulation_app.simulation_app] Modules: ['omni.kit_app'] were loaded before SimulationApp was started and might not be loaded correctly.
+[Warning] [simulation_app.simulation_app] Please check to make sure no extra omniverse or pxr modules are imported before the call to SimulationApp(...)
+Loading user config located at: '/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/omni/data/Kit/Isaac-Sim/4.5/user.config.json'
+[Info] [carb] Logging to file: /hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/omni/logs/Kit/Isaac-Sim/4.5/kit_20260821_152033.log
+2026-08-21 07:20:33 [0ms] [Warning] [omni.kit.app.plugin] No crash reporter present, dumps uploading isn't available.
+2026-08-21 07:20:33 [4ms] [Warning] [omni.ext.plugin] [ext: rendering_modes] Extensions config 'extension.toml' doesn't exist '/hdd1/cyx/IsaacLab_mosaic/apps/rendering_modes' or '/hdd1/cyx/IsaacLab_mosaic/apps/rendering_modes/config'
+2026-08-21 07:20:34 [1,184ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-08-21 07:20:35 [2,128ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+2026-08-21 07:20:36 [3,823ms] [Warning] [omni.datastore] OmniHub is inaccessible
+2026-08-21 07:20:37 [4,302ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+2026-08-21 07:20:45 [12,431ms] [Warning] [carb.cudainterop.plugin] CUDA_VISIBLE_DEVICES environment variable is set.
+2026-08-21 07:20:45 [12,431ms] [Warning] [carb.cudainterop.plugin] Note CUDA device enumeration and Omniverse device enumeration are different.
+2026-08-21 07:20:45 [12,431ms] [Warning] [carb.cudainterop.plugin] Setting CUDA_VISIBLE_DEVICES can lead to undesired behavior or crashes.
+2026-08-21 07:20:45 [12,471ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,471ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,473ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,473ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,474ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,474ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,475ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,475ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,476ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,476ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,477ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,477ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,477ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,477ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-21 07:20:45 [12,479ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 550.144.03    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 1435de0e.. |
+|     |                                  |        |     |            | 1a        |            |
+|---------------------------------------------------------------------------------------------|
+| 1   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 6ae32300.. |
+|     |                                  |        |     |            | 1b        |            |
+|---------------------------------------------------------------------------------------------|
+| 2   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | cd988dbb.. |
+|     |                                  |        |     |            | 1c        |            |
+|---------------------------------------------------------------------------------------------|
+| 3   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 8315f75d.. |
+|     |                                  |        |     |            | 1d        |            |
+|---------------------------------------------------[INFO][AppLauncher]: Using device: cuda:0
+[INFO][AppLauncher]: Loading experience file: /hdd1/cyx/IsaacLab_mosaic/apps/isaaclab.python.headless.kit
+[Train] Isaac Sim ready.
+[INFO]: Parsing configuration from: <class 'whole_body_tracking.tasks.tracking.config.g1.flat_env_cfg.G1FlatFrontRESFinetuneEnvCfg'>
+[INFO]: Parsing configuration from: whole_body_tracking.tasks.tracking.config.g1.agents.rsl_rl_mosaic_cfg:G1FlatFrontRESUnifiedRunnerCfg
+Error executing job with overrides: []
+Traceback (most recent call last):
+  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
+    func(env_cfg, agent_cfg, *args, **kwargs)
+  File "/hdd2/cyx/FEMR/scripts/rsl_rl/train.py", line 1655, in main
+    _apply_frontres_stage_preset(agent_cfg, args_cli)
+  File "/hdd2/cyx/FEMR/scripts/rsl_rl/train.py", line 1168, in _apply_frontres_stage_preset
+    k_curriculum = _parse_frontres_v015_k_curriculum(
+  File "/hdd2/cyx/FEMR/scripts/rsl_rl/train.py", line 878, in _parse_frontres_v015_k_curriculum
+    raise ValueError("v015 Stage-3 requires --frontres_segment_k_curriculum")
+ValueError: v015 Stage-3 requires --frontres_segment_k_curriculum
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.
+------------------------------------------|
+| 4   | NVIDIA RTX A6000                 | Yes: 0 |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 79eacb31.. |
+|     |                                  |        |     |            | 1e        |            |
+|---------------------------------------------------------------------------------------------|
+| 5   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 08b104c6.. |
+|     |                                  |        |     |            | 3d        |            |
+|---------------------------------------------------------------------------------------------|
+| 6   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 90839bb1.. |
+|     |                                  |        |     |            | 3f        |            |
+|---------------------------------------------------------------------------------------------|
+| 7   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 59febcf4.. |
+|     |                                  |        |     |            | 40        |            |
+|---------------------------------------------------------------------------------------------|
+| 8   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 46a2ef14.. |
+|     |                                  |        |     |            | 41        |            |
+|=============================================================================================|
+| OS: 22.04.5 LTS (Jammy Jellyfish) ubuntu, Version: 22.04.5, Kernel: 6.8.0-106-generic
+| Processor: Intel(R) Xeon(R) Gold 6240 CPU @ 2.60GHz
+| Cores: 36 | Logical Cores: 72
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 515614 | Free Memory: 321628
+| Total Page/Swap (MB): 1951 | Free Page/Swap: 0
+|---------------------------------------------------------------------------------------------|
+2026-08-21 07:20:46 [13,629ms] [Warning] [gpu.foundation.plugin] IOMMU is enabled.
+2026-08-21 07:20:46 [13,629ms] [Warning] [gpu.foundation.plugin] Detected IOMMU is enabled. Running CUDA peer-to-peer bandwidth and latency validation.
+Unidirectional P2P=Enabled Bandwidth (P2P Writes) Matrix (GB/s)
+   D\D     0 
+     0 672.62 
+P2P=Enabled Latency (P2P Writes) Matrix (us)
+   GPU     0 
+     0   1.66 
+
+   CPU     0 
+     0   4.11 
+2026-08-21 07:20:51 [18,686ms] [Warning] [omni.fabric.plugin] gFabricState->gUsdStageToSimStageWithHistoryMap had 1 outstanding SimStageWithHistory(s) at shutdown
+2026-08-21 07:20:52 [19,061ms] [Warning] [carb] Recursive unloadAllPlugins() detected!
