@@ -1,0 +1,66 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-GAIN-v010-CLEAN-CALIBRATION-STAGE1-INDEX-DEBUG-v001",
+  "mode": "debug-fix",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "DEBUG_FIX_PASS",
+  "scope": {
+    "requested": ["install the existing Stage-1 index/reset owner before v010 Clean materialization"],
+    "preserved": [
+      "active FRS-GAIN-v009 and training routes",
+      "historical policy-quality reset support",
+      "no Segment sampler, Replay, Gain or optimizer construction"
+    ],
+    "forbidden": ["server execution", "training", "formal R1 or policy-quality claims"]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-DP-07R/FRS-GAIN-v010-threshold-calibration-proposal-20260821",
+    "contract": "FRS-GAIN-v009 active; FRS-EVAL-v010 clean-calibration route",
+    "checkout": "aad035e395d15840f05932f1144a6cda579d7734+dirty",
+    "review_object": "frontres_segment_live_sampler.py@sha256:fe22731a3b63f37a623a676d665e031d5978fe8b60f919b6cd27b522f0650eaa"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "bounded Stage-1 index/reset debug fix"},
+    "source_edits": {"status": "approved", "scope": "repair the reported v010 runtime failure", "receipt": "current user request to inspect and fix the error"},
+    "report_write": {"status": "approved", "scope": "debug-fix review receipt", "receipt": "code-construction closeout"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "../../../source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
+    "content_hash": "sha256:fe22731a3b63f37a623a676d665e031d5978fe8b60f919b6cd27b522f0650eaa",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "../contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "The existing live-sampler cache/index owner remains the single loader; the gateway only invokes its read-only public seam."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "ensure_frontres_readonly_reset_support names the shared read-only behavior; the historical policy-quality function remains a compatible alias."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "The calibration gateway depends on the existing cache/reset owner and does not duplicate dataset loading."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "The helper snapshots the Segment sampler identity and fails if reset support creates or replaces it."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "The change is limited to the shared read-only reset seam, the calibration caller and focused characterization checks."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Offline checks prove wiring and compatibility only; the next server run remains the R1 boundary."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "No tensor schema changes; the existing Stage-1 dataset and reset hook preserve cache-backed Segment identity."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "The read-only helper rejects sampler replacement and does not construct Replay, Gain or optimizer updates."},
+    {"name": "persistence-evaluation", "disposition": "not-applicable", "evidence": "No checkpoint or result schema changed."}
+  ],
+  "findings": [],
+  "residual_risks": [
+    "IsaacLab runtime has not yet executed the repaired Stage-1 index installation.",
+    "Real Clean telemetry and the final v010 receipt remain unobserved."
+  ],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}

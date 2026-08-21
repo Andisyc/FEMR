@@ -34,6 +34,7 @@ from rsl_rl.frontres.frontres_clean_relative_calibration import (
 )
 from rsl_rl.runners.frontres_segment_live_sampler import (
     close_frontres_local_scenarios,
+    ensure_frontres_readonly_reset_support,
     prepare_frontres_fixed_k_m4_evaluation_batch,
 )
 from rsl_rl.runners.frontres_segment_formal_transaction import frontres_readonly_collection_scope
@@ -700,6 +701,7 @@ def collect_frontres_clean_calibration_from_manifest(
     manifest = _strict_clean_manifest(payload)
     prepared: FrontRESCleanCalibrationPreparedOwner | None = None
     try:
+        ensure_frontres_readonly_reset_support(runner)
         prepared_raw = prepare_frontres_fixed_k_m4_evaluation_batch(
             runner,
             _manifest_items(manifest),

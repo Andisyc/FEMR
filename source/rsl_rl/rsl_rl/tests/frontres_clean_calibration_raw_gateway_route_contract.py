@@ -48,11 +48,16 @@ def main() -> None:
         assert forbidden not in raw_gateway, f"raw gateway must not invoke {forbidden}"
 
     runner_source = RUNNER.read_text(encoding="utf-8")
+    typed_connector_source = runner_source.split(
+        "def run_frontres_clean_calibration_collect_typed", 1
+    )[1].split("def frontres_clean_calibration_state_fingerprint", 1)[0]
     train_source = TRAIN.read_text(encoding="utf-8")
     algorithm_source = ALGORITHM.read_text(encoding="utf-8")
     boundary_source = BOUNDARY.read_text(encoding="utf-8")
     assert "run_frontres_clean_calibration_collect_typed" in runner_source
+    assert "_dispatch_frontres_startup_once" not in typed_connector_source
     assert "prepare_frontres_fixed_k_m4_evaluation_batch" in manifest_connector
+    assert "ensure_frontres_readonly_reset_support" in manifest_connector
     assert "typed_connector" in manifest_connector
     assert "typed_collection_artifact" not in manifest_connector
     assert "--frontres_clean_calibration_collect_only" in train_source

@@ -156,13 +156,19 @@ def initialize_frontres_segment_live_sampler(runner: Any) -> None:
     )
 
 
-def ensure_frontres_policy_quality_reset_support(runner: Any) -> None:
-    """Install only cache-backed index reset support; never create or sample a replay sampler."""
+def ensure_frontres_readonly_reset_support(runner: Any) -> None:
+    """Install cache-backed index/reset support without creating Replay or a sampler."""
     sampler_before = getattr(runner, "_frontres_segment_sampler", None)
     _ensure_stage1_cache_dataset(runner)
     _ensure_stage1_index_reset_hook(runner)
     if getattr(runner, "_frontres_segment_sampler", None) is not sampler_before:
-        raise RuntimeError("policy-quality reset support must not create or replace the Segment sampler")
+        raise RuntimeError("read-only reset support must not create or replace the Segment sampler")
+
+
+def ensure_frontres_policy_quality_reset_support(runner: Any) -> None:
+    """Historical evaluator alias for the shared read-only reset owner."""
+
+    ensure_frontres_readonly_reset_support(runner)
 
 
 def _ensure_stage1_index_reset_hook(runner: Any) -> None:

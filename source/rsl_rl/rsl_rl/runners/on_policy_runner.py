@@ -804,18 +804,17 @@ class OnPolicyRunner:
         return self._dispatch_frontres_startup_once("clean_calibration", operation)
 
     def run_frontres_clean_calibration_collect_typed(self, *, request, prepared):
-        """Official composition-root connector for a typed raw Clean campaign."""
+        """Continue the already-dispatched official typed raw Clean campaign."""
 
         from rsl_rl.runners.frontres_clean_calibration_gateway import (
             collect_frontres_clean_calibration_raw_gateway,
         )
 
-        operation = lambda: collect_frontres_clean_calibration_raw_gateway(
+        return collect_frontres_clean_calibration_raw_gateway(
             self,
             request=request,
             prepared=prepared,
         )
-        return self._dispatch_frontres_startup_once("clean_calibration", operation)
 
     def frontres_clean_calibration_state_fingerprint(self, transaction_id: str) -> str:
         """Expose the official read-only protected-state identity owner."""
