@@ -139,6 +139,7 @@ class _Command:
         self._step = 0
         self.begin_count = 0
         self.end_count = 0
+        self.advance_count = 0
 
     def configure_repeat(self, noise: float) -> None:
         self._repeat_noise = float(noise)
@@ -146,7 +147,8 @@ class _Command:
 
     def advance_dynamics(self) -> None:
         self._step += 1
-        scale = self._repeat_noise * float(self._step)
+        row_factor = 1.0 + 0.05 * torch.arange(self.num_envs, dtype=torch.float32)
+        scale = self._repeat_noise * float(self._step) * row_factor
         self.robot_anchor_pos_w[:, 0] = 0.25 * scale
         self.robot_anchor_pos_w[:, 1] = 0.1 * scale
         self.robot_anchor_lin_vel_w[:, 0] = scale
@@ -154,7 +156,7 @@ class _Command:
         self.robot_anchor_ang_vel_w[:, 2] = 0.5 * scale
         self.robot_body_pos_w[:, 0, 0] = -0.1 + scale
         self.robot_body_pos_w[:, 1, 0] = 0.1 + scale
-        self.robot_body_pos_w[:, :, 1] = 0.2 * scale
+        self.robot_body_pos_w[:, :, 1] = 0.2 * scale[:, None]
 
     def begin_frontres_local_scenario_k_execution(self) -> None:
         if self._active:
@@ -165,6 +167,7 @@ class _Command:
     def advance_frontres_local_scenario_k_execution(self) -> dict[str, torch.Tensor]:
         if not self._active:
             raise RuntimeError("Clean K execution advanced before begin")
+        self.advance_count += 1
         return {"valid_mask": torch.ones(self.num_envs, dtype=torch.bool)}
 
     def end_frontres_local_scenario_k_execution(self) -> None:
@@ -396,6 +399,7 @@ def _manifest() -> dict[str, object]:
         "domain_id": "frontres-stage3",
         "field_schema_id": "frontres-clean-calibration-fields-v1",
         "horizon_k": 8,
+        "preroll_steps": 2,
         "timestep_seconds": 0.02,
         "seed_protocol_id": "clean-repeat-v1",
         "coverage": 0.95,
@@ -411,7 +415,7 @@ def _manifest() -> dict[str, object]:
                 "start_frame": 10,
                 "perturbation_family": "local_rp",
                 "perturbation_parameters": [["strength", 0.0]],
-                "effective_horizon_k": 8,
+                "effective_horizon_k": 10,
                 "seed": 100,
             },
             {
@@ -420,7 +424,7 @@ def _manifest() -> dict[str, object]:
                 "start_frame": 20,
                 "perturbation_family": "local_rp",
                 "perturbation_parameters": [["strength", 0.0]],
-                "effective_horizon_k": 8,
+                "effective_horizon_k": 10,
                 "seed": 101,
             },
         ],
@@ -471,10 +475,55 @@ def main() -> None:
         assert tuple(receipt["repeat_ids"]) == ("repeat-00", "repeat-01")
         command = runner.env.command_manager._terms["motion"]
         assert command._active is False
-        assert (command.begin_count, command.end_count) == (2, 2)
-        assert (runner.env.reset_count, runner.env.step_count) == (2, 18)
+        assert (command.begin_count, command.end_count, command.advance_count) == (2, 2, 20)
+        assert (runner.env.reset_count, runner.env.step_count) == (2, 22)
         assert runner.env.close_count == 1
         assert len(tuple(runner._frontres_segment_dataset.last_batch.frontres_local_scenario_closed_ids)) == 2
+
+    def collect_candidate_order(order: tuple[int, int]) -> dict[int, tuple[float | int, ...]]:
+        torch.manual_seed(7)
+        order_runner = _Runner()
+        measurements: dict[int, tuple[float | int, ...]] = {}
+        with tempfile.TemporaryDirectory(prefix="frontres-clean-order-") as directory:
+            for position, source_index in enumerate(order):
+                manifest = Path(directory) / f"manifest-{position}.json"
+                result = Path(directory) / f"result-{position}.json"
+                payload = _manifest()
+                payload["scenario_source_index"] = source_index
+                manifest.write_text(json.dumps(payload), encoding="utf-8")
+                with (
+                    patch(
+                        "rsl_rl.runners.frontres_clean_calibration_gateway.ensure_frontres_readonly_reset_support",
+                        side_effect=lambda owner: None,
+                    ),
+                    patch(
+                        "rsl_rl.runners.frontres_clean_calibration_gateway.prepare_frontres_raw_contact_views",
+                        side_effect=lambda owner: None,
+                    ),
+                ):
+                    collected = collect_frontres_clean_calibration_from_manifest(
+                        order_runner,
+                        manifest_path=str(manifest),
+                        result_path=str(result),
+                    )
+                assert collected["status"] == "OK"
+                calibration = collected["calibration"]
+                measurements[source_index] = (
+                    int(calibration["repeated_sample_count"]),
+                    int(calibration["repeated_pair_count"]),
+                    float(calibration["capture_margin_resolution"]),
+                    float(calibration["capture_trend_resolution"]),
+                    float(calibration["zmp_margin_resolution"]),
+                    float(calibration["linear_momentum_resolution"]),
+                    float(calibration["angular_momentum_resolution"]),
+                    float(calibration["support_drift_resolution"]),
+                )
+        return measurements
+
+    forward_order = collect_candidate_order((0, 1))
+    reverse_order = collect_candidate_order((1, 0))
+    assert forward_order[0] != forward_order[1], forward_order
+    assert forward_order == reverse_order, (forward_order, reverse_order)
 
     runner = _Runner()
     with tempfile.TemporaryDirectory(prefix="frontres-clean-atomic-") as directory:

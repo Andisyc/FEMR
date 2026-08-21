@@ -4,6 +4,7 @@
   "domain_id": "frontres-stage3",
   "field_schema_id": "frontres-clean-calibration-fields-v1",
   "horizon_k": 8,
+  "preroll_steps": 8,
   "timestep_seconds": 0.02,
   "seed_protocol_id": "clean-repeat-v1",
   "coverage": 0.95,
@@ -15,21 +16,21 @@
   ],
   "segments": [
     {
-      "item_id": "v010-clean-kit572-wave-right02-f163",
+      "item_id": "v010-clean-kit572-wave-right02-preroll-f155",
       "motion_id": "KIT/572/amass_g1_wave_right02_poses_reflect.npz",
-      "start_frame": 163,
+      "start_frame": 155,
       "perturbation_family": "local_rp",
       "perturbation_parameters": [["strength", 0.0]],
-      "effective_horizon_k": 8,
+      "effective_horizon_k": 16,
       "seed": 100
     },
     {
-      "item_id": "v010-clean-bml-rub003-catch-throw-f93",
+      "item_id": "v010-clean-bml-rub003-catch-throw-preroll-f85",
       "motion_id": "BioMotionLab_NTroje/rub003/amass_g1_0017_catching_and_throwing_poses.npz",
-      "start_frame": 93,
+      "start_frame": 85,
       "perturbation_family": "local_rp",
       "perturbation_parameters": [["strength", 0.0]],
-      "effective_horizon_k": 8,
+      "effective_horizon_k": 16,
       "seed": 101
     }
   ]

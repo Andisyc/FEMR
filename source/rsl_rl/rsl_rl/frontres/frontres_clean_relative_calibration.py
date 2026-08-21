@@ -233,6 +233,7 @@ class CleanCalibrationCollectionIdentity:
     horizon_k: int
     timestep_seconds: float
     seed_protocol_id: str
+    preroll_steps: int = 0
 
     def validate(self) -> None:
         if not all(
@@ -257,13 +258,23 @@ class CleanCalibrationCollectionIdentity:
                 raise ValueError(f"Clean collection identity {name} must be SHA-256")
         if isinstance(self.horizon_k, bool) or not isinstance(self.horizon_k, int) or self.horizon_k <= 0:
             raise ValueError("Clean collection identity horizon_k must be positive")
+        if (
+            isinstance(self.preroll_steps, bool)
+            or not isinstance(self.preroll_steps, int)
+            or self.preroll_steps < 0
+        ):
+            raise ValueError("Clean collection identity preroll_steps must be a non-negative integer")
         if _finite(self.timestep_seconds, name="Clean collection identity timestep_seconds") <= 0.0:
             raise ValueError("Clean collection identity timestep_seconds must be positive")
 
     def canonical_payload(self) -> dict[str, object]:
         self.validate()
-        return {
-            "identity_schema": "frontres-readonly-clean-collection-identity-v1",
+        payload: dict[str, object] = {
+            "identity_schema": (
+                "frontres-readonly-clean-collection-identity-v1"
+                if self.preroll_steps == 0
+                else "frontres-readonly-clean-collection-identity-v2"
+            ),
             "domain_id": self.domain_id,
             "scenario_id": self.scenario_id,
             "segment_identity": self.segment_identity,
@@ -277,6 +288,9 @@ class CleanCalibrationCollectionIdentity:
             "timestep_seconds": float(self.timestep_seconds),
             "seed_protocol_id": self.seed_protocol_id,
         }
+        if self.preroll_steps > 0:
+            payload["preroll_steps"] = self.preroll_steps
+        return payload
 
 
 @dataclass(frozen=True)

@@ -413,6 +413,55 @@ def select_frontres_v017_trajectory_rows(
     return selected
 
 
+def select_frontres_v017_trajectory_steps(
+    trajectory: FrontRESExecutedKTrajectory,
+    expected_support: torch.Tensor,
+    *,
+    start_step: int,
+    step_count: int,
+) -> tuple[FrontRESExecutedKTrajectory, torch.Tensor]:
+    """Select one scored time window while preserving the executed preroll boundary."""
+
+    trajectory.validate()
+    start = int(start_step)
+    count = int(step_count)
+    stop = start + count
+    total = int(trajectory.joint_pos.shape[0])
+    if start < 0 or count <= 0 or stop > total:
+        raise ValueError(
+            f"v017 trajectory step window [{start},{stop}) exceeds executed length {total}"
+        )
+    if not isinstance(expected_support, torch.Tensor) or int(expected_support.shape[0]) != total:
+        raise ValueError("v017 expected support must share the executed trajectory time axis")
+    selected = FrontRESExecutedKTrajectory(
+        **{
+            name: getattr(trajectory, name)[start:stop].detach().clone()
+            for name in (
+                "joint_pos",
+                "root_pos",
+                "root_quat",
+                "key_body_pos",
+                "root_lin_vel",
+                "root_ang_vel",
+                "foot_pos",
+                "contact",
+                "zmp_margin",
+                "survival",
+                "valid_mask",
+            )
+        }
+        | {
+            "env_origin": (
+                trajectory.env_origin[start:stop].detach().clone()
+                if isinstance(trajectory.env_origin, torch.Tensor)
+                else None
+            )
+        }
+    )
+    selected.validate()
+    return selected, expected_support[start:stop].detach().clone()
+
+
 def collect_frontres_v017_no_actor_baseline(
     runner: Any,
     *,

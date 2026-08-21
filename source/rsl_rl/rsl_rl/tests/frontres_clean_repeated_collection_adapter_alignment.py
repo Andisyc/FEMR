@@ -123,6 +123,14 @@ def _assert_rejected(callable_, message: str) -> None:
 
 def main() -> None:
     request = _request()
+    assert request.identity.canonical_payload()["identity_schema"] == (
+        "frontres-readonly-clean-collection-identity-v1"
+    )
+    preroll_identity = replace(request.identity, preroll_steps=8)
+    assert preroll_identity.canonical_payload()["identity_schema"] == (
+        "frontres-readonly-clean-collection-identity-v2"
+    )
+    assert preroll_identity.canonical_payload()["preroll_steps"] == 8
     collection = _collection(request)
     receipt = adapt_read_only_clean_collection(request, collection)
     receipt.validate_for_request(request)

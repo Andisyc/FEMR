@@ -45,7 +45,10 @@ from rsl_rl.runners.frontres_segment_runtime_types import bind_frontres_collecti
 from rsl_rl.runners.frontres_segment_transaction import capture_frontres_frozen_policy_snapshot
 from rsl_rl.frontres.frontres_balance import prepare_frontres_raw_contact_views
 from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layout
-from rsl_rl.runners.frontres_segment_one_action_k import collect_frontres_v017_no_actor_baseline
+from rsl_rl.runners.frontres_segment_one_action_k import (
+    collect_frontres_v017_no_actor_baseline,
+    select_frontres_v017_trajectory_steps,
+)
 from rsl_rl.modules import FrontRESActorCritic
 from rsl_rl.runners.frontres_clean_calibration_telemetry import (
     FrontRESCleanCalibrationHardEventError,
@@ -58,7 +61,7 @@ from rsl_rl.runners.frontres_evaluation_reporting import write_frontres_atomic_j
 FRONTRES_CLEAN_CALIBRATION_ROUTE = "clean_calibration"
 FRONTRES_CLEAN_CALIBRATION_ROUTE_ID = "FRS-EVAL-v010-clean-calibration-v001"
 FRONTRES_CLEAN_CALIBRATION_COLLECTOR_ID = "frontres-v010-clean-telemetry"
-FRONTRES_CLEAN_CALIBRATION_COLLECTOR_VERSION = "v1"
+FRONTRES_CLEAN_CALIBRATION_COLLECTOR_VERSION = "v2-preroll"
 _CLEAN_MANIFEST_REQUIRED = frozenset(
     {
         "route_id",
@@ -66,6 +69,7 @@ _CLEAN_MANIFEST_REQUIRED = frozenset(
         "domain_id",
         "field_schema_id",
         "horizon_k",
+        "preroll_steps",
         "timestep_seconds",
         "seed_protocol_id",
         "coverage",
@@ -115,6 +119,12 @@ def _strict_clean_manifest(payload: object) -> dict[str, Any]:
         raise ValueError("clean calibration field_schema_id must be non-empty")
     if isinstance(payload["horizon_k"], bool) or not isinstance(payload["horizon_k"], int) or payload["horizon_k"] <= 0:
         raise ValueError("clean calibration horizon_k must be positive")
+    if (
+        isinstance(payload["preroll_steps"], bool)
+        or not isinstance(payload["preroll_steps"], int)
+        or payload["preroll_steps"] <= 0
+    ):
+        raise ValueError("clean calibration preroll_steps must be a positive integer")
     if not isinstance(payload["timestep_seconds"], (int, float)) or float(payload["timestep_seconds"]) <= 0.0:
         raise ValueError("clean calibration timestep_seconds must be positive")
     if not isinstance(payload["seed_protocol_id"], str) or not payload["seed_protocol_id"]:
@@ -161,8 +171,10 @@ def _strict_clean_manifest(payload: object) -> dict[str, Any]:
         if not isinstance(item_id, str) or not item_id or item_id in seen_ids:
             raise ValueError("clean calibration Segment item identities must be unique")
         seen_ids.add(item_id)
-        if item["effective_horizon_k"] != payload["horizon_k"]:
-            raise ValueError("clean calibration Segment K differs from manifest K")
+        if item["effective_horizon_k"] != payload["horizon_k"] + payload["preroll_steps"]:
+            raise ValueError("clean calibration Segment horizon must equal preroll_steps + scored K")
+        if item["start_frame"] < 0:
+            raise ValueError("clean calibration preroll start_frame must be non-negative")
         if item["perturbation_family"] != "local_rp":
             raise ValueError("clean calibration requires the local_rp clean materializer family")
         if item["perturbation_parameters"] != [["strength", 0.0]]:
@@ -262,6 +274,7 @@ def _build_request_from_prepared(
         "horizon_k": int(payload["horizon_k"]),
         "timestep_seconds": float(payload["timestep_seconds"]),
         "seed_protocol_id": str(payload["seed_protocol_id"]),
+        "preroll_steps": int(payload["preroll_steps"]),
     }
     expected = payload.get("expected_identity")
     if expected is not None:
@@ -362,8 +375,9 @@ def _clean_calibration_representative_row(
     if int(rows.numel()) <= 0:
         raise RuntimeError(f"clean calibration Scenario {scenario_id!r} is absent from the sealed plan")
     k_values = torch.unique(horizon_k.index_select(0, rows).to(dtype=torch.long))
-    if int(k_values.numel()) != 1 or int(k_values[0].item()) != int(request.identity.horizon_k):
-        raise RuntimeError("clean calibration request K differs from the sealed plan")
+    executed_k = int(request.identity.preroll_steps) + int(request.identity.horizon_k)
+    if int(k_values.numel()) != 1 or int(k_values[0].item()) != executed_k:
+        raise RuntimeError("clean calibration preroll plus scored K differs from the sealed plan")
     return source_index.index_select(0, rows[:1]).to(device=device, dtype=torch.long), int(k_values[0].item())
 
 
@@ -378,7 +392,7 @@ def _collect_raw_clean_collection(
     prepared.validate()
     plan = prepared.plan
     device = torch.device(getattr(runner, "device", "cpu"))
-    authoritative_rows, active_k = _clean_calibration_representative_row(request, plan, device=device)
+    authoritative_rows, executed_k = _clean_calibration_representative_row(request, plan, device=device)
     pair_layout = prepared.pair_layout
     if pair_layout is None:
         mode = resolve_frontres_mode_state(runner, FrontRESActorCritic)
@@ -399,10 +413,16 @@ def _collect_raw_clean_collection(
                     pair_layout=pair_layout,
                     local_scenario_execution_mode="clean_baseline",
                 )
-                trajectory, expected_support = collect_frontres_v017_no_actor_baseline(
+                executed, executed_support = collect_frontres_v017_no_actor_baseline(
                     runner,
-                    horizon_k=active_k,
+                    horizon_k=executed_k,
                     authoritative_rows=authoritative_rows,
+                )
+                trajectory, expected_support = select_frontres_v017_trajectory_steps(
+                    executed,
+                    executed_support,
+                    start_step=request.identity.preroll_steps,
+                    step_count=request.identity.horizon_k,
                 )
             raw_window = FrontRESCleanRawWindow(
                 repeat_id=repeat.repeat_id,
@@ -734,7 +754,9 @@ def collect_frontres_clean_calibration_from_manifest(
                 runner,
                 _manifest_items(candidate_manifest),
                 attempts_per_segment=4,
-                allowed_horizons=(int(candidate_manifest["horizon_k"]),),
+                allowed_horizons=(
+                    int(candidate_manifest["horizon_k"]) + int(candidate_manifest["preroll_steps"]),
+                ),
                 transaction_namespace=FRONTRES_CLEAN_CALIBRATION_ROUTE_ID,
                 route_label="FRS-EVAL-v010 clean calibration",
             )

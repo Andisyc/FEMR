@@ -18,6 +18,7 @@ from rsl_rl.runners.frontres_clean_calibration_telemetry import (
     FrontRESCleanRawWindow,
     build_clean_calibration_measurement,
 )
+from rsl_rl.runners.frontres_segment_one_action_k import select_frontres_v017_trajectory_steps
 
 
 def _trajectory(*, velocity_offset: float = 0.0, no_load: bool = False) -> FrontRESExecutedKTrajectory:
@@ -52,6 +53,30 @@ def _window(repeat_id: str, trajectory: FrontRESExecutedKTrajectory) -> FrontRES
 
 
 def main() -> None:
+    executed = _trajectory()
+    executed.contact[0] = 0.0
+    scored, scored_support = select_frontres_v017_trajectory_steps(
+        executed,
+        torch.ones(3, 1, 2),
+        start_step=1,
+        step_count=2,
+    )
+    preroll_filtered = _window("repeat-preroll", scored)
+    preroll_filtered = FrontRESCleanRawWindow(
+        repeat_id=preroll_filtered.repeat_id,
+        trajectory=preroll_filtered.trajectory,
+        expected_support=scored_support,
+        timestep_seconds=preroll_filtered.timestep_seconds,
+    )
+    preroll_measurement = build_clean_calibration_measurement(
+        reference=preroll_filtered,
+        candidate=preroll_filtered,
+        domain_id="pseudo-domain",
+        scenario_id="scenario-preroll",
+    )
+    assert preroll_measurement.hard_events.expected_support_no_load == 0.0
+    assert preroll_measurement.hard_events.valid_step_count == 2
+
     reference = _window("repeat-0", _trajectory())
     first = build_clean_calibration_measurement(
         reference=reference,
