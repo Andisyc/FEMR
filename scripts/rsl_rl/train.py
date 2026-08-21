@@ -1629,6 +1629,47 @@ def _exit_frontres_stage1_segment_cache(env) -> None:
     os._exit(0)
 
 
+def _run_frontres_clean_calibration_collect_only(args_cli, runner, env) -> bool:
+    """Dispatch the exclusive read-only Clean calibration route once."""
+
+    if not bool(getattr(args_cli, "frontres_clean_calibration_collect_only", False)):
+        return False
+    try:
+        conflicting_modes = [
+            name
+            for name in (
+                "frontres_policy_quality_eval_only",
+                "frontres_policy_quality_q2d_eval_only",
+                "frontres_action_gain_direction_collect_only",
+                "frontres_segment_live_sentinel_only",
+                "frontres_local_sentinel_only",
+                "frontres_segment_live_probe_only",
+                "frontres_segment_live_storage_write_only",
+                "frontres_segment_live_single_update_only",
+                "frontres_segment_live_update_loop_only",
+            )
+            if bool(getattr(args_cli, name, False))
+        ]
+        if conflicting_modes:
+            raise ValueError(
+                f"clean_calibration_collect is exclusive with other Stage 3 modes: {conflicting_modes}"
+            )
+        required = {
+            "--frontres_clean_calibration_manifest": args_cli.frontres_clean_calibration_manifest,
+            "--frontres_clean_calibration_result": args_cli.frontres_clean_calibration_result,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise ValueError(f"clean_calibration_collect missing required arguments: {missing}")
+        runner.run_frontres_clean_calibration_collect(
+            manifest_path=args_cli.frontres_clean_calibration_manifest,
+            result_path=args_cli.frontres_clean_calibration_result,
+        )
+    finally:
+        env.close()
+    return True
+
+
 @hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point") # 
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
     """Train with RSL-RL agent."""
@@ -1841,40 +1882,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env.close()
         return
 
-    if bool(getattr(args_cli, "frontres_clean_calibration_collect_only", False)):
-        conflicting_modes = [
-            name
-            for name in (
-                "frontres_policy_quality_eval_only",
-                "frontres_policy_quality_q2d_eval_only",
-                "frontres_action_gain_direction_collect_only",
-                "frontres_segment_live_sentinel_only",
-                "frontres_local_sentinel_only",
-                "frontres_segment_live_probe_only",
-                "frontres_segment_live_storage_write_only",
-                "frontres_segment_live_single_update_only",
-                "frontres_segment_live_update_loop_only",
-            )
-            if bool(getattr(args_cli, name, False))
-        ]
-        if conflicting_modes:
-            raise ValueError(
-                f"clean_calibration_collect is exclusive with other Stage 3 modes: {conflicting_modes}"
-            )
-        required = {
-            "--frontres_clean_calibration_manifest": args_cli.frontres_clean_calibration_manifest,
-            "--frontres_clean_calibration_result": args_cli.frontres_clean_calibration_result,
-        }
-        missing = [name for name, value in required.items() if not value]
-        if missing:
-            raise ValueError(f"clean_calibration_collect missing required arguments: {missing}")
-        try:
-            runner.run_frontres_clean_calibration_collect(
-                manifest_path=args_cli.frontres_clean_calibration_manifest,
-                result_path=args_cli.frontres_clean_calibration_result,
-            )
-        finally:
-            env.close()
+    if _run_frontres_clean_calibration_collect_only(args_cli, runner, env):
         return
 
     if bool(getattr(args_cli, "frontres_action_gain_direction_collect_only", False)):

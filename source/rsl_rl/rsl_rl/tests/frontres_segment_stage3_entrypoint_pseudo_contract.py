@@ -174,6 +174,7 @@ def _alg_cfg() -> SimpleNamespace:
         frontres_actor_only_lr_ramp_transactions=50,
         frontres_segment_replay_enabled=False,
         frontres_policy_quality_eval_only=False,
+        frontres_clean_calibration_collect_only=False,
         frontres_segment_live_runner_enabled=False,
         frontres_segment_live_sentinel_only=False,
         frontres_segment_live_probe_only=False,
@@ -242,6 +243,9 @@ def _args(**overrides) -> SimpleNamespace:
         "frontres_segment_live_update_loop_only": False,
         "frontres_policy_quality_eval_only": False,
         "frontres_action_gain_direction_collect_only": False,
+        "frontres_clean_calibration_collect_only": False,
+        "frontres_clean_calibration_manifest": None,
+        "frontres_clean_calibration_result": None,
         "frontres_policy_quality_q2d_eval_only": False,
         "frontres_segment_live_update_steps": 6,
         "frontres_segment_critic_warmup_iterations": 200,
@@ -399,13 +403,32 @@ def test_stage3_policy_quality_config_is_formal_and_read_only() -> None:
     direction_alg = direction_cfg.algorithm
     assert direction_cfg.max_iterations == 0
     assert direction_alg.frontres_segment_replay_enabled is False
-    assert direction_alg.frontres_policy_quality_eval_only is True
+    assert direction_alg.frontres_policy_quality_eval_only is False
     assert direction_alg.frontres_segment_live_runner_enabled is False
     assert direction_alg.frontres_segment_live_train_enabled is False
     assert direction_alg.frontres_formal_transaction_enabled is True
     assert direction_alg.frontres_segment_advantage_normalization == "grouped_scale_only"
     assert direction_alg.frontres_segment_k == 8
     assert direction_alg.frontres_gain_beta == 0.02
+
+    clean_cfg = _agent_cfg()
+    _apply_frontres_stage_preset(
+        clean_cfg,
+        _args(
+            frontres_clean_calibration_collect_only=True,
+            frontres_clean_calibration_manifest="/tmp/frontres-clean-manifest.json",
+            frontres_clean_calibration_result="/tmp/frontres-clean-result.json",
+        ),
+    )
+    clean_alg = clean_cfg.algorithm
+    assert clean_cfg.max_iterations == 0
+    assert clean_alg.frontres_segment_replay_enabled is False
+    assert clean_alg.frontres_policy_quality_eval_only is False
+    assert clean_alg.frontres_clean_calibration_collect_only is True
+    assert clean_alg.frontres_segment_live_runner_enabled is False
+    assert clean_alg.frontres_segment_live_train_enabled is False
+    assert clean_alg.frontres_formal_transaction_enabled is True
+    assert clean_alg.frontres_segment_live_update_steps == 0
 
     missing_initializer = _agent_cfg()
     try:

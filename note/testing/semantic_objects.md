@@ -165,6 +165,13 @@ separate and cannot enter a local PPO return.
 
 Missing evidence is `UNCONFIRMED`, never zero.
 
+`FRS-EVAL-v010` repeated-Clean calibration is a candidate evaluation object,
+not Gain or training evidence. Its identity binds the sealed Clean artifact,
+K, field schema, repeat IDs/seeds, GMT/policy snapshot, restored RNG, and
+protected training-state fingerprint. Its output is a typed calibration
+receipt written atomically. Noisy, Repair, Gain, Replay, Critic, or optimizer
+effects are forbidden; missing hard-event evidence invalidates the campaign.
+
 The v015 deployment-composition S1 object is an explicit structured `.npz`
 identity plus a canonical `persistent_full_sequence` corruption protocol. Its
 immutable report owns per-frame FEMR action use, q29 intent error, physics

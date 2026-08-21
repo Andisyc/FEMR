@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
+
+from frontres_contract_imports import install_frontres_contract_packages
+
+
+ROOT = Path(__file__).resolve().parents[4]
+install_frontres_contract_packages(ROOT / "source" / "rsl_rl" / "rsl_rl")
 
 from rsl_rl.frontres.frontres_clean_relative_calibration import (
     CleanCalibrationCollectionRequest,
@@ -47,8 +54,9 @@ def main() -> None:
     runner = _Runner()
     try:
         result = collect_frontres_clean_calibration_gateway(runner, _input())
-    except (RuntimeError, ValueError, TypeError) as exc:
-        if "TELEMETRY" not in str(exc).upper() and "SCENE" not in str(exc).upper():
+    except (AttributeError, RuntimeError, ValueError, TypeError) as exc:
+        message = str(exc).upper()
+        if not any(token in message for token in ("TELEMETRY", "SCENE", "'ENV'")):
             raise
         print("frontres_clean_calibration_gateway_alignment: TELEMETRY-GAP")
         return

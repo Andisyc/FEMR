@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "design_identity": "FRS-EVAL-v010-clean-calibration-v001",
+  "checkout_identity": "b5289f51b1e9967d31bd7e9575c99955526fc52f+dirty",
+  "modules": [
+    {
+      "id": "FRS-CLEAN-RAW-TELEMETRY-v1",
+      "owner": "frontres_clean_calibration_telemetry",
+      "public_boundary": "build_clean_calibration_measurement(anchor, candidate, identity, dt) -> FrontRESCleanCalibrationMeasurement",
+      "card": {
+        "status": "confirmed",
+        "identity": "FRS-EVAL-v010-clean-calibration-r1-offline-closure-plan/raw-telemetry"
+      },
+      "required": {
+        "s_tiers": ["S1"],
+        "case_families": ["C1", "C3"],
+        "t_kinds": ["T-value", "T-role", "T-mask", "T-oracle"]
+      },
+      "case_family_waivers": {
+        "C2": "This reducer has no tunable threshold boundary; threshold calibration is owned by build_clean_calibration.",
+        "C4": "Repeat identity and order invariance are owned by adapt_read_only_clean_collection."
+      },
+      "cases": [
+        {
+          "id": "raw-clean-valid-dynamics",
+          "case_family": "C1",
+          "s_tier": "S1",
+          "t_kinds": ["T-value", "T-role", "T-oracle"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["Clean anchor K-step trajectory", "same-Scenario Clean repeat", "expected and actual support"],
+            "units_and_axes": "K x B trajectories; position in m, velocity in m/s, ZMP margin in m, support on left/right axis",
+            "validity_semantics": "all K rows valid and alive; ZMP applicable; repeat velocity offset is finite"
+          },
+          "oracle": {
+            "kind": "hand-calculation",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-counterexample",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_clean_calibration_telemetry_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_calibration_telemetry_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "raw-clean-hard-no-load",
+          "case_family": "C3",
+          "s_tier": "S1",
+          "t_kinds": ["T-mask", "T-value"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["expected loaded support", "actual unloaded support"],
+            "units_and_axes": "K x B x 2 support/contact rows",
+            "validity_semantics": "finite evidence with a real hard event must fail closed rather than become calibration noise"
+          },
+          "oracle": {
+            "kind": "human-confirmed-golden",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-counterexample",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_clean_calibration_telemetry_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_calibration_telemetry_alignment: MODULE-CORRECT"
+          }
+        }
+      ],
+      "status": "MODULE-CORRECT"
+    },
+    {
+      "id": "FRS-CLEAN-REPEATED-COLLECTION-ADAPTER-v1",
+      "owner": "frontres_clean_relative_calibration",
+      "public_boundary": "adapt_read_only_clean_collection(request, collection) -> ReadOnlyCleanCollectionReceipt",
+      "card": {
+        "status": "confirmed",
+        "identity": "FRS-EVAL-v010-clean-calibration-r1-offline-closure-plan/repeated-collection"
+      },
+      "required": {
+        "s_tiers": ["S1"],
+        "case_families": ["C1", "C2", "C3", "C4", "C5"],
+        "t_kinds": ["T-value", "T-meta", "T-state", "T-persist", "T-oracle"]
+      },
+      "case_family_waivers": {},
+      "cases": [
+        {
+          "id": "exact-repeated-clean-receipt",
+          "case_family": "C1",
+          "s_tier": "S1",
+          "t_kinds": ["T-value", "T-persist", "T-oracle"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["one sealed Scenario", "three distinct repeat IDs and seeds", "typed Clean observations"],
+            "units_and_axes": "repeat rows preserve six field units and one shared K",
+            "validity_semantics": "all identities, closes, protected state and restored RNG match"
+          },
+          "oracle": {"kind": "hand-calculation", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-mutation", "observed_failure": true},
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_clean_repeated_collection_adapter_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_repeated_collection_adapter_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "exact-repeat-boundary",
+          "case_family": "C2",
+          "s_tier": "S1",
+          "t_kinds": ["T-value", "T-meta"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["declared repeat set", "one missing close ID"],
+            "units_and_axes": "repeat identity axis",
+            "validity_semantics": "partial cleanup is invalid"
+          },
+          "oracle": {"kind": "human-confirmed-golden", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-counterexample", "observed_failure": true},
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_clean_repeated_collection_adapter_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_repeated_collection_adapter_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "duplicate-and-drift-reject",
+          "case_family": "C3",
+          "s_tier": "S1",
+          "t_kinds": ["T-meta", "T-state"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["duplicate repeat", "cache drift", "training-state drift", "RNG drift"],
+            "units_and_axes": "identity and lifecycle hashes",
+            "validity_semantics": "each mutation independently invalidates the full collection"
+          },
+          "oracle": {"kind": "human-confirmed-golden", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-mutation", "observed_failure": true},
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_clean_repeated_collection_adapter_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_repeated_collection_adapter_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "request-receipt-identity-binding",
+          "case_family": "C4",
+          "s_tier": "S1",
+          "t_kinds": ["T-meta", "T-persist"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["canonical request", "tampered source identity", "receipt request hash"],
+            "units_and_axes": "canonical identity payload",
+            "validity_semantics": "same-shaped but different provenance is invalid"
+          },
+          "oracle": {"kind": "metamorphic-relation", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-mutation", "observed_failure": true},
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_clean_repeated_collection_adapter_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_repeated_collection_adapter_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "cleanup-and-state-lifecycle",
+          "case_family": "C5",
+          "s_tier": "S1",
+          "t_kinds": ["T-state", "T-persist"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["before and after protected state", "before and after restored RNG", "exact close IDs"],
+            "units_and_axes": "one collection lifecycle",
+            "validity_semantics": "state and RNG must be unchanged and every repeat must close exactly once"
+          },
+          "oracle": {"kind": "conservation-law", "independent_from_production": true},
+          "sensitivity": {"kind": "controlled-mutation", "observed_failure": true},
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_clean_repeated_collection_adapter_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_repeated_collection_adapter_alignment: MODULE-CORRECT"
+          }
+        }
+      ],
+      "status": "MODULE-CORRECT"
+    }
+  ]
+}

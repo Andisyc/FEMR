@@ -367,3 +367,13 @@ propagation and mixed-transaction rejection are covered offline.
 - Export/play normalizer sink coverage is incomplete.
 - Full-6D action identity still needs current S4 log proof.
 - Real dynamic reset and mixed-K execution remain S4 evidence.
+
+## FRS-EVAL-v010 Clean Calibration
+
+| Test | Tier | Proves |
+| --- | --- | --- |
+| `frontres_clean_calibration_telemetry_alignment.py` | S1 | Raw Clean K-step trajectory is reduced into typed calibration measurements; hard no-load evidence fails closed. |
+| `frontres_clean_repeated_collection_adapter_alignment.py` | S1/C1-C5 | Exact repeats, identity, RNG restoration, mutation detection, cleanup, and request/receipt binding. |
+| `frontres_clean_calibration_official_route_alignment.py` | S0/S1 regression | Sealed plan rows remain on one device and the representative row is moved only after indexing; preparation failure closes local scenarios. |
+| `frontres_clean_calibration_full_chain_pseudo_transaction.py` | Formal R1 pseudo | Exact `train.py` dispatch helper and exact `OnPolicyRunner` connectors reach the real materializer/reset/K-step telemetry/adapter/receipt owners with only simulator/cache effects faked; hard-event, protected-state mutation, and report-write failure all abort without partial output. This is not live R3 evidence. |
+| `frontres_segment_all_contract_suite.py` | broad regression | 61 active FrontRES contracts remain green; it does not replace the semantic rows above. |

@@ -105,3 +105,11 @@ long training remains closed
 
 Unblock only when the current checklist records implementation, formal-route
 integration, and live evidence separately.
+
+## FRS-EVAL-v010 Candidate Calibration Gate
+
+| Object | Owner | Required tiers / kinds | Current status |
+| --- | --- | --- | --- |
+| Raw Clean telemetry | `frontres_clean_calibration_telemetry` | S1: T-value, T-role, T-mask, T-oracle | MODULE-CORRECT on pseudo trajectories; real Isaac telemetry remains S4. |
+| Repeated-Clean adapter | `frontres_clean_relative_calibration` | S1: C1-C5, T-value, T-meta, T-state | MODULE-CORRECT; exact repeat and fail-closed lifecycle cases pass. |
+| Official calibration chain | `train.py` dispatch, `OnPolicyRunner`, gateway and existing transaction owners | R1 pseudo: T-shape, T-connect, T-state, T-persist | OFFICIAL_R1_PSEUDO_PASS; real IsaacLab/CUDA execution remains R3. |

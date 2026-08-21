@@ -1,0 +1,69 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-EVAL-v010-CLEAN-R1-OFFLINE-PLAN-20260821",
+  "mode": "plan",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "READY",
+  "scope": {
+    "requested": ["Close every offline-detectable v010 clean-calibration route defect before another server attempt"],
+    "preserved": [
+      "active FRS-GAIN-v009 training semantics",
+      "existing Stage-1 materialization, reset, raw trajectory, adapter and transaction owners",
+      "read-only zero-training-state-mutation behavior"
+    ],
+    "forbidden": [
+      "test-only production hooks or duplicate semantic owners",
+      "Noisy, Repair, scalar Gain, Replay, optimizer update or training execution",
+      "server/live execution before offline closure"
+    ]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-EVAL-v010-clean-calibration-v001",
+    "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v014/FRS-TRAIN-v025 plus candidate calibration route",
+    "checkout": "b5289f51b1e9967d31bd7e9575c99955526fc52f+dirty",
+    "review_object": "sha256:45cd67252769d02d7f8542e3c66a2432e3ca3b73d71724bd5289b75d01ea5f09"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Global pseudo-transaction construction plan"},
+    "source_edits": {"status": "approved", "scope": "v010 gateway and independent regression only", "receipt": "User explicitly requested execution and comprehensive repair"},
+    "report_write": {"status": "approved", "scope": "Plan, review, execution and formal evidence receipts", "receipt": "User explicitly requested execution"}
+  },
+  "review_object": {
+    "kind": "plan",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/plans/FRS-EVAL-v010-clean-calibration-r1-offline-closure-plan.md",
+    "content_hash": "sha256:45cd67252769d02d7f8542e3c66a2432e3ca3b73d71724bd5289b75d01ea5f09",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "The plan retains existing semantic owners, selects the manifest connector as Pinch Point, and permits only external-effect fakes."
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "The existing gateway coordinates; materialization, reset, trajectory, telemetry, adapter and aggregate remain single owners."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "The production interface remains strict manifest to validated receipt; the test adds no production parameter or flag."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "The independent test depends one-way on production and substitutes only cache/simulator effects."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "The real read-only scope owns bind, cleanup and fail-closed result emission; state and RNG are checked before and after."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "The Effect Sketch narrows at the existing manifest connector and authorizes only defects exposed by the full-chain RED."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Direct connector evidence remains OFFLINE-CHAIN unless unchanged train.py composition executes; no policy-quality claim is permitted."},
+    {"name": "proof-route", "disposition": "pass", "evidence": "The plan includes full-chain GREEN plus identity, device, hard-event, mutation, RNG, cleanup and forbidden-owner RED cases."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "Scenario/source rows, K, dtype/device, expected support, validity and hard events remain distinct and checked."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "No loss, backward or optimizer call is in scope; any training update is a test failure."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "The only persisted object is an atomic no-overwrite evaluation receipt; checkpoints and training state are read-only."}
+  ],
+  "findings": [],
+  "residual_risks": ["Real IsaacLab sensor and device execution remains one live-only fact after official offline closure."],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}

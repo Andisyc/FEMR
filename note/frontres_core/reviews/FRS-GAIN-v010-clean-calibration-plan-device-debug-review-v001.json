@@ -1,0 +1,59 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-GAIN-v010-CLEAN-CALIBRATION-PLAN-DEVICE-DEBUG-v001",
+  "mode": "debug-fix",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "DEBUG_FIX_PASS",
+  "scope": {
+    "requested": ["align v010 representative-row indexing with the sealed plan tensor device"],
+    "preserved": ["sealed Scenario/K identity", "runner-device output contract", "read-only no-update route"],
+    "forbidden": ["silent CPU fallback", "server execution", "training or formal R1 claims"]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-DP-07R/FRS-GAIN-v010-threshold-calibration-proposal-20260821",
+    "contract": "FRS-GAIN-v009 active; FRS-EVAL-v010 clean-calibration route",
+    "checkout": "aad035e395d15840f05932f1144a6cda579d7734+dirty",
+    "review_object": "frontres_clean_calibration_gateway.py@sha256:9da757ed742c75e5d670952f2fde824a912b97cf1f2cc2cf72dcc9fd81191419"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "bounded device-alignment debug fix"},
+    "source_edits": {"status": "approved", "scope": "repair the reported v010 runtime failure", "receipt": "current user request to inspect and fix the error"},
+    "report_write": {"status": "approved", "scope": "debug-fix review receipt", "receipt": "code-construction closeout"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "../../../source/rsl_rl/rsl_rl/runners/frontres_clean_calibration_gateway.py",
+    "content_hash": "sha256:9da757ed742c75e5d670952f2fde824a912b97cf1f2cc2cf72dcc9fd81191419",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "../contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "The sealed plan remains the owner of row-index tensor placement."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "The helper still returns authoritative row IDs on the requested downstream device and the exact K."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "The gateway consumes plan tensor provenance and does not reach into simulator-private device state."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "No mutable state or lifecycle behavior changed."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "The correction is confined to representative-row selection and one focused regression."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "A CPU plan with a distinct downstream meta device proves the indexing boundary offline; CUDA runtime remains unclaimed."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "source_index and horizon_k must share one plan device; indexing occurs there before output transfer."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "No loss, gradient, Replay or optimizer path is touched."},
+    {"name": "persistence-evaluation", "disposition": "not-applicable", "evidence": "No persistence schema changed."}
+  ],
+  "findings": [],
+  "residual_risks": ["The repaired device boundary has not yet executed under server CUDA.", "The final Clean calibration receipt remains unobserved."],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}

@@ -131,6 +131,12 @@ helper/executor tested only with manually installed fake callbacks is
 `implemented-only`; require an S2 official-entry wiring contract before calling
 it integrated.
 
+For repeated-Clean calibration, additionally expand to sealed plan device,
+Scenario/cache/GMT identity, repeat seed versus restored RNG, hard-event raw
+telemetry, protected-state fingerprint, local-scenario close, and atomic result
+publication. A direct-write success path is insufficient; injected write
+failure must leave neither final nor temporary output.
+
 ## Rollout Transaction Identity Change
 Expand to: paired capture -> Gain -> storage/returns -> update-loop summary
 -> diagnostics.

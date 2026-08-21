@@ -51,6 +51,7 @@ from rsl_rl.runners.frontres_clean_calibration_telemetry import (
     FrontRESCleanRawWindow,
     build_clean_calibration_measurement,
 )
+from rsl_rl.runners.frontres_evaluation_reporting import write_frontres_atomic_json
 
 
 FRONTRES_CLEAN_CALIBRATION_ROUTE = "clean_calibration"
@@ -336,9 +337,12 @@ def _clean_calibration_representative_row(
     horizon_k = getattr(plan, "horizon_k", None)
     if not isinstance(source_index, torch.Tensor) or not isinstance(horizon_k, torch.Tensor):
         raise RuntimeError("clean calibration producer requires typed source_index/horizon_k plan rows")
+    if source_index.device != horizon_k.device:
+        raise RuntimeError("clean calibration sealed plan tensors must share one device")
+    plan_device = source_index.device
     rows = torch.tensor(
         [index for index, value in enumerate(scenario_ids) if value == scenario_id],
-        device=device,
+        device=plan_device,
         dtype=torch.long,
     )
     if int(rows.numel()) <= 0:
@@ -718,7 +722,7 @@ def collect_frontres_clean_calibration_from_manifest(
         receipt = typed_connector(request=request, prepared=prepared)
         result = _receipt_payload(receipt)
         result_file.parent.mkdir(parents=True, exist_ok=True)
-        result_file.write_text(json.dumps(result, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+        write_frontres_atomic_json(result_file, result)
         return result
     except BaseException:
         if prepared is not None:

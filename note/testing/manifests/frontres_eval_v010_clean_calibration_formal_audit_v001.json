@@ -1,0 +1,87 @@
+{
+  "schema_version": "formal-runtime-audit/v3",
+  "audit_id": "FRA-FRS-EVAL-v010-CLEAN-CALIBRATION-20260821",
+  "identities": {
+    "design": "FRS-EVAL-v010-clean-calibration-v001",
+    "checkout": "b5289f51b1e9967d31bd7e9575c99955526fc52f+dirty",
+    "entrypoint": "scripts/rsl_rl/train.py:--frontres_clean_calibration_collect_only",
+    "effective_config": "sha256:b397f044246f617a0c1db921c55228c536372b7f1b79ba7a85376f0e0c7c6cb9",
+    "checkpoint": "HSL-v2:model_warmup.pt:read-only"
+  },
+  "module_admission": {
+    "status": "MODULE-CORRECT",
+    "manifest_path": "note/testing/manifests/frontres_eval_v010_clean_calibration_module_alignment_v001.json",
+    "manifest_hash": "sha256:3823188b8c8343a256349eb6a69a6aeea4250b9bc0fd5d448058e0fb9e387f46",
+    "current": true
+  },
+  "offline_gaps": [],
+  "design_probes": [
+    {
+      "probe_id": "PROBE-CLEAN-CAL-OFFLINE-CHAIN-01",
+      "design_id": "DP-CLEAN-CAL-READONLY-RECEIPT",
+      "design_claim": "Two repeated Clean executions traverse the existing materializer, reset, K-step telemetry, adapter and receipt owners without training-state mutation or partial output.",
+      "necessary_capability": "execute two same-identity Clean repeats and publish one atomic typed calibration receipt",
+      "minimal_case": "one prepared two-role batch, one selected Scenario, K8, two repeat seeds, raw sensor fake",
+      "path_class": "official-entry",
+      "preserved_production_owners": [
+        "prepare_frontres_fixed_k_m4_evaluation_batch",
+        "frontres_readonly_collection_scope",
+        "apply_frontres_current_segment_reset",
+        "collect_frontres_v017_no_actor_baseline",
+        "build_clean_calibration_measurement",
+        "adapt_read_only_clean_collection",
+        "write_frontres_atomic_json"
+      ],
+      "simplifications": ["cache materialization effect is fake", "Isaac scene and contact sensor effects are fake"],
+      "falsifier": "any hard event, protected-state mutation, lifecycle leak or report-write failure emits a receipt or partial result",
+      "success_witness": "OFFLINE_CHAIN_PASS after exact two repeats, 18 environment steps, exact close IDs and atomic receipt validation",
+      "construction_status": "ready",
+      "uncertainties": [],
+      "status": "passed",
+      "minimum_horizon": {"unit": "clean-repeats", "required": 2, "observed": 2},
+      "required_effect_observations": 2,
+      "observed_effect_observations": 2,
+      "evidence_receipt": "frontres_clean_calibration_full_chain_pseudo_transaction: OFFICIAL_R1_PSEUDO_PASS",
+      "current": true
+    }
+  ],
+  "route_edges": [
+    {
+      "edge_id": "EDGE-CLEAN-CAL-MANIFEST-TO-RECEIPT",
+      "design_id": "DP-CLEAN-CAL-READONLY-RECEIPT",
+      "producer": "strict v010 manifest and sealed Stage-1 prepared owner",
+      "carrier": "read-only transaction aggregate plus FrontRESCleanRawWindow and ReadOnlyCleanCollection",
+      "consumer": "adapt_read_only_clean_collection and atomic result receipt",
+      "required_level": "R3",
+      "observed_level": "R2",
+      "evidence": {
+        "path_class": "official-entry",
+        "command": "PYTHONPATH=source/rsl_rl /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_clean_calibration_full_chain_pseudo_transaction.py",
+        "exit_code": 0,
+        "identity_receipt": "same Scenario/K/cache/GMT/request hashes and two distinct repeat seeds",
+        "effect_receipt": "two raw K8 Clean measurements reach one validated calibration receipt",
+        "persistence_receipt": "atomic JSON failure leaves no final or temporary result",
+        "current": true
+      }
+    }
+  ],
+  "live_only_unknowns": [
+    {
+      "id": "LIVE-CLEAN-CAL-ISAAC-01",
+      "status": "open",
+      "fact": "The unchanged train.py composition root with real IsaacLab reset and contact/ZMP telemetry reaches the same atomic calibration receipt on CUDA.",
+      "why_offline_impossible": "The local MOSAIC torch environment has no IsaacLab scene, PhysX contact sensor or server segment cache.",
+      "falsifier": "the official command fails before receipt, changes protected training state, emits a hard event, leaks scenarios, or leaves partial output",
+      "cost": "16 environments, one selected K8 Scenario, two repeated Clean windows, zero optimizer updates",
+      "stop_condition": "stop after the first receipt or first invariant failure; do not retry automatically",
+      "bounded_command": "RUN_TAG=OFFLINECLOSED1 PYTHON_BIN=python bash run/run_frontres_clean_calibration_v010.sh",
+      "output_path": "FRS_EVAL_V010_CLEAN_CALIBRATION_R1_OFFLINECLOSED1.log and .json",
+      "zero_write_boundary": "no Replay, optimizer, training checkpoint or Gain write; only the atomic evaluation result and log are permitted"
+    }
+  ],
+  "live_attempts": [],
+  "claims": [
+    {"kind": "offline-connectivity", "evidence_level": "R2"}
+  ],
+  "admission": "LIVE_REQUIRED"
+}

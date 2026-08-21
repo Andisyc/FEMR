@@ -8,13 +8,38 @@ import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from frontres_contract_imports import install_frontres_contract_packages
+
+
+ROOT = Path(__file__).resolve().parents[4]
+install_frontres_contract_packages(ROOT / "source" / "rsl_rl" / "rsl_rl")
+
 from rsl_rl.runners.frontres_clean_calibration_gateway import (
     FRONTRES_CLEAN_CALIBRATION_ROUTE_ID,
+    _clean_calibration_representative_row,
     collect_frontres_clean_calibration_from_manifest,
 )
 
+import torch
+
 
 def main() -> None:
+    # The sealed plan owns index-tensor placement.  A different downstream
+    # runner device must not be used to index those tensors.
+    request = SimpleNamespace(identity=SimpleNamespace(scenario_id="scenario-a", horizon_k=8))
+    plan = SimpleNamespace(
+        scenario_ids=("scenario-a", "scenario-b"),
+        source_index=torch.tensor([3, 7], dtype=torch.long),
+        horizon_k=torch.tensor([8, 8], dtype=torch.long),
+    )
+    selected, active_k = _clean_calibration_representative_row(
+        request,
+        plan,
+        device=torch.device("meta"),
+    )
+    assert selected.device.type == "meta" and tuple(selected.shape) == (1,) and active_k == 8
+    print("frontres_clean_calibration_official_route_alignment: PLAN_DEVICE_ALIGNMENT_PASS")
+
     payload = {
         "route_id": FRONTRES_CLEAN_CALIBRATION_ROUTE_ID,
         "calibration_id": FRONTRES_CLEAN_CALIBRATION_ROUTE_ID,

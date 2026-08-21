@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import torch
+
+from frontres_contract_imports import install_frontres_contract_packages
+
+
+ROOT = Path(__file__).resolve().parents[4]
+install_frontres_contract_packages(ROOT / "source" / "rsl_rl" / "rsl_rl")
 
 from rsl_rl.frontres.frontres_segment_evidence import FrontRESExecutedKTrajectory
 from rsl_rl.runners.frontres_clean_calibration_telemetry import (

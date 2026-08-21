@@ -1,0 +1,92 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-EVAL-v010-CLEAN-R1-OFFLINE-FINAL-20260821",
+  "mode": "final-gate",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "FINAL_GATE_PASS",
+  "scope": {
+    "requested": ["Close every offline-detectable v010 clean-calibration route defect before another server attempt"],
+    "preserved": [
+      "active FRS-GAIN-v009 and FRS-PPO-v014 training semantics",
+      "existing Stage-1 materialization, reset, raw trajectory, adapter and transaction owners",
+      "read-only zero-training-state-mutation behavior"
+    ],
+    "forbidden": [
+      "Noisy, Repair, Gain, Replay, Critic or optimizer execution",
+      "duplicate lifecycle or reporting owner",
+      "Formal R1 or policy-quality claim from offline fakes"
+    ]
+  },
+  "identities": {
+    "project": "FEMR-FrontRES",
+    "design": "FRS-EVAL-v010-clean-calibration-v001",
+    "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v014/FRS-TRAIN-v025 plus candidate calibration route",
+    "checkout": "b5289f51b1e9967d31bd7e9575c99955526fc52f+dirty",
+    "review_object": "sha256:550f1d8c6c6a578d7332e052b8a331b4745ae1b3903dd88d8268a5ba824c7870"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Current v010 gateway and regression diff"},
+    "source_edits": {"status": "approved", "scope": "v010 gateway and independent regressions", "receipt": "User requested comprehensive execution and repair"},
+    "report_write": {"status": "approved", "scope": "Current review and evidence receipts", "receipt": "User requested execution"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/reviews/FRS-EVAL-v010-clean-calibration-r1-offline-review-object-v001.md",
+    "content_hash": "sha256:550f1d8c6c6a578d7332e052b8a331b4745ae1b3903dd88d8268a5ba824c7870",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true,
+    "rationale": "The fix stays at the existing gateway Pinch Point, reuses the atomic reporting owner and changes no simulator, Gain or training semantics."
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "Materialization, reset, K-step collection, telemetry, adapter, aggregate and atomic reporting each retain one existing owner."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "The strict manifest-to-receipt interface is unchanged; no production test hook or fallback was added."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "The gateway depends on existing lower-level owners; the independent pseudo transaction substitutes only cache and simulator effects."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "Hard-event, protected-state mutation and report-write failures all abort, close scenarios and leave no partial result."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "Production changes are limited to sealed-plan device validation/indexing and reuse of the atomic JSON writer."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "The exact train.py dispatch helper and OnPolicyRunner connectors establish official R1 pseudo connectivity; real IsaacLab/CUDA execution remains the sole live fact."},
+    {"name": "proof-route", "disposition": "pass", "evidence": "Focused module tests, a real-owner S2 pseudo transaction, Stage-3 suite and 61-contract aggregate suite all pass."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "The regression rejects mixed plan devices, indexes on the sealed plan device and moves only the selected source row."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "No loss, backward, optimizer, Replay or Critic consumer is reachable in this route."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "Result publication uses the shared atomic no-overwrite writer; injected failure removes temporary and final artifacts."}
+  ],
+  "findings": [],
+  "residual_risks": [
+    "Real IsaacLab sensor/device execution through the unchanged train.py composition root is not locally available and remains one bounded live-only fact."
+  ],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": [
+    {
+      "kind": "module-alignment-manifest",
+      "status": "MODULE-CORRECT",
+      "schema_version": "module-alignment-test/v1",
+      "manifest_path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/testing/manifests/frontres_eval_v010_clean_calibration_module_alignment_v001.json",
+      "manifest_hash": "sha256:3823188b8c8343a256349eb6a69a6aeea4250b9bc0fd5d448058e0fb9e387f46",
+      "current": true,
+      "identities": {
+        "project": "FEMR-FrontRES",
+        "design": "FRS-EVAL-v010-clean-calibration-v001",
+        "contract": "FRS-METHOD-v026/FRS-GAIN-v009/FRS-PPO-v014/FRS-TRAIN-v025 plus candidate calibration route",
+        "checkout": "b5289f51b1e9967d31bd7e9575c99955526fc52f+dirty"
+      },
+      "validation": {
+        "command": "/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python /Users/chengyuxuan/.codex/skills/module-alignment-test/scripts/validate_module_test_manifest.py note/testing/manifests/frontres_eval_v010_clean_calibration_module_alignment_v001.json --expect-design FRS-EVAL-v010-clean-calibration-v001 --expect-checkout b5289f51b1e9967d31bd7e9575c99955526fc52f+dirty",
+        "exit_code": 0,
+        "identity": "module-alignment-test/v1 VALID",
+        "current": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+{
+  "schema_version": "one-shot-execution/v1",
+  "unit_id": "OSE-FRS-EVAL-v010-CLEAN-CALIBRATION-OFFLINE-20260821",
+  "closure_mode": "engineering",
+  "terminal_outcome": "Close all locally reproducible v010 manifest-to-receipt defects before one bounded server retry",
+  "admission": "BOUNDED_LIVE_READY",
+  "scope": {
+    "requested": ["Execute the complete offline closure instead of issuing another partial server fix"],
+    "preserved": ["FRS-GAIN-v009 and TRAIN-v025 semantics", "read-only collection", "user-owned server execution"],
+    "forbidden": ["training", "server execution", "Gain or optimizer changes", "destructive or Git actions"]
+  },
+  "identities": {
+    "design": "FRS-EVAL-v010-clean-calibration-v001",
+    "checkout": "b5289f51b1e9967d31bd7e9575c99955526fc52f+dirty",
+    "entrypoint": "scripts/rsl_rl/train.py:frontres_clean_calibration_collect_only",
+    "effective_config": "note/testing/manifests/frontres_clean_calibration_v010_server.json plus run/run_frontres_clean_calibration_v010.sh",
+    "checkpoint": "HSL-v2 initializer supplied by server launcher"
+  },
+  "authority": {
+    "local_reversible": {"status": "approved", "scope": "v010 gateway, independent tests and evidence receipts"},
+    "git_actions": {"status": "not-requested", "scope": "no commit or push"},
+    "external_operations": {"status": "not-requested", "scope": "no server operation"},
+    "bounded_live": {"status": "approved", "scope": "one zero-update Clean calibration evaluation", "receipt": "User repeatedly requested the server test command after offline closure"},
+    "long_run": {"status": "not-requested", "scope": "not in scope", "receipt": "not applicable"},
+    "destructive": {"status": "not-requested", "scope": "none"}
+  },
+  "causal_closure": {
+    "required": true,
+    "status": "STABILIZED",
+    "rationale": "The exact train.py dispatch helper and OnPolicyRunner connectors now execute one manifest-to-final-receipt pseudo transaction with simulator/cache effects isolated.",
+    "owner_or_invariant": "collect_frontres_clean_calibration_from_manifest must close the entire typed read-only lifecycle",
+    "evidence_ref": "frontres_clean_calibration_full_chain_pseudo_transaction: OFFICIAL_R1_PSEUDO_PASS",
+    "falsifier": "The official R1 pseudo transaction fails, mutates protected state, leaks lifecycle, or leaves partial output"
+  },
+  "dependencies": [
+    {
+      "kind": "module-alignment-test",
+      "status": "MODULE-CORRECT",
+      "schema_version": "module-alignment-test/v1",
+      "manifest_path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/testing/manifests/frontres_eval_v010_clean_calibration_module_alignment_v001.json",
+      "manifest_hash": "sha256:3823188b8c8343a256349eb6a69a6aeea4250b9bc0fd5d448058e0fb9e387f46",
+      "current": true,
+      "identities": {
+        "design": "FRS-EVAL-v010-clean-calibration-v001",
+        "checkout": "b5289f51b1e9967d31bd7e9575c99955526fc52f+dirty",
+        "entrypoint": "scripts/rsl_rl/train.py:frontres_clean_calibration_collect_only",
+        "effective_config": "note/testing/manifests/frontres_clean_calibration_v010_server.json plus run/run_frontres_clean_calibration_v010.sh",
+        "checkpoint": "HSL-v2 initializer supplied by server launcher"
+      },
+      "validation": {"command": "validate_module_test_manifest.py --expect-design FRS-EVAL-v010-clean-calibration-v001", "exit_code": 0, "identity": "module-alignment-test/v1 VALID", "current": true}
+    },
+    {
+      "kind": "formal-runtime-audit",
+      "status": "PHASE_B_READY",
+      "schema_version": "formal-runtime-audit/v3",
+      "manifest_path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/testing/manifests/frontres_eval_v010_clean_calibration_formal_audit_v001.json",
+      "manifest_hash": "sha256:7dd8481e187bb50dc4ddc6dac4c08ea261f794860024fbf126eebf2d3112a111",
+      "current": true,
+      "identities": {
+        "design": "FRS-EVAL-v010-clean-calibration-v001",
+        "checkout": "b5289f51b1e9967d31bd7e9575c99955526fc52f+dirty",
+        "entrypoint": "scripts/rsl_rl/train.py:frontres_clean_calibration_collect_only",
+        "effective_config": "note/testing/manifests/frontres_clean_calibration_v010_server.json plus run/run_frontres_clean_calibration_v010.sh",
+        "checkpoint": "HSL-v2 initializer supplied by server launcher"
+      },
+      "validation": {"command": "validate_formal_audit_manifest.py --target live-required", "exit_code": 0, "identity": "FRA-FRS-EVAL-v010-CLEAN-CALIBRATION-20260821 LIVE_REQUIRED PASS", "current": true}
+    }
+  ],
+  "next_action": {
+    "class": "bounded-live",
+    "description": "Run one zero-update official Clean calibration evaluation on the server",
+    "command": "RUN_TAG=OFFLINECLOSED1 PYTHON_BIN=python bash run/run_frontres_clean_calibration_v010.sh",
+    "cost": "16 environments, one selected K8 Scenario, two Clean repeats",
+    "stop_condition": "stop after the first receipt or first invariant failure; do not retry automatically",
+    "output_path": "FRS_EVAL_V010_CLEAN_CALIBRATION_R1_OFFLINECLOSED1.log and .json",
+    "write_boundary": "evaluation log and atomic JSON only; no checkpoint, Replay or optimizer writes",
+    "reversible": true,
+    "costly": true,
+    "externally_visible": true,
+    "destroys_evidence": false,
+    "decision_boundary": {"kind": "none", "reason": "Offline and official R1 pseudo gates are current and passing", "question": ""}
+  },
+  "offline_gaps": [
+    {"id": "OFFLINE-01", "fact": "manifest-to-receipt chain has not completed locally", "status": "closed"}
+  ],
+  "live_only_unknowns": [
+    {
+      "id": "LIVE-CLEAN-CAL-ISAAC-01",
+      "status": "open",
+      "fact": "Real IsaacLab/CUDA reset and contact/ZMP telemetry reaches the same atomic receipt",
+      "why_offline_impossible": "The local MOSAIC torch environment has no IsaacLab scene, PhysX contact sensor or server segment cache.",
+      "falsifier": "the official command fails before receipt, mutates protected state, leaks scenarios, or leaves partial output",
+      "stop_condition": "one receipt or first invariant failure"
+    }
+  ],
+  "attempts": [
+    {
+      "attempt_id": "FRS-EVAL-v010-R1-server-latest",
+      "ordinal": 1,
+      "action_class": "bounded-live",
+      "status": "failed",
+      "target_unknown": "official IsaacLab repeated-Clean collection",
+      "command": "run/run_frontres_clean_calibration_v010.sh",
+      "failure_class": "offline-fixable",
+      "first_invalid_boundary": "sealed plan CPU tensors indexed by a CUDA-created row tensor",
+      "evidence": "FRS_EVAL_V010_CLEAN_CALIBRATION_R1_20260821.log: RuntimeError at _clean_calibration_representative_row"
+    },
+    {
+      "attempt_id": "FRS-EVAL-v010-R1-OFFLINECLOSED1",
+      "ordinal": 2,
+      "action_class": "bounded-live",
+      "status": "planned",
+      "unknown_id": "LIVE-CLEAN-CAL-ISAAC-01",
+      "command": "RUN_TAG=OFFLINECLOSED1 PYTHON_BIN=python bash run/run_frontres_clean_calibration_v010.sh",
+      "previous_attempt_id": "FRS-EVAL-v010-R1-server-latest",
+      "previous_failure_classification": "offline-fixable",
+      "first_invalid_boundary": "sealed plan device indexing and partial result publication",
+      "narrowing_reason": "both defects are now covered by the exact official R1 pseudo transaction and negative regressions",
+      "offline_closure_receipt": "frontres_clean_calibration_full_chain_pseudo_transaction: OFFICIAL_R1_PSEUDO_PASS"
+    }
+  ]
+}
