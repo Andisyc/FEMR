@@ -302,8 +302,9 @@ class FakeScene:
         self.env_origins = torch.zeros(num_envs, 3)
 
     def __getitem__(self, name: str):
-        assert name == "robot"
-        return self.robot
+        if name == "robot":
+            return self.robot
+        raise KeyError(name)
 
 
 class FakeBaseEnv:
@@ -435,6 +436,94 @@ def test_stage1_hook_trace_summarizes_large_sequences() -> None:
     assert str_summary["first"] == "motion_0"
     assert str_summary["last"] == "motion_11"
     assert str_summary["unique_count"] == 12
+
+
+def test_reset_execution_state_is_candidate_order_invariant() -> None:
+    class ActionManager:
+        def __init__(self) -> None:
+            self.prev_action = torch.zeros(1, 29)
+            self.action = torch.zeros(1, 29)
+            self.reset_calls = 0
+
+        def reset(self, env_ids: torch.Tensor) -> None:
+            self.reset_calls += 1
+            self.prev_action[env_ids] = 0.0
+            self.action[env_ids] = 0.0
+
+    class Sensor:
+        def __init__(self) -> None:
+            self.history = torch.zeros(1)
+            self.reset_calls = 0
+
+        def reset(self, env_ids: torch.Tensor) -> None:
+            self.reset_calls += 1
+            self.history[env_ids] = 0.0
+
+    class Scene(dict):
+        def __init__(self) -> None:
+            super().__init__(
+                frontres_left_foot_contacts=Sensor(),
+                frontres_right_foot_contacts=Sensor(),
+            )
+            self.sensors = self
+            self.write_calls = 0
+
+        def write_data_to_sim(self) -> None:
+            self.write_calls += 1
+
+    class Sim:
+        def forward(self) -> None:
+            return None
+
+    class ObservationManager:
+        def reset(self, *, env_ids: torch.Tensor) -> None:
+            return None
+
+    adapter = object.__new__(FrontRESStage1EnvAdapter)
+    adapter.base_env = types.SimpleNamespace(
+        scene=Scene(),
+        sim=Sim(),
+        observation_manager=ObservationManager(),
+        action_manager=ActionManager(),
+    )
+    ids = torch.tensor([0], dtype=torch.long)
+
+    def run(order: tuple[float, float]) -> dict[float, tuple[float, float]]:
+        outcomes: dict[float, tuple[float, float]] = {}
+        for candidate in order:
+            adapter.base_env.action_manager.action[:] = candidate
+            adapter.base_env.action_manager.prev_action[:] = -candidate
+            for sensor in adapter.base_env.scene.values():
+                sensor.history[:] = candidate
+            adapter._synchronize_frontres_local_reset(ids)
+            outcomes[candidate] = (
+                float(adapter.base_env.action_manager.action[0, 0].item()),
+                float(sum(sensor.history[0].item() for sensor in adapter.base_env.scene.values())),
+            )
+        return outcomes
+
+    forward = run((1.0, 2.0))
+    reverse = run((2.0, 1.0))
+    assert forward == reverse == {1.0: (0.0, 0.0), 2.0: (0.0, 0.0)}
+    cached = torch.stack((torch.full((1, 29), -3.0), torch.full((1, 29), 4.0)), dim=1)
+    adapter._reset_frontres_execution_lifecycle(ids, action_history=cached)
+    torch.testing.assert_close(adapter.base_env.action_manager.prev_action, cached[:, 0])
+    torch.testing.assert_close(adapter.base_env.action_manager.action, cached[:, 1])
+    assert adapter.base_env.action_manager.reset_calls == 5
+    assert all(sensor.reset_calls == 5 for sensor in adapter.base_env.scene.values())
+
+    missing_owner = object.__new__(FrontRESStage1EnvAdapter)
+    missing_owner.base_env = types.SimpleNamespace(
+        scene=Scene(),
+        sim=Sim(),
+        observation_manager=ObservationManager(),
+    )
+    try:
+        missing_owner._synchronize_frontres_local_reset(ids)
+    except RuntimeError as exc:
+        assert "ActionManager" in str(exc)
+    else:
+        raise AssertionError("local Scenario reset must fail closed without ActionManager")
 
 
 def test_stage1_env_adapter_hooks_trace_real_boundary_contract() -> None:
@@ -876,6 +965,7 @@ def test_production_cache_refresh_owner_does_not_advance_frame() -> None:
 
 
 if __name__ == "__main__":
+    test_reset_execution_state_is_candidate_order_invariant()
     test_stage1_hook_trace_summarizes_large_sequences()
     test_stage1_env_adapter_hooks_trace_real_boundary_contract()
     test_stage1_env_adapter_writes_inference_tensors_under_inference_mode()

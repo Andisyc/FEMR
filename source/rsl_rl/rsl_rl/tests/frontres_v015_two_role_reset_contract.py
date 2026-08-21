@@ -249,6 +249,10 @@ class _FakeScene:
         self.robot = robot
         self.env_origins = torch.zeros(num_envs, 3)
         self.write_data_calls = 0
+        self.sensors = {
+            "frontres_left_foot_contacts": _FakeSensor(),
+            "frontres_right_foot_contacts": _FakeSensor(),
+        }
 
     def __getitem__(self, name: str):
         assert name == "robot"
@@ -256,6 +260,27 @@ class _FakeScene:
 
     def write_data_to_sim(self) -> None:
         self.write_data_calls += 1
+
+
+class _FakeSensor:
+    def __init__(self) -> None:
+        self.reset_calls: list[torch.Tensor] = []
+
+    def reset(self, env_ids: torch.Tensor) -> None:
+        self.reset_calls.append(torch.as_tensor(env_ids, dtype=torch.long).clone())
+
+
+class _FakeActionManager:
+    def __init__(self, num_envs: int) -> None:
+        self.prev_action = torch.ones(num_envs, 29)
+        self.action = torch.ones(num_envs, 29)
+        self.reset_calls: list[torch.Tensor] = []
+
+    def reset(self, env_ids: torch.Tensor) -> None:
+        ids = torch.as_tensor(env_ids, dtype=torch.long).clone()
+        self.prev_action[ids] = 0.0
+        self.action[ids] = 0.0
+        self.reset_calls.append(ids)
 
 
 class _FakeSim:
@@ -286,6 +311,7 @@ class _FakeEnv:
         self.scene = _FakeScene(robot, num_envs)
         self.sim = _FakeSim()
         self.observation_manager = _FakeObservationManager(num_envs)
+        self.action_manager = _FakeActionManager(num_envs)
         self.episode_length_buf = torch.full((num_envs,), 9, dtype=torch.long)
 
 

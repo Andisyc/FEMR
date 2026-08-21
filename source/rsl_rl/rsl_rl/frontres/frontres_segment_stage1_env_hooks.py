@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import math
 from pathlib import Path
@@ -523,9 +524,19 @@ class FrontRESStage1EnvAdapter:
             "source_state_max_abs_diff": torch.full_like(velocity, source_state_max_abs_diff),
         }
 
-    def _synchronize_frontres_local_reset(self, env_ids: torch.Tensor) -> None:
+    def _synchronize_frontres_local_reset(
+        self,
+        env_ids: torch.Tensor,
+        *,
+        action_history: torch.Tensor | None = None,
+    ) -> None:
         """Finish the IsaacLab reset lifecycle before any Segment observation read."""
 
+        self._reset_frontres_execution_lifecycle(
+            env_ids,
+            action_history=action_history,
+            require_owners=True,
+        )
         write_data = getattr(self.base_env.scene, "write_data_to_sim", None)
         forward = getattr(getattr(self.base_env, "sim", None), "forward", None)
         reset_observations = getattr(getattr(self.base_env, "observation_manager", None), "reset", None)
@@ -537,6 +548,54 @@ class FrontRESStage1EnvAdapter:
         write_data()
         forward()
         reset_observations(env_ids=env_ids)
+
+    def _reset_frontres_execution_lifecycle(
+        self,
+        env_ids: torch.Tensor,
+        *,
+        action_history: torch.Tensor | None,
+        require_owners: bool = False,
+    ) -> None:
+        """Reset volatile ActionManager/contact state and optionally restore cached actions."""
+
+        action_manager = getattr(self.base_env, "action_manager", None)
+        if action_manager is not None:
+            reset_actions = getattr(action_manager, "reset", None)
+            if not callable(reset_actions):
+                raise RuntimeError("FrontRES reset requires ActionManager.reset(env_ids)")
+            reset_actions(env_ids)
+            if action_history is not None:
+                if action_history.ndim != 3 or tuple(action_history.shape[:2]) != (int(env_ids.numel()), 2):
+                    raise ValueError("cached action_history must have shape [B,2,A]")
+                previous = getattr(action_manager, "prev_action", None)
+                current = getattr(action_manager, "action", None)
+                if (
+                    not isinstance(previous, torch.Tensor)
+                    or not isinstance(current, torch.Tensor)
+                    or int(previous.shape[-1]) != int(action_history.shape[-1])
+                    or current.shape != previous.shape
+                ):
+                    raise RuntimeError("FrontRES reset cannot restore the public ActionManager action tensors")
+                manager_ids = env_ids.to(device=previous.device, dtype=torch.long)
+                previous[manager_ids] = action_history[:, 0].to(device=previous.device, dtype=previous.dtype)
+                current[manager_ids] = action_history[:, 1].to(device=current.device, dtype=current.dtype)
+        elif action_history is not None or require_owners:
+            raise RuntimeError("FrontRES reset requires an ActionManager owner")
+
+        scene = getattr(self.base_env, "scene", None)
+        sensors: list[Any] = []
+        scene_sensors = getattr(scene, "sensors", None)
+        for name in ("frontres_left_foot_contacts", "frontres_right_foot_contacts"):
+            sensor = scene_sensors.get(name) if isinstance(scene_sensors, Mapping) else getattr(scene, name, None)
+            if sensor is not None:
+                sensors.append(sensor)
+        if len(sensors) != 2 and (sensors or require_owners):
+            raise RuntimeError("FrontRES reset requires both foot contact sensors")
+        for sensor in sensors:
+            reset_sensor = getattr(sensor, "reset", None)
+            if not callable(reset_sensor):
+                raise RuntimeError("FrontRES reset requires ContactSensor.reset(env_ids)")
+            reset_sensor(env_ids)
 
     def _require_frontres_source_shared_robot_state(
         self,
@@ -847,6 +906,7 @@ class FrontRESStage1EnvAdapter:
                 clean_state.joint_vel.to(ids.device),
                 env_ids=ids,
             )
+            self._reset_frontres_execution_lifecycle(ids, action_history=clean_state.action_history)
         self._trace(
             "reset_clean_state",
             env_ids=ids.detach().cpu().tolist(),

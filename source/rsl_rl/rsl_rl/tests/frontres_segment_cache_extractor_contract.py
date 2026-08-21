@@ -62,16 +62,39 @@ class FakeRobot:
 class FakeScene:
     def __init__(self) -> None:
         self.robot = FakeRobot()
+        self.frontres_left_foot_contacts = _FakeContactSensor(
+            torch.tensor([[[[0.0, 0.0, 12.0]]], [[[0.0, 0.0, 0.0]]]])
+        )
+        self.frontres_right_foot_contacts = _FakeContactSensor(
+            torch.tensor([[[[0.0, 0.0, 0.0]]], [[[0.0, 0.0, 15.0]]]])
+        )
 
     def __getitem__(self, name: str):
-        if name != "robot":
-            raise KeyError(name)
-        return self.robot
+        if name == "robot":
+            return self.robot
+        if name == "frontres_left_foot_contacts":
+            return self.frontres_left_foot_contacts
+        if name == "frontres_right_foot_contacts":
+            return self.frontres_right_foot_contacts
+        raise KeyError(name)
+
+
+class _FakeContactSensor:
+    def __init__(self, force_matrix_w: torch.Tensor) -> None:
+        self.data = type("Data", (), {"force_matrix_w": force_matrix_w})()
+        self.cfg = type("Cfg", (), {"force_threshold": 10.0})()
+
+
+class _FakeActionManager:
+    def __init__(self) -> None:
+        self.prev_action = torch.arange(2 * 29, dtype=torch.float32).view(2, 29)
+        self.action = self.prev_action + 100.0
 
 
 class FakeEnv:
     def __init__(self) -> None:
         self.scene = FakeScene()
+        self.action_manager = _FakeActionManager()
         self.unwrapped = self
 
 
@@ -124,6 +147,19 @@ def test_extractor_selects_env_id_and_detaches_state() -> None:
     torch.testing.assert_close(state.action_history, action_history[1:2].detach())
 
 
+def test_extractor_captures_public_action_and_contact_execution_state() -> None:
+    env = FakeEnv()
+    state = extractor.extract_robot_rollout_state(env, env_ids=torch.tensor([1]))
+
+    assert state.action_history is not None
+    assert state.contact_state is not None
+    torch.testing.assert_close(
+        state.action_history,
+        torch.stack((env.action_manager.prev_action[1:2], env.action_manager.action[1:2]), dim=1),
+    )
+    torch.testing.assert_close(state.contact_state, torch.tensor([[0.0, 1.0]]))
+
+
 def test_extracted_clean_state_round_trips_through_cache_io() -> None:
     env = FakeEnv()
     state = extractor.extract_robot_rollout_state(env, env_ids=[1])
@@ -147,5 +183,6 @@ def test_extracted_clean_state_round_trips_through_cache_io() -> None:
 
 if __name__ == "__main__":
     test_extractor_selects_env_id_and_detaches_state()
+    test_extractor_captures_public_action_and_contact_execution_state()
     test_extracted_clean_state_round_trips_through_cache_io()
     print("PASS: FrontRES clean state extractor captures detached robot rollout state.")
