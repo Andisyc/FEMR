@@ -1,0 +1,109 @@
+{
+  "schema_version": "human-control-protocol/v1",
+  "control_id": "HCP-FRS-GAIN-THRESHOLD-CLEAN-ADAPTER-EXECUTION-20260821",
+  "mode": "bounded-execution",
+  "state": "COMPLETE",
+  "objective": "Prepare and validate the typed read-only repeated-Clean collection adapter without simulator, server, active Gain, or training execution.",
+  "scope": {
+    "requested": ["full Segment/cache/Clean/GMT/normalizer identity binding", "exact repeated-Clean rows and seed protocol", "training and RNG no-mutation receipt", "request-bound immutable CleanCalibration artifact"],
+    "preserved": ["active FRS-GAIN-v009", "Clean is a Scenario anchor, not an absolute safety oracle", "existing stateless producer and consumer semantics", "fail-closed invalid and incomparable boundaries"],
+    "forbidden": ["simulator collection", "server operations", "active Gain integration", "training", "deployment", "checkpoint writes"]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-DP-07R/FRS-GAIN-v010-threshold-calibration-proposal-20260821",
+    "contract": "FRS-GAIN-v009-active; FRS-GAIN-v010-proposal-only",
+    "checkout": "cd49f1c113beede16fb0992c1ceb83ea0fc55019+dirty",
+    "task": "typed read-only repeated-Clean adapter offline construction"
+  },
+  "authority": {
+    "source": "current user instruction to execute the next read-only adapter unit",
+    "current": true,
+    "receipt": "user-authorized bounded offline implementation and tests",
+    "auto_actions": ["read", "explain", "edit", "test"],
+    "confirmation_actions": ["simulator", "training", "external-operation"],
+    "forbidden_actions": ["checkpoint-io", "deployment"],
+    "live": {"status": "not-authorized", "scope": "no simulator, server, training or deployment"}
+  },
+  "cost_control": {
+    "class": "offline-bounded",
+    "estimate": "one typed adapter diff, focused pseudo tests, manifest validation and construction review",
+    "update_cadence_seconds": 60,
+    "max_expensive_attempts": 0,
+    "stop_conditions": ["new semantic decision", "active-route change", "runtime collection requirement"]
+  },
+  "cursor": {
+    "status": "confirmed",
+    "source_kind": "active-plan",
+    "source": "note/frontres_core/plans/FRS-GAIN-v010-threshold-calibration-engineering-plan.md",
+    "current": true,
+    "current_gate": "typed adapter offline construction and module proof",
+    "next_gate": "official gateway design and formal-runtime review",
+    "total_gates": 2
+  },
+  "evidence": [
+    {
+      "claim": "The typed adapter validates exact identity, repeat provenance, cleanup, training/RNG restoration and request-bound artifact metadata.",
+      "class": "contract-confirmed",
+      "source_kind": "test",
+      "locator": "source/rsl_rl/rsl_rl/tests/frontres_clean_repeated_collection_adapter_alignment.py",
+      "identity": "frontres_clean_repeated_collection_adapter_alignment: MODULE-CORRECT",
+      "proves": "offline adapter semantics and fail-closed mutations",
+      "does_not_prove": "official gateway, simulator noise, or real calibration quality",
+      "current": true
+    },
+    {
+      "claim": "Existing producer and consumer remain module-correct after request-hash extension.",
+      "class": "contract-confirmed",
+      "source_kind": "test",
+      "locator": "source/rsl_rl/rsl_rl/tests/frontres_gain_threshold_calibration_alignment.py and frontres_clean_relative_calibration_alignment.py",
+      "identity": "producer and consumer: MODULE-CORRECT",
+      "proves": "existing Q95 producer and Clean-relative consumer remain green",
+      "does_not_prove": "real repeated-Clean telemetry or active-route connectivity",
+      "current": true
+    },
+    {
+      "claim": "The new adapter module manifest is admitted offline.",
+      "class": "contract-confirmed",
+      "source_kind": "test",
+      "locator": "note/testing/manifests/frontres_clean_repeated_collection_adapter_module_alignment_v001.json",
+      "identity": "ADMITTED-OFFLINE",
+      "proves": "declared module cases and test identity satisfy the module validator",
+      "does_not_prove": "formal runtime or server collection",
+      "current": true
+    },
+    {
+      "claim": "The typed adapter construction review passes within the offline boundary.",
+      "class": "contract-confirmed",
+      "source_kind": "contract",
+      "locator": "note/frontres_core/reviews/FRS-GAIN-v010-clean-repeated-collection-adapter-review-v001.json",
+      "identity": "CONSTRUCTION_PASS",
+      "proves": "ownership, interface, provenance and dependency direction are reviewed",
+      "does_not_prove": "official gateway, persistence, simulator or policy quality",
+      "current": true
+    }
+  ],
+  "contradictions": [],
+  "attempts": [
+    {"attempt_id": "A1", "action_signature": "initial-generic-callback-adapter-review", "result": "failed", "failure_class": "control", "expensive": false, "new_evidence": ["review rejected generic callback and incomplete identity boundary"]},
+    {"attempt_id": "A2", "action_signature": "typed-output-adapter-and-focused-tests", "result": "succeeded", "failure_class": "none", "expensive": false, "new_evidence": ["typed identity/RNG/cleanup cases pass", "producer and consumer regressions pass", "module manifest admitted offline", "construction review pass"]}
+  ],
+  "dependencies": [],
+  "blockers": ["No official composition-root Clean gateway has been implemented or executed.", "No real repeated-Clean window artifact exists.", "The adapter receipt is ALTERNATE-PATH and cannot be promoted to formal runtime evidence."],
+  "next_step": {
+    "admission": "NONE",
+    "action_class": "none",
+    "action_signature": "stop-before-official-gateway",
+    "description": "Stop after the offline adapter construction; the next user-authorized unit is official gateway design and formal-runtime review.",
+    "required_evidence": ["official reset/materialization owner map", "combined policy/runtime/RNG fingerprint seam", "code-review-expert final gate", "formal R1 pseudo-transaction plan"],
+    "stop_condition": "Do not access simulator/server or activate v010 until the official gateway has formal admission.",
+    "options": []
+  },
+  "completion": {
+    "chain_mapped": true,
+    "evidence_classes": ["contract-confirmed"],
+    "unconfirmed_boundaries": ["official composition-root gateway", "real repeated-Clean telemetry", "serialization/persistence", "formal route", "policy quality"],
+    "next_decision": "whether to authorize the separate official gateway and formal-runtime unit",
+    "preserved_scope": "offline typed adapter only"
+  }
+}

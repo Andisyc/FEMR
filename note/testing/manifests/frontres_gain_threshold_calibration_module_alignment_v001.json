@@ -1,0 +1,251 @@
+{
+  "schema_version": 1,
+  "design_identity": "FRS-DP-07R/FRS-GAIN-v010-threshold-calibration-proposal-20260821",
+  "checkout_identity": "cd49f1c113beede16fb0992c1ceb83ea0fc55019+dirty",
+  "modules": [
+    {
+      "id": "FRS-CLEAN-CALIBRATION-PRODUCER-v1",
+      "owner": "frontres_clean_relative_calibration",
+      "public_boundary": "build_clean_calibration(observations, identity, horizon, coverage) -> CleanCalibration",
+      "card": {
+        "status": "confirmed",
+        "identity": "FRS-GAIN-v010-threshold-calibration-engineering-plan/S0-S3"
+      },
+      "required": {
+        "s_tiers": ["S1"],
+        "case_families": ["C1", "C2", "C3", "C4"],
+        "t_kinds": ["T-value", "T-meta", "T-permute", "T-oracle"]
+      },
+      "case_family_waivers": {},
+      "cases": [
+        {
+          "id": "producer-q95-window-differences",
+          "case_family": "C1",
+          "s_tier": "S1",
+          "t_kinds": ["T-value", "T-oracle"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["five repeated Clean windows", "six Recovery fields", "one sealed Scenario"],
+            "units_and_axes": "capture/ZMP/drift in m, trends and dynamics in per-second units; rows are repeat identity",
+            "validity_semantics": "all windows valid, same domain/Scenario/applicability"
+          },
+          "oracle": {
+            "kind": "hand-calculation",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-mutation",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl python source/rsl_rl/rsl_rl/tests/frontres_gain_threshold_calibration_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_gain_threshold_calibration_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "producer-resolution-boundary",
+          "case_family": "C2",
+          "s_tier": "S1",
+          "t_kinds": ["T-value"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["sub-resolution change", "supra-resolution change"],
+            "units_and_axes": "each change uses its field-specific calibrated unit and direction",
+            "validity_semantics": "valid finite same-Scenario evidence"
+          },
+          "oracle": {
+            "kind": "hand-calculation",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-counterexample",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl python source/rsl_rl/rsl_rl/tests/frontres_gain_threshold_calibration_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_gain_threshold_calibration_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "producer-invalid-evidence",
+          "case_family": "C3",
+          "s_tier": "S1",
+          "t_kinds": ["T-meta"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["single observation", "mixed domain", "NaN", "mixed ZMP applicability"],
+            "units_and_axes": "same window fields with one deliberately invalid semantic attribute",
+            "validity_semantics": "every malformed family must fail closed"
+          },
+          "oracle": {
+            "kind": "human-confirmed-golden",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-counterexample",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl python source/rsl_rl/rsl_rl/tests/frontres_gain_threshold_calibration_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_gain_threshold_calibration_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "producer-row-permutation-and-hash",
+          "case_family": "C4",
+          "s_tier": "S1",
+          "t_kinds": ["T-permute", "T-meta"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["canonical repeat rows", "reversed repeat rows", "tampered hash", "tampered units"],
+            "units_and_axes": "row permutation preserves all field units and repeat identities",
+            "validity_semantics": "permutation is valid; hash and unit mutations are invalid"
+          },
+          "oracle": {
+            "kind": "metamorphic-relation",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-mutation",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl python source/rsl_rl/rsl_rl/tests/frontres_gain_threshold_calibration_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_gain_threshold_calibration_alignment: MODULE-CORRECT"
+          }
+        }
+      ],
+      "status": "MODULE-CORRECT"
+    },
+    {
+      "id": "FRS-CLEAN-CALIBRATION-CONSUMER-v1",
+      "owner": "frontres_clean_relative_calibration",
+      "public_boundary": "apply_clean_relative_calibration(outcome, clean, calibration, scenario) -> CleanRelativeResult",
+      "card": {
+        "status": "confirmed",
+        "identity": "FRS-GAIN-v010-clean-relative-calibration-proposal/required-offline-proof"
+      },
+      "required": {
+        "s_tiers": ["S1"],
+        "case_families": ["C1", "C2", "C3", "C4"],
+        "t_kinds": ["T-value", "T-transform", "T-meta"]
+      },
+      "case_family_waivers": {},
+      "cases": [
+        {
+          "id": "consumer-clean-domain",
+          "case_family": "C1",
+          "s_tier": "S1",
+          "t_kinds": ["T-value", "T-transform"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["Clean reference", "matching Repair outcome", "producer-built calibration"],
+            "units_and_axes": "six Recovery coordinates retain their declared field order and units",
+            "validity_semantics": "valid matching identity and applicable ZMP"
+          },
+          "oracle": {
+            "kind": "hand-calculation",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-counterexample",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl python source/rsl_rl/rsl_rl/tests/frontres_clean_relative_calibration_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_relative_calibration_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "consumer-bin-boundary",
+          "case_family": "C2",
+          "s_tier": "S1",
+          "t_kinds": ["T-value", "T-transform"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["exact artifact resolution", "just beyond artifact resolution"],
+            "units_and_axes": "angular dynamics error in rad_per_s, lower is better",
+            "validity_semantics": "both inputs valid and share identity"
+          },
+          "oracle": {
+            "kind": "hand-calculation",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-counterexample",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl python source/rsl_rl/rsl_rl/tests/frontres_clean_relative_calibration_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_relative_calibration_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "consumer-hard-invalid",
+          "case_family": "C3",
+          "s_tier": "S1",
+          "t_kinds": ["T-value", "T-meta"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["negative Capture Margin", "zero resolution", "fractional pair count"],
+            "units_and_axes": "physical sign and artifact counts preserve their declared meanings",
+            "validity_semantics": "hard violation is invalid Physics; malformed artifact fails closed"
+          },
+          "oracle": {
+            "kind": "human-confirmed-golden",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-mutation",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl python source/rsl_rl/rsl_rl/tests/frontres_clean_relative_calibration_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_relative_calibration_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "consumer-identity-mismatch",
+          "case_family": "C4",
+          "s_tier": "S1",
+          "t_kinds": ["T-meta"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["calibration domain", "Clean domain", "Repair Scenario identity"],
+            "units_and_axes": "values remain equal while domain or Scenario role is swapped",
+            "validity_semantics": "identity mismatch must fail closed"
+          },
+          "oracle": {
+            "kind": "human-confirmed-golden",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-counterexample",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl python source/rsl_rl/rsl_rl/tests/frontres_clean_relative_calibration_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_relative_calibration_alignment: MODULE-CORRECT"
+          }
+        }
+      ],
+      "status": "MODULE-CORRECT"
+    }
+  ]
+}

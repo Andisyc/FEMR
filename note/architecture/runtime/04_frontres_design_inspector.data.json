@@ -133,11 +133,31 @@
             "q_r\\text{ 后使用 exact Pareto；不使用 }H_1+H_2+H_3\\text{，也不使用成对 }\\varepsilon"
           ]
         },
-        {
-          "heading": "训练前边界",
-          "text": "Actor credit、INCOMPARABLE、B8×M4 聚合、关系型 Replay 和 checkpoint-v20 已由独立接口承载。训练前仍需通过代码审查、Checkpoint 恢复和正式入口离线审计；代码同步、checkpoint 生成与训练由用户执行。"
-        },
-        {
+    {
+      "heading": "Clean-relative 候选标定（v010 proposal，未激活）",
+      "text": "Clean 只提供同一 Scenario 的正常执行中心；离线重复 Clean artifact 提供每个连续 Physics 字段的正常波动尺度。阈值校准不是训练调参：先重复已知无真实变化的状态，分别测量传感器、估计器和仿真重复波动，再用独立物理事件标签对受控扰动扫描寻找安全区间。硬 Physics 仍由绝对规则决定，缺失或身份不匹配的标定直接 INVALID。噪声容差只判断差异是否可信，不能把真实失载、非计划换脚或非法接触变成可接受；Clean 统计中心也不能单独定义安全阈值。该 proposal 不改变当前 v009 训练入口；真实 artifact、模块审查与正式入口证明完成前保持未激活。",
+      "latex": [
+        "\\delta_j=Q_{1-\\alpha}(|\\phi_j(C^{(1)})-\\phi_j(C^{(2)})|)",
+        "|\\Delta_j|\\le\\delta_j\\Rightarrow \\text{该指标无可确认差异};\\quad |\\Delta_j|>\\delta_j\\Rightarrow \\text{该指标差异可进入 Pareto}",
+        "b_j(R\\mid C)=\\operatorname{round}((\\phi_j(R)-\\phi_j(C))/(2\\delta_j))",
+        "L_3\\iff absolute\\_physics\\_valid\\land final\\ W\\text{ steps remain in the calibrated Clean domain}",
+        "A\\succ B\\iff[\\forall j:b_j(A)\\ge b_j(B)]\\land[\\exists j:b_j(A)>b_j(B)]",
+        "\\Theta=(\\Theta_{phys},\\Theta_{noise},\\Theta_{app}),\\quad \\text{calibration}\\rightarrow\\text{validation}\\rightarrow\\text{held\\text{-}out}",
+        "missing\\lor stale\\lor mismatched\\ calibration\\Rightarrow INVALID"
+      ],
+      "table": {
+        "columns": ["对象", "来源", "是否人工调参"],
+        "rows": [
+          ["Survival / 失载 / 非计划换脚 / 非法接触", "绝对物理事件", "否"],
+          ["Capture / ZMP 可行侧", "绝对物理边界 0", "否"],
+          ["连续 Recovery 分辨率 δ_j", "离线重复 Clean 分位数", "否，数据标定"],
+          ["噪声容差验收", "相同状态多为 SAME；明显状态可区分", "否，独立重复测量"],
+          ["受控扰动单调性", "扰动扫描 + 独立失败标签", "否，安全区间而非单点"],
+          ["覆盖率 1-α / 稳定时长 W", "任务语义", "是，仅保留这两个语义控制量"]
+        ]
+      }
+    },
+    {
           "heading": "治理结论",
           "text": "ACTIVE-PRE-TRAINING：关系型 v014 路径已推进到训练前离线工程证据。代码同步、live test 和训练仍由用户控制；真实阈值、收敛与策略质量尚未验证。"
         }

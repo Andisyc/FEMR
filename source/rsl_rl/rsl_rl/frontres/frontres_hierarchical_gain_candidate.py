@@ -165,7 +165,15 @@ def _classify(outcome: Outcome, thresholds: Thresholds) -> _Classified:
         and _quantize(drift, resolution) <= _quantize(thresholds.support_drift_max, resolution)
         and hold >= thresholds.stable_hold_steps_required
     )
-    recovery = (capture, trend, *(() if zmp is None else (zmp,)), -linear, -angular, -drift)
+    recovery = (
+        capture,
+        trend,
+        *(() if zmp is None else (zmp,)),
+        -linear,
+        -angular,
+        -drift,
+        float(hold),
+    )
     level = PhysicsLevel.L3_ADMISSIBLE_STABLE if stable else PhysicsLevel.L2_ADMISSIBLE_UNSETTLED
     return _Classified(level, severe, recovery, intent, cost, outcome.zmp_applicable, failure)
 

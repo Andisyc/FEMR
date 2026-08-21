@@ -1,0 +1,62 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-GAIN-V010-CLEAN-CALIBRATION-20260820-V001",
+  "mode": "construction",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "CONSTRUCTION_PASS",
+  "scope": {
+    "requested": ["Implement the approved Clean-relative calibration candidate and stop before active Gain integration"],
+    "preserved": ["FRS-GAIN-v009 remains active", "absolute hard Physics", "relational partial order", "training route and optimizer state"],
+    "forbidden": ["online calibration", "Repair-derived calibration", "silent threshold fallback", "training or live execution"]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-DP-07R/FRS-GAIN-v010-proposal",
+    "contract": "FRS-GAIN-v009-active; FRS-GAIN-v010-proposal-not-active",
+    "checkout": "cd49f1c113beede16fb0992c1ceb83ea0fc55019+dirty-worktree",
+    "review_object": "sha256:edc799ade32ad85a43e83b207ae78f7ba359aed5164a16387a5027d4c03d151f"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "Focused candidate-module construction review"},
+    "source_edits": {"status": "approved", "scope": "Clean-relative candidate module, pseudo-test and proposal documentation", "receipt": "User requested direct execution of the confirmed Clean-relative design"},
+    "report_write": {"status": "approved", "scope": "Construction review receipt", "receipt": "Construction closeout inside the same authorized unit"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_clean_relative_calibration.py",
+    "content_hash": "sha256:edc799ade32ad85a43e83b207ae78f7ba359aed5164a16387a5027d4c03d151f",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "/Users/chengyuxuan/ArtiIntComVis/FEMR/note/frontres_core/contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "The new pure module owns only validation and application of an immutable Clean calibration; the active Gain comparator remains unchanged."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "Explicit immutable calibration and Clean-reference value objects expose identities, resolutions and one deterministic result."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "The pure calibration owner depends only on the existing Outcome value object and has no runner, simulator, optimizer or filesystem dependency."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "The boundary is stateless and read-only; invalid identity or evidence raises before producing calibrated evidence."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "No caller or active route imports the candidate module; v009 characterization tests remain green."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "The pseudo-sample proves module math only and explicitly does not claim a real calibration artifact or official-route reachability."},
+    {"name": "tensor-provenance", "disposition": "not-applicable", "evidence": "This candidate boundary consumes detached scalar Outcome evidence; tensor construction remains outside the unintegrated proposal."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "The module has no torch, loss, gradient, optimizer or mutable training dependency."},
+    {"name": "persistence-evaluation", "disposition": "pass", "evidence": "Artifact identity fields are validated but serialization and official evaluation are intentionally outside this candidate module."}
+  ],
+  "findings": [],
+  "residual_risks": [
+    "No public repeated-Clean producer or real calibration artifact exists yet.",
+    "The candidate is not connected to FRS-GAIN-v009, training, checkpoints or evaluation."
+  ],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}

@@ -1,0 +1,103 @@
+{
+  "schema_version": "human-control-protocol/v1",
+  "control_id": "HCP-FRS-GAIN-THRESHOLD-MODULE-TEST-EXECUTION-20260821",
+  "mode": "bounded-execution",
+  "state": "COMPLETE",
+  "objective": "Implement and validate the deterministic repeated-Clean calibration artifact producer and its existing consumer, without runtime collection or active Gain integration.",
+  "scope": {
+    "requested": ["repeated Clean window input", "Q95 field resolutions", "identity/unit/sample/hash-bound CleanCalibration", "semantic pseudo-sample execution"],
+    "preserved": ["active FRS-GAIN-v009", "Clean is not a safety oracle", "partial-order and fail-closed semantics"],
+    "forbidden": ["simulator collection", "active Gain integration", "training", "deployment", "git actions"]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-DP-07R/FRS-GAIN-v010-threshold-calibration-proposal-20260821",
+    "contract": "FRS-GAIN-v009-active; FRS-GAIN-v010-proposal-only",
+    "checkout": "cd49f1c113beede16fb0992c1ceb83ea0fc55019+dirty",
+    "task": "offline calibration producer construction and module test"
+  },
+  "authority": {
+    "source": "current user instruction to execute the repeated-Clean artifact chain",
+    "current": true,
+    "receipt": "user-authorized bounded offline implementation and tests",
+    "auto_actions": ["read", "explain", "edit", "test"],
+    "confirmation_actions": ["simulator", "training", "external-operation"],
+    "forbidden_actions": ["checkpoint-io", "deployment"],
+    "live": {"status": "not-authorized", "scope": "no simulator, server, training or deployment"}
+  },
+  "cost_control": {
+    "class": "offline-bounded",
+    "estimate": "one RED/GREEN cycle, focused regressions and construction review",
+    "update_cadence_seconds": 60,
+    "max_expensive_attempts": 0,
+    "stop_conditions": ["new semantic decision", "active-route change", "runtime collection requirement"]
+  },
+  "cursor": {
+    "status": "confirmed",
+    "source_kind": "active-plan",
+    "source": "note/frontres_core/plans/FRS-GAIN-v010-threshold-calibration-engineering-plan.md",
+    "current": true,
+    "current_gate": "offline producer/consumer module closure",
+    "next_gate": "formal design and review of a read-only repeated-Clean collection adapter",
+    "total_gates": 2
+  },
+  "evidence": [
+    {
+      "claim": "Producer and consumer semantic pseudo-samples pass through their public boundaries.",
+      "class": "contract-confirmed",
+      "source_kind": "test",
+      "locator": "source/rsl_rl/rsl_rl/tests/frontres_gain_threshold_calibration_alignment.py and frontres_clean_relative_calibration_alignment.py",
+      "identity": "current dirty checkout",
+      "current": true,
+      "proves": "offline Q95, boundary, invalid, identity, unit, hash and permutation behavior",
+      "does_not_prove": "real simulator noise or threshold quality"
+    },
+    {
+      "claim": "The maintainability construction review passes with no open finding.",
+      "class": "contract-confirmed",
+      "source_kind": "test",
+      "locator": "note/frontres_core/reviews/FRS-GAIN-v010-threshold-calibration-construction-review-v001.json",
+      "identity": "CRE-FRS-GAIN-v010-THRESHOLD-CALIBRATION-CONSTRUCTION-v001",
+      "current": true,
+      "proves": "owner, interface, dependency and evidence boundaries are reviewed",
+      "does_not_prove": "formal route or policy quality"
+    }
+  ],
+  "contradictions": [],
+  "attempts": [
+    {
+      "attempt_id": "A1",
+      "action_signature": "run-producer-test-before-implementation",
+      "result": "failed",
+      "failure_class": "state",
+      "expensive": false,
+      "new_evidence": ["ImportError confirmed the public producer was absent"]
+    },
+    {
+      "attempt_id": "A2",
+      "action_signature": "implement-producer-and-run-focused-tests",
+      "result": "succeeded",
+      "failure_class": "none",
+      "expensive": false,
+      "new_evidence": ["producer and consumer tests report MODULE-CORRECT", "module manifest ADMITTED-OFFLINE", "construction review CONSTRUCTION_PASS"]
+    }
+  ],
+  "dependencies": [],
+  "blockers": ["No formal read-only adapter has collected real repeated-Clean window observations."],
+  "next_step": {
+    "admission": "NONE",
+    "action_class": "none",
+    "action_signature": "offline-calibration-producer-unit-complete",
+    "description": "The authorized offline construction unit is complete; a new user instruction would own collector preparation.",
+    "required_evidence": ["runtime owner/dataflow map", "zero-training-mutation boundary", "raw field availability and applicability mapping"],
+    "stop_condition": "do not collect, train or activate v010 without separate authority",
+    "options": []
+  },
+  "completion": {
+    "chain_mapped": true,
+    "evidence_classes": ["contract-confirmed"],
+    "unconfirmed_boundaries": ["real noise resolutions", "controlled perturbation monotonicity", "held-out validation", "active-route connectivity"],
+    "next_decision": "whether to authorize preparation of the read-only repeated-Clean collection adapter",
+    "preserved_scope": "offline proposal producer/consumer only"
+  }
+}

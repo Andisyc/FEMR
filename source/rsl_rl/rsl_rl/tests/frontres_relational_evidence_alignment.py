@@ -2,7 +2,7 @@
 
 import torch
 
-from rsl_rl.frontres.frontres_hierarchical_gain_candidate import Outcome
+from rsl_rl.frontres.frontres_hierarchical_gain_candidate import Outcome, compare
 from rsl_rl.frontres.frontres_segment_evidence import (
     FrontRESExecutedKTrajectory,
     FrontRESRepairAttemptEvidence,
@@ -31,6 +31,11 @@ def _trajectory(outcome: Outcome) -> FrontRESExecutedKTrajectory:
 
 
 def main() -> None:
+    longer_unsettled_hold = Outcome(capture_margin=0.0, stable_hold_steps=1)
+    shorter_unsettled_hold = Outcome(capture_margin=0.0, stable_hold_steps=0)
+    assert compare(longer_unsettled_hold, shorter_unsettled_hold).relation == "BETTER"
+    assert compare(shorter_unsettled_hold, longer_unsettled_hold).relation == "WORSE"
+
     stable = Outcome()
     outcomes = (stable, Outcome(capture_margin=0.0, stable_hold_steps=0), Outcome(expected_support_no_load=0.2), Outcome(survival_ok=False, survival_failure_duration=0.2))
     baseline = FrontRESSegmentBaselineEvidence(

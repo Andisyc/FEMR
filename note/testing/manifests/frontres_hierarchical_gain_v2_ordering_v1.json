@@ -35,9 +35,9 @@
       "rule_id": "l2-recovery-pareto",
       "relation": "better",
       "condition": "same L2 and left is no worse on every Recovery item and strictly better on one",
-      "left": "higher Capture Margin/trend and ZMP Margin, lower linear/angular momentum error and drift",
+      "left": "higher Capture Margin/trend, ZMP Margin and stable-hold steps, lower linear/angular momentum error and drift",
       "right": "dominated Recovery vector",
-      "evidence_fields": ["capture_margin", "capture_margin_trend", "zmp_margin", "linear_momentum_error", "angular_momentum_error", "support_drift"]
+      "evidence_fields": ["capture_margin", "capture_margin_trend", "zmp_margin", "linear_momentum_error", "angular_momentum_error", "support_drift", "stable_hold_steps"]
     },
     {
       "rule_id": "l3-intent-then-cost",

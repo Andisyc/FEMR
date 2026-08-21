@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "design_identity": "FRS-DP-07R/FRS-GAIN-v010-threshold-calibration-proposal-20260821",
+  "checkout_identity": "cd49f1c113beede16fb0992c1ceb83ea0fc55019+dirty",
+  "modules": [
+    {
+      "id": "FRS-CLEAN-REPEATED-COLLECTION-ADAPTER-v1",
+      "owner": "frontres_clean_relative_calibration",
+      "public_boundary": "adapt_read_only_clean_collection(request, collection) -> ReadOnlyCleanCollectionReceipt",
+      "card": {
+        "status": "confirmed",
+        "identity": "FRS-GAIN-v010-threshold-calibration-engineering-plan/S7"
+      },
+      "required": {
+        "s_tiers": ["S1"],
+        "case_families": ["C1", "C2", "C3", "C4"],
+        "t_kinds": ["T-value", "T-role", "T-state", "T-meta", "T-persist"]
+      },
+      "case_family_waivers": {},
+      "cases": [
+        {
+          "id": "adapter-complete-gateway-output",
+          "case_family": "C1",
+          "s_tier": "S1",
+          "t_kinds": ["T-value", "T-role", "T-state"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["three complete same-Scenario Clean windows", "unchanged training/RNG state", "closed repeats"],
+            "units_and_axes": "field units and K/dt come from the typed request identity",
+            "validity_semantics": "all rows share Segment/cache/Clean/GMT identity and exact repeat seeds"
+          },
+          "oracle": {
+            "kind": "human-confirmed-golden",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-counterexample",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl python source/rsl_rl/rsl_rl/tests/frontres_clean_repeated_collection_adapter_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_repeated_collection_adapter_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "adapter-exact-repeat-and-cleanup",
+          "case_family": "C2",
+          "s_tier": "S1",
+          "t_kinds": ["T-role", "T-meta"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["duplicate repeat", "missing closed repeat", "partial gateway output"],
+            "units_and_axes": "repeat_id and explicit repeat seed are one-to-one and sorted",
+            "validity_semantics": "missing, duplicate or partially closed rows fail closed"
+          },
+          "oracle": {
+            "kind": "human-confirmed-golden",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-mutation",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl python source/rsl_rl/rsl_rl/tests/frontres_clean_repeated_collection_adapter_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_repeated_collection_adapter_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "adapter-state-and-rng-fail-closed",
+          "case_family": "C3",
+          "s_tier": "S1",
+          "t_kinds": ["T-state", "T-meta"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["training-state drift", "RNG restoration drift", "cache identity drift"],
+            "units_and_axes": "state and RNG are SHA-256 identities; source hashes remain immutable",
+            "validity_semantics": "any drift invalidates the complete collection before artifact emission"
+          },
+          "oracle": {
+            "kind": "human-confirmed-golden",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-mutation",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl python source/rsl_rl/rsl_rl/tests/frontres_clean_repeated_collection_adapter_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_repeated_collection_adapter_alignment: MODULE-CORRECT"
+          }
+        },
+        {
+          "id": "adapter-request-calibration-binding",
+          "case_family": "C4",
+          "s_tier": "S1",
+          "t_kinds": ["T-meta", "T-persist"],
+          "invokes_production_public_boundary": true,
+          "fixture": {
+            "semantic_roles": ["request hash", "artifact request_hash", "tampered calibration id"],
+            "units_and_axes": "calibration metadata is bound to request identity, field schema, K and timestep",
+            "validity_semantics": "a receipt cannot be rebound to another request after construction"
+          },
+          "oracle": {
+            "kind": "metamorphic-relation",
+            "independent_from_production": true
+          },
+          "sensitivity": {
+            "kind": "controlled-mutation",
+            "observed_failure": true
+          },
+          "evidence": {
+            "class": "contract-confirmed",
+            "command": "PYTHONPATH=source/rsl_rl python source/rsl_rl/rsl_rl/tests/frontres_clean_repeated_collection_adapter_alignment.py",
+            "exit_code": 0,
+            "identity": "frontres_clean_repeated_collection_adapter_alignment: MODULE-CORRECT"
+          }
+        }
+      ],
+      "status": "MODULE-CORRECT"
+    }
+  ]
+}

@@ -272,6 +272,7 @@ def classify(outcome: Outcome, thresholds: Thresholds) -> ClassifiedOutcome:
         -linear_error,
         -angular_error,
         -drift,
+        float(hold_steps),
     )
     return ClassifiedOutcome(
         level=(
@@ -558,6 +559,14 @@ def _pseudo_cases(thresholds: Thresholds) -> tuple[list[dict[str, Any]], dict[st
             _replace(l2_base, capture_margin=-0.02, linear_momentum_error=0.08),
             "INCOMPARABLE",
             "capture margin improves while momentum error worsens",
+            thresholds,
+        ),
+        _test_case(
+            "unsettled-stable-hold-progress",
+            _replace(l2_base, stable_hold_steps=1),
+            _replace(l2_base, stable_hold_steps=0),
+            "BETTER",
+            "within L2, a longer confirmed stable hold is monotone recovery evidence",
             thresholds,
         ),
         _test_case(

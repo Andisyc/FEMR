@@ -405,6 +405,9 @@ parser.add_argument("--frontres_action_gain_direction_collect_only", action="sto
 parser.add_argument("--frontres_action_gain_direction_manifest", type=str, default=None)
 parser.add_argument("--frontres_action_gain_direction_policy_checkpoint", type=str, default=None)
 parser.add_argument("--frontres_action_gain_direction_result", type=str, default=None)
+parser.add_argument("--frontres_clean_calibration_collect_only", action="store_true", default=False)
+parser.add_argument("--frontres_clean_calibration_manifest", type=str, default=None)
+parser.add_argument("--frontres_clean_calibration_result", type=str, default=None)
 parser.add_argument("--frontres_policy_quality_q2d_eval_only", action="store_true", default=False)
 parser.add_argument("--frontres_policy_quality_q2d_result", type=str, default=None)
 parser.add_argument("--frontres_policy_quality_q2d_credit_result", type=str, default=None)
@@ -898,6 +901,9 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     action_gain_direction_arg = bool(
         getattr(args_cli, "frontres_action_gain_direction_collect_only", False)
     )
+    clean_calibration_arg = bool(
+        getattr(args_cli, "frontres_clean_calibration_collect_only", False)
+    )
     relational_v013 = bool(getattr(args_cli, "frontres_relational_actor_only", False))
     relational_preference_v014 = bool(
         getattr(args_cli, "frontres_relational_preference_v014", False)
@@ -922,14 +928,28 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         raise ValueError("--frontres_hsl_live_smoke requires --frontres_stage stage1_hsl")
     if action_gain_direction_arg and stage != "stage3_segment_hrl":
         raise ValueError("--frontres_action_gain_direction_collect_only requires Stage 3")
+    if clean_calibration_arg and stage != "stage3_segment_hrl":
+        raise ValueError("--frontres_clean_calibration_collect_only requires Stage 3")
+    if clean_calibration_arg:
+        missing_clean = [
+            name
+            for name, value in (
+                ("--frontres_clean_calibration_manifest", getattr(args_cli, "frontres_clean_calibration_manifest", None)),
+                ("--frontres_clean_calibration_result", getattr(args_cli, "frontres_clean_calibration_result", None)),
+            )
+            if not value
+        ]
+        if missing_clean:
+            raise ValueError(f"clean_calibration_collect missing required arguments: {missing_clean}")
     if (
         live_sentinel_arg
         or local_sentinel_arg
         or live_probe_arg
         or live_storage_arg
         or live_single_update_arg
-        or live_update_loop_arg
-    ) and stage != "stage3_segment_hrl":
+            or live_update_loop_arg
+            or clean_calibration_arg
+        ) and stage != "stage3_segment_hrl":
         raise ValueError("Stage 3 live sentinel/probe/storage/update flags require --frontres_stage stage3_segment_hrl.")
     if stage is None:
         return
@@ -1039,6 +1059,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             or live_storage_only
             or policy_quality_eval_arg
             or action_gain_direction_arg
+            or clean_calibration_arg
         )
         if sum((
             live_sentinel_only,
@@ -1047,6 +1068,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             live_storage_only,
             policy_quality_eval_arg,
             action_gain_direction_arg,
+            clean_calibration_arg,
         )) > 1:
             raise ValueError(
                 "Use only one of --frontres_segment_live_sentinel_only, "
@@ -1054,7 +1076,8 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
                 "--frontres_segment_live_probe_only, or "
                 "--frontres_segment_live_storage_write_only, or "
                 "--frontres_policy_quality_eval_only, or "
-                "--frontres_action_gain_direction_collect_only."
+                "--frontres_action_gain_direction_collect_only, or "
+                "--frontres_clean_calibration_collect_only."
             )
         if (
             live_sentinel_only
@@ -1063,6 +1086,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             or live_storage_only
             or policy_quality_eval_arg
             or action_gain_direction_arg
+            or clean_calibration_arg
         ):
             agent_cfg.max_iterations = 0
         # B1: evaluator 是外层只读调度, 算法仍以 Stage-3 objective 构造.
@@ -1081,9 +1105,10 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(alg_cfg, "frontres_relational_actor_only", relational_actor_only)
         _set_if_present(alg_cfg, "frontres_actor_only_lr_init_transactions", 100)
         _set_if_present(alg_cfg, "frontres_actor_only_lr_ramp_transactions", 50)
-        evaluation_only = policy_quality_eval_arg or action_gain_direction_arg
+        evaluation_only = policy_quality_eval_arg or action_gain_direction_arg or clean_calibration_arg
         _set_if_present(alg_cfg, "frontres_segment_replay_enabled", not evaluation_only)
-        _set_if_present(alg_cfg, "frontres_policy_quality_eval_only", evaluation_only)
+        _set_if_present(alg_cfg, "frontres_policy_quality_eval_only", policy_quality_eval_arg)
+        _set_if_present(alg_cfg, "frontres_clean_calibration_collect_only", clean_calibration_arg)
         _set_if_present(
             alg_cfg,
             "frontres_segment_live_runner_enabled",
@@ -1107,7 +1132,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(
             alg_cfg,
             "frontres_segment_live_update_steps",
-            1 if (live_train_enabled or evaluation_only) else live_update_steps,
+            0 if clean_calibration_arg else (1 if (live_train_enabled or evaluation_only) else live_update_steps),
         )
         _set_if_present(
             alg_cfg,
@@ -1814,6 +1839,42 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             result_path=args_cli.frontres_policy_quality_q2d_result,
         )
         env.close()
+        return
+
+    if bool(getattr(args_cli, "frontres_clean_calibration_collect_only", False)):
+        conflicting_modes = [
+            name
+            for name in (
+                "frontres_policy_quality_eval_only",
+                "frontres_policy_quality_q2d_eval_only",
+                "frontres_action_gain_direction_collect_only",
+                "frontres_segment_live_sentinel_only",
+                "frontres_local_sentinel_only",
+                "frontres_segment_live_probe_only",
+                "frontres_segment_live_storage_write_only",
+                "frontres_segment_live_single_update_only",
+                "frontres_segment_live_update_loop_only",
+            )
+            if bool(getattr(args_cli, name, False))
+        ]
+        if conflicting_modes:
+            raise ValueError(
+                f"clean_calibration_collect is exclusive with other Stage 3 modes: {conflicting_modes}"
+            )
+        required = {
+            "--frontres_clean_calibration_manifest": args_cli.frontres_clean_calibration_manifest,
+            "--frontres_clean_calibration_result": args_cli.frontres_clean_calibration_result,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise ValueError(f"clean_calibration_collect missing required arguments: {missing}")
+        try:
+            runner.run_frontres_clean_calibration_collect(
+                manifest_path=args_cli.frontres_clean_calibration_manifest,
+                result_path=args_cli.frontres_clean_calibration_result,
+            )
+        finally:
+            env.close()
         return
 
     if bool(getattr(args_cli, "frontres_action_gain_direction_collect_only", False)):

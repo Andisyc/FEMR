@@ -1,0 +1,67 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-GAIN-v010-CLEAN-CALIBRATION-OFFICIAL-ROUTE-CONSTRUCTION-v001",
+  "mode": "construction",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "CONSTRUCTION_PASS",
+  "scope": {
+    "requested": ["connect v010 manifest composition to the typed raw Clean gateway"],
+    "preserved": [
+      "active FRS-GAIN-v009 remains the training authority",
+      "existing Stage-1 materialization/reset and read-only aggregate owners",
+      "no Gain, Replay, optimizer or training mutation"
+    ],
+    "forbidden": ["server/live execution", "training", "formal R1 or real telemetry claims"]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-DP-07R/FRS-GAIN-v010-threshold-calibration-proposal-20260821",
+    "contract": "FRS-GAIN-v009 active; FRS-EVAL-v010 clean-calibration route",
+    "checkout": "cd49f1c113beede16fb0992c1ceb83ea0fc55019+dirty",
+    "review_object": "frontres_clean_calibration_gateway.py@sha256:19d0d56f56c845af07dc7332012f035a77743b9c7ffda53d5248f0e2529e4767"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "current bounded construction diff"},
+    "source_edits": {"status": "approved", "scope": "official clean-calibration route connector and focused regression", "receipt": "current user instruction to execute the official raw Clean producer connection"},
+    "report_write": {"status": "approved", "scope": "construction review receipt", "receipt": "code-construction closeout"}
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "../../../source/rsl_rl/rsl_rl/runners/frontres_clean_calibration_gateway.py",
+    "content_hash": "sha256:19d0d56f56c845af07dc7332012f035a77743b9c7ffda53d5248f0e2529e4767",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "../contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true
+  },
+  "dimensions": [
+    {"name": "responsibility-ownership", "disposition": "pass", "evidence": "Gateway composes the manifest and delegates reset/materialization, raw producer and pure adapter to their existing owners."},
+    {"name": "public-interface", "disposition": "pass", "evidence": "Manifest parsing produces CleanCalibrationCollectionRequest and the OnPolicyRunner typed connector; incomplete schemas fail closed."},
+    {"name": "dependency-direction", "disposition": "pass", "evidence": "The gateway depends on the existing Stage-1/read-only owners and does not introduce a second Gain or training owner."},
+    {"name": "state-lifecycle", "disposition": "pass", "evidence": "Prepared batches are closed on post-materialization request/connector failures; the raw gateway verifies protected state and RNG restoration."},
+    {"name": "change-surface", "disposition": "pass", "evidence": "The route is isolated behind one CLI selector and the legacy policy-quality/action-Gain routes remain separate."},
+    {"name": "evidence-boundary", "disposition": "pass", "evidence": "Focused tests report route reachability and cleanup only; the review does not claim R1, live telemetry or policy quality."},
+    {"name": "tensor-provenance", "disposition": "pass", "evidence": "The request binds sealed Scenario/K/cache/support/GMT state identities and the raw carrier validates K-step evidence."},
+    {"name": "gradient-update-boundary", "disposition": "pass", "evidence": "The route explicitly rejects Replay/optimizer/Gain consumers and the producer uses the no-Actor baseline owner."},
+    {"name": "persistence-evaluation", "disposition": "not-applicable", "evidence": "No checkpoint persistence or resume path is claimed by this bounded construction."}
+  ],
+  "findings": [],
+  "residual_risks": [
+    "The loaded GMT policy-state hash is bound as state identity; a checkpoint-file digest is not claimed.",
+    "The local environment lacks isaaclab, so the unchanged official composition-root pseudo-transaction has not reached R1.",
+    "No real Clean telemetry or server execution has been performed."
+  ],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "not-claimed",
+    "module_correctness": "not-claimed",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": []
+}

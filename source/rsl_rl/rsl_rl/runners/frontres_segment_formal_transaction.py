@@ -1261,8 +1261,11 @@ def _resolve_frontres_repeat_policy_observations(
 
 
 @contextmanager
-def frontres_readonly_collection_scope(runner: Any):
-    """Own one EVAL-v004 collection lifecycle without mutating training state."""
+def frontres_readonly_collection_scope(runner: Any, *, route: str = "policy_quality"):
+    """Own one approved read-only collection lifecycle without training mutation."""
+
+    if str(route) not in {"policy_quality", "clean_calibration"}:
+        raise ValueError(f"unsupported read-only FrontRES collection route={route!r}")
 
     aggregate = frontres_stage3_transaction_aggregate(runner)
     aggregate.begin_readonly_collection()

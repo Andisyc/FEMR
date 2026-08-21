@@ -785,6 +785,47 @@ class OnPolicyRunner:
         )
         return self._dispatch_frontres_startup_once("action_gain_direction", operation)
 
+    def run_frontres_clean_calibration_collect(self, *, manifest_path: str, result_path: str):
+        """Thin connector for the read-only v010 Clean calibration gateway.
+
+        The typed input is prepared by the existing Segment cache/reset owner;
+        this connector never constructs Replay, Gain, or an optimizer update.
+        """
+
+        from rsl_rl.runners.frontres_clean_calibration_gateway import (
+            collect_frontres_clean_calibration_from_manifest,
+        )
+
+        operation = lambda: collect_frontres_clean_calibration_from_manifest(
+            self,
+            manifest_path=manifest_path,
+            result_path=result_path,
+        )
+        return self._dispatch_frontres_startup_once("clean_calibration", operation)
+
+    def run_frontres_clean_calibration_collect_typed(self, *, request, prepared):
+        """Official composition-root connector for a typed raw Clean campaign."""
+
+        from rsl_rl.runners.frontres_clean_calibration_gateway import (
+            collect_frontres_clean_calibration_raw_gateway,
+        )
+
+        operation = lambda: collect_frontres_clean_calibration_raw_gateway(
+            self,
+            request=request,
+            prepared=prepared,
+        )
+        return self._dispatch_frontres_startup_once("clean_calibration", operation)
+
+    def frontres_clean_calibration_state_fingerprint(self, transaction_id: str) -> str:
+        """Expose the official read-only protected-state identity owner."""
+
+        from rsl_rl.runners.frontres_clean_calibration_gateway import (
+            compute_frontres_clean_calibration_state_fingerprint,
+        )
+
+        return compute_frontres_clean_calibration_state_fingerprint(self, transaction_id)
+
     def run_frontres_policy_quality_q2d_eval(
         self,
         *,

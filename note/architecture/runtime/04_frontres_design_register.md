@@ -1,7 +1,8 @@
 # FrontRES Design Inspector Register
 
 Status: aligned to FRS-METHOD-v026 / FRS-GAIN-v009 / FRS-PPO-v014 /
-FRS-TRAIN-v025 on 2026-08-19. FRS-DP-09 remains a retired historical card;
+FRS-TRAIN-v025 on 2026-08-21, with non-active FRS-GAIN-v010 Clean-relative
+and threshold/noise calibration proposals recorded under FRS-DP-07R. FRS-DP-09 remains a retired historical card;
 FRS-DP-09R is the active-pre-training Actor-only Curriculum card.
 
 Interactive page: `../02_frontres_design_inspector.html`
@@ -38,7 +39,7 @@ HSL-v2 Actor initialization
 | FRS-DP-05 | Frozen GMT | Frozen 770D GMT executes the repaired continuation for K steps. |
 | FRS-DP-06 | Paired Rollouts | One Clean and one fixed Noisy baseline are read-only anchors for all M4 current Repair attempts. |
 | FRS-DP-07 | Repair Gain | (退役历史卡) Historical scalar `G_total=G_I+lambda_RA*G_P-beta*C_repair`; retained for provenance, not consumed by the current relational route. |
-| FRS-DP-07R | Relational Gain | Active-pre-training `BETTER/WORSE/SAME/INCOMPARABLE`; v014 uses `L_{pref}=|E|^{-1}sum softplus(-(log pi_w-log pi_l))`; v013 remains retired-compatible only. |
+| FRS-DP-07R | Relational Gain | Active-pre-training v009 remains `BETTER/WORSE/SAME/INCOMPARABLE`; non-active v010 now includes repeated-baseline noise calibration, controlled perturbation scans and held-out monotonicity checks while preserving absolute hard Physics. v014 Loss is unchanged. |
 | FRS-DP-08 | HSL Warmup | HSL-v2 initializes Actor/std and Actor-prefix normalizer only. |
 | FRS-DP-09 | Actor & Critic Warmup (退役) | Historical Actor/Critic, scalar target and K-local LR reset card; retained for provenance only. |
 | FRS-DP-09R | Actor-only Curriculum | Initial `3e-7 -> 1e-6` ramp once; K transitions preserve Actor/Adam state and keep `1e-6`; DR restarts without becoming an LR controller. The candidate Loss and LR are pre-training decisions, not a live activation claim. |

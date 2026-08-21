@@ -1,0 +1,142 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-GAIN-v010-CLEAN-REPEATED-COLLECTION-ADAPTER-v001",
+  "mode": "construction",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "CONSTRUCTION_PASS",
+  "scope": {
+    "requested": [
+      "review the typed read-only repeated-Clean collection adapter boundary",
+      "review its identity, cleanup, training/RNG isolation and calibration binding"
+    ],
+    "preserved": [
+      "active FRS-GAIN-v009 hierarchical relational Gain",
+      "proposal-only FRS-GAIN-v010 calibration owner",
+      "no active training, Replay, optimizer, checkpoint or simulator mutation"
+    ],
+    "forbidden": [
+      "official composition-root gateway implementation",
+      "simulator/server collection",
+      "active Gain integration",
+      "training or policy-quality claims"
+    ]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-DP-07R/FRS-GAIN-v010-threshold-calibration-proposal-20260821",
+    "contract": "FRS-GAIN-v009-active; FRS-GAIN-v010-proposal-only",
+    "checkout": "cd49f1c113beede16fb0992c1ceb83ea0fc55019+dirty",
+    "review_object": "frontres_clean_relative_calibration.py@sha256:b6b19a0861c59115284b2af7eb45a529949b3768a283a63ef905dcb05147a3fa"
+  },
+  "authority": {
+    "review": {
+      "status": "read-only",
+      "scope": "current bounded construction diff"
+    },
+    "source_edits": {
+      "status": "not-authorized",
+      "scope": "none"
+    },
+    "report_write": {
+      "status": "approved",
+      "scope": "this construction review receipt",
+      "receipt": "parent agent explicit request to issue final review receipt"
+    }
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "../../../source/rsl_rl/rsl_rl/frontres/frontres_clean_relative_calibration.py",
+    "content_hash": "sha256:b6b19a0861c59115284b2af7eb45a529949b3768a283a63ef905dcb05147a3fa",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "../contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true
+  },
+  "dimensions": [
+    {
+      "name": "responsibility-ownership",
+      "disposition": "pass",
+      "evidence": "The typed adapter validates collection identity, exact repeats, cleanup closure, state/RNG restoration and request-bound calibration provenance; the future gateway remains the sole simulator/reset/materialization owner."
+    },
+    {
+      "name": "public-interface",
+      "disposition": "pass",
+      "evidence": "CleanCalibrationCollectionIdentity, CleanCalibrationCollectionRequest, ReadOnlyCleanWindow, ReadOnlyCleanCollection and ReadOnlyCleanCollectionReceipt expose a consumer-shaped typed boundary with no generic callback, runner object or open dictionary payload."
+    },
+    {
+      "name": "dependency-direction",
+      "disposition": "pass",
+      "evidence": "The adapter is pure and receives a completed gateway result; it performs no simulator, filesystem, runner, optimizer or Replay calls. The proposal-only Gain type remains isolated from the active v009 route."
+    },
+    {
+      "name": "state-lifecycle",
+      "disposition": "pass",
+      "evidence": "Complete-window and closed-repeat checks are fail-closed; training before/after and RNG restore hashes must match, and partial or identity-drifted collections cannot emit a calibration artifact."
+    },
+    {
+      "name": "change-surface",
+      "disposition": "pass",
+      "evidence": "The change is confined to the proposal calibration owner, its focused pseudo test, S7 plan and module manifest. No active Gain or TRAIN-v025 caller imports the adapter."
+    },
+    {
+      "name": "evidence-boundary",
+      "disposition": "pass",
+      "evidence": "Focused pseudo-gateway tests and the module manifest prove only deterministic adapter semantics. The receipt explicitly remains ALTERNATE-PATH/READ-ONLY-COLLECTION-ADAPTER and does not claim official runtime connectivity."
+    },
+    {
+      "name": "tensor-provenance",
+      "disposition": "pass",
+      "evidence": "This boundary uses validated scalar window records; field schema, units, Scenario/Segment/cache/Clean/GMT identities, K, timestep, repeat seed hashes and applicability are explicit."
+    },
+    {
+      "name": "gradient-update-boundary",
+      "disposition": "not-applicable",
+      "evidence": "The pure calibration adapter constructs no objective, gradient, optimizer update or training target."
+    },
+    {
+      "name": "persistence-evaluation",
+      "disposition": "not-applicable",
+      "evidence": "No serializer, checkpoint path or official evaluation route is in scope; S7 stops before the formal-runtime gateway. Future persistence must recompute collection hashes at its consumer boundary."
+    }
+  ],
+  "findings": [],
+  "residual_risks": [
+    "No official composition-root gateway or real repeated-Clean telemetry exists; this receipt does not authorize simulator, server or training execution.",
+    "Receipt collection_hash recomputation and serialization/resume compatibility remain future formal/persistence work.",
+    "The gateway must implement the documented distinction between per-repeat repeat_seed_hash and restored rng_restore_hash before live admission."
+  ],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "dependency-receipt",
+    "module_correctness": "dependency-receipt",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": [
+    {
+      "kind": "module-alignment-test",
+      "status": "MODULE-CORRECT",
+      "schema_version": "module-alignment-test/control-board-v1",
+      "manifest_path": "../../testing/manifests/frontres_clean_repeated_collection_adapter_module_alignment_v001.json",
+      "manifest_hash": "sha256:3a14949a8a385c598a24b7a50e262d8b00969c228d7d4d7a07843003859b25ee",
+      "current": true,
+      "identities": {
+        "project": "FEMR/FrontRES",
+        "design": "FRS-DP-07R/FRS-GAIN-v010-threshold-calibration-proposal-20260821",
+        "contract": "FRS-GAIN-v009-active; FRS-GAIN-v010-proposal-only",
+        "checkout": "cd49f1c113beede16fb0992c1ceb83ea0fc55019+dirty"
+      },
+      "validation": {
+        "command": "PYTHONPATH=source/rsl_rl python source/rsl_rl/rsl_rl/tests/frontres_clean_repeated_collection_adapter_alignment.py",
+        "exit_code": 0,
+        "current": true,
+        "identity": "frontres_clean_repeated_collection_adapter_alignment: MODULE-CORRECT"
+      }
+    }
+  ]
+}

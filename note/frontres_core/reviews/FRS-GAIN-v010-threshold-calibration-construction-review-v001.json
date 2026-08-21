@@ -1,0 +1,127 @@
+{
+  "schema_version": "code-review-expert/v1",
+  "review_id": "CRE-FRS-GAIN-v010-THRESHOLD-CALIBRATION-CONSTRUCTION-v001",
+  "mode": "construction",
+  "profiles": ["standard", "module-boundary", "repository-discipline", "research-ml"],
+  "verdict": "CONSTRUCTION_PASS",
+  "scope": {
+    "requested": ["review the repeated-Clean calibration producer and consumer schema change"],
+    "preserved": ["active FRS-GAIN-v009", "stateless offline proposal boundary", "fail-closed artifact identity"],
+    "forbidden": ["simulator integration", "active Gain integration", "training", "policy-quality claims"]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-DP-07R/FRS-GAIN-v010-threshold-calibration-proposal-20260821",
+    "contract": "FRS-GAIN-v009-active; FRS-GAIN-v010-proposal-only",
+    "checkout": "cd49f1c113beede16fb0992c1ceb83ea0fc55019+dirty",
+    "review_object": "frontres_clean_relative_calibration.py@sha256:204307489750a7c7034f842878c4478befe80849c6785f0375b105f1132f1590"
+  },
+  "authority": {
+    "review": {"status": "read-only", "scope": "current bounded construction diff"},
+    "source_edits": {
+      "status": "approved",
+      "scope": "offline calibration owner and focused tests only",
+      "receipt": "current user instruction to execute the repeated-Clean artifact chain"
+    },
+    "report_write": {
+      "status": "approved",
+      "scope": "construction review receipt",
+      "receipt": "code-construction R1 closeout requirement"
+    }
+  },
+  "review_object": {
+    "kind": "diff",
+    "path": "../../../source/rsl_rl/rsl_rl/frontres/frontres_clean_relative_calibration.py",
+    "content_hash": "sha256:204307489750a7c7034f842878c4478befe80849c6785f0375b105f1132f1590",
+    "current": true
+  },
+  "repository_discipline": {
+    "status": "active",
+    "path": "../contracts/active/engineering/FRS-ENG-v001-interface-oriented-change-discipline.md",
+    "content_hash": "sha256:37ea785e6da80b13dcfc8d8d422ed0b2f51ed825963f4a46d5d32dafc593a6b3",
+    "current": true
+  },
+  "dimensions": [
+    {
+      "name": "responsibility-ownership",
+      "disposition": "pass",
+      "evidence": "The existing clean-relative owner exclusively validates observations, computes within-Scenario pair differences, constructs provenance, and validates the immutable artifact."
+    },
+    {
+      "name": "public-interface",
+      "disposition": "pass",
+      "evidence": "Typed frozen CleanCalibrationObservation and CleanCalibration records expose units, identity, sample counts, source hash, resolutions and fail-closed validation; callers do not pass simulator objects or open dict payloads."
+    },
+    {
+      "name": "dependency-direction",
+      "disposition": "pass",
+      "evidence": "The deterministic domain owner depends only on standard-library scalar/identity primitives and the candidate Outcome type; no runner, simulator, replay, optimizer or filesystem dependency was added."
+    },
+    {
+      "name": "state-lifecycle",
+      "disposition": "pass",
+      "evidence": "Producer and consumer are stateless; the frozen artifact validates source and content hashes before consumption and no partial mutation can escape."
+    },
+    {
+      "name": "change-surface",
+      "disposition": "pass",
+      "evidence": "The Effect Sketch ends at the proposal-only calibration owner and two focused tests. Active v009 and training callers do not import this module."
+    },
+    {
+      "name": "evidence-boundary",
+      "disposition": "pass",
+      "evidence": "Focused S1 producer/consumer tests and the module-alignment manifest prove offline semantics only; real telemetry, formal connectivity and policy quality remain explicitly unclaimed."
+    },
+    {
+      "name": "tensor-provenance",
+      "disposition": "pass",
+      "evidence": "Although the boundary uses scalar records rather than tensors, field order, physical units, Scenario/repeat identity, ZMP applicability, finiteness and row permutation are explicit and tested."
+    },
+    {
+      "name": "gradient-update-boundary",
+      "disposition": "not-applicable",
+      "evidence": "This proposal-only deterministic calibration module does not construct a loss, gradient or optimizer update and is not connected to training."
+    },
+    {
+      "name": "persistence-evaluation",
+      "disposition": "not-applicable",
+      "evidence": "No checkpoint/evaluation integration is authorized; the artifact content/source hashes prepare that future boundary but do not prove serialization or official-route consumption."
+    }
+  ],
+  "findings": [],
+  "residual_risks": [
+    "No real repeated-Clean artifact exists; numerical representativeness remains outside this construction review.",
+    "No official collection, serialization, checkpoint or training route consumes FRS-GAIN-v010."
+  ],
+  "blockers": [],
+  "claims": {
+    "maintainability": "reviewed",
+    "semantic_correctness": "dependency-receipt",
+    "module_correctness": "dependency-receipt",
+    "runtime_root_cause": "not-claimed",
+    "formal_route": "not-claimed",
+    "policy_quality": "not-claimed"
+  },
+  "dependencies": [
+    {
+      "kind": "module-alignment-test",
+      "status": "MODULE-CORRECT",
+      "schema_version": "module-alignment-test/control-board-v1",
+      "manifest_path": "note/testing/manifests/frontres_gain_threshold_calibration_module_alignment_v001.json",
+      "manifest_hash": "sha256:0e5560dcae8daf6c3d504401f8ff5a6860e9918b527ec1b3ff3f0295f6f42ebd",
+      "current": true,
+      "identities": {
+        "project": "FEMR/FrontRES",
+        "design": "FRS-DP-07R/FRS-GAIN-v010-threshold-calibration-proposal-20260821",
+        "contract": "FRS-GAIN-v009-active; FRS-GAIN-v010-proposal-only",
+        "checkout": "cd49f1c113beede16fb0992c1ceb83ea0fc55019+dirty"
+      },
+      "validation": {
+        "command": "python module-alignment-test/scripts/validate_module_test_manifest.py ... --expect-design ... --expect-checkout ...",
+        "exit_code": 0,
+        "current": true,
+        "identity": "ADMITTED-OFFLINE"
+      }
+    }
+  ]
+}

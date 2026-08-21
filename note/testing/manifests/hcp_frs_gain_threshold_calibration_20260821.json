@@ -1,0 +1,118 @@
+{
+  "schema_version": "human-control-protocol/v1",
+  "control_id": "HCP-FRS-GAIN-THRESHOLD-CALIBRATION-20260821",
+  "mode": "bounded-execution",
+  "state": "COMPLETE",
+  "objective": "Update the Design Inspector and engineering plan for independent physical-threshold, measurement-noise, applicability and held-out calibration without changing active Gain or starting runtime work.",
+  "scope": {
+    "requested": [
+      "Design Inspector calibration-loop projection",
+      "FRS-GAIN-v010 threshold-calibration engineering plan",
+      "read-only structural validation"
+    ],
+    "preserved": [
+      "active FRS-GAIN-v009 hierarchy",
+      "same-level Pareto and INCOMPARABLE",
+      "INVALID fail-closed behavior",
+      "user ownership of simulator, training and live execution"
+    ],
+    "forbidden": [
+      "active Gain integration",
+      "Loss/PPO/Actor/Critic/Replay changes",
+      "simulator or training execution",
+      "new data collection",
+      "git staging, commit, reset or push"
+    ]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-DP-07R / FRS-GAIN-v010 proposal",
+    "contract": "FRS-GAIN-v009 active-pre-training",
+    "checkout": "/Users/chengyuxuan/ArtiIntComVis/FEMR dirty-worktree",
+    "task": "threshold and noise-tolerance calibration planning"
+  },
+  "authority": {
+    "source": "user request to update Design Inspector and engineering plan",
+    "current": true,
+    "receipt": "user-authorized documentation update only",
+    "auto_actions": ["read", "explain", "test"],
+    "confirmation_actions": ["edit"],
+    "forbidden_actions": ["checkpoint-io", "simulator", "training", "deployment", "external-operation"],
+    "live": {"status": "not-authorized", "scope": "no simulator, training or deployment"}
+  },
+  "cost_control": {
+    "class": "offline-bounded",
+    "estimate": "small documentation update and structural checks",
+    "update_cadence_seconds": 60,
+    "max_expensive_attempts": 1,
+    "stop_conditions": [
+      "active-route semantics would need to change",
+      "Design Inspector validator fails",
+      "scope expands to simulator, training or collection"
+    ]
+  },
+  "cursor": {
+    "status": "confirmed",
+    "source_kind": "active-plan",
+    "source": "note/frontres_core/plans/FRS-GAIN-v010-threshold-calibration-engineering-plan.md",
+    "current": true,
+    "current_gate": "documentation and structural validation",
+    "next_gate": "measurement-plan review and repeated-baseline artifact preparation",
+    "total_gates": 2
+  },
+  "evidence": [
+    {
+      "claim": "Design Inspector contains the calibration-loop projection and remains structurally valid.",
+      "class": "code-confirmed",
+      "source_kind": "source",
+      "locator": "note/architecture/auxiliary/atlas_app/check_design_inspector.mjs",
+      "identity": "design_inspector current checkout",
+      "current": true,
+      "proves": "design_inspector OK design_points=12 steps=13",
+      "does_not_prove": "thresholds or runtime physics are correct"
+    },
+    {
+      "claim": "The engineering plan forbids active-route changes and defines S0-S6 calibration gates.",
+      "class": "note-confirmed",
+      "source_kind": "note",
+      "locator": "note/frontres_core/plans/FRS-GAIN-v010-threshold-calibration-engineering-plan.md",
+      "identity": "FRS-GAIN-v010 proposal",
+      "current": true,
+      "proves": "planned measurement, validation and stop boundaries",
+      "does_not_prove": "a repeated-Clean artifact exists"
+    }
+  ],
+  "contradictions": [],
+  "attempts": [
+    {
+      "attempt_id": "A1",
+      "action_signature": "edit-atlas-plan-and-run-structural-check",
+      "result": "succeeded",
+      "failure_class": "none",
+      "expensive": false,
+      "new_evidence": ["JSON parse, git diff check and Design Inspector validator passed"]
+    }
+  ],
+  "dependencies": [],
+  "blockers": ["No repeated-Clean calibration artifact or full raw physical telemetry exists yet."],
+  "next_step": {
+    "admission": "USER_CONFIRMATION_REQUIRED",
+    "action_class": "edit",
+    "action_signature": "prepare-repeated-baseline-artifact-schema",
+    "description": "Review the measurement card; only then prepare the repeated-baseline artifact schema.",
+    "required_evidence": ["confirmed field semantics", "units and time windows", "independent event-label owner"],
+    "stop_condition": "do not collect or start training from this plan",
+    "options": []
+  },
+  "completion": {
+    "chain_mapped": true,
+    "evidence_classes": ["code-confirmed", "note-confirmed"],
+    "unconfirmed_boundaries": [
+      "noise tolerances are not measured",
+      "physical threshold intervals are not calibrated",
+      "active Gain route is unchanged"
+    ],
+    "next_decision": "User decides whether to authorize measurement artifact preparation.",
+    "preserved_scope": "documentation and offline planning only"
+  }
+}

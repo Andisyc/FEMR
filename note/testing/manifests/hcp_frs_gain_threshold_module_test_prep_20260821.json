@@ -1,0 +1,118 @@
+{
+  "schema_version": "human-control-protocol/v1",
+  "control_id": "HCP-FRS-GAIN-THRESHOLD-MODULE-TEST-PREP-20260821",
+  "mode": "bounded-execution",
+  "state": "COMPLETE",
+  "objective": "Prepare the v010 threshold-calibration semantic pseudo-sample entry and stop immediately before executing the module test.",
+  "scope": {
+    "requested": [
+      "reuse the confirmed reward-ordering card",
+      "prepare semantic pseudo-samples and independent oracle",
+      "prepare the production public-boundary test entry"
+    ],
+    "preserved": [
+      "active FRS-GAIN-v009",
+      "Clean as reference rather than safety oracle",
+      "fail-closed INVALID and partial-order relations"
+    ],
+    "forbidden": [
+      "execute the semantic test in this control unit",
+      "simulator or training execution",
+      "real telemetry collection",
+      "active Gain integration",
+      "git staging, commit, reset or push"
+    ]
+  },
+  "identities": {
+    "project": "FEMR/FrontRES",
+    "design": "FRS-DP-07R / FRS-GAIN-v010 threshold calibration proposal",
+    "contract": "FRS-GAIN-v009 active-pre-training",
+    "checkout": "/Users/chengyuxuan/ArtiIntComVis/FEMR dirty-worktree",
+    "task": "pre-launch Module Alignment Test preparation"
+  },
+  "authority": {
+    "source": "user request to execute once to the test-start boundary",
+    "current": true,
+    "receipt": "user-authorized bounded offline preparation",
+    "auto_actions": ["read", "explain", "edit"],
+    "confirmation_actions": ["test"],
+    "forbidden_actions": ["checkpoint-io", "simulator", "training", "deployment", "external-operation"],
+    "live": {"status": "not-authorized", "scope": "no simulator, training or server operations"}
+  },
+  "cost_control": {
+    "class": "offline-bounded",
+    "estimate": "seconds; semantic test itself is intentionally not started",
+    "update_cadence_seconds": 60,
+    "max_expensive_attempts": 0,
+    "stop_conditions": [
+      "the test would require missing raw telemetry",
+      "the production public boundary differs from the Test Card",
+      "scope expands beyond test preparation"
+    ]
+  },
+  "cursor": {
+    "status": "confirmed",
+    "source_kind": "active-plan",
+    "source": "note/frontres_core/plans/FRS-GAIN-v010-threshold-calibration-engineering-plan.md",
+    "current": true,
+    "current_gate": "pre-launch test preparation",
+    "next_gate": "execute semantic pseudo-samples",
+    "total_gates": 2
+  },
+  "evidence": [
+    {
+      "claim": "The test entry invokes the existing Clean-relative public consumer and contains independent repeated-baseline/oracle fixtures.",
+      "class": "code-confirmed",
+      "source_kind": "source",
+      "locator": "source/rsl_rl/rsl_rl/tests/frontres_gain_threshold_calibration_alignment.py",
+      "identity": "current dirty checkout",
+      "current": true,
+      "proves": "test code is prepared for the production public boundary",
+      "does_not_prove": "semantic output has been executed or passed"
+    },
+    {
+      "claim": "The confirmed ordering card forbids a second scoring formula and requires fail-closed missing/invalid evidence.",
+      "class": "contract-confirmed",
+      "source_kind": "contract",
+      "locator": "note/testing/manifests/frontres_pr_behavioral_ordering_v1.json",
+      "identity": "frontres-pr-behavioral-ordering-v1",
+      "current": true,
+      "proves": "independent behavioral oracle identity",
+      "does_not_prove": "current candidate implementation correctness"
+    }
+  ],
+  "contradictions": [],
+  "attempts": [
+    {
+      "attempt_id": "A1",
+      "action_signature": "prepare-threshold-calibration-test-entry",
+      "result": "succeeded",
+      "failure_class": "none",
+      "expensive": false,
+      "new_evidence": ["test source added", "engineering plan points to entry", "py_compile is the only static check"]
+    }
+  ],
+  "dependencies": [],
+  "blockers": ["No public producer converts raw repeated telemetry into a real calibration artifact."],
+  "next_step": {
+    "admission": "USER_CONFIRMATION_REQUIRED",
+    "action_class": "test",
+    "action_signature": "run-threshold-calibration-semantic-pseudosamples",
+    "description": "Run the prepared semantic pseudo-sample entry and record the first observed mismatch.",
+    "required_evidence": ["production public boundary remains unchanged", "pseudo-sample result and sensitivity output"],
+    "stop_condition": "stop if the consumer passes but raw-artifact producer evidence remains absent",
+    "options": []
+  },
+  "completion": {
+    "chain_mapped": true,
+    "evidence_classes": ["code-confirmed", "contract-confirmed"],
+    "unconfirmed_boundaries": [
+      "semantic pseudo-sample result",
+      "real repeated-Clean artifact producer",
+      "held-out perturbation monotonicity",
+      "active-route integration"
+    ],
+    "next_decision": "User decides whether to start the prepared offline semantic test.",
+    "preserved_scope": "test preparation only; no test execution"
+  }
+}

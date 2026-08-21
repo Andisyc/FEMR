@@ -103,7 +103,11 @@ class FrontRESStage3TransactionAggregate(Mapping[str, Any]):
         }
         if not training_collection and not readonly_collection:
             raise RuntimeError("FrontRES collection context requires active collection")
-        allowed_routes = {"sentinel", "training"} if training_collection else {"policy_quality"}
+        allowed_routes = (
+            {"sentinel", "training"}
+            if training_collection
+            else {"policy_quality", "clean_calibration"}
+        )
         if route not in allowed_routes or sample is None or batch is None:
             raise ValueError("FrontRES collection context requires one explicit route, sample, and batch")
         if self._batch is not None:
